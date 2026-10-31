@@ -291,6 +291,7 @@ jobs:
   mobile-e2e-scope:
     name: Android E2E path scope (opt-in)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [isolation-guard, protected-paths]
     if: >-
       github.event_name == 'pull_request' &&
