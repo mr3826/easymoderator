@@ -68,7 +68,7 @@ jobs:
   verify:
     name: Growth OS build gate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     # Ceiling-allowed but narrowed to read: this job runs PR-controlled code,
     # so the caller's package-write ceiling must not reach its GITHUB_TOKEN.
     # Job-scoped permissions in reusable workflows may restrict but never
@@ -119,7 +119,7 @@ jobs:
   browser-e2e:
     name: Growth OS browser E2E gate
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     needs: verify
     # Same narrowing rationale as `verify`: this job runs PR-controlled code.
     permissions:
@@ -184,7 +184,7 @@ jobs:
   image-smoke:
     name: Growth OS built-image smoke gate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     needs: verify
     permissions:
       contents: read
@@ -213,7 +213,7 @@ jobs:
   build-and-push:
     name: Build and publish Growth OS image
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     needs: [verify, browser-e2e, image-smoke]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     steps:

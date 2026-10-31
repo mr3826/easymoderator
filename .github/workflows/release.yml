@@ -85,6 +85,9 @@ permissions:
 jobs:
   release:
     name: Release engine
+    # Ceiling for the whole reusable call; inner jobs carry their own tighter
+    # limits (build 35 + deploy 45 sequential + margin).
+    timeout-minutes: 90
     uses: ./.github/workflows/ci-cd.yml
     with:
       target: ${{ inputs.target }}

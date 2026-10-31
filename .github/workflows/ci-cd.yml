@@ -250,7 +250,7 @@ jobs:
   test:
     name: Quality fast (affected backend/frontend)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
     permissions:
@@ -315,7 +315,7 @@ jobs:
   frontend-e2e:
     name: EasyModerator frontend Playwright (mock-only)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true'
     permissions:
@@ -380,7 +380,7 @@ jobs:
   meta-e2e:
     name: Meta-shaped E2E (AI trust boundary)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 15
     needs: [changes]
     # Same condition as `test` so the deploy graph stays simple; the heavy steps
     # below are skipped when only the frontend changed.
@@ -442,7 +442,7 @@ jobs:
   deployment-config:
     name: Deployment configuration dry run
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     needs: [changes, test, meta-e2e]
     if: |
       always() &&
@@ -706,7 +706,7 @@ jobs:
   docker-build-validation:
     name: Docker build validation (no push)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     needs: [changes, test, meta-e2e, deployment-config]
     # Feature branches and pull requests get a non-publishing Docker build.
     # The main-branch production path builds and pushes each image exactly once
@@ -768,7 +768,7 @@ jobs:
   integration:
     name: Backend integration (PostgreSQL + Redis)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
     permissions:
@@ -862,7 +862,7 @@ jobs:
   build:
     name: Build & publish immutable images
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 35
     permissions:
       contents: read
       packages: write
@@ -962,7 +962,7 @@ jobs:
   deploy:
     name: Production deploy + verification
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 45
     needs: [changes, build, frontend-e2e]
     # A new monorepo must not switch the live droplet merely because its
     # default branch was populated. Enable this repository variable only after

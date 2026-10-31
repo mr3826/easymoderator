@@ -69,7 +69,7 @@ export default function PrivacyPolicy() {
                 may process {APP_NAME} subscription invoices and conversation top-ups when the platform flag and
                 required credentials are set. If used, payer and invoice details are sent to bKash. This is not a
                 per-shop gateway for customer orders. Per-shop settings support cash-on-delivery and self-MFS
-                transfer instructions. Direct bKash or Nagad transfers are verified by the merchant; {APP_NAME}
+                transfer instructions. Direct bKash or Nagad transfers are verified by the merchant; {APP_NAME}{' '}
                 may store submitted references and payment evidence for review.
               </li>
               <li>
@@ -225,7 +225,7 @@ export default function PrivacyPolicy() {
             <h3 className="text-base font-semibold text-gray-800 mt-5 mb-2">Meta Platform (Messenger)</h3>
             <p className="mb-2 text-sm leading-relaxed">
               {APP_NAME} connects exclusively to Facebook Messenger via the
-              Meta Graph API. Message content is used solely to deliver and display conversations within your
+              Meta Graph API. Message content is used solely to deliver and display conversations within your{' '}
               {APP_NAME} inbox. We comply with Meta's 24-hour messaging window, rate limits, and messaging
               policy requirements.
             </p>
