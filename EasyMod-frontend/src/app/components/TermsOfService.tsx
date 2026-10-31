@@ -62,7 +62,7 @@ export default function TermsOfService() {
                 AI-assisted replies, order capture, courier booking, and merchant analytics.
               </li>
               <li>
-                <strong>Payments:</strong> Optional platform-level bKash processing may be used for {APP_NAME}
+                <strong>Payments:</strong> Optional platform-level bKash processing may be used for {APP_NAME}{' '}
                 subscription invoices and conversation top-ups when the platform flag and required credentials
                 are set. It is not a per-shop gateway for customer orders. Per-shop payment settings support
                 cash-on-delivery and self-MFS transfer instructions. Direct bKash or Nagad transfers are
@@ -263,7 +263,7 @@ export default function TermsOfService() {
               trademark, and other intellectual property laws.
             </p>
             <p className="mb-3 leading-relaxed">
-              We grant you a limited, non-exclusive, non-transferable, revocable licence to access and use
+              We grant you a limited, non-exclusive, non-transferable, revocable licence to access and use{' '}
               {APP_NAME} solely for your internal business operations during the term of your subscription.
             </p>
             <p className="leading-relaxed">
