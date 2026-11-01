@@ -29,7 +29,7 @@ module.exports = {
                 currency VARCHAR(3) NOT NULL,
                 importer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
                 source VARCHAR(32) NOT NULL CHECK (source = 'manual_csv_upload'),
-                content_hash CHAR(64) NOT NULL,
+                content_hash VARCHAR(64) NOT NULL,
                 columns_present JSONB NOT NULL DEFAULT '[]',
                 columns_missing JSONB NOT NULL DEFAULT '[]',
                 unsupported_columns JSONB NOT NULL DEFAULT '[]',
@@ -87,7 +87,7 @@ module.exports = {
                 shop_id UUID NOT NULL,
                 report_id UUID NOT NULL,
                 campaign_metric_id UUID NOT NULL,
-                recommendation_id CHAR(64) NOT NULL,
+                recommendation_id VARCHAR(64) NOT NULL,
                 recommendation_code VARCHAR(48) NOT NULL CHECK (
                     recommendation_code IN ('SPEND_WITHOUT_LINK_CLICKS', 'LINK_CLICK_FOLLOWUP')
                 ),
