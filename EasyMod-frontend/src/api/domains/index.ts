@@ -20,3 +20,7 @@ export * as notification from './notification';
 export * as customerIntelligence from './customer-intelligence';
 export * as orderConfidence from './order-confidence';
 export * as inbox from './inbox';
+export * as addons from './addons';
+export * as adsStudio from './adsStudio';
+export * as storefront from './storefront';
+export * as publicAddons from './publicAddons';

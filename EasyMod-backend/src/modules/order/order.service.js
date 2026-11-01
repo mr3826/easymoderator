@@ -1,4 +1,4 @@
-const { Order, OrderItem, Product, Customer, UserShop, OrderReturn, CourierDispatch, AuditLog } = require('../entities');
+const { Order, OrderItem, Product, ProductVariant, Customer, UserShop, OrderReturn, CourierDispatch, AuditLog } = require('../entities');
 const courierDispatchClaims = require('../delivery/courier-dispatch-claim.service');
 const { AppError, sanitizeErrorMessage } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
@@ -143,7 +143,12 @@ const runRtoShieldCheck = async (customerPhone, shopId) => {
 /**
  * Validate order items and calculate totals
  */
-const validateItemsAndCalculateTotals = async (items, shopId, transaction) => {
+const validateItemsAndCalculateTotals = async (
+    items,
+    shopId,
+    transaction,
+    { requireVariantSelection = false, requireActiveProducts = false, allowBackorder = true } = {},
+) => {
     const itemIds = [...new Set(items.map((item) => item.product_id))].sort();
     const productQuery = {
         where: { id: { [Op.in]: itemIds }, shop_id: shopId },
@@ -153,12 +158,32 @@ const validateItemsAndCalculateTotals = async (items, shopId, transaction) => {
     if (transaction?.LOCK?.UPDATE) productQuery.lock = transaction.LOCK.UPDATE;
     const products = await Product.findAll(productQuery);
     const productMap = new Map(products.map((p) => [p.id, p]));
-    const requestedQuantityByProduct = new Map();
+    const shouldLoadVariants = requireVariantSelection || items.some((item) => item.variant_id);
+    let activeVariantsById = new Map();
+    const activeVariantsByProduct = new Map();
+    if (shouldLoadVariants) {
+        if (typeof ProductVariant?.findAll !== 'function') {
+            throw new AppError('Product variants are unavailable', 503, 'VARIANT_CATALOG_UNAVAILABLE');
+        }
+        const variantQuery = {
+            where: { product_id: { [Op.in]: itemIds }, is_active: true },
+            order: [['product_id', 'ASC'], ['id', 'ASC']],
+            transaction,
+        };
+        if (transaction?.LOCK?.UPDATE) variantQuery.lock = transaction.LOCK.UPDATE;
+        const variants = await ProductVariant.findAll(variantQuery);
+        activeVariantsById = new Map(variants.map((variant) => [variant.id, variant]));
+        for (const variant of variants) {
+            if (!activeVariantsByProduct.has(variant.product_id)) activeVariantsByProduct.set(variant.product_id, []);
+            activeVariantsByProduct.get(variant.product_id).push(variant);
+        }
+    }
+
+    const requestedQuantityByInventoryItem = new Map();
     for (const item of items) {
-        requestedQuantityByProduct.set(
-            item.product_id,
-            (requestedQuantityByProduct.get(item.product_id) || 0) + Number(item.quantity),
-        );
+        const inventoryId = item.variant_id || item.product_id;
+        requestedQuantityByInventoryItem.set(inventoryId,
+            (requestedQuantityByInventoryItem.get(inventoryId) || 0) + Number(item.quantity));
     }
 
     let subtotal = 0;
@@ -169,26 +194,55 @@ const validateItemsAndCalculateTotals = async (items, shopId, transaction) => {
         if (!product) {
             throw new AppError(`Product not found: ${item.product_id}`, 404);
         }
-
-        // Verify stock if tracking enabled
-        const insufficientStock = product.track_quantity &&
-                                 !product.allow_backorder &&
-                                 product.quantity < requestedQuantityByProduct.get(item.product_id);
-        if (insufficientStock) {
-            throw new AppError(`Insufficient stock for product: ${product.name}`, 400);
+        if (!Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1) {
+            throw new AppError('Item quantity must be a positive integer', 400, 'INVALID_ORDER_QUANTITY');
+        }
+        if (requireActiveProducts && (product.is_active === false || product.in_stock === false)) {
+            throw new AppError(`Product is not available: ${product.name}`, 409, 'PRODUCT_UNAVAILABLE');
         }
 
-        // Use server-side catalog price to prevent client-side price tampering
-        const unitPrice = parseFloat(product.price);
+        const activeVariants = activeVariantsByProduct.get(product.id) || [];
+        let variant = null;
+        if (item.variant_id) {
+            variant = activeVariantsById.get(item.variant_id);
+            if (!variant || variant.product_id !== product.id) {
+                throw new AppError('Selected product variant is not available', 400, 'INVALID_PRODUCT_VARIANT');
+            }
+        } else if (requireVariantSelection && activeVariants.length > 0) {
+            throw new AppError('Select a product variant before checkout', 400, 'PRODUCT_VARIANT_REQUIRED');
+        }
+        if (requireVariantSelection && activeVariants.length === 0 && item.variant_id) {
+            throw new AppError('Selected product variant is not available', 400, 'INVALID_PRODUCT_VARIANT');
+        }
+
+        const inventoryItem = variant || product;
+        const inventoryId = variant?.id || product.id;
+        const requiresStockCheck = product.track_quantity && (!allowBackorder || !product.allow_backorder);
+        const availableQuantity = Number(inventoryItem.quantity);
+        const insufficientStock = requiresStockCheck && (
+            !Number.isInteger(availableQuantity)
+            || availableQuantity < requestedQuantityByInventoryItem.get(inventoryId)
+        );
+        if (insufficientStock) {
+            throw new AppError(`Insufficient stock for product: ${product.name}`, 409, 'INSUFFICIENT_STOCK');
+        }
+
+        // Use current server-side variant or product pricing; request prices are ignored.
+        const unitPrice = Number(variant?.price ?? product.price);
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+            throw new AppError(`Catalog price is invalid for product: ${product.name}`, 409, 'CATALOG_PRICE_INVALID');
+        }
         const itemTotal = unitPrice * item.quantity;
         subtotal += itemTotal;
 
         validItems.push({
             product_id: product.id,
+            variant_id: variant?.id || null,
             quantity: item.quantity,
             price: unitPrice,
             total: itemTotal,
-            productInstance: product
+            productInstance: product,
+            variantInstance: variant,
         });
     }
 
@@ -228,6 +282,7 @@ const createOrderItemsAndDeductStock = async (orderId, validItems, shopId, trans
         await OrderItem.create({
             order_id: orderId,
             product_id: item.product_id,
+            variant_id: item.variant_id,
             quantity: item.quantity,
             price: item.price,
             total: item.total
@@ -235,7 +290,8 @@ const createOrderItemsAndDeductStock = async (orderId, validItems, shopId, trans
 
         // Atomic stock deduction
         if (item.productInstance.track_quantity) {
-            await item.productInstance.decrement('quantity', {
+            const inventoryInstance = item.variantInstance || item.productInstance;
+            await inventoryInstance.decrement('quantity', {
                 by: item.quantity,
                 transaction
             });
@@ -306,13 +362,21 @@ const trackOrderUsage = async (order, shopId, requestId, logger) => {
 const restoreOrderInventory = async (orderId, shopId, transaction) => {
     const items = await OrderItem.findAll({ where: { order_id: orderId }, transaction });
     const quantityByProduct = new Map();
+    const quantityByVariant = new Map();
     for (const item of items) {
         const quantity = Number(item.quantity);
         if (!item.product_id || !Number.isFinite(quantity) || quantity <= 0) continue;
-        quantityByProduct.set(item.product_id, (quantityByProduct.get(item.product_id) || 0) + quantity);
+        if (item.variant_id) {
+            quantityByVariant.set(item.variant_id, (quantityByVariant.get(item.variant_id) || 0) + quantity);
+        } else {
+            quantityByProduct.set(item.product_id, (quantityByProduct.get(item.product_id) || 0) + quantity);
+        }
     }
 
-    const productIds = [...quantityByProduct.keys()].sort();
+    const productIds = [...new Set([
+        ...quantityByProduct.keys(),
+        ...items.filter((item) => item.variant_id).map((item) => item.product_id),
+    ])].sort();
     if (productIds.length === 0) return;
     const productQuery = {
         where: { id: { [Op.in]: productIds }, shop_id: shopId },
@@ -323,11 +387,30 @@ const restoreOrderInventory = async (orderId, shopId, transaction) => {
     const products = await Product.findAll(productQuery);
     const productsById = new Map(products.map((product) => [product.id, product]));
 
+    if (quantityByVariant.size > 0) {
+        const variantQuery = {
+            where: { id: { [Op.in]: [...quantityByVariant.keys()].sort() } },
+            order: [['id', 'ASC']],
+            transaction,
+        };
+        if (transaction?.LOCK?.UPDATE) variantQuery.lock = transaction.LOCK.UPDATE;
+        const variants = await ProductVariant.findAll(variantQuery);
+        const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
+        for (const [variantId, quantity] of quantityByVariant) {
+            const variant = variantsById.get(variantId);
+            const product = variant && productsById.get(variant.product_id);
+            if (!product?.track_quantity) continue;
+            await variant.increment('quantity', { by: quantity, transaction });
+            invalidateStockWithRetry(shopId, product.id);
+        }
+    }
+
     for (const productId of productIds) {
         const product = productsById.get(productId);
-        if (!product?.track_quantity) continue;
+        const quantity = quantityByProduct.get(productId) || 0;
+        if (!product?.track_quantity || quantity <= 0) continue;
         await product.increment('quantity', {
-            by: quantityByProduct.get(productId),
+            by: quantity,
             transaction,
         });
         invalidateStockWithRetry(shopId, productId);
@@ -345,16 +428,64 @@ const acquireOrderIdempotencyLock = async (shopId, requestId, transaction) => {
     );
 };
 
+const acquireStorefrontCustomerLock = async (shopId, phone, transaction) => {
+    if (!phone || sequelize.getDialect() !== 'postgres') return;
+    await sequelize.query(
+        'SELECT pg_advisory_xact_lock(hashtext(:key))',
+        { replacements: { key: `storefront-customer:${shopId}:${phone}` }, transaction },
+    );
+};
+
+const returnIdempotentReplay = (order, payloadHash) => {
+    if (!payloadHash) return order;
+    let metadata = order?.metadata || {};
+    if (typeof metadata === 'string') {
+        try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
+    }
+    if (metadata?.storefront?.idempotency_payload_hash !== payloadHash) {
+        throw new AppError('Idempotency key was already used with a different checkout payload', 409, 'IDEMPOTENCY_KEY_REUSED');
+    }
+    return order;
+};
+
+const findOrCreateStorefrontCustomer = async (shopId, orderData, transaction) => {
+    await acquireStorefrontCustomerLock(shopId, orderData.customer_phone, transaction);
+    const query = {
+        where: { shop_id: shopId, phone: orderData.customer_phone },
+        transaction,
+    };
+    if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+    const existing = await Customer.findOne(query);
+    if (existing) return existing;
+    return Customer.create({
+        shop_id: shopId,
+        name: orderData.customer_name,
+        phone: orderData.customer_phone,
+        channel_type: 'webchat',
+        channel_user_id: `storefront:${orderData.customer_phone}`,
+        metadata: { source: 'storefront' },
+    }, { transaction });
+};
+
 /**
  * Core order creation logic — shared by createOrder (user-auth) and createOrderInternal (chatbot/automated).
  * Refactored for clarity, testability, and maintainability.
  */
-const _createOrderCore = async (shopId, orderData, logger, requestId = null) => {
+const _createOrderCore = async (shopId, orderData, logger, requestId = null, {
+    payloadHash = null,
+    validateSelection = null,
+    createStorefrontCustomer = false,
+    strictIdempotencyRead = false,
+} = {}) => {
+    const findExistingOrder = (transaction = null) => strictIdempotencyRead
+        ? Order.findOne({ where: { shop_id: shopId, idempotency_key: requestId }, transaction })
+        : findOrderByIdempotencyKey(shopId, requestId, transaction ? { transaction } : {});
+
     // A replay must return its committed order even if the shop's current usage
     // limit or RTO policy changed after the original request.
     if (requestId) {
-        const existingOrder = await findOrderByIdempotencyKey(shopId, requestId);
-        if (existingOrder) return existingOrder;
+        const existingOrder = await findExistingOrder();
+        if (existingOrder) return returnIdempotentReplay(existingOrder, payloadHash);
     }
 
     // USAGE_LIMIT_EXCEEDED check BEFORE creating the DB transaction
@@ -380,18 +511,27 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null) => 
     try {
         if (requestId) {
             await acquireOrderIdempotencyLock(shopId, requestId, transaction);
-            const existingOrder = await findOrderByIdempotencyKey(shopId, requestId, { transaction });
+            const existingOrder = await findExistingOrder(transaction);
             if (existingOrder) {
                 await transaction.commit();
-                return existingOrder;
+                return returnIdempotentReplay(existingOrder, payloadHash);
             }
+        }
+
+        if (typeof validateSelection === 'function') {
+            await validateSelection({ transaction, items: orderData.items });
         }
 
         // 1. Validate items and calculate subtotal
         const { validItems, subtotal } = await validateItemsAndCalculateTotals(
             orderData.items,
             shopId,
-            transaction
+            transaction,
+            {
+                requireVariantSelection: createStorefrontCustomer,
+                requireActiveProducts: createStorefrontCustomer,
+                allowBackorder: !createStorefrontCustomer,
+            },
         );
 
         // 2. Calculate order totals
@@ -422,6 +562,10 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null) => 
             const productName = vi.productInstance?.name || null;
             return {
                 product_id: vi.product_id,
+                variant_id: vi.variant_id,
+                variant_name: vi.variantInstance
+                    ? `${vi.variantInstance.option_name}: ${vi.variantInstance.option_value}`
+                    : null,
                 productName,
                 product_name: productName,
                 name: productName,
@@ -442,10 +586,14 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null) => 
             }
         }
 
+        const storefrontCustomer = createStorefrontCustomer
+            ? await findOrCreateStorefrontCustomer(shopId, orderData, transaction)
+            : null;
+
         // 6. Create Order
         const order = await Order.create({
             shop_id: shopId,
-            customer_id: orderData.customer_id,
+            customer_id: storefrontCustomer?.id || orderData.customer_id,
             customer_name: orderData.customer_name,
             customer_phone: orderData.customer_phone || null,
             order_number: orderNumber,
@@ -464,7 +612,8 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null) => 
             payment_method: orderData.payment_method || null,
             payment_method_id: orderData.paymentMethodId || orderData.payment_method_id || null,
             note: orderData.note,
-            idempotency_key: requestId || null
+            idempotency_key: requestId || null,
+            ...(orderData.metadata !== undefined ? { metadata: orderData.metadata } : {}),
         }, { transaction });
 
         // 6. Create Order Items and update stock atomically
@@ -526,6 +675,10 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null) => 
         return order;
     } catch (err) {
         try { await transaction.rollback(); } catch (_) { /* already committed */ }
+        if (payloadHash && requestId && err.name === 'SequelizeUniqueConstraintError') {
+            const racedOrder = await findExistingOrder();
+            if (racedOrder) return returnIdempotentReplay(racedOrder, payloadHash);
+        }
         throw err;
     }
 };
@@ -609,6 +762,38 @@ const createOrderInternal = async (shopId, orderData, requestId = null, authoriz
         }
         throw error;
     }
+};
+
+const createStorefrontCodOrder = async (shopId, orderData, requestId, {
+    payloadHash,
+    validateSelection,
+} = {}) => {
+    if (!shopId || typeof requestId !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(requestId)) {
+        throw new AppError('A valid storefront idempotency key is required', 400, 'IDEMPOTENCY_KEY_REQUIRED');
+    }
+    if (typeof payloadHash !== 'string' || !/^[a-f0-9]{64}$/.test(payloadHash)) {
+        throw new AppError('A valid checkout payload hash is required', 400, 'CHECKOUT_HASH_REQUIRED');
+    }
+    if (typeof validateSelection !== 'function') {
+        throw new AppError('Storefront product selection validation is required', 500, 'STOREFRONT_VALIDATION_UNAVAILABLE');
+    }
+    const logger = createLogger(requestId, shopId, null);
+    return _createOrderCore(shopId, {
+        ...orderData,
+        customer_id: null,
+        channel: 'storefront',
+        order_status: 'confirmed',
+        payment_status: 'unpaid',
+        fulfillment_status: 'unfulfilled',
+        payment_method: 'COD',
+        discount: 0,
+        tax: 0,
+    }, logger, requestId, {
+        payloadHash,
+        validateSelection,
+        createStorefrontCustomer: true,
+        strictIdempotencyRead: true,
+    });
 };
 
 /**
@@ -2100,6 +2285,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
 module.exports = {
     createOrder,
     createOrderInternal,
+    createStorefrontCodOrder,
     updateOrder,
     getOrderById,
     listOrders,

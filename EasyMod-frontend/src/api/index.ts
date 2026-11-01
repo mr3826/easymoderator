@@ -162,6 +162,7 @@ export const apiClient = {
   // Subscription methods
   getSubscription: subscriptionDomain.getSubscription,
   getSubscriptionPlans: subscriptionDomain.getSubscriptionPlans,
+  getAiReplyShadowUsage: subscriptionDomain.getAiReplyShadowUsage,
   subscribeToPlan: subscriptionDomain.subscribeToPlan,
   cancelSubscription: subscriptionDomain.cancelSubscription,
   reactivateSubscription: subscriptionDomain.reactivateSubscription,

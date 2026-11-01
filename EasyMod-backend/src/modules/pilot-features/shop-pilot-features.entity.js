@@ -46,6 +46,26 @@ const ShopPilotFeatures = sequelize.define('ShopPilotFeatures', {
         allowNull: false,
         defaultValue: false,
     },
+    // Founder pilot flags are platform-controlled and remain off by default.
+    ads_studio: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+    },
+    storefront: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+    },
+    ai_reply_shadow_meter: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+    },
+    ai_reply_shadow_meter_enabled_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+    },
     updated_by: {
         type: DataTypes.UUID,
         allowNull: true,

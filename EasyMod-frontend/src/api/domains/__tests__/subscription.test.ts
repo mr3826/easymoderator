@@ -7,6 +7,37 @@ import * as subscription from '../subscription';
 import { httpClient } from '@/shared/lib/http/client';
 import { publicApiGet } from '@/shared/lib/http/public-client';
 
+const LIVE_PLANS = [
+  {
+    code: 'SHURU', name: 'Shuru', public_name: 'Get Your Moderator',
+    description: 'No monthly plan fee; the active allowance counts Messenger conversations.',
+    description_bn: 'মাসিক প্ল্যান ফি নেই; Messenger কথোপকথন গণনা হয়।', billing_model: 'flat_monthly',
+    price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: 100,
+    orders_limit: -1, products_limit: -1, can_purchase_topups: false,
+    per_order_charge_bdt: null, features: {}, topup_packs: [], partner_order_tiers: [],
+    support_reply_allowance: { amount: 300, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false },
+  },
+  {
+    code: 'GROWTH', name: 'Growth', public_name: 'Moderator Plus',
+    description: 'Monthly subscription with conversation-only top-ups.',
+    description_bn: 'মাসিক সাবস্ক্রিপশন; top-up-এ কথোপকথন যোগ হয়।', billing_model: 'flat_monthly',
+    price_bdt_monthly: 999, price_bdt_yearly: 9990, conversations_limit: 500,
+    orders_limit: -1, products_limit: -1, can_purchase_topups: true,
+    per_order_charge_bdt: null, features: {},
+    topup_packs: [{ code: 'PACK_100', conversations: 100, priceBdt: 250 }], partner_order_tiers: [],
+    support_reply_allowance: { amount: 3000, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false },
+  },
+  {
+    code: 'PARTNER', name: 'Partner', public_name: 'Partnership',
+    description: 'No upfront subscription; billed by delivered-order bands.',
+    description_bn: 'কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।', billing_model: 'per_order',
+    price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: -1,
+    orders_limit: -1, products_limit: -1, can_purchase_topups: false,
+    per_order_charge_bdt: null, features: {}, topup_packs: [],
+    partner_order_tiers: [{ minOrders: 300, maxOrders: 999, rateBdt: 15 }], support_reply_allowance: null,
+  },
+];
+
 vi.mock('@/shared/lib/http/client', () => ({
   httpClient: {
     get: vi.fn(),
@@ -44,55 +75,30 @@ describe('Subscription Domain API', () => {
 
   describe('getSubscriptionPlans', () => {
     it('should return available plans', async () => {
-      const mockResponse = {
-        success: true,
-        data: [
-          {
-            code: 'SHURU', name: 'Shuru', description: 'Free forever', billing_model: 'flat_monthly',
-            price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: 100,
-            orders_limit: -1, products_limit: -1, can_purchase_topups: false,
-            per_order_charge_bdt: null, features: {}, topup_packs: [], partner_order_tiers: [],
-          },
-          {
-            code: 'GROWTH', name: 'Growth', description: 'Growth', billing_model: 'flat_monthly',
-            price_bdt_monthly: 999, price_bdt_yearly: 9990, conversations_limit: 500,
-            orders_limit: -1, products_limit: -1, can_purchase_topups: true,
-            per_order_charge_bdt: null, features: {}, topup_packs: [], partner_order_tiers: [],
-          },
-        ],
-      };
+      const mockResponse = { success: true, data: LIVE_PLANS };
       (publicApiGet as any).mockResolvedValue(mockResponse);
 
       const result = await subscription.getSubscriptionPlans();
 
       expect(publicApiGet).toHaveBeenCalledWith('/api/subscription/plans');
-      expect(result.map((plan) => plan.code)).toEqual(['SHURU', 'GROWTH']);
+      expect(result.map((plan) => plan.code)).toEqual(['SHURU', 'GROWTH', 'PARTNER']);
+      expect(result.map((plan) => plan.publicName)).toEqual(['Get Your Moderator', 'Moderator Plus', 'Partnership']);
+      expect(result.find((plan) => plan.code === 'GROWTH')?.supportReplyAllowance?.amount).toBe(3000);
     });
 
-    it('identifies when the catalog request falls back to pinned values', async () => {
+    it('does not substitute pinned commercial values when the live catalog is unavailable', async () => {
       (publicApiGet as any).mockRejectedValue(new Error('offline'));
 
-      const result = await subscription.getPublicSubscriptionCatalog();
-
-      expect(result.source).toBe('fallback');
-      expect(result.plans.map((plan) => plan.code)).toEqual(['SHURU', 'GROWTH', 'PARTNER']);
+      await expect(subscription.getPublicSubscriptionCatalog()).rejects.toThrow('offline');
     });
 
     it('marks a successful catalog response as live', async () => {
-      (publicApiGet as any).mockResolvedValue({
-        success: true,
-        data: [{
-          code: 'SHURU', name: 'Shuru', description: 'Free', billing_model: 'flat_monthly',
-          price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: 100,
-          orders_limit: -1, products_limit: -1, can_purchase_topups: false,
-          per_order_charge_bdt: null, features: {}, topup_packs: [], partner_order_tiers: [],
-        }],
-      });
+      (publicApiGet as any).mockResolvedValue({ success: true, data: LIVE_PLANS });
 
       const result = await subscription.getPublicSubscriptionCatalog();
 
       expect(result.source).toBe('live');
-      expect(result.plans.map((plan) => plan.code)).toEqual(['SHURU']);
+      expect(result.plans.map((plan) => plan.code)).toEqual(['SHURU', 'GROWTH', 'PARTNER']);
     });
 
     it('rejects unavailable live catalog data instead of returning pinned prices', async () => {
@@ -105,6 +111,14 @@ describe('Subscription Domain API', () => {
       (publicApiGet as any).mockResolvedValue({ success: true, data: [] });
 
       await expect(subscription.getCurrentPublicSubscriptionCatalog()).rejects.toThrow(/catalog/i);
+    });
+
+    it('rejects a live catalog that omits the accepted-reply allowance instead of pinning it locally', async () => {
+      const incomplete = LIVE_PLANS.map((plan) => ({ ...plan }));
+      delete (incomplete[0] as any).support_reply_allowance;
+      (publicApiGet as any).mockResolvedValue({ success: true, data: incomplete });
+
+      await expect(subscription.getCurrentPublicSubscriptionCatalog()).rejects.toThrow(/shadow allowance/i);
     });
   });
 

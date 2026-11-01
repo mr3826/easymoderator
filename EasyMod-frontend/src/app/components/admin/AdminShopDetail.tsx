@@ -182,7 +182,8 @@ export default function AdminShopDetail() {
           <h3 className="font-medium text-gray-800">{t('admin.shopDetail.pilot.title')}</h3>
           <p className="text-xs text-gray-500">{t('admin.shopDetail.pilot.help')}</p>
           {pilot ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -213,7 +214,66 @@ export default function AdminShopDetail() {
                   ))}
                 </select>
               </label>
-            </div>
+              </div>
+              <fieldset className="mt-5 space-y-3 border-t pt-4" data-testid="admin-founder-pilot-flags">
+                <legend className="font-medium text-gray-800">{t('admin.shopDetail.pilot.founderTitle')}</legend>
+                <p className="text-xs leading-5 text-gray-500">{t('admin.shopDetail.pilot.founderHelp')}</p>
+                <div className="grid gap-3 text-sm md:grid-cols-2">
+                  <label className="inline-flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={pilot.ads_studio}
+                      disabled={!canMutate}
+                      onChange={(e) => act(
+                        () => adminApi.setPilotFeatures(shopId, { ads_studio: e.target.checked }).then(setPilot),
+                        t('admin.shopDetail.pilot.adsStudio'),
+                      )}
+                    />
+                    <span>
+                      <span className="block font-medium">{t('admin.shopDetail.pilot.adsStudio')}</span>
+                      <span className="block text-xs text-gray-500">{t('admin.shopDetail.pilot.adsStudioHelp')}</span>
+                    </span>
+                  </label>
+                  <label className="inline-flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={pilot.storefront}
+                      disabled={!canMutate}
+                      onChange={(e) => act(
+                        () => adminApi.setPilotFeatures(shopId, { storefront: e.target.checked }).then(setPilot),
+                        t('admin.shopDetail.pilot.storefront'),
+                      )}
+                    />
+                    <span>
+                      <span className="block font-medium">{t('admin.shopDetail.pilot.storefront')}</span>
+                      <span className="block text-xs text-gray-500">{t('admin.shopDetail.pilot.storefrontHelp')}</span>
+                    </span>
+                  </label>
+                  <label className="inline-flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={pilot.ai_reply_shadow_meter}
+                      disabled={!canMutate}
+                      onChange={(e) => act(
+                        () => adminApi.setPilotFeatures(shopId, { ai_reply_shadow_meter: e.target.checked }).then(setPilot),
+                        t('admin.shopDetail.pilot.shadowMeter'),
+                      )}
+                    />
+                    <span>
+                      <span className="block font-medium">{t('admin.shopDetail.pilot.shadowMeter')}</span>
+                      <span className="block text-xs text-gray-500">{t('admin.shopDetail.pilot.shadowMeterHelp')}</span>
+                      {pilot.ai_reply_shadow_meter && pilot.ai_reply_shadow_meter_enabled_at && (
+                        <span className="mt-1 block text-xs text-gray-500">
+                          {t('admin.shopDetail.pilot.shadowMeterStarted', {
+                            date: new Date(pilot.ai_reply_shadow_meter_enabled_at).toISOString(),
+                          })}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+            </>
           ) : <p className="text-xs text-gray-400">…</p>}
           {!canMutate && <p className="text-xs text-gray-500">{t('admin.shopDetail.superAdminRequired')}</p>}
         </div>

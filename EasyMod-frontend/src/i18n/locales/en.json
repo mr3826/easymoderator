@@ -21,6 +21,7 @@
     "reports": "Reports",
     "auditLogs": "Audit Logs",
     "teamUsers": "Team Users",
+    "addons": "Add-ons",
     "mobileHome": "Home",
     "mobileInbox": "Inbox",
     "mobileOrders": "Orders",
@@ -31,6 +32,46 @@
     "accountMenu": "Account menu",
     "account": "Account",
     "expand": "Expand"
+  },
+  "addons": {
+    "navTitle": "Add-ons",
+    "eyebrow": "Optional pilot tools",
+    "title": "Add-ons for your shop",
+    "subtitle": "Check shop-specific eligibility, then opt in or out. Pilot access is approved by EasyModerator; add-on billing terms are not active.",
+    "loading": "Checking add-on eligibility…",
+    "loadFailed": "Add-on eligibility could not be verified. Try again later.",
+    "updateFailed": "The add-on setting was not changed. Verify eligibility and try again.",
+    "listLabel": "Optional add-ons",
+    "statusEnabled": "Enabled",
+    "statusEligible": "Available by approval",
+    "statusUnavailable": "Not enabled for this shop",
+    "termsNote": "No add-on price or billing is activated. Enabling records this shop's pilot opt-in only.",
+    "saving": "Saving…",
+    "enable": "Enable for this shop",
+    "disable": "Disable for this shop",
+    "openAdsStudio": "Open Ads Studio",
+    "manageStorefront": "Manage Storefront",
+    "ownerRequired": "A shop owner or admin manages add-on settings.",
+    "empty": "No add-on information is available.",
+    "adsStudio": {
+      "title": "EasyModerator Ads Studio",
+      "summary": "Import a merchant-supplied Meta Ads CSV, review the metrics present in that report, get evidence-grounded suggestions, and save a draft for explicit approval.",
+      "limits": [
+        "No direct Meta Ads account connection is claimed.",
+        "Approving a draft does not publish a campaign or change spend.",
+        "No EasyModerator order attribution, ROAS or profit calculation.",
+        "No Messenger promotional broadcasts."
+      ]
+    },
+    "storefront": {
+      "title": "EasyModerator Storefront",
+      "summary": "Select existing shop products and variants, publish a storefront, and receive validated cash-on-delivery orders in the current workspace.",
+      "limits": [
+        "Uses the existing product, inventory, customer and order records.",
+        "COD only; no online payment verification.",
+        "No courier automation or Meta catalog sync."
+      ]
+    }
   },
   "common": {
     "privacyPolicy": "Privacy Policy",
@@ -2497,10 +2538,14 @@
     "price": "৳{{price}} BDT / {{cycle}}",
     "nextBilling": "Next billing: {{date}}",
     "addConversations": "Add Customer Conversations",
-    "upgradePlan": "Move to Growth",
+    "upgradePlan": "Review Moderator Plus",
     "renew": "Renew subscription",
     "plansTitle": "Plans",
-    "plansSubtitle": "Simple plans with the same core features for every shop.",
+    "plansSubtitle": "Three package paths with current billing terms; accepted-reply targets are measured separately in shadow mode.",
+    "planCatalogLoading": "Loading published package details…",
+    "planCatalogUnavailable": "The live plan catalog is unavailable or incomplete. No pinned price, allowance or top-up pack is shown, and plan changes are disabled.",
+    "retryPlanCatalog": "Retry catalog",
+    "topupCatalogUnavailable": "Current conversation top-up packs are unavailable from the published catalog.",
     "monthly": "Monthly",
     "conversationsLimit": "Conversations:",
     "ordersLimit": "Orders:",
@@ -2526,14 +2571,28 @@
     "period": "Current period",
     "perMonth": "/ month",
     "perYear": "/ year",
-    "partnerUpfront": "upfront",
+    "partnerUpfront": "No upfront subscription",
     "flatBillingSummary": "Flat monthly plan with a clear conversation allowance.",
-    "partnerBillingSummary": "No monthly fee; billed by delivered-order band.",
+    "partnerBillingSummary": "No upfront subscription; billed by delivered-order band.",
     "partnerRateBands": "Delivered-order rates",
     "perDeliveredOrder": "per delivered order",
     "partnerEligibility": "Delivered in the last 30 days: {{count}} / {{minimum}} required.",
-    "partnerNoTopups": "Partner includes unlimited conversations; top-ups are not available.",
-    "growthTopupsOnly": "Conversation top-ups are available on Growth.",
+    "partnerNoTopups": "Partnership includes unlimited conversations; conversation top-ups are not available.",
+    "growthTopupsOnly": "Conversation top-ups are available on Moderator Plus (GROWTH).",
+    "shadowAllowanceLabel": "Non-billable reply measurement",
+    "shadowAllowanceTitle": "{{count}} accepted AI-generated replies per UTC month (shadow target)",
+    "shadowAllowanceNote": "Shadow measurement only. The active {{conversations}}-conversation entitlement and current conversation top-ups are unchanged.",
+    "shadowUsageTitle": "AI support reply measurement",
+    "shadowOnlyBadge": "Shadow only",
+    "shadowUnitDefinition": "One unit is one logical AI-originated reply accepted by Meta and durably recorded. Incoming messages, conversations, unsent drafts and failed sends are not units.",
+    "shadowPeriod": "UTC calendar month: {{start}} through just before {{end}}.",
+    "shadowUsageCount": "Observed accepted AI replies: {{used}} / {{target}} shadow target.",
+    "shadowObservedOnly": "Observed accepted AI replies this month: {{count}}. Partnership has no monthly reply target.",
+    "shadowUsageProgress": "Shadow reply usage against a target of {{target}}.",
+    "shadowRecordingActive": "Measurement is active. It does not limit message sending or change billing.",
+    "shadowNotEnabled": "Shadow measurement is not enabled for this shop; replies are not being counted.",
+    "shadowGateUnavailable": "Eligibility could not be verified; no shadow usage is recorded until the gate recovers.",
+    "shadowBillingBoundary": "This meter is separate from Messenger conversation limits and conversation top-ups. It is not billed or enforced, and no historical conversation credits are converted.",
     "viewPartnerApplication": "Apply on pricing page",
     "subscriptionInvoice": "Subscription",
     "addConversationsTitle": "Add Customer Conversations",
@@ -2616,28 +2675,28 @@
     "upgradeUnlockTitle": "Upgrade to {{plan}} to keep {{feature}} available",
     "upgradeToPlan": "Upgrade to {{plan}}",
     "noInvoices": "No invoices yet.",
-    "usageExhaustedAction": "AI replies are paused at the conversation allowance. Move to Growth or wait for the next period; manual replies remain available.",
+    "usageExhaustedAction": "AI replies are paused at the conversation allowance. Review Moderator Plus or wait for the next period; manual replies remain available.",
     "planDescriptions": {
-      "shuru": "Free forever for getting started with Messenger sales.",
-      "growth": "The full Messenger sales assistant for growing shops.",
-      "partner": "No upfront fee; pay for successfully delivered orders."
+      "shuru": "No monthly plan fee; the active allowance is 100 Messenger conversations.",
+      "growth": "BDT 999/month; the active allowance is 500 Messenger conversations with conversation-only top-ups.",
+      "partner": "No upfront subscription; billed by delivered-order band."
     },
     "plans": {
       "shuru": {
-        "name": "Shuru",
-        "description": "Free forever for getting started with Messenger sales."
+        "name": "Get Your Moderator",
+        "description": "No monthly plan fee; the active allowance is 100 Messenger conversations."
       },
       "growth": {
-        "name": "Growth",
-        "description": "The full Messenger sales assistant for growing shops."
+        "name": "Moderator Plus",
+        "description": "BDT 999/month; the active allowance is 500 Messenger conversations with conversation-only top-ups."
       },
       "partner": {
-        "name": "Partner",
-        "description": "No upfront fee; pay for successfully delivered orders."
+        "name": "Partnership",
+        "description": "No upfront subscription; billed by delivered-order band."
       }
     },
-    "growthIntentNotice": "You asked to review Growth. New accounts start on Shuru. A plan change takes effect only after a supported payment is completed.",
-    "growthIntentViewPlan": "View Growth plan"
+    "growthIntentNotice": "You asked to review Moderator Plus. New accounts start on Get Your Moderator. A plan change takes effect only after a supported payment is completed.",
+    "growthIntentViewPlan": "View Moderator Plus plan"
   },
   "conversationAlert": {
     "threshold70": {
@@ -2878,6 +2937,15 @@
         "help": "Per-shop rollout of Customer 360, Sales Opportunities and Order Confidence (RTO Shield v2). Start Order Confidence in trial mode before enforcing it.",
         "customerIntelligence": "Customer 360 & Sales Opportunities",
         "orderConfidence": "Order Confidence",
+        "founderTitle": "Founder pilot approval gates",
+        "founderHelp": "SUPER_ADMIN controls shop eligibility. The shop owner/admin must still opt in. These switches do not activate add-on billing or change existing merchant terms.",
+        "adsStudio": "EasyModerator Ads Studio",
+        "adsStudioHelp": "Manual Meta CSV reports and internal drafts only; no Ads API connection, publishing, spend changes, ROAS or profit attribution.",
+        "storefront": "EasyModerator Storefront",
+        "storefrontHelp": "Selected existing products with COD checkout only; no online payments or courier automation.",
+        "shadowMeter": "AI reply shadow measurement",
+        "shadowMeterHelp": "Records accepted AI replies after the activation timestamp. It does not bill, enforce quotas or consume conversation top-ups.",
+        "shadowMeterStarted": "Recording boundary: {{date}}",
         "modes": {
           "off": "Off",
           "shadow": "Trial (record only)",

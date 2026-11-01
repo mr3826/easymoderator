@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentPublicSubscriptionCatalog, type PublicSubscriptionCatalog } from "@/api/domains/publicSubscription";
+import { getPublicAddonCatalog, type PublicAddonDefinition } from "@/api/domains/publicAddons";
 import { trackFunnelEvent } from "@/app/lib/funnel";
 import { PublicFunnelFooter, PublicFunnelHeader, PublicFunnelSkipLink } from "./PublicFunnelChrome";
 import { PlanComparison } from "./LandingPageV5Sections";
-import { CoreCapabilities, LandingClosing, LandingHero, StorySection, TrustAndFaq, WorkflowSection } from "./LandingPageV6Sections";
+import { CoreCapabilities, FeatureBar, LandingClosing, LandingHero, StorySection, TrustAndFaq, WorkflowSection } from "./LandingPageV6Sections";
 import Seo from "./Seo";
 import "./public-funnel.css";
 import "./landing-v6.css";
@@ -24,6 +25,8 @@ export default function LandingPage() {
   const { t } = useTranslation();
   const [catalog, setCatalog] = useState<PublicSubscriptionCatalog | null>(null);
   const [catalogError, setCatalogError] = useState(false);
+  const [addons, setAddons] = useState<PublicAddonDefinition[] | null>(null);
+  const [addonsError, setAddonsError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
@@ -31,6 +34,8 @@ export default function LandingPage() {
     let active = true;
     setCatalog(null);
     setCatalogError(false);
+    setAddons(null);
+    setAddonsError(false);
 
     getCurrentPublicSubscriptionCatalog()
       .then((result) => {
@@ -46,6 +51,9 @@ export default function LandingPage() {
           setCatalogError(true);
         }
       });
+    getPublicAddonCatalog()
+      .then((result) => { if (active) setAddons(result); })
+      .catch(() => { if (active) { setAddons(null); setAddonsError(true); } });
 
     return () => { active = false; };
   }, [retryCount]);
@@ -63,6 +71,7 @@ export default function LandingPage() {
       <PublicFunnelHeader page="landing" />
       <main id="public-funnel-main" tabIndex={-1} className="scroll-mt-20">
         <LandingHero />
+        <FeatureBar />
         <WorkflowSection />
         <CoreCapabilities />
         <StorySection />
@@ -71,6 +80,9 @@ export default function LandingPage() {
           plans={catalog?.plans ?? []}
           loading={!catalogError && catalog === null}
           unavailable={catalogError}
+          addons={addons}
+          addonsLoading={!addonsError && addons === null}
+          addonsUnavailable={addonsError}
           onRetry={() => setRetryCount((count) => count + 1)}
         />
         <LandingClosing />

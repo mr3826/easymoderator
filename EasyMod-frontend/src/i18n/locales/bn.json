@@ -21,6 +21,7 @@
     "reports": "রিপোর্ট",
     "auditLogs": "অডিট লগ",
     "teamUsers": "টিম সদস্য",
+    "addons": "অ্যাড-অন",
     "mobileHome": "হোম",
     "mobileInbox": "ইনবক্স",
     "mobileOrders": "অর্ডার",
@@ -31,6 +32,46 @@
     "accountMenu": "অ্যাকাউন্ট মেনু",
     "account": "অ্যাকাউন্ট",
     "expand": "বড় করুন"
+  },
+  "addons": {
+    "navTitle": "অ্যাড-অন",
+    "eyebrow": "ঐচ্ছিক পাইলট টুল",
+    "title": "আপনার শপের অ্যাড-অন",
+    "subtitle": "শপের যোগ্যতা যাচাই করে opt-in বা opt-out করুন। EasyModerator পাইলট অনুমোদন দেয়; অ্যাড-অনের বিলিং শর্ত এখনো সক্রিয় নয়।",
+    "loading": "অ্যাড-অনের যোগ্যতা যাচাই হচ্ছে…",
+    "loadFailed": "অ্যাড-অনের যোগ্যতা যাচাই করা যায়নি। পরে আবার চেষ্টা করুন।",
+    "updateFailed": "অ্যাড-অনের সেটিং বদলায়নি। যোগ্যতা যাচাই করে আবার চেষ্টা করুন।",
+    "listLabel": "ঐচ্ছিক অ্যাড-অন",
+    "statusEnabled": "সক্রিয়",
+    "statusEligible": "অনুমোদনসাপেক্ষে ব্যবহারযোগ্য",
+    "statusUnavailable": "এই শপে সক্রিয় নয়",
+    "termsNote": "অ্যাড-অনের দাম বা বিলিং সক্রিয় নয়। Enable করলে শুধু এই শপের পাইলট opt-in নথিভুক্ত হয়।",
+    "saving": "সংরক্ষণ হচ্ছে…",
+    "enable": "এই শপে চালু করুন",
+    "disable": "এই শপে বন্ধ করুন",
+    "openAdsStudio": "Ads Studio খুলুন",
+    "manageStorefront": "Storefront পরিচালনা করুন",
+    "ownerRequired": "শপের owner বা admin অ্যাড-অন সেটিং পরিচালনা করেন।",
+    "empty": "অ্যাড-অনের তথ্য পাওয়া যায়নি।",
+    "adsStudio": {
+      "title": "EasyModerator Ads Studio",
+      "summary": "মার্চেন্টের দেওয়া Meta Ads CSV import করে রিপোর্টের metrics দেখুন, তথ্যভিত্তিক পরামর্শ নিন এবং স্পষ্ট অনুমোদনের জন্য draft সংরক্ষণ করুন।",
+      "limits": [
+        "সরাসরি Meta Ads account সংযোগের দাবি নেই।",
+        "Draft অনুমোদন campaign publish করে না বা খরচ বদলায় না।",
+        "EasyModerator order attribution, ROAS বা profit calculation নেই।",
+        "Messenger promotional broadcast নেই।"
+      ]
+    },
+    "storefront": {
+      "title": "EasyModerator Storefront",
+      "summary": "শপের বিদ্যমান পণ্য ও variant বেছে প্রকাশ করুন এবং যাচাই করা cash-on-delivery অর্ডার বর্তমান workspace-এ নিন।",
+      "limits": [
+        "বিদ্যমান product, inventory, customer ও order record ব্যবহার করে।",
+        "শুধু COD; online payment যাচাই নেই।",
+        "Courier automation বা Meta catalog sync নেই।"
+      ]
+    }
   },
   "common": {
     "privacyPolicy": "গোপনীয়তা নীতি",
@@ -2497,10 +2538,14 @@
     "price": "৳{{price}} BDT / {{cycle}}",
     "nextBilling": "পরবর্তী বিলিং: {{date}}",
     "addConversations": "Customer Conversations যোগ করুন",
-    "upgradePlan": "Growth-এ যান",
+    "upgradePlan": "Moderator Plus দেখুন",
     "renew": "সাবস্ক্রিপশন renew করুন",
     "plansTitle": "প্ল্যানসমূহ",
-    "plansSubtitle": "সব শপের জন্য একই core feature, সহজ scale-based প্ল্যান।",
+    "plansSubtitle": "বর্তমান billing terms সহ তিনটি package পথ; accepted AI reply লক্ষ্য আলাদা shadow mode-এ মাপা হয়।",
+    "planCatalogLoading": "প্রকাশিত package-এর তথ্য লোড হচ্ছে…",
+    "planCatalogUnavailable": "লাইভ plan catalog পাওয়া যাচ্ছে না বা অসম্পূর্ণ। কোনো pinned দাম, সীমা বা top-up pack দেখানো হবে না এবং plan পরিবর্তন বন্ধ থাকবে।",
+    "retryPlanCatalog": "Catalog আবার চেষ্টা করুন",
+    "topupCatalogUnavailable": "প্রকাশিত catalog থেকে বর্তমান conversation top-up pack পাওয়া যাচ্ছে না।",
     "monthly": "মাসিক",
     "conversationsLimit": "কথোপকথন:",
     "ordersLimit": "অর্ডার:",
@@ -2526,14 +2571,28 @@
     "period": "বর্তমান period",
     "perMonth": "/ মাস",
     "perYear": "/ বছর",
-    "partnerUpfront": "upfront",
+    "partnerUpfront": "কোনো upfront subscription নেই",
     "flatBillingSummary": "স্পষ্ট conversation allowance সহ flat monthly plan।",
-    "partnerBillingSummary": "কোনো মাসিক ফি নেই; delivered-order band অনুযায়ী বিল।",
+    "partnerBillingSummary": "কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।",
     "partnerRateBands": "Delivered-order rate",
     "perDeliveredOrder": "প্রতি delivered order",
     "partnerEligibility": "গত ৩০ দিনে delivered order: {{count}} / প্রয়োজন {{minimum}}।",
-    "partnerNoTopups": "Partner-এ unlimited conversation আছে; top-up প্রযোজ্য নয়।",
-    "growthTopupsOnly": "Conversation top-up শুধু Growth-এ পাওয়া যায়।",
+    "partnerNoTopups": "Partnership-এ unlimited conversation আছে; conversation top-up পাওয়া যায় না।",
+    "growthTopupsOnly": "Conversation top-up শুধু Moderator Plus (GROWTH)-এ পাওয়া যায়।",
+    "shadowAllowanceLabel": "বিলযোগ্য নয় এমন reply measurement",
+    "shadowAllowanceTitle": "প্রতি UTC মাসে {{count}}টি Meta-তে গৃহীত AI-generated reply (shadow লক্ষ্য)",
+    "shadowAllowanceNote": "শুধু shadow measurement। সক্রিয় {{conversations}}টি কথোপকথনের entitlement এবং বর্তমান conversation top-up অপরিবর্তিত।",
+    "shadowUsageTitle": "AI support reply measurement",
+    "shadowOnlyBadge": "শুধু shadow",
+    "shadowUnitDefinition": "একটি unit হলো Meta-তে গৃহীত ও স্থায়ীভাবে নথিভুক্ত একটি logical AI-generated reply। Incoming message, conversation, না-পাঠানো draft বা ব্যর্থ send unit নয়।",
+    "shadowPeriod": "UTC calendar মাস: {{start}} থেকে {{end}} তারিখ শুরুর ঠিক আগ পর্যন্ত।",
+    "shadowUsageCount": "নথিভুক্ত Meta-গৃহীত AI reply: {{used}} / {{target}} shadow লক্ষ্য।",
+    "shadowObservedOnly": "এই মাসে নথিভুক্ত Meta-গৃহীত AI reply: {{count}}। Partnership-এর মাসিক reply লক্ষ্য নেই।",
+    "shadowUsageProgress": "{{target}} লক্ষ্য অনুযায়ী shadow reply ব্যবহার।",
+    "shadowRecordingActive": "Measurement সক্রিয়। এটি message sending সীমিত করে না বা billing বদলায় না।",
+    "shadowNotEnabled": "এই শপে shadow measurement চালু নেই; reply গণনা হচ্ছে না।",
+    "shadowGateUnavailable": "যোগ্যতা যাচাই করা যায়নি; gate ঠিক না হওয়া পর্যন্ত shadow usage নথিভুক্ত হবে না।",
+    "shadowBillingBoundary": "এই meter Messenger কথোপকথনের সীমা ও conversation top-up থেকে আলাদা। এতে বিল বা enforcement নেই এবং পুরনো conversation credit রূপান্তর হয় না।",
     "viewPartnerApplication": "Pricing page-এ আবেদন",
     "subscriptionInvoice": "Subscription",
     "addConversationsTitle": "Customer Conversations যোগ করুন",
@@ -2616,28 +2675,28 @@
     "upgradeUnlockTitle": "{{feature}} available রাখতে {{plan}}-এ upgrade করুন",
     "upgradeToPlan": "{{plan}}-এ upgrade করুন",
     "noInvoices": "এখনো কোনো invoice নেই।",
-    "usageExhaustedAction": "Conversation allowance শেষ হওয়ায় AI reply pause আছে। Growth-এ যান বা পরের period পর্যন্ত অপেক্ষা করুন; manual reply চালু আছে।",
+    "usageExhaustedAction": "Conversation allowance শেষ হওয়ায় AI reply pause আছে। Moderator Plus দেখুন বা পরের period পর্যন্ত অপেক্ষা করুন; manual reply চালু আছে।",
     "planDescriptions": {
-      "shuru": "Messenger sales শুরু করার জন্য চিরদিন ফ্রি।",
-      "growth": "বাড়তে থাকা শপের জন্য সম্পূর্ণ Messenger sales assistant।",
-      "partner": "কোনো upfront fee নেই; সফল delivered order-এ পেমেন্ট।"
+      "shuru": "মাসিক প্ল্যান ফি নেই; সক্রিয় সীমা ১০০টি Messenger কথোপকথন।",
+      "growth": "৳৯৯৯/মাস; সক্রিয় সীমা ৫০০টি Messenger কথোপকথন, top-up-ও কথোপকথনের জন্য।",
+      "partner": "কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।"
     },
     "plans": {
       "shuru": {
-        "name": "Shuru",
-        "description": "Messenger sales শুরু করার জন্য চিরদিন ফ্রি।"
+        "name": "Get Your Moderator",
+        "description": "মাসিক প্ল্যান ফি নেই; সক্রিয় সীমা ১০০টি Messenger কথোপকথন।"
       },
       "growth": {
-        "name": "Growth",
-        "description": "বাড়তে থাকা শপের জন্য সম্পূর্ণ Messenger sales assistant।"
+        "name": "Moderator Plus",
+        "description": "৳৯৯৯/মাস; সক্রিয় সীমা ৫০০টি Messenger কথোপকথন, top-up-ও কথোপকথনের জন্য।"
       },
       "partner": {
-        "name": "Partner",
-        "description": "কোনো upfront fee নেই; সফল delivered order-এ পেমেন্ট।"
+        "name": "Partnership",
+        "description": "কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।"
       }
     },
-    "growthIntentNotice": "আপনি Growth দেখতে চেয়েছেন। নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়। সমর্থিত পেমেন্ট সম্পন্ন হলেই প্ল্যান বদলায়।",
-    "growthIntentViewPlan": "Growth প্ল্যান দেখুন"
+    "growthIntentNotice": "আপনি Moderator Plus দেখতে চেয়েছেন। নতুন অ্যাকাউন্ট Get Your Moderator-এ শুরু হয়। সমর্থিত পেমেন্ট সম্পন্ন হলেই প্ল্যান বদলায়।",
+    "growthIntentViewPlan": "Moderator Plus প্ল্যান দেখুন"
   },
   "conversationAlert": {
     "threshold70": {
@@ -2878,6 +2937,15 @@
         "help": "দোকানভিত্তিক Customer 360, বিক্রয়ের সুযোগ ও Order Confidence (RTO Shield v2) চালু করা। Order Confidence প্রয়োগের আগে পরীক্ষামূলক মোডে শুরু করুন।",
         "customerIntelligence": "Customer 360 ও বিক্রয়ের সুযোগ",
         "orderConfidence": "Order Confidence",
+        "founderTitle": "প্রতিষ্ঠাতার পাইলট অনুমোদন",
+        "founderHelp": "শপের যোগ্যতা SUPER_ADMIN নিয়ন্ত্রণ করেন। শপের owner/admin-কেও opt-in করতে হবে। এতে অ্যাড-অনের billing চালু বা বর্তমান merchant terms পরিবর্তন হয় না।",
+        "adsStudio": "EasyModerator Ads Studio",
+        "adsStudioHelp": "শুধু Meta CSV রিপোর্ট ও অভ্যন্তরীণ draft; Ads API সংযোগ, publish, খরচ পরিবর্তন, ROAS বা profit attribution নেই।",
+        "storefront": "EasyModerator Storefront",
+        "storefrontHelp": "শুধু বিদ্যমান নির্বাচিত পণ্য ও COD checkout; online payment বা courier automation নেই।",
+        "shadowMeter": "AI reply shadow measurement",
+        "shadowMeterHelp": "সক্রিয়করণের সময়ের পর গৃহীত AI reply নথিভুক্ত করে। বিল, quota enforcement বা conversation top-up ব্যবহার করে না।",
+        "shadowMeterStarted": "গণনা শুরুর সময়: {{date}}",
         "modes": {
           "off": "বন্ধ",
           "shadow": "পরীক্ষামূলক (শুধু রেকর্ড)",

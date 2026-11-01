@@ -38,6 +38,10 @@ const ResetPassword = lazy(() => import("./components/ResetPassword"));
 const TwoFactorVerify = lazy(() => import("./components/TwoFactorVerify"));
 const RouteError = lazy(() => import("./components/RouteError"));
 const Subscription = lazy(() => import("./components/Subscription"));
+const Addons = lazy(() => import("./components/Addons"));
+const AdsStudioPage = lazy(() => import("./components/ads-studio/AdsStudioPage"));
+const StorefrontManager = lazy(() => import("./components/storefront/StorefrontManager"));
+const StorefrontBuyer = lazy(() => import("./components/storefront/StorefrontBuyer"));
 const PrivacyPolicy = lazy(() => import("./components/PrivacyPolicy"));
 const TermsOfService = lazy(() => import("./components/TermsOfService"));
 const DataDeletion = lazy(() => import("./components/DataDeletion"));
@@ -154,6 +158,13 @@ export const router = createBrowserRouter([
 		errorElement: createElement(RouteError),
 	},
 	{
+		// Buyer-facing storefront: public like /pricing. The backend enforces
+		// publication, tenant gating and checkout validation server-side.
+		path: "/store/:slug",
+		Component: withSuspense(StorefrontBuyer),
+		errorElement: createElement(RouteError),
+	},
+	{
 		path: "/",
 		Component: withSuspense(LandingPage),
 		loader: rootLoader,
@@ -208,6 +219,9 @@ export const router = createBrowserRouter([
 			{ path: "/reports", Component: withSuspense(Reports) },
 			{ path: "/audit-logs", Component: withSuspense(AuditLogs) },
 			{ path: "/subscription", Component: withSuspense(Subscription) },
+			{ path: "/addons", Component: withSuspense(Addons) },
+			{ path: "/addons/ads-studio", Component: withSuspense(AdsStudioPage) },
+			{ path: "/addons/storefront", Component: withSuspense(StorefrontManager) },
 			{ path: "/more", loader: () => redirect("/dashboard") },
 			{
 				path: "/team/users",

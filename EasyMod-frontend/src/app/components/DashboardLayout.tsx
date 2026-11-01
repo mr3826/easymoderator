@@ -5,7 +5,7 @@ import {
   Store, LogOut, Users,
   CreditCard, Bell, ChevronLeft, ChevronRight,
   ChevronDown, Building2, MessageSquare, Truck, BookOpen,
-  FileClock, ShieldCheck,
+  FileClock, ShieldCheck, Puzzle,
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -32,6 +32,7 @@ export default function DashboardLayout() {
     { name: t('nav.orders'), path: '/orders', icon: ShoppingBag },
     { name: t('nav.customers'), path: '/customers', icon: Users },
     { name: t('nav.products'), path: '/products', icon: Grid3X3 },
+    { name: t('addons.navTitle', { defaultValue: 'Add-ons' }), path: '/addons', icon: Puzzle },
   ];
 
   const settingsNavigation = [
@@ -312,7 +313,7 @@ export default function DashboardLayout() {
       </div>
 
       <nav aria-label={t('nav.workspaceNavigation')} className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2">
-        <ul className="grid grid-cols-5 gap-1">
+        <ul className="grid grid-cols-6 gap-1">
           {mobileNavigation.map((item) => {
             const Icon = item.icon;
             const isActive =

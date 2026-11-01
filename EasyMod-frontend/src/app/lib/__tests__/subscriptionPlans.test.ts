@@ -6,8 +6,8 @@ import {
   publicPlanToDefinition,
 } from "../subscriptionPlans";
 
-describe("subscription plan fallback", () => {
-  it("pins the marketing fallback to the commercial model", () => {
+describe("internal subscription plan metadata", () => {
+  it("keeps internal compatibility IDs and feature-gate metadata", () => {
     expect(subscriptionPlans.map((plan) => plan.code)).toEqual(["SHURU", "GROWTH", "PARTNER"]);
     expect(subscriptionPlans[0]).toMatchObject({ monthlyPrice: 0, yearlyPrice: 0 });
     expect(subscriptionPlans[0].limits.conversations).toBe(100);
@@ -19,7 +19,7 @@ describe("subscription plan fallback", () => {
     expect(subscriptionPlans[1].features).toEqual(subscriptionPlans[2].features);
   });
 
-  it("pins Growth top-ups to PACK_100, PACK_300, and PACK_700", () => {
+  it("keeps the internal feature-gate snapshot separate from the live public catalog", () => {
     expect(subscriptionPlans.find((plan) => plan.code === "GROWTH")?.topupPacks).toEqual(TOPUP_PACK_FALLBACK);
   });
 
@@ -27,7 +27,9 @@ describe("subscription plan fallback", () => {
     const plan = publicPlanToDefinition({
       code: "GROWTH",
       name: "Growth",
+      public_name: "Moderator Plus",
       description: "Growth",
+      description_bn: "Moderator Plus description",
       billing_model: "flat_monthly",
       price_bdt_monthly: 999,
       price_bdt_yearly: 9990,
@@ -37,8 +39,20 @@ describe("subscription plan fallback", () => {
       can_purchase_topups: true,
       per_order_charge_bdt: null,
       features: { advanced_ai: true },
+      topup_packs: TOPUP_PACK_FALLBACK,
+      partner_order_tiers: [],
+      support_reply_allowance: {
+        amount: 3000,
+        unit: "provider_accepted_ai_reply",
+        period: "utc_calendar_month",
+        status: "shadow_only",
+        billable: false,
+        enforced: false,
+      },
     });
 
+    expect(plan.publicName).toBe("Moderator Plus");
+    expect(plan.supportReplyAllowance?.amount).toBe(3000);
     expect(plan.features.custom_branding).toBe(false);
     expect(plan).not.toHaveProperty("popular");
   });

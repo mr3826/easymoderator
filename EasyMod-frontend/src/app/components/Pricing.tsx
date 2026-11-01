@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentPublicSubscriptionCatalog, hasRequiredPublicPlans, type PublicSubscriptionCatalog } from "@/api/domains/publicSubscription";
+import { getPublicAddonCatalog, type PublicAddonDefinition } from "@/api/domains/publicAddons";
 import { publicApiPost } from "@/shared/lib/http/public-client";
 import { buildAppUrlWithLocale, isBkashEnabled } from "@/app/lib/config";
 import { GROWTH_UPGRADE_INTENT } from "@/app/lib/signupIntent";
@@ -103,16 +104,16 @@ function PartnerApplicationDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="max-h-[90vh] overflow-y-auto border-[#17223B]/10 bg-[#F8F9FC] sm:rounded-3xl">
         <DialogHeader className="pr-8 text-left">
           <DialogTitle className="text-xl font-bold text-[#17223B]">
-            {submitted ? t("publicFunnel.pricing.applicationSuccessTitle") : t("publicFunnel.pricing.applicationTitle")}
+            {submitted ? t("publicFunnel.pricing.partnershipSuccessTitle", { defaultValue: "Partnership request received" }) : t("publicFunnel.pricing.partnershipApplicationTitle", { defaultValue: "Partnership application" })}
           </DialogTitle>
           <DialogDescription className="text-sm leading-6 text-[#17223B]/70">
-            {submitted ? t("publicFunnel.pricing.applicationSuccessBody") : t("publicFunnel.pricing.applicationDescription")}
+            {submitted ? t("publicFunnel.pricing.partnershipSuccessBody", { defaultValue: "Your request was recorded for review. Delivered-order billing and eligibility will be confirmed before activation." }) : t("publicFunnel.pricing.partnershipApplicationDescription", { defaultValue: "Share your business details so the team can review delivered-order eligibility." })}
           </DialogDescription>
         </DialogHeader>
 
         {submitted ? (
-          <Button type="button" onClick={onClose} className="funnel-button funnel-button-primary justify-center px-5 py-3">
-            {t("publicFunnel.pricing.applicationClose")}
+            <Button type="button" onClick={onClose} className="funnel-button funnel-button-primary justify-center px-5 py-3">
+              {t("publicFunnel.pricing.applicationClose", { defaultValue: "Close" })}
           </Button>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -121,7 +122,7 @@ function PartnerApplicationDialog({ onClose }: { onClose: () => void }) {
             {field("pageLink", "url", "publicFunnel.pricing.facebookPage", "https://facebook.com/yourpage")}
             {submitError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{submitError}</p>}
             <Button type="submit" disabled={submitting} className="funnel-button funnel-button-primary w-full justify-center px-5 py-3">
-              {submitting ? t("publicFunnel.pricing.applicationSending") : t("publicFunnel.pricing.applicationSubmit")}
+              {submitting ? t("publicFunnel.pricing.applicationSending", { defaultValue: "Sending…" }) : t("publicFunnel.pricing.applicationSubmit", { defaultValue: "Send for review" })}
             </Button>
           </form>
         )}
@@ -142,7 +143,7 @@ function PlanCard({
   const { t } = useTranslation();
   const isPartner = plan.code === "PARTNER";
   const isGrowth = plan.code === "GROWTH";
-  const planName = t(`pricing.plans.${plan.code.toLowerCase()}.name`, { defaultValue: plan.name });
+  const planName = plan.publicName || plan.name;
   const monthlyNumber = formatNumber(plan.monthlyPrice, locale);
   const thresholdTier = isPartner ? plan.partnerOrderTiers?.find((tier) => tier.minOrders === 300) : undefined;
   const signupUrl = new URL(buildAppUrlWithLocale("/signup", locale));
@@ -152,8 +153,8 @@ function PlanCard({
   return (
     <article aria-labelledby={`plan-${plan.code}`} className={`flex h-full flex-col rounded-3xl border p-6 shadow-sm sm:p-7 ${isGrowth ? "border-[#7460D9]/45 bg-[#F3F0FF]" : "border-[#17223B]/10 bg-white"}`}>
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#5D49BB]">{planName}</p>
-        <h2 id={`plan-${plan.code}`} className="mt-3 flex flex-wrap items-baseline gap-x-2 text-[#17223B]">
+        <h2 id={`plan-${plan.code}`} className="text-xl font-extrabold text-[#17223B]">{planName}</h2>
+        <p className="mt-3 flex flex-wrap items-baseline gap-x-2 text-[#17223B]">
           {isPartner ? (
             <span className="text-2xl font-extrabold">{t("publicFunnel.pricing.partnerRateTitle")}</span>
           ) : (
@@ -162,7 +163,7 @@ function PlanCard({
               <span className="text-sm font-medium text-[#46506A]">{t("publicFunnel.pricing.perMonth")}</span>
             </>
           )}
-        </h2>
+        </p>
         <p className="mt-3 min-h-12 text-sm leading-6 text-[#17223B]/70">
           {isPartner ? t("publicFunnel.pricing.partnerNoMonthlyFee") : t("publicFunnel.pricing.includedLimits")}
         </p>
@@ -178,6 +179,23 @@ function PlanCard({
         {plan.limits.orders < 0 && <li className="flex gap-2"><span aria-hidden="true" className="text-[#5D49BB]">•</span>{t("publicFunnel.pricing.unlimitedOrders")}</li>}
         {plan.limits.products < 0 && <li className="flex gap-2"><span aria-hidden="true" className="text-[#5D49BB]">•</span>{t("publicFunnel.pricing.unlimitedProducts")}</li>}
       </ul>
+
+      {plan.supportReplyAllowance && (
+        <aside aria-label={t("publicFunnel.pricing.shadowAllowanceLabel", { defaultValue: "Non-billable support reply measurement" })} className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-[#17223B]">
+          <p className="font-bold">
+            {t("publicFunnel.pricing.shadowAllowanceTitle", {
+              amount: formatNumber(plan.supportReplyAllowance.amount, locale),
+              defaultValue: `${formatNumber(plan.supportReplyAllowance.amount, locale)} accepted AI replies/month (shadow target)`,
+            })}
+          </p>
+          <p className="mt-2 text-xs leading-5 text-[#17223B]/75">
+            {t("publicFunnel.pricing.shadowAllowanceNote", {
+              conversations: formatNumber(plan.limits.conversations, locale),
+              defaultValue: `Measurement only: this is not billed or enforced. Your active allowance remains ${formatNumber(plan.limits.conversations, locale)} Messenger conversations; existing top-ups still apply to conversations only.`,
+            })}
+          </p>
+        </aside>
+      )}
 
       {isBkashEnabled() && isGrowth && (
         <div className="mt-5 rounded-2xl border border-[#7460D9]/20 bg-white/80 p-4">
@@ -225,16 +243,18 @@ function PlanCard({
         {isPartner ? (
           <>
             <button type="button" onClick={onPartnerReview} className="funnel-button funnel-button-primary w-full justify-center px-4 py-3 text-sm">
-              {t("publicFunnel.pricing.partnerAction")}
+              {t("publicFunnel.pricing.partnershipAction", { defaultValue: "Request Partnership review" })}
             </button>
-            <p className="mt-3 text-center text-xs leading-5 text-[#17223B]/65">{t("publicFunnel.pricing.partnerReviewNote")}</p>
+            <p className="mt-3 text-center text-xs leading-5 text-[#17223B]/65">{t("publicFunnel.pricing.partnershipReviewNote", { defaultValue: "Eligibility is reviewed before any Partnership terms are activated." })}</p>
           </>
         ) : (
           <>
             <a href={signupHref} className="funnel-button funnel-button-primary w-full justify-center px-4 py-3 text-sm">
-              {t(isGrowth ? "publicFunnel.pricing.growthAction" : "publicFunnel.pricing.shuruAction")}
+              {t(isGrowth ? "publicFunnel.pricing.moderatorPlusAction" : "publicFunnel.pricing.getModeratorAction", {
+                defaultValue: isGrowth ? "Review Moderator Plus" : "Create a Get Your Moderator account",
+              })}
             </a>
-            {isGrowth && <p className="mt-3 text-center text-xs leading-5 text-[#17223B]/65">{t("publicFunnel.pricing.newAccountsNote")}</p>}
+            {isGrowth && <p className="mt-3 text-center text-xs leading-5 text-[#17223B]/65">{t("publicFunnel.pricing.moderatorPlusNewAccountsNote", { defaultValue: "New shops start with Get Your Moderator; upgrades keep existing plan and usage records." })}</p>}
           </>
         )}
       </div>
@@ -246,6 +266,8 @@ export default function Pricing() {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage || i18n.language;
   const [catalog, setCatalog] = useState<PublicSubscriptionCatalog | null>(null);
+  const [addons, setAddons] = useState<PublicAddonDefinition[] | null>(null);
+  const [addonsError, setAddonsError] = useState(false);
   const [catalogError, setCatalogError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [partnerOpen, setPartnerOpen] = useState(false);
@@ -270,6 +292,10 @@ export default function Pricing() {
           setCatalogError(true);
         }
       });
+    setAddonsError(false);
+    getPublicAddonCatalog()
+      .then((result) => { if (active) setAddons(result); })
+      .catch(() => { if (active) { setAddons(null); setAddonsError(true); } });
     return () => { active = false; };
   }, [retryCount]);
 
@@ -308,6 +334,51 @@ export default function Pricing() {
         ) : (
           <p aria-live="polite" role="status" className="py-16 text-center text-sm text-[#17223B]/70">{t("publicFunnel.pricing.catalogLoading")}</p>
         )}
+
+        <section aria-labelledby="optional-addons-title" className="mt-14 border-t border-[#17223B]/10 pt-10 sm:mt-16 sm:pt-12">
+          <header className="mx-auto mb-7 max-w-3xl text-center">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#5D49BB]">{t("publicFunnel.addons.eyebrow", { defaultValue: "Optional add-ons" })}</p>
+            <h2 id="optional-addons-title" className="mt-2 text-2xl font-extrabold text-[#17223B] sm:text-3xl">{t("publicFunnel.addons.title", { defaultValue: "Choose only the tools your shop needs" })}</h2>
+            <p className="mt-3 text-sm leading-6 text-[#17223B]/70">{t("publicFunnel.addons.availability", { defaultValue: "Pilot access is approved per shop. Add-on billing terms are not active; no add-on price or charge is presented here." })}</p>
+          </header>
+          {addons ? (
+            <div className="grid gap-5 md:grid-cols-2">
+              {addons.map((addon) => {
+                const key = addon.code === "ADS_STUDIO" ? "adsStudio" : "storefront";
+                return (
+                  <article key={addon.code} aria-labelledby={`addon-${addon.code}`} className="flex h-full flex-col rounded-3xl border border-[#17223B]/10 bg-white p-6 shadow-sm sm:p-7">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#5D49BB]">{t("publicFunnel.addons.optionalLabel", { defaultValue: "Optional pilot add-on" })}</p>
+                      <h3 id={`addon-${addon.code}`} className="mt-2 text-xl font-extrabold text-[#17223B]">{addon.name}</h3>
+                      <p className="mt-3 text-sm leading-6 text-[#17223B]/75">{t(`publicFunnel.addons.${key}.summary`, { defaultValue: addon.summary })}</p>
+                      <ul className="mt-4 space-y-2 text-xs leading-5 text-[#17223B]/70">
+                        {addon.limits.map((limit, index) => (
+                          <li key={`${addon.code}-${index}`} className="flex gap-2">
+                            <span aria-hidden="true" className="text-[#5D49BB]">•</span>
+                            {t(`publicFunnel.addons.${key}.limits.${index}`, { defaultValue: limit })}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="mt-auto pt-5">
+                      <p className="mb-3 text-xs leading-5 text-[#17223B]/70">{t("publicFunnel.addons.pilotTerms", { defaultValue: "Pilot access requires shop approval. Billing terms have not been activated." })}</p>
+                      <a href={buildAppUrlWithLocale("/signin", locale)} className="funnel-button funnel-button-secondary w-full justify-center px-4 py-3 text-sm">
+                        {t("publicFunnel.addons.checkEligibility", { defaultValue: "Sign in to check eligibility" })}
+                      </a>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : addonsError ? (
+            <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-[#17223B]/10 bg-white p-6 text-center sm:p-8">
+              <p className="text-sm leading-6 text-[#17223B]/75">{t("publicFunnel.addons.catalogUnavailable", { defaultValue: "Optional add-on details are currently unavailable." })}</p>
+              <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="funnel-button funnel-button-primary min-h-11 justify-center px-5 py-3 text-sm">{t("publicFunnel.pricing.retryCatalog")}</button>
+            </div>
+          ) : (
+            <p aria-live="polite" role="status" className="py-8 text-center text-sm text-[#17223B]/70">{t("publicFunnel.pricing.catalogLoading")}</p>
+          )}
+        </section>
 
         <div className="mx-auto mt-8 max-w-3xl space-y-2 text-center text-sm leading-6 text-[#17223B]/65">
           <p>{t("publicFunnel.pricing.catalogUnitNote")}</p>

@@ -157,6 +157,9 @@ const shopIdSchema = Joi.string().guid({ version: ['uuidv4', 'uuidv5', 'uuidv1']
         interaction_choices: Joi.boolean(),
         action_queue: Joi.boolean(),
         knowledge_suggestions: Joi.boolean(),
+        ads_studio: Joi.boolean(),
+        storefront: Joi.boolean(),
+        ai_reply_shadow_meter: Joi.boolean(),
         order_confidence_mode: Joi.string().valid(...pilotFeatures.ORDER_CONFIDENCE_MODES),
   order_confidence_config: Joi.object({
     high_value_cod_threshold: Joi.number().integer().min(0).max(1000000),

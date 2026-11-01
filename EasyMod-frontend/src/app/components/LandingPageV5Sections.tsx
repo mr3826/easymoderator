@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SubscriptionPlanDefinition } from "@/app/lib/subscriptionPlans";
+import type { PublicAddonDefinition } from "@/api/domains/publicAddons";
 import { GROWTH_UPGRADE_INTENT } from "@/app/lib/signupIntent";
 import { buildAppUrlWithLocale, buildMarketingUrlWithLocale, isBkashEnabled } from "@/app/lib/config";
 
@@ -283,10 +284,13 @@ function formatNumber(value: number, locale: string) {
   return value.toLocaleString(locale === "bn" ? "bn-BD" : "en-US");
 }
 
-export function PlanComparison({ plans, loading, unavailable, onRetry }: {
+export function PlanComparison({ plans, loading, unavailable, addons, addonsLoading, addonsUnavailable, onRetry }: {
   plans: SubscriptionPlanDefinition[];
   loading: boolean;
   unavailable: boolean;
+  addons: PublicAddonDefinition[] | null;
+  addonsLoading: boolean;
+  addonsUnavailable: boolean;
   onRetry: () => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -314,11 +318,13 @@ export function PlanComparison({ plans, loading, unavailable, onRetry }: {
               const partner = plan.code === "PARTNER";
               return (
                 <article key={plan.code} aria-labelledby={`landing-plan-${plan.code}`} className={`flex h-full flex-col border p-5 sm:p-6 ${plan.code === "GROWTH" ? "border-[#7460D9]/45 bg-[#F3F0FF]" : "border-[#17223B]/10 bg-[#F8F9FC]"}`}>
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#5D49BB]">{t(`pricing.plans.${planKey}.name`, { defaultValue: plan.name })}</p>
-                  <h3 id={`landing-plan-${plan.code}`} className="mt-3 text-2xl font-extrabold text-[#17223B]">
-                    {partner ? t("publicFunnel.landingV5.plans.partnerBilling") : <>৳{formatNumber(plan.monthlyPrice, locale)}<span className="ml-2 text-sm font-semibold text-[#17223B]/70">{t("publicFunnel.pricing.perMonth")}</span></>}
-                  </h3>
-                  <p className="mt-3 min-h-12 text-sm leading-6 text-[#17223B]/70">{t(`pricing.plans.${planKey}.description`, { defaultValue: plan.description })}</p>
+                  <h3 id={`landing-plan-${plan.code}`} className="text-xl font-extrabold text-[#17223B]">{plan.publicName || plan.name}</h3>
+                  <p className="mt-3 flex flex-wrap items-baseline gap-x-2 text-2xl font-extrabold text-[#17223B]">
+                    {partner ? t("publicFunnel.landingV5.plans.partnerBilling") : <>৳{formatNumber(plan.monthlyPrice, locale)}<span className="text-sm font-semibold text-[#17223B]/70">{t("publicFunnel.pricing.perMonth")}</span></>}
+                  </p>
+                  <p className="mt-3 min-h-12 text-sm leading-6 text-[#17223B]/70">
+                    {locale.startsWith("bn") ? plan.descriptionBn : plan.description}
+                  </p>
                   {partner && <p className="mt-3 text-xs leading-5 text-[#17223B]/70">{t("publicFunnel.pricing.partnerQualification")}</p>}
                   <ul className="mt-5 space-y-2 border-t border-[#17223B]/10 pt-4 text-sm text-[#17223B]">
                     <li>{plan.limits.conversations < 0
@@ -331,6 +337,20 @@ export function PlanComparison({ plans, loading, unavailable, onRetry }: {
                       return <li key={`${tier.minOrders}-${tier.maxOrders}`} className="flex justify-between gap-2"><span>{range}</span><span>৳{formatNumber(tier.rateBdt, locale)} {t("publicFunnel.pricing.perDeliveredOrder")}</span></li>;
                     })}
                   </ul>
+                  {plan.supportReplyAllowance?.status === "shadow_only" && (
+                    <aside aria-label={t("publicFunnel.pricing.shadowAllowanceLabel")} className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs leading-5 text-[#17223B]/80">
+                      <p className="font-bold text-[#17223B]">
+                        {t("publicFunnel.pricing.shadowAllowanceTitle", {
+                          amount: formatNumber(plan.supportReplyAllowance.amount, locale),
+                        })}
+                      </p>
+                      <p className="mt-1">
+                        {t("publicFunnel.pricing.shadowAllowanceNote", {
+                          conversations: formatNumber(plan.limits.conversations, locale),
+                        })}
+                      </p>
+                    </aside>
+                  )}
                   {isBkashEnabled() && plan.code === "GROWTH" && plan.canPurchaseTopups && (plan.topupPacks?.length ?? 0) > 0 && (
                     <div className="mt-4 rounded-xl border border-[#7460D9]/15 bg-white/75 p-3">
                       <p className="text-xs leading-5 text-[#17223B]/70">{t("publicFunnel.landingV5.plans.topupBoundary")}</p>
@@ -370,6 +390,46 @@ export function PlanComparison({ plans, loading, unavailable, onRetry }: {
             <button type="button" onClick={onRetry} className="funnel-button funnel-button-primary mt-4 min-h-11 px-4 py-2.5 text-sm">{t("publicFunnel.landing.retryCatalog")}</button>
           </div>
         )}
+
+        <section aria-labelledby="landing-addons-title" className="mt-14 border-t border-[#17223B]/10 pt-10 sm:mt-16 sm:pt-12">
+          <header className="mx-auto mb-7 max-w-3xl text-center">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#5D49BB]">{t("publicFunnel.addons.eyebrow")}</p>
+            <h3 id="landing-addons-title" className="mt-2 text-2xl font-extrabold text-[#17223B] sm:text-3xl">{t("publicFunnel.addons.title")}</h3>
+            <p className="mt-3 text-sm leading-6 text-[#17223B]/70">{t("publicFunnel.addons.availability")}</p>
+          </header>
+          {addons ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {addons.map((addon) => {
+                const key = addon.code === "ADS_STUDIO" ? "adsStudio" : "storefront";
+                return (
+                  <article key={addon.code} aria-labelledby={`landing-addon-${addon.code}`} className="flex h-full flex-col border border-[#17223B]/10 bg-[#F8F9FC] p-5 sm:p-6">
+                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#5D49BB]">{t("publicFunnel.addons.optionalLabel")}</p>
+                    <h4 id={`landing-addon-${addon.code}`} className="mt-2 text-lg font-extrabold text-[#17223B]">{addon.name}</h4>
+                    <p className="mt-3 text-sm leading-6 text-[#17223B]/75">{t(`publicFunnel.addons.${key}.summary`, { defaultValue: addon.summary })}</p>
+                    <ul className="mt-4 space-y-2 text-xs leading-5 text-[#17223B]/70">
+                      {addon.limits.map((limit, index) => (
+                        <li key={`${addon.code}-${index}`} className="flex gap-2"><span aria-hidden="true">•</span>{t(`publicFunnel.addons.${key}.limits.${index}`, { defaultValue: limit })}</li>
+                      ))}
+                    </ul>
+                    <div className="mt-auto pt-5">
+                      <p className="mb-3 text-xs leading-5 text-[#17223B]/70">{t("publicFunnel.addons.pilotTerms")}</p>
+                      <a href={buildAppUrlWithLocale("/signin", locale)} className="funnel-button funnel-button-secondary min-h-11 w-full justify-center px-4 py-2.5 text-sm">
+                        {t("publicFunnel.addons.checkEligibility")}
+                      </a>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : addonsUnavailable ? (
+            <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-4 border border-[#17223B]/10 bg-[#F8F9FC] p-6 text-center">
+              <p className="text-sm leading-6 text-[#17223B]/75">{t("publicFunnel.addons.catalogUnavailable")}</p>
+              <button type="button" onClick={onRetry} className="funnel-button funnel-button-primary min-h-11 px-4 py-2.5 text-sm">{t("publicFunnel.pricing.retryCatalog")}</button>
+            </div>
+          ) : addonsLoading ? (
+            <p role="status" aria-live="polite" className="py-8 text-center text-sm text-[#17223B]/70">{t("publicFunnel.pricing.catalogLoading")}</p>
+          ) : null}
+        </section>
 
         <p className="mt-5 text-xs leading-5 text-[#17223B]/70">{t("publicFunnel.landingV5.plans.catalogNote")}</p>
       </div>

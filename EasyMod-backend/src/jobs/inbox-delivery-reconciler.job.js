@@ -16,6 +16,16 @@ const BATCH_SIZE = Number(process.env.INBOX_DELIVERY_RECONCILE_BATCH) > 0
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
 const STALE_PROVIDER_CLAIM_MS = 15 * 60 * 1000;
 
+async function recordAcceptedAiReplyShadow(shopId, message) {
+    const { recordAcceptedAiReply } = require('../modules/subscription/ai-reply-shadow-ledger.service');
+    const result = await recordAcceptedAiReply({
+        shopId,
+        message,
+        acceptedAt: metadataFor(message).provider_accepted_at,
+    });
+    return !['gate_unavailable', 'subscription_unavailable'].includes(result.reason);
+}
+
 const metadataFor = (message) => {
     if (typeof message?.metadata === 'string') {
         try {
@@ -99,6 +109,17 @@ class InboxDeliveryReconcilerJob {
                 }
 
                 if (isProviderConfirmed(message)) {
+                    const meterCanProceed = await recordAcceptedAiReplyShadow(row.shop_id, message);
+                    if (!meterCanProceed) {
+                        await updateOutbox(row, token, {
+                            status: 'PENDING',
+                            processing_token: null,
+                            next_attempt_at: new Date(Date.now() + RETRY_BACKOFF_MS[0]),
+                            last_error_code: 'AI_REPLY_SHADOW_GATE_UNAVAILABLE',
+                        });
+                        results.retried += 1;
+                        continue;
+                    }
                     await updateOutbox(row, token, {
                         status: 'COMPLETED',
                         processing_token: null,
@@ -126,6 +147,8 @@ class InboxDeliveryReconcilerJob {
 
                 if (row.provider_message_id) {
                     const metadata = metadataFor(message);
+                    const acceptedAt = metadata.provider_accepted_at
+                        || (row.updated_at ? new Date(row.updated_at).toISOString() : null);
                     const reconciledMetadata = {
                         ...metadata,
                         delivered: true,
@@ -134,6 +157,7 @@ class InboxDeliveryReconcilerJob {
                         provider_message_id: row.provider_message_id,
                         provider_send_confirmed: true,
                         outbox_reconciled: true,
+                        ...(acceptedAt ? { provider_accepted_at: acceptedAt } : {}),
                     };
                     const reconciled = await Message.update({
                         external_id: row.provider_message_id,
@@ -150,6 +174,26 @@ class InboxDeliveryReconcilerJob {
                         },
                     });
                     if ((Array.isArray(reconciled) ? reconciled[0] : 1) === 1) {
+                        const messageData = typeof message.get === 'function'
+                            ? message.get({ plain: true })
+                            : message;
+                        const meterCanProceed = await recordAcceptedAiReplyShadow(row.shop_id, {
+                            ...messageData,
+                            delivery_source: row.delivery_source,
+                            delivery_state: 'SENT',
+                            provider_message_id: row.provider_message_id,
+                            metadata: reconciledMetadata,
+                        });
+                        if (!meterCanProceed) {
+                            await updateOutbox(row, token, {
+                                status: 'PENDING',
+                                processing_token: null,
+                                next_attempt_at: new Date(Date.now() + RETRY_BACKOFF_MS[0]),
+                                last_error_code: 'AI_REPLY_SHADOW_GATE_UNAVAILABLE',
+                            });
+                            results.retried += 1;
+                            continue;
+                        }
                         await updateOutbox(row, token, {
                             status: 'COMPLETED',
                             processing_token: null,
@@ -232,6 +276,17 @@ class InboxDeliveryReconcilerJob {
                     })
                     : message;
                 if (delivery?.sent === true || isProviderConfirmed(refreshed)) {
+                    const meterCanProceed = await recordAcceptedAiReplyShadow(row.shop_id, refreshed || message);
+                    if (!meterCanProceed) {
+                        await updateOutbox(row, token, {
+                            status: 'PENDING',
+                            processing_token: null,
+                            next_attempt_at: new Date(Date.now() + RETRY_BACKOFF_MS[0]),
+                            last_error_code: 'AI_REPLY_SHADOW_GATE_UNAVAILABLE',
+                        });
+                        results.retried += 1;
+                        continue;
+                    }
                     await updateOutbox(row, token, {
                         status: 'COMPLETED',
                         processing_token: null,

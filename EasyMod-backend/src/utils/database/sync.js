@@ -19,6 +19,12 @@ const growthWorkflowMigration = require('../../database/migrations/20260913_002_
 const growthFollowupsMigration = require('../../database/migrations/20260913_003_growth_os_followups');
 const growthNotesMigration = require('../../database/migrations/20260913_004_growth_os_notes');
 const temporaryPasswordMigration = require('../../database/migrations/20260914_001_add_temporary_password_controls');
+const founderPilotSchemaMigrations = [
+    require('../../database/migrations/20261101_001_founder_pilot_addons'),
+    require('../../database/migrations/20261101_002_ai_reply_shadow_ledger'),
+    require('../../database/migrations/20261101_003_ads_studio_manual_reports'),
+    require('../../database/migrations/20261101_004_storefront_cod'),
+];
 
 const syncDatabase = async () => {
     try {
@@ -48,6 +54,13 @@ const syncDatabase = async () => {
         await growthFollowupsMigration.up(sequelize);
         await growthNotesMigration.up(sequelize);
         await temporaryPasswordMigration.up(sequelize);
+        // These migrations are repeat-safe and restore DB-only checks and
+        // composite tenant constraints after sequelize.sync on the wipe path.
+        if (sequelize.getDialect() === 'postgres') {
+            for (const migration of founderPilotSchemaMigrations) {
+                await migration.up(sequelize);
+            }
+        }
         console.log('Database synchronized and migrations applied successfully.');
         process.exit(0);
     } catch (error) {
