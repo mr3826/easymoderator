@@ -38,8 +38,12 @@ jest.mock('src/modules/conversation/conversation.entity', () => ({
     Message: { findAll: jest.fn(async () => []), count: jest.fn(async () => 1) },
 }));
 const mockStoredAiMessageUpdate = jest.fn();
+const mockRecordAcceptedAiReply = jest.fn();
 const mockStoreAIResponse = jest.fn(async (_conversationId, content) => ({
     message: { id: 'ai-1', content, metadata: {}, update: mockStoredAiMessageUpdate },
+}));
+jest.mock('src/modules/subscription/ai-reply-shadow-ledger.service', () => ({
+    recordAcceptedAiReply: (...args) => mockRecordAcceptedAiReply(...args),
 }));
 jest.mock('src/modules/conversation/conversation-state-standalone.service', () => ({
     detectLanguage: jest.fn(() => 'mixed'),
@@ -191,6 +195,7 @@ const operatingContextHash = (context) => crypto.createHash('sha256')
 
 beforeEach(() => {
     jest.clearAllMocks();
+    mockRecordAcceptedAiReply.mockResolvedValue({ recorded: false, reason: 'flag_off' });
     mockFaqFindAll.mockResolvedValue([]);
     mockGetOperatingContext.mockResolvedValue('');
     Conversation.findOne.mockResolvedValue({ id: 'conv-1', hitl: false, status: 'open' });
@@ -206,6 +211,10 @@ beforeEach(() => {
     mockGetProductsByIds.mockImplementation(async (ids, shopId) => ids.includes('p-1') && shopId === SHOP
         ? [liveProductRow()]
         : []);
+});
+
+afterEach(() => {
+    delete Message.findOne;
 });
 
 describe('conversation history preserves grounded product references', () => {
@@ -230,6 +239,45 @@ describe('conversation history preserves grounded product references', () => {
 });
 
 describe('grounded replies reach Meta intact', () => {
+    test('retrying an already provider-accepted AUTO candidate records shadow usage without sending again', async () => {
+        const acceptedAt = '2026-11-01T00:00:01.000Z';
+        Message.findOne = jest.fn(async ({ where }) => {
+            if (where.send_idempotency_key) {
+                return {
+                    id: 'ai-1',
+                    sender: 'ai',
+                    content: 'Accepted reply',
+                    delivery_source: 'AUTO',
+                    delivery_state: 'SENT',
+                    provider_message_id: 'provider-accepted-1',
+                    metadata: {
+                        logical_turn_id: 'turn-1',
+                        delivery_source: 'AUTO',
+                        delivered: true,
+                        provider_send_confirmed: true,
+                        provider_message_id: 'provider-accepted-1',
+                        provider_accepted_at: acceptedAt,
+                    },
+                };
+            }
+            return null;
+        });
+        mockRecordAcceptedAiReply.mockResolvedValueOnce({ recorded: true, reason: null });
+
+        const result = await processMessageJob(job());
+
+        expect(result).toEqual(expect.objectContaining({
+            success: true,
+            sent: true,
+            reason: 'provider_send_already_claimed',
+        }));
+        expect(mockRecordAcceptedAiReply).toHaveBeenCalledWith(expect.objectContaining({
+            shopId: SHOP,
+            acceptedAt,
+        }));
+        expect(sendMessage).not.toHaveBeenCalled();
+    });
+
     test('product presentation contracts are persisted with the grounded AI message', async () => {
         const productPresentation = {
             schemaVersion: '1', status: 'READY', shopId: SHOP,

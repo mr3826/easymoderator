@@ -15,6 +15,7 @@ vi.mock('react-i18next', async (importOriginal) => {
         'nav.messages': 'Inbox',
         'nav.customers': 'Customers',
         'nav.products': 'Products',
+        'addons.navTitle': 'Add-ons',
         'nav.businessInfo': 'Business info',
         'nav.chat': 'Chat settings',
         'nav.delivery': 'Delivery settings',
@@ -62,14 +63,14 @@ function renderLayout(pathname = '/dashboard') {
 }
 
 describe('DashboardLayout navigation', () => {
-  it('keeps five direct mobile destinations and leaves Settings in the account menu', () => {
+  it('keeps six direct mobile destinations and leaves Settings in the account menu', () => {
     renderLayout('/inbox')
     const navigations = screen.getAllByRole('navigation', { name: 'Workspace navigation' })
     const mobileNavigation = navigations[1]
     const links = within(mobileNavigation).getAllByRole('link')
 
     expect(links.map((link) => link.textContent)).toEqual([
-      'Home', 'Inbox', 'Orders', 'Customers', 'Products',
+      'Home', 'Inbox', 'Orders', 'Customers', 'Products', 'Add-ons',
     ])
     expect(within(mobileNavigation).queryByRole('link', { name: /More|Settings/i })).not.toBeInTheDocument()
     expect(within(mobileNavigation).getByRole('link', { name: 'Customers' })).toHaveAttribute('href', '/customers')

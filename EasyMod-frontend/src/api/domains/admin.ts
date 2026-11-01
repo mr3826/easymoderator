@@ -63,13 +63,18 @@ export const adminApi = {
 
   // Pilot intelligence rollout (Customer 360 / Order Confidence). SUPER_ADMIN writes.
   getPilotFeatures: (id: string) => get<AdminPilotFeatures>(`/api/admin/shops/${id}/pilot-features`),
-  setPilotFeatures: (id: string, body: Partial<Pick<AdminPilotFeatures, 'customer_intelligence' | 'order_confidence_mode'>>) =>
+  setPilotFeatures: (id: string, body: Partial<Pick<AdminPilotFeatures,
+    'customer_intelligence' | 'order_confidence_mode' | 'ads_studio' | 'storefront' | 'ai_reply_shadow_meter'>>) =>
     patch<AdminPilotFeatures>(`/api/admin/shops/${id}/pilot-features`, body),
 };
 
 export type AdminPilotFeatures = {
   shop_id: string;
   customer_intelligence: boolean;
+  ads_studio: boolean;
+  storefront: boolean;
+  ai_reply_shadow_meter: boolean;
+  ai_reply_shadow_meter_enabled_at: string | null;
   order_confidence_mode: 'off' | 'shadow' | 'enforce';
   order_confidence_config: { high_value_cod_threshold: number; address_min_length: number };
   updated_by: string | null;

@@ -10,17 +10,17 @@
     "meta": {
       "landingTitle": "EasyModerator | Messenger কাস্টমার সাপোর্ট ও অর্ডার পর্যালোচনা",
       "landingDescription": "Facebook Messenger-এ কাস্টমার সাপোর্ট দিন, সংরক্ষিত পণ্যের তথ্য দিয়ে রিপ্লাই দিন এবং পরের পদক্ষেপের আগে অর্ডারের তথ্য যাচাই করুন।",
-      "pricingTitle": "EasyModerator-এর মূল্য | Shuru, Growth ও Partner",
+      "pricingTitle": "EasyModerator-এর মূল্য | Get Your Moderator, Moderator Plus ও Partnership",
       "pricingDescription": "EasyModerator-এর বর্তমান প্ল্যান মূল্য, কথোপকথনের সীমা এবং Partner বিলিংয়ের তথ্য তুলনা করুন।",
       "authTitle": "EasyModerator অ্যাকাউন্টে প্রবেশ",
       "authDescription": "EasyModerator মার্চেন্ট অ্যাকাউন্টে লগইন করুন অথবা নতুন অ্যাকাউন্ট তৈরি করুন।"
     },
     "landingV6": {
-      "heroEyebrow": "Facebook Messenger-এ কাস্টমার সাপোর্ট",
-      "heroTitle": "আপনি বিক্রিতে মন দিন। কাস্টমারের প্রশ্ন আর অর্ডারের কাজে পাশে থাকুক আপনার Moderator।",
-      "heroBody": "EasyModerator বর্তমানে শুধু Facebook Page Messenger সমর্থন করে। শপে সংরক্ষিত পণ্যের তথ্য রিপ্লাইয়ে সাহায্য করতে পারে; অনুমোদিত ব্যক্তি পাঠানো পর্যন্ত Draft পাঠানো হয় না, আর অর্ডারের অনুরোধ মানেই নিশ্চিত অর্ডার নয়।",
-      "primaryCta": "Shuru অ্যাকাউন্ট তৈরি করুন",
-      "secondaryCta": "যেভাবে কাজ করে দেখুন",
+      "heroEyebrow": "Messenger-এর কাজ আগে, pilot tool-এর সীমা স্পষ্ট",
+      "heroTitle": "মেসেঞ্জারের মেসেজ থেকে অর্ডার, বিজ্ঞাপনের রিপোর্ট থেকে সিদ্ধান্ত—সব এক ড্যাশবোর্ডে",
+      "heroBody": "EasyModerator-এর মূল কাজ Facebook Page Messenger কাস্টমার সাপোর্ট, সংরক্ষিত পণ্যের তথ্য ও অর্ডার পর্যালোচনা। Ads Studio ও Storefront সীমিত, অনুমোদনসাপেক্ষ pilot—ডিফল্টে সক্রিয় নয়, billing terms-ও চালু হয়নি।",
+      "primaryCta": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
+      "secondaryCta": "শুরু করার তিন ধাপ দেখুন",
       "sampleLabel": "Messenger রিপ্লাই ও অর্ডার পর্যালোচনার উদাহরণ",
       "sampleInbox": "কাস্টমার সাপোর্ট",
       "sampleConversationTitle": "কাস্টমারের মেসেজ · উদাহরণ",
@@ -38,9 +38,63 @@
       "orderNotConfirmed": "অনুরোধ মানেই নিশ্চিত অর্ডার বা ডেলিভারি নয়।",
       "illustrationCaption": "শুধু উদাহরণ · এটি নমুনা ইন্টারফেস, কাস্টমার অ্যাকাউন্ট বা পণ্যের স্ক্রিনশট নয়।",
       "founderPromise": "আপনার ব্যবসা। আমাদের প্রযুক্তি। এগিয়ে চলি একসাথে।",
-      "capabilityEyebrow": "মূল কাজগুলো, এক জায়গায়",
-      "capabilityTitle": "কাস্টমারকে সহায়তা দিন, অর্ডারের সিদ্ধান্ত স্পষ্ট রাখুন।",
-      "capabilityBody": "EasyModerator সমর্থিত Facebook Messenger কাস্টমার সাপোর্টকে সংরক্ষিত পণ্যের তথ্য ও অর্ডার পর্যালোচনার সঙ্গে যুক্ত করে। একজন বা একটি দল—দুইভাবেই কাজ করা যায়।",
+      "featureEyebrow": "মূল টুল আর pilot-এর সীমা জেনে নিন",
+      "featureTitle": "মূল কাজ এখন। বাড়তি টুল অনুমোদনসাপেক্ষে।",
+      "features": {
+        "messenger": {
+          "title": "Messenger সাপোর্ট",
+          "body": "শুধু Facebook Page-এর DM।"
+        },
+        "orderReview": {
+          "title": "পণ্য ও অর্ডার পর্যালোচনা",
+          "body": "সংরক্ষিত পণ্যের তথ্য; পরের ধাপ মার্চেন্ট যাচাই করেন।"
+        },
+        "riskSignals": {
+          "title": "COD/RTO ঝুঁকি-সংকেত",
+          "body": "শপের প্রবেশাধিকার ও সেটিং অনুমতি দিলেই দেখা যায়।"
+        },
+        "pilotTools": {
+          "title": "Ads Studio + Storefront",
+          "body": "সীমিত pilot; আলাদা অনুমোদন প্রয়োজন।"
+        }
+      },
+      "pilotNote": "Ads Studio ও Storefront ডিফল্টে চালু নয়; pilot-এর অনুমোদন লাগে এবং billing terms এখনো সক্রিয় নয়।",
+      "capabilityEyebrow": "প্রতিষ্ঠাতাদের পাঁচটি প্রশ্ন",
+      "capabilityTitle": "বাস্তব কাজের জন্য টুল, সীমাবদ্ধতাও সামনে।",
+      "capabilityBody": "EasyModerator-এর বর্তমান Messenger ও অর্ডার কাজ ব্যবহার করুন। Ads Studio ও Storefront অনুমোদনসাপেক্ষ pilot, সাধারণ অ্যাকাউন্টের ফিচার নয়। শপের যোগ্যতা ও আলাদা প্রবেশাধিকারের ওপর ব্যবহার নির্ভর করে।",
+      "limitLabel": "সীমা:",
+      "pains": {
+        "business": {
+          "title": "ব্যবসা বাড়ছে, কিন্তু কাজ কমছে না?",
+          "solution": "সমর্থিত Facebook Page Messenger কথোপকথন, সংরক্ষিত পণ্যের তথ্য ও অর্ডার পর্যালোচনা EasyModerator ওয়ার্কস্পেসে রাখুন।",
+          "limit": "কাস্টমার চ্যানেল হিসেবে শুধু Facebook Page Messenger সমর্থিত; কাস্টমারের অনুরোধ নিশ্চিত অর্ডার নয়।",
+          "action": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন"
+        },
+        "messages": {
+          "title": "মেসেজে ডুবে যাচ্ছেন?",
+          "solution": "মার্চেন্ট ইনবক্সে Messenger কথোপকথন দেখুন এবং শপে সেট করা Manual, Draft বা Auto রিপ্লাই মোড ব্যবহার করুন।",
+          "limit": "শুধু Facebook Page Messenger। অনুমোদিত মার্চেন্ট বা টিম সদস্য না পাঠানো পর্যন্ত Draft পাঠানো হয় না; Auto mode safety check ও Meta messaging rules মেনে চলে।",
+          "action": "ইনবক্স খুলুন"
+        },
+        "fakeOrders": {
+          "title": "ফেক অর্ডার কমাতে চান?",
+          "solution": "যেসব শপে RTO Shield বা Order Confidence চালু আছে, সেখানে COD ঝুঁকি-সংকেত কোন অর্ডার আগে যাচাই করবেন তা ঠিক করতে সাহায্য করতে পারে।",
+          "limit": "ঝুঁকি-সংকেত জালিয়াতির প্রমাণ নয় বা ডেলিভারির নিশ্চয়তা নয়। সংকেতের প্রাপ্যতা শপের প্রবেশাধিকার ও সেটিংয়ের ওপর নির্ভর করে।",
+          "action": "অর্ডার পর্যালোচনা করুন"
+        },
+        "adSpend": {
+          "title": "বিজ্ঞাপনের টাকা অপচয়?",
+          "solution": "অনুমোদনসাপেক্ষ Ads Studio pilot-এ নিজের দেওয়া Meta CSV import করে সেই রিপোর্টের metrics দেখা, রিপোর্টভিত্তিক প্রস্তাব নেওয়া এবং স্পষ্ট অনুমোদনের জন্য draft তৈরি করা যায়।",
+          "limit": "সরাসরি Meta ad-account সংযোগ নয়; খরচ বদলানো বা campaign publish নয়; ROAS, profit বা EasyModerator order attribution নয়; Messenger promotion নয়। Pilot ডিফল্টে চালু নয়।",
+          "action": "pilot যোগ্যতা দেখতে লগইন করুন"
+        },
+        "cash": {
+          "title": "ক্যাশ মিলছে না?",
+          "solution": "অনুমোদনসাপেক্ষ Storefront pilot-এ শপের বেছে নেওয়া বিদ্যমান পণ্য প্রকাশ করে COD অর্ডার নেওয়া যায়। অর্ডারের রেকর্ডকে রেফারেন্স ধরে প্রকৃত টাকা পাওয়া ম্যানুয়ালি যাচাই করুন।",
+          "limit": "অর্ডারের মোট টাকা আদায়ের প্রমাণ নয়। Storefront শুধু বেছে নেওয়া পণ্য ও COD অর্ডার; online payment যাচাই, courier automation বা cash reconciliation নেই।",
+          "action": "অর্ডারের রেকর্ড দেখুন"
+        }
+      },
       "capabilities": {
         "support": {
           "title": "কাস্টমার সাপোর্ট",
@@ -55,21 +109,21 @@
           "body": "অর্ডার নিশ্চিত বা সমর্থিত পরবর্তী পদক্ষেপ নেওয়ার আগে জমা হওয়া তথ্য ও প্রযোজ্য যাচাই দেখুন।"
         }
       },
-      "workflowEyebrow": "একটি সংযুক্ত কাজের ধারা",
-      "workflowTitle": "প্রয়োজনীয় তথ্য। সিদ্ধান্তের ধাপ দৃশ্যমান।",
-      "workflowBody": "কাস্টমারের কথোপকথন, শপের তথ্য এবং পরবর্তী পদক্ষেপ একসঙ্গে থাকে—তবে Draft পাঠানো হয়েছে বা অর্ডার সম্পন্ন হয়েছে, এমন দাবি করা হয় না।",
+      "workflowEyebrow": "পরের কাজটি দিয়ে শুরু করুন",
+      "workflowTitle": "অ্যাকাউন্ট থেকে যাচাই করা পরের ধাপে তিনটি কাজ।",
+      "workflowBody": "অ্যাকাউন্ট তৈরি করুন, আপনার পরিচালিত Page যুক্ত করুন, তারপর ইনবক্স ও অর্ডারের তথ্য দেখুন। Pilot tool-এর জন্য আলাদা অনুমোদন লাগে।",
       "steps": {
         "inquiry": {
-          "title": "কাস্টমার Messenger-এ জানতে চান",
-          "body": "সমর্থিত কথোপকথনটি কাস্টমার সাপোর্ট ইনবক্সে দেখা যায়।"
+          "title": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
+          "body": "নতুন মার্চেন্ট অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। নিবন্ধনের জন্য পেমেন্টের তথ্য লাগে না।"
         },
         "context": {
-          "title": "শপের পণ্যের তথ্য দেখুন",
-          "body": "শপে সংরক্ষিত তথ্য দিয়ে রিপ্লাই তৈরি হতে পারে; মার্চেন্ট Manual, Draft বা সেট করা রিপ্লাই মোড বেছে নিতে পারেন।"
+          "title": "Facebook Page যুক্ত করুন",
+          "body": "Settings → Chat-এ Facebook দিয়ে লগইন করে আপনার পরিচালিত Page বেছে নিন। অ্যাকাউন্ট ও Page অনুযায়ী প্রবেশাধিকার ভিন্ন হতে পারে।"
         },
         "review": {
-          "title": "পরের পদক্ষেপের আগে যাচাই করুন",
-          "body": "অর্ডারের অনুরোধ ও প্রযোজ্য তথ্য দেখুন। যোগ্য কুরিয়ার অনুরোধ আলাদা পদক্ষেপ, আলাদা ফলাফল।"
+          "title": "ইনবক্স ও অর্ডার পর্যালোচনা করুন",
+          "body": "সমর্থিত পরবর্তী পদক্ষেপের আগে Messenger কথোপকথন ও অর্ডারের তথ্য যাচাই করুন। অনুরোধ মানেই নিশ্চিত অর্ডার বা টাকা পাওয়া নয়।"
         }
       },
       "storyEyebrow": "ধাপগুলো দেখুন",
@@ -81,7 +135,7 @@
       "trustEyebrow": "কাজের সীমা স্পষ্ট",
       "trustTitle": "সিদ্ধান্তের নিয়ন্ত্রণ মার্চেন্টের কাছেই থাকে।",
       "trustBody": "রিপ্লাই মোড ও অর্ডারের পদক্ষেপ শপের সেটিং এবং পণ্যে থাকা যাচাই অনুসারে চলে। প্রতিটি প্রশ্ন অর্ডারে পরিণত হবে—এমন প্রতিশ্রুতি নেই।",
-      "separateBoundary": "Shuru, Growth ও Partner-এ EasyModerator-এর মূল টুলগুলো থাকে। প্ল্যানে তার বিবরণে তালিকাভুক্ত টুলগুলোই অন্তর্ভুক্ত। কোনো সক্ষমতা আলাদাভাবে দেওয়া হলে তার দাম ও ব্যবহারের শর্ত আলাদা থাকবে।",
+      "separateBoundary": "Get Your Moderator, Moderator Plus ও Partnership যথাক্রমে বিদ্যমান SHURU, GROWTH ও PARTNER প্ল্যান রেকর্ড ব্যবহার করে। Ads Studio ও Storefront আলাদা অনুমোদনসাপেক্ষ pilot; billing terms এখনো সক্রিয় নয়।",
       "faqTitle": "মার্চেন্টদের সাধারণ প্রশ্ন",
       "faq": {
         "channel": {
@@ -98,15 +152,15 @@
         },
         "plans": {
           "question": "নতুন অ্যাকাউন্টে কোন প্ল্যান থাকে?",
-          "answer": "নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়। নিচের প্ল্যানের দাম ও সীমা প্রকাশিত সাবস্ক্রিপশন প্ল্যানের তালিকা থেকে আসে।"
+          "answer": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। বর্তমান কথোপকথনের সীমা ও দাম প্রকাশিত প্ল্যান ক্যাটালগ থেকে আসে; AI-গৃহীত রিপ্লাইয়ের লক্ষ্য আলাদা shadow measurement মাত্র।"
         },
         "separate": {
           "question": "সাবস্ক্রিপশনে কি অন্য পণ্যও অন্তর্ভুক্ত?",
-          "answer": "প্ল্যানে তার বিবরণে তালিকাভুক্ত টুলগুলোই অন্তর্ভুক্ত। কোনো সক্ষমতা আলাদাভাবে দেওয়া হলে তার দাম ও ব্যবহারের শর্ত আলাদা থাকবে।"
+          "answer": "Ads Studio ও Storefront ঐচ্ছিক pilot; শপ অনুমোদিত ও opt-in করলেই ব্যবহার করা যাবে। এদের billing terms সক্রিয় নয় এবং মূল প্ল্যানের বিলিংও বদলায় না।"
         }
       },
       "closingTitle": "কাস্টমার সাপোর্ট ও অর্ডারের কাজ সামলানোর আরও পরিষ্কার উপায়।",
-      "closingBody": "Shuru-তে EasyModerator অ্যাকাউন্ট তৈরি করে ড্যাশবোর্ড থেকে পরের সেটআপ চালিয়ে যান। নিবন্ধনের জন্য পেমেন্টের তথ্য লাগে না।"
+      "closingBody": "Get Your Moderator (SHURU)-তে EasyModerator অ্যাকাউন্ট তৈরি করে ড্যাশবোর্ডে সেটআপ চালিয়ে যান। নিবন্ধনের জন্য পেমেন্টের তথ্য লাগে না।"
     },
     "nav": {
       "primary": "প্রধান নেভিগেশন",
@@ -131,7 +185,7 @@
       "title": "কাস্টমারের রিপ্লাই ও অর্ডারের কাজ গুছিয়ে চালান।",
       "body": "Facebook Messenger-এর মেসেজ, পণ্যের তথ্য, অর্ডার পর্যালোচনা ও যোগ্য অর্ডারের কুরিয়ার হ্যান্ডঅফ এক ওয়ার্কস্পেসে সামলান। AI-এর সাহায্য নিন, প্রতিটি সিদ্ধান্ত নিজের নিয়ন্ত্রণে রাখুন।",
       "primaryCta": "অ্যাকাউন্ট তৈরি করুন",
-      "signupNote": "নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়। বিলিং বেছে নেওয়ার আগে প্ল্যান তুলনা করতে পারেন।",
+      "signupNote": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। প্রকাশিত ক্যাটালগে বর্তমান কথোপকথনের সীমা ও বিলিং শর্ত দেখুন।",
       "sampleFlowLabel": "Messenger কাজের নমুনা যাত্রা",
       "sampleFlowCaption": "একটি কাস্টমার অনুরোধ, ধাপে ধাপে",
       "sampleFlowNote": "শুধু নমুনা · কোনো কাস্টমার ডেটা নয়",
@@ -195,12 +249,12 @@
           "boundary": "বুকিং, কুরিয়ারের সম্মতি, ডেলিভারি ও সেটেলমেন্ট আলাদা অবস্থা।"
         }
       },
-      "commercialBoundary": "প্রকাশিত ব্যবহারসীমা ও যোগ্যতার ধাপসহ Shuru, Growth এবং Partner-এর বর্তমান প্ল্যান তুলনা করুন।",
+      "commercialBoundary": "Get Your Moderator, Moderator Plus ও Partnership তুলনা করুন; সঙ্গে বর্তমান entitlement এবং আলাদা shadow measurement লক্ষ্য দেখুন।",
       "pricingEyebrow": "পরিষ্কার প্ল্যান পছন্দ",
       "pricingTitle": "আপনার কাজের সঙ্গে মানানসই প্ল্যান বেছে নিন",
-      "pricingBody": "নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়। Growth ও Partner-এর পরবর্তী ধাপ আলাদা; লাইভ প্ল্যান ক্যাটালগে বর্তমান শর্ত ও কাজ দেখুন।",
+      "pricingBody": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। Moderator Plus (GROWTH) ও Partnership (PARTNER)-এর বিদ্যমান সাবস্ক্রিপশন ও delivered-order billing রেকর্ড অপরিবর্তিত থাকে।",
       "closingTitle": "কাস্টমারের কাজ আরও সহজে গুছিয়ে নিন।",
-      "closingBody": "মার্চেন্ট ওয়ার্কস্পেসে যেতে অ্যাকাউন্ট তৈরি করুন। শুরু হবে Shuru-তে; বিলিং বদলানোর আগে প্ল্যান দেখতে পারবেন।",
+      "closingBody": "মার্চেন্ট ওয়ার্কস্পেসে যেতে অ্যাকাউন্ট তৈরি করুন। শুরু হবে Get Your Moderator-এ; প্ল্যান পরিবর্তন নিশ্চিত না হওয়া পর্যন্ত বিলিং বদলাবে না।",
       "brandPromise": "আপনার উদ্যোগ, আমাদের প্রযুক্তি—এগিয়ে চলি একসাথে।",
       "viewPricing": "প্ল্যান তুলনা করুন",
       "catalogLoading": "বর্তমান প্ল্যানের তথ্য লোড হচ্ছে…",
@@ -229,7 +283,7 @@
     "pricing": {
       "eyebrow": "বর্তমান পাবলিক প্ল্যান ক্যাটালগ",
       "title": "আপনার ব্যবসার কাজ সামলানোর প্ল্যান",
-      "subtitle": "প্রকাশিত প্ল্যান মূল্য, Messenger কথোপকথনের সীমা ও Partner-এর শর্ত তুলনা করুন। নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়।",
+      "subtitle": "প্রকাশিত মূল্য, বর্তমান Messenger কথোপকথনের সীমা ও Partnership-এর শর্ত তুলনা করুন। আলাদা reply target কেবল shadow measurement; বর্তমান বিলিং বদলায় না।",
       "catalogLoading": "বর্তমান প্ল্যানের তথ্য লোড হচ্ছে…",
       "catalogUnavailable": "এখন বর্তমান প্ল্যানের তথ্য পাওয়া যাচ্ছে না। প্রকাশিত ক্যাটালগ লোড করতে আবার চেষ্টা করুন।",
       "retryCatalog": "আবার চেষ্টা করুন",
@@ -242,23 +296,34 @@
       "unlimitedOrders": "সীমাহীন অর্ডার",
       "unlimitedProducts": "সীমাহীন পণ্য",
       "includedLimits": "প্রকাশিত প্ল্যান সীমা",
-      "shuruAction": "Shuru অ্যাকাউন্ট তৈরি করুন",
-      "growthAction": "Growth-এর বিকল্পগুলো দেখুন",
-      "newAccountsNote": "নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়। সাইন আপের পর Growth দেখতে পারবেন; নিবন্ধন করলেই পেইড প্ল্যান চালু হয় না।",
+      "shuruAction": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
+      "growthAction": "Moderator Plus দেখুন",
+      "getModeratorAction": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
+      "moderatorPlusAction": "Moderator Plus দেখুন",
+      "moderatorPlusNewAccountsNote": "নতুন শপ Get Your Moderator দিয়ে শুরু হয়। Moderator Plus দেখলেই upgrade চালু হয় না।",
+      "partnershipAction": "Partnership পর্যালোচনার অনুরোধ",
+      "partnershipReviewNote": "Partnership আবেদন পর্যালোচনার জন্য জমা হয়; delivered-order billing চালু হয় না।",
+      "partnershipApplicationTitle": "Partnership আবেদন",
+      "partnershipApplicationDescription": "পর্যালোচনার জন্য ব্যবসার তথ্য দিন। এই ফর্মে প্রকৃত আবেদন জমা হয়, প্ল্যান বদলায় না।",
+      "partnershipSuccessTitle": "Partnership অনুরোধ পাওয়া গেছে",
+      "partnershipSuccessBody": "আপনার অনুরোধ পর্যালোচনার জন্য নথিভুক্ত হয়েছে। চালুর আগে delivered-order billing ও যোগ্যতা নিশ্চিত করা হবে।",
       "growthMonthlyNote": "Growth-এর মাসিক মূল্য দেখানো হয়েছে। নতুন বার্ষিক নির্বাচন পাওয়া যাচ্ছে না।",
-      "coreFeatureParity": "তিনটি প্ল্যানেই একই মূল কাস্টমার সাপোর্ট ও কমার্স টুল আছে। কথোপকথনের সীমা, Partner-এর বিলিং ও আবেদনের শর্তে পার্থক্য।",
-      "topupsTitle": "শুধু Growth-এর কথোপকথন প্যাক",
-      "topupsCaveat": "শুধু যোগ্য Growth অ্যাকাউন্টের জন্য। প্রতিটি প্যাক আলাদা এককালীন কেনাকাটা; মাসিক প্ল্যান ফি-এর অংশ নয়। bKash checkout চালু থাকলে সফল পেমেন্টে কথোপকথন প্যাকের ব্যালেন্সে যোগ হয়। অব্যবহৃত ব্যালেন্স পরের বিলিং পিরিয়ডেও থাকে। প্ল্যানে থাকা কথোপকথন সীমা এবং প্যাকের ব্যালেন্স—দুটিই শেষ হলে AI রিপ্লাই থামে; নিজে লিখে রিপ্লাই দেওয়া চালু থাকে।",
-      "partnerQualification": "Partner আবেদন যাচাই করে অনুমোদন করা হয়। যোগ্য হতে গত ৩০ দিনের চলমান হিসাবে অন্তত ৩০০টি ডেলিভারি সম্পন্ন হওয়া অর্ডার থাকতে হবে।",
-      "partnerRateTitle": "Partner-এ অর্ডার বিলের হিসাব",
-      "partnerBillingNote": "Partner অ্যাকাউন্টের প্রতিটি বিলিং সময়ে ০–২৯৯টি ডেলিভারি সম্পন্ন অর্ডার হলে প্রতি অর্ডারে কোনো ফি নেই। ৩০০ বা বেশি হলে ওই সময়ের নির্ধারিত রেট প্রতিটি ডেলিভারি সম্পন্ন অর্ডারে প্রযোজ্য। সময়সীমা আপনার অ্যাকাউন্টের বিলিং তারিখ অনুযায়ী, ক্যালেন্ডার মাস অনুযায়ী নয়। আবেদনের যোগ্যতা আলাদা চলমান ৩০ দিনের হিসাবে যাচাই হয়।",
+      "coreFeatureParity": "Get Your Moderator, Moderator Plus ও Partnership বিদ্যমান SHURU, GROWTH ও PARTNER রেকর্ড ব্যবহার করে। বর্তমান কথোপকথনের entitlement এবং Partnership delivered-order billing-ই কার্যকর থাকবে।",
+      "topupsTitle": "Moderator Plus (GROWTH) কথোপকথন প্যাক",
+      "topupsCaveat": "শুধু যোগ্য Moderator Plus (GROWTH) অ্যাকাউন্টের জন্য। প্রতিটি প্যাক আলাদা এককালীন কেনাকাটা; মাসিক প্ল্যান ফি-এর অংশ নয়। bKash checkout চালু থাকলে সফল পেমেন্টে কথোপকথনের credit যোগ হয়। অব্যবহৃত ব্যালেন্স পরের billing period-এ থাকে। প্ল্যানের কথোপকথন সীমা ও top-up balance—দুটিই শেষ হলে AI reply থামে; নিজে লিখে reply দেওয়া চালু থাকে।",
+      "partnerQualification": "Partnership আবেদন যাচাই করে অনুমোদন করা হয়। যোগ্য হতে গত ৩০ দিনের চলমান হিসাবে অন্তত ৩০০টি ডেলিভারি সম্পন্ন হওয়া অর্ডার থাকতে হবে।",
+      "partnerRateTitle": "Partnership-এ অর্ডার বিলের হিসাব",
+      "partnerBillingNote": "Partnership অ্যাকাউন্টের প্রতিটি বিলিং সময়ে ০–২৯৯টি ডেলিভারি সম্পন্ন অর্ডার হলে প্রতি অর্ডারে কোনো ফি নেই। ৩০০ বা বেশি হলে ওই সময়ের নির্ধারিত রেট প্রতিটি ডেলিভারি সম্পন্ন অর্ডারে প্রযোজ্য। সময়সীমা আপনার অ্যাকাউন্টের বিলিং তারিখ অনুযায়ী, ক্যালেন্ডার মাস অনুযায়ী নয়। আবেদনের যোগ্যতা আলাদা চলমান ৩০ দিনের হিসাবে যাচাই হয়।",
       "partnerThresholdExample": "{{belowThresholdOrders}}টি ডেলিভারি সম্পন্ন অর্ডারে প্রতি-অর্ডার ফি ৳০। {{orders}}টিতে: {{orders}} × ৳{{rate}} = ওই বিলিং পিরিয়ডে ৳{{total}}।",
-      "partnerAction": "Partner পর্যালোচনার অনুরোধ",
-      "partnerReviewNote": "আবেদন জমা দিলে পর্যালোচনার অনুরোধ হয়; Partner বিলিং চালু হয় না।",
+      "partnerAction": "Partnership পর্যালোচনার অনুরোধ",
+      "partnerReviewNote": "আবেদন জমা দিলে পর্যালোচনা হয়; Partnership billing চালু হয় না।",
       "topupPack": "{{amount}}টি কথোপকথন · প্রতি প্যাক ৳{{price}}",
-      "catalogUnitNote": "অ্যাকাউন্টের বিলিং পিরিয়ড অনুযায়ী কথোপকথনের সীমা প্রযোজ্য। প্রতি মেসেজ বা AI রিপ্লাইয়ের জন্য আলাদা কথোপকথন গণনা হয় না।",
-      "separateBoundary": "এই প্ল্যানগুলো EasyModerator-এর মূল কাস্টমার সাপোর্ট ও কমার্স টুল কভার করে। প্ল্যানে তার বিবরণে তালিকাভুক্ত টুলগুলোই অন্তর্ভুক্ত। কোনো সক্ষমতা আলাদাভাবে দেওয়া হলে তার দাম ও ব্যবহারের শর্ত আলাদা থাকবে।",
-      "applicationTitle": "Partner আবেদন",
+      "catalogUnitNote": "বর্তমান সীমা ও top-up অ্যাকাউন্টের billing period-এ Messenger কথোপকথন গণনা করে। আলাদা ৩০০/৩,০০০ Meta-তে গৃহীত AI-generated reply লক্ষ্য শুধু UTC calendar-month shadow measurement: কোনো ফি বা enforcement নেই, কথোপকথনের credit-ও রূপান্তর হয় না।",
+      "separateBoundary": "Get Your Moderator, Moderator Plus ও Partnership যথাক্রমে SHURU, GROWTH ও PARTNER রেকর্ড ব্যবহার করে। Ads Studio ও Storefront ঐচ্ছিক pilot, শপ অনুমোদন লাগে এবং billing terms সক্রিয় নয়।",
+      "shadowAllowanceLabel": "বিলযোগ্য নয় এমন support reply measurement",
+      "shadowAllowanceTitle": "প্রতি UTC calendar মাসে {{amount}}টি Meta-তে গৃহীত AI-generated reply (shadow লক্ষ্য)",
+      "shadowAllowanceNote": "শুধু shadow measurement—ফি নেই, quota enforce হয় না। সক্রিয় সীমা {{conversations}}টি Messenger কথোপকথনই থাকবে; Moderator Plus top-up-এ কথোপকথনই যোগ হয়।",
+      "applicationTitle": "Partnership আবেদন",
       "applicationDescription": "পর্যালোচনার জন্য আপনার ব্যবসার তথ্য দিন। এই ফর্মে আবেদন জমা হবে, আপনার প্ল্যান বদলাবে না।",
       "businessName": "ব্যবসার নাম",
       "phone": "ফোন নম্বর",
@@ -268,10 +333,36 @@
       "applicationSubmit": "পর্যালোচনার জন্য আবেদন পাঠান",
       "applicationSending": "পাঠানো হচ্ছে…",
       "applicationSuccessTitle": "আবেদন পাওয়া গেছে",
-      "applicationSuccessBody": "আপনার Partner আবেদন পর্যালোচনার জন্য নথিভুক্ত হয়েছে। আপনার বর্তমান প্ল্যান বদলায়নি।",
+      "applicationSuccessBody": "আপনার Partnership আবেদন পর্যালোচনার জন্য নথিভুক্ত হয়েছে। আপনার বর্তমান প্ল্যান বদলায়নি।",
       "applicationClose": "বন্ধ করুন",
       "applicationError": "আবেদন পাঠানো যায়নি। পরে আবার চেষ্টা করুন।",
       "fieldRequired": "এই ঘরটি পূরণ করুন।"
+    },
+    "addons": {
+      "eyebrow": "ঐচ্ছিক add-on",
+      "title": "শপের প্রয়োজনমতো pilot tool বেছে নিন",
+      "availability": "দুটি add-on-ই অনুমোদনসাপেক্ষ pilot। billing terms সক্রিয় নয়; এখানে কোনো add-on-এর দাম বা charge দেখানো হচ্ছে না।",
+      "optionalLabel": "ঐচ্ছিক pilot add-on",
+      "pilotTerms": "pilot ব্যবহারে শপ অনুমোদন ও owner/admin-এর opt-in প্রয়োজন। billing terms সক্রিয় নয়।",
+      "checkEligibility": "যোগ্যতা দেখতে লগইন করুন",
+      "catalogUnavailable": "ঐচ্ছিক add-on-এর তথ্য এখন পাওয়া যাচ্ছে না।",
+      "adsStudio": {
+        "summary": "নিজের দেওয়া Meta Ads CSV import করে রিপোর্টে থাকা metrics দেখুন, তথ্যভিত্তিক প্রস্তাব নিন এবং স্পষ্ট অনুমোদনের জন্য draft সংরক্ষণ করুন।",
+        "limits": [
+          "সরাসরি Meta Ads account সংযোগ নেই।",
+          "Draft অনুমোদন campaign publish করে না বা ad spend বদলায় না।",
+          "EasyModerator order attribution, ROAS বা profit calculation নেই।",
+          "Messenger promotional broadcast নেই।"
+        ]
+      },
+      "storefront": {
+        "summary": "শপের বিদ্যমান পণ্য ও variant বেছে প্রকাশ করুন এবং যাচাই করা COD অর্ডার বর্তমান workspace-এ নিন।",
+        "limits": [
+          "বিদ্যমান product, inventory, customer ও order record ব্যবহার করে।",
+          "শুধু COD; online payment যাচাই নেই।",
+          "Courier automation বা Meta catalog sync নেই।"
+        ]
+      }
     },
     "landingV5": {
       "hero": {
@@ -418,15 +509,15 @@
       "plans": {
         "eyebrow": "বাণিজ্যিক প্ল্যান",
         "title": "আপনার ব্যবসার ধরন অনুযায়ী প্ল্যান।",
-        "body": "Shuru, Growth ও Partner হলো EasyModerator-এর মূল টুলের সাবস্ক্রিপশন। নিচের দাম ও কথোপকথনের সীমা লাইভ ক্যাটালগ থেকে আসে। প্ল্যানে তার বিবরণে তালিকাভুক্ত টুলগুলোই অন্তর্ভুক্ত। কোনো সক্ষমতা আলাদাভাবে দেওয়া হলে তার দাম ও ব্যবহারের শর্ত আলাদা থাকবে।",
-        "partnerBilling": "ডেলিভারি সফল হলে প্রতি অর্ডারে বিলিং",
-        "topupBoundary": "শুধু Growth অ্যাকাউন্টে: অ্যাকাউন্ট যোগ্য হলে এবং bKash checkout চালু থাকলে প্রতিটি প্যাক আলাদা দামে একবার কেনা যায়।",
-        "growthIntentNote": "নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়। সাইন আপের পর অ্যাকাউন্ট থেকে Growth দেখতে পারবেন; নিবন্ধন করলেই পেইড প্ল্যান চালু হয় না।",
-        "catalogNote": "কথোপকথন সীমায় প্রতিটি মেসেজ বা AI রিপ্লাই নয়, কাস্টমারের কথোপকথন গণনা হয়। লাইভ ক্যাটালগ না এলে বর্তমান প্ল্যানের তথ্য দেখানো হয় না।",
+        "body": "Get Your Moderator (SHURU), Moderator Plus (GROWTH) অথবা Partnership (PARTNER) বেছে নিন। বর্তমান দাম ও কথোপকথনের সীমা লাইভ ক্যাটালগ থেকে আসে; ৩০০/৩,০০০ accepted AI reply লক্ষ্য শুধু shadow mode-এ মাপা হয়। Ads Studio ও Storefront আলাদা অনুমোদনসাপেক্ষ pilot; billing terms সক্রিয় নয়।",
+        "partnerBilling": "কোনো upfront subscription নেই; delivered-order billing",
+        "topupBoundary": "শুধু Moderator Plus (GROWTH)-এ: যোগ্য অ্যাকাউন্টে bKash checkout চালু থাকলে কথোপকথনের credit pack আলাদাভাবে কেনা যায়।",
+        "growthIntentNote": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। সাইন আপের পর Moderator Plus দেখতে পারবেন; নিবন্ধন করলেই পেইড প্ল্যান চালু হয় না।",
+        "catalogNote": "বর্তমান সীমা ও top-up অ্যাকাউন্টের billing period-এ Messenger কথোপকথন গণনা করে। আলাদা ৩০০/৩,০০০ Meta-তে গৃহীত AI-generated reply লক্ষ্য শুধু UTC calendar-month shadow measurement: কোনো ফি বা enforcement নেই, কথোপকথনের credit-ও রূপান্তর হয় না।",
         "actions": {
-          "shuru": "Shuru অ্যাকাউন্ট তৈরি করুন",
-          "growth": "Growth-এর পথ দেখুন",
-          "partner": "Partner-এর শর্ত দেখুন"
+          "shuru": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
+          "growth": "Moderator Plus দেখুন",
+          "partner": "Partnership পর্যালোচনার অনুরোধ"
         }
       },
       "trust": {
@@ -451,16 +542,16 @@
     "auth": {
       "createAccount": "Shuru অ্যাকাউন্ট তৈরি করুন",
       "createAccountHeading": "আপনার অ্যাকাউন্টের তথ্য",
-      "createShuruButton": "Shuru অ্যাকাউন্ট তৈরি করুন",
+      "createShuruButton": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
       "creatingAccount": "অ্যাকাউন্ট তৈরি হচ্ছে…",
       "email": "ইমেইল",
       "emailPlaceholder": "you@example.com",
       "forgotPassword": "পাসওয়ার্ড ভুলে গেছেন?",
-      "growthReviewOnShuru": "আপনার অ্যাকাউন্ট Shuru-তে শুরু হবে। সাইন আপের পর Growth প্ল্যান দেখতে পারবেন; অ্যাকাউন্ট তৈরি করলেই পেইড প্ল্যান চালু হয় না।",
+      "growthReviewOnShuru": "আপনার অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হবে। সাইন আপের পর Moderator Plus দেখতে পারবেন; অ্যাকাউন্ট তৈরি করলেই পেইড প্ল্যান চালু হয় না।",
       "haveAccount": "আপনার কি EasyModerator অ্যাকাউন্ট আছে?",
       "hidePassword": "অক্ষর লুকান",
       "nameHelper": "আপনার নাম অ্যাকাউন্ট ও প্রথম শপে ব্যবহার হবে। পরে ব্যবসার তথ্য থেকে শপের নাম বদলাতে পারবেন।",
-      "newAccountsStartOnShuru": "অ্যাকাউন্টের সঙ্গে Shuru সাবস্ক্রিপশন তৈরি হয়। অন্য বর্তমান প্ল্যান আলাদাভাবে দেখতে পারবেন।",
+      "newAccountsStartOnShuru": "অ্যাকাউন্টের সঙ্গে Get Your Moderator (SHURU) সাবস্ক্রিপশন তৈরি হয়। অন্য বর্তমান প্ল্যান আলাদাভাবে দেখতে পারবেন।",
       "noAccount": "EasyModerator-এ নতুন?",
       "noPaidSubscriptionOnSignup": "অ্যাকাউন্ট তৈরির জন্য পেমেন্টের তথ্য প্রয়োজন নেই।",
       "panelKicker": "অ্যাকাউন্টে প্রবেশ",
@@ -479,7 +570,7 @@
       "privacyPolicy": "গোপনীয়তা নীতি",
       "rememberMe": "এই ডিভাইসে আমাকে সাইন-ইন রাখুন",
       "showPassword": "অক্ষর দেখান",
-      "shuruPlanLabel": "শুরুর প্ল্যান · Shuru",
+      "shuruPlanLabel": "শুরুর প্ল্যান · Get Your Moderator",
       "signInButton": "লগইন",
       "signInKicker": "আবার স্বাগতম",
       "signInPanelBody": "EasyModerator ড্যাশবোর্ড থেকে কাস্টমার সাপোর্ট, রিপ্লাই ও অর্ডারের কাজ চালিয়ে যান।",

@@ -52,6 +52,10 @@ const ReconciliationDispute = require('./reconciliation/reconciliation-dispute.e
 const GrowthOsUserRole = require('./growth-os/growth-os-user-role.entity');
 // Pilot intelligence — Customer 360 Lite, Sales Opportunities, Order Confidence
 const ShopPilotFeatures = require('./pilot-features/shop-pilot-features.entity');
+const ShopAddon = require('./shop-addons/shop-addon.entity');
+const { AiReplyShadowLedger } = require('./subscription/ai-reply-shadow-ledger.entity');
+const { AdsStudioReport, AdsStudioCampaignMetric, AdsStudioDraft } = require('./ads-studio/ads-studio.entity');
+const { Storefront, StorefrontProduct } = require('./storefront/storefront.entity');
 const CustomerOpportunity = require('./customer-intelligence/customer-opportunity.entity');
 const OrderConfidence = require('./order-confidence/order-confidence.entity');
 
@@ -487,6 +491,25 @@ Order.hasMany(CourierDispatch, { foreignKey: 'order_id', as: 'courier_dispatches
 // Pilot intelligence relationships
 Shop.hasOne(ShopPilotFeatures, { foreignKey: 'shop_id', as: 'pilot_features' });
 ShopPilotFeatures.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
+Shop.hasMany(ShopAddon, { foreignKey: 'shop_id', as: 'addons', onDelete: 'CASCADE' });
+ShopAddon.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
+ShopAddon.belongsTo(User, { foreignKey: 'enabled_by', as: 'enabledBy' });
+Shop.hasMany(AiReplyShadowLedger, { foreignKey: 'shop_id', as: 'aiReplyShadowUsage' });
+AiReplyShadowLedger.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
+Shop.hasMany(AdsStudioReport, { foreignKey: 'shop_id', as: 'adsStudioReports', onDelete: 'CASCADE' });
+AdsStudioReport.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
+AdsStudioReport.belongsTo(User, { foreignKey: 'importer_user_id', as: 'importer', onDelete: 'RESTRICT', onUpdate: 'CASCADE' });
+AdsStudioReport.hasMany(AdsStudioCampaignMetric, { foreignKey: 'report_id', as: 'campaignMetrics', onDelete: 'CASCADE' });
+AdsStudioCampaignMetric.belongsTo(AdsStudioReport, { foreignKey: 'report_id', as: 'report' });
+AdsStudioDraft.belongsTo(AdsStudioReport, { foreignKey: 'report_id', as: 'report', onDelete: 'RESTRICT', onUpdate: 'CASCADE' });
+AdsStudioDraft.belongsTo(AdsStudioCampaignMetric, { foreignKey: 'campaign_metric_id', as: 'campaignMetric', onDelete: 'RESTRICT', onUpdate: 'CASCADE' });
+AdsStudioDraft.belongsTo(User, { foreignKey: 'created_by', as: 'createdBy', onDelete: 'RESTRICT', onUpdate: 'CASCADE' });
+AdsStudioDraft.belongsTo(User, { foreignKey: 'approved_by', as: 'approvedBy', onDelete: 'RESTRICT', onUpdate: 'CASCADE' });
+Shop.hasOne(Storefront, { foreignKey: 'shop_id', as: 'storefront', onDelete: 'CASCADE' });
+Storefront.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
+Storefront.hasMany(StorefrontProduct, { foreignKey: 'storefront_id', as: 'selectedProducts', onDelete: 'CASCADE' });
+StorefrontProduct.belongsTo(Storefront, { foreignKey: 'storefront_id', as: 'storefront' });
+StorefrontProduct.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
 CustomerOpportunity.belongsTo(Customer, { foreignKey: 'customer_id', as: 'customer' });
 Customer.hasMany(CustomerOpportunity, { foreignKey: 'customer_id', as: 'opportunities' });
 OrderConfidence.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
@@ -641,6 +664,13 @@ module.exports = {
     ReconciliationDispute,
     GrowthOsUserRole,
     ShopPilotFeatures,
+    ShopAddon,
+    AiReplyShadowLedger,
+    AdsStudioReport,
+    AdsStudioCampaignMetric,
+    AdsStudioDraft,
+    Storefront,
+    StorefrontProduct,
     CustomerOpportunity,
     OrderConfidence,
     // Phase 1 — Meta Integration Redesign

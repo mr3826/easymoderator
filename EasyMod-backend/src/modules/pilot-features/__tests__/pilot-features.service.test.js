@@ -22,6 +22,10 @@ describe('getPilotFeatures', () => {
             interactionChoices: false,
             actionQueue: false,
             knowledgeSuggestions: false,
+            adsStudio: false,
+            storefront: false,
+            aiReplyShadowMeter: false,
+            aiReplyShadowMeterEnabledAt: null,
         });
     });
 
@@ -39,6 +43,10 @@ describe('getPilotFeatures', () => {
             interactionChoices: true,
             actionQueue: false,
             knowledgeSuggestions: false,
+            adsStudio: false,
+            storefront: false,
+            aiReplyShadowMeter: false,
+            aiReplyShadowMeterEnabledAt: null,
         });
     });
 
@@ -51,6 +59,13 @@ describe('getPilotFeatures', () => {
         mockModel.findByPk.mockRejectedValue(new Error('db down'));
         expect((await service.getPilotFeatures('shop-1')).orderConfidenceMode).toBe('off');
         expect(metrics.snapshot().counters['pilot_features.lookup_failed']).toBe(1);
+    });
+
+    test('strict lookup distinguishes an unavailable flag store from an off shop flag', async () => {
+        mockModel.findByPk.mockRejectedValue(new Error('db down'));
+
+        await expect(service.getPilotFeaturesStrict('shop-1'))
+            .rejects.toMatchObject({ status: 503, code: 'PILOT_FEATURES_UNAVAILABLE' });
     });
 });
 
@@ -79,6 +94,24 @@ describe('setPilotFeatures', () => {
         mockModel.findByPk.mockResolvedValue(null);
         await expect(service.setPilotFeatures('shop-1', { order_confidence_mode: 'maybe' }, 'a'))
             .rejects.toMatchObject({ status: 400 });
+    });
+
+    test('records the exact platform activation boundary for shadow usage', async () => {
+        mockShop.findByPk.mockResolvedValue({ id: 'shop-1' });
+        mockModel.findByPk
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({
+                ai_reply_shadow_meter: true,
+                ai_reply_shadow_meter_enabled_at: new Date('2026-11-01T12:00:00.000Z'),
+            });
+
+        const result = await service.setPilotFeatures('shop-1', { ai_reply_shadow_meter: true }, 'admin-1');
+
+        expect(mockModel.create).toHaveBeenCalledWith(expect.objectContaining({
+            ai_reply_shadow_meter: true,
+            ai_reply_shadow_meter_enabled_at: expect.any(Date),
+        }), {});
+        expect(result.current.ai_reply_shadow_meter_enabled_at).toBe('2026-11-01T12:00:00.000Z');
     });
 });
 

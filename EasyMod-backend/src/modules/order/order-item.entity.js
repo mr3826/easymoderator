@@ -25,6 +25,15 @@ const OrderItem = sequelize.define('OrderItem', {
         },
         onDelete: 'RESTRICT'
     },
+    variant_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'product_variants',
+            key: 'id'
+        },
+        onDelete: 'RESTRICT'
+    },
     quantity: {
         type: DataTypes.INTEGER,
         allowNull: false,

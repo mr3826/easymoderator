@@ -10,17 +10,17 @@
     "meta": {
       "landingTitle": "EasyModerator | Messenger customer support and order review",
       "landingDescription": "Support customers through Facebook Messenger, use saved product information in replies, and review order details before the next step.",
-      "pricingTitle": "EasyModerator pricing | Shuru, Growth and Partner",
+      "pricingTitle": "EasyModerator pricing | Get Your Moderator, Moderator Plus and Partnership",
       "pricingDescription": "Compare current EasyModerator plan prices and conversation allowances, with Partner billing details.",
       "authTitle": "EasyModerator account access",
       "authDescription": "Sign in or create an EasyModerator merchant account."
     },
     "landingV6": {
-      "heroEyebrow": "Customer support through Facebook Messenger",
-      "heroTitle": "Focus on selling. Let your Moderator help with customer questions and order work.",
-      "heroBody": "EasyModerator supports Facebook Page Messenger only. Product details saved for your shop can inform replies; a draft stays unsent until an authorized person sends it, and an order request is not a confirmed order.",
-      "primaryCta": "Create your Shuru account",
-      "secondaryCta": "See how it works",
+      "heroEyebrow": "Messenger-first work, with clearly scoped pilot tools",
+      "heroTitle": "From Messenger messages to orders, from ad reports to clearer decisions—all in one dashboard.",
+      "heroBody": "EasyModerator's core workflow supports Facebook Page Messenger customer work, saved product context and order review. Ads Studio and Storefront are limited, approval-gated pilots; they are not active by default and their billing terms are not activated.",
+      "primaryCta": "Create your Get Your Moderator account",
+      "secondaryCta": "See the three steps",
       "sampleLabel": "Illustrative Messenger reply and order review workflow",
       "sampleInbox": "Customer Support",
       "sampleConversationTitle": "Customer message · example",
@@ -38,9 +38,63 @@
       "orderNotConfirmed": "A request is not a confirmed order or delivery.",
       "illustrationCaption": "Illustration only · sample interface, not a customer account or product screenshot.",
       "founderPromise": "Your Business. Our Technology. Forward, Together.",
-      "capabilityEyebrow": "The core work, in one place",
-      "capabilityTitle": "Support customers and keep order decisions clear.",
-      "capabilityBody": "EasyModerator connects supported Facebook Messenger customer support with saved product information and order review. It is useful whether one person handles the inbox or a team shares the work.",
+      "featureEyebrow": "Know what is core and what is a pilot",
+      "featureTitle": "Core tools today. Extra tools by approval.",
+      "features": {
+        "messenger": {
+          "title": "Messenger support",
+          "body": "Facebook Page DMs only."
+        },
+        "orderReview": {
+          "title": "Product and order review",
+          "body": "Saved product context; merchant reviews the next step."
+        },
+        "riskSignals": {
+          "title": "COD/RTO risk signals",
+          "body": "Shown only where the shop has access and settings allow."
+        },
+        "pilotTools": {
+          "title": "Ads Studio + Storefront",
+          "body": "Limited pilots; separate approval is required."
+        }
+      },
+      "pilotNote": "Ads Studio and Storefront are not enabled by default; pilot approval is required and their billing terms are not activated.",
+      "capabilityEyebrow": "Five questions founders ask",
+      "capabilityTitle": "Real tools for real work, with the limits in view.",
+      "capabilityBody": "Use EasyModerator's current Messenger and order workflow. Ads Studio and Storefront are approval-gated pilots, not standard account features. Availability depends on shop eligibility and explicit access.",
+      "limitLabel": "Scope:",
+      "pains": {
+        "business": {
+          "title": "Business is growing, but the work isn't shrinking?",
+          "solution": "Keep supported Facebook Page Messenger conversations, saved product context and order review in the EasyModerator workspace.",
+          "limit": "Facebook Page Messenger is the supported customer channel; a customer request is not a confirmed order.",
+          "action": "Create your Get Your Moderator account"
+        },
+        "messages": {
+          "title": "Drowning in messages?",
+          "solution": "Review Messenger conversations in the merchant inbox and use the shop's configured Manual, Draft or Auto reply mode.",
+          "limit": "Facebook Page Messenger only. A Draft stays unsent until an authorized merchant or teammate sends it; Auto remains subject to safety checks and Meta messaging rules.",
+          "action": "Open the inbox"
+        },
+        "fakeOrders": {
+          "title": "Want to reduce fake orders?",
+          "solution": "Where RTO Shield or Order Confidence is enabled, a COD risk signal can help prioritize which order details to verify.",
+          "limit": "A risk signal is not proof of fraud or a delivery guarantee. Signal availability depends on shop access and settings.",
+          "action": "Review orders"
+        },
+        "adSpend": {
+          "title": "Worried about wasted ad spend?",
+          "solution": "The approval-gated Ads Studio pilot imports a merchant-supplied Meta CSV, shows its imported metrics, and offers report-grounded suggestions with a draft for explicit approval.",
+          "limit": "No direct Meta ad-account connection, spend changes or campaign publishing, ROAS/profit/order attribution, or Messenger promotions. Pilot access is not enabled by default.",
+          "action": "Sign in to check pilot eligibility"
+        },
+        "cash": {
+          "title": "Cash not adding up?",
+          "solution": "The approval-gated Storefront pilot can publish selected existing shop products and accept COD orders. Use order records as a reference and verify actual receipt manually.",
+          "limit": "An order total is not a confirmed collection. Storefront is selected-products and COD only; no online payment verification, courier automation or cash reconciliation.",
+          "action": "Review order records"
+        }
+      },
       "capabilities": {
         "support": {
           "title": "Customer Support",
@@ -55,21 +109,21 @@
           "body": "Review captured order details and applicable checks before confirming an order or requesting a supported next action."
         }
       },
-      "workflowEyebrow": "A connected workflow",
-      "workflowTitle": "Useful context. A visible decision point.",
-      "workflowBody": "The customer conversation, shop information and next action stay connected without implying that a draft was sent or an order was completed.",
+      "workflowEyebrow": "Start with the next action",
+      "workflowTitle": "Three moves from signup to a reviewed next step.",
+      "workflowBody": "Create your account, connect a Page you manage, then review the inbox and order details. Pilot tools require separate approval.",
       "steps": {
         "inquiry": {
-          "title": "A customer asks on Messenger",
-          "body": "The merchant sees the supported conversation in the customer support inbox."
+          "title": "Create your Get Your Moderator account",
+          "body": "New merchant accounts start on Get Your Moderator (SHURU). No payment details are needed to register."
         },
         "context": {
-          "title": "Check the shop's product information",
-          "body": "The reply can use information saved for the shop; the merchant can choose Manual, Draft or the configured reply mode."
+          "title": "Connect a Facebook Page",
+          "body": "In Settings → Chat, sign in with Facebook and choose a Page you manage. Access varies by Facebook account and Page."
         },
         "review": {
-          "title": "Review before the next action",
-          "body": "Check the order request and applicable details. Any eligible courier request remains a separate action and result."
+          "title": "Review the inbox and orders",
+          "body": "Check the Messenger conversation and order details before a supported next action. A request is not confirmation or collection."
         }
       },
       "storyEyebrow": "See the steps",
@@ -81,7 +135,7 @@
       "trustEyebrow": "Clear boundaries",
       "trustTitle": "The merchant stays in control of the decision.",
       "trustBody": "Reply modes and order actions follow the shop's configured behavior and the checks available in the product. The page does not promise that every inquiry becomes an order.",
-      "separateBoundary": "Shuru, Growth and Partner cover EasyModerator's core tools. A plan includes only the tools listed in its details. If a capability is offered separately, it has separate pricing and access terms.",
+      "separateBoundary": "Get Your Moderator, Moderator Plus and Partnership map to the existing SHURU, GROWTH and PARTNER plan records. Ads Studio and Storefront are separate, approval-gated pilots; billing terms are not active.",
       "faqTitle": "Questions merchants ask",
       "faq": {
         "channel": {
@@ -98,15 +152,15 @@
         },
         "plans": {
           "question": "Which plan does a new account get?",
-          "answer": "New accounts start on Shuru. The plan prices and allowances below load from the published subscription catalog."
+          "answer": "New accounts start on Get Your Moderator (SHURU). The current conversation limits and prices load from the published subscription catalog; the accepted-AI-reply targets are separate shadow measurements only."
         },
         "separate": {
           "question": "Are other products included in the subscription?",
-          "answer": "A plan includes only the tools listed in its details. If a capability is offered separately, it has separate pricing and access terms."
+          "answer": "Ads Studio and Storefront are optional pilots, available only when a shop is approved and opts in. Their billing terms are not active; core plan billing is not changed by viewing the pilots."
         }
       },
       "closingTitle": "A clearer way to handle customer support and order work.",
-      "closingBody": "Create an EasyModerator account on Shuru and continue setup from your dashboard. No payment information is required to register."
+      "closingBody": "Create an EasyModerator account on Get Your Moderator (SHURU) and continue setup from your dashboard. No payment information is required to register."
     },
     "nav": {
       "primary": "Primary navigation",
@@ -131,7 +185,7 @@
       "title": "Bring customer replies and order work together.",
       "body": "Manage Facebook Messenger messages, product information, order review and eligible courier handoffs in one workspace. Use AI assistance while keeping each decision visible.",
       "primaryCta": "Create account",
-      "signupNote": "New accounts start on Shuru. You can compare plans before making a billing choice.",
+      "signupNote": "New accounts start on Get Your Moderator (SHURU). The published catalog shows current conversation allowances and billing terms.",
       "sampleFlowLabel": "Sample Messenger work journey",
       "sampleFlowCaption": "One customer request, step by step",
       "sampleFlowNote": "Illustration only · no customer data",
@@ -195,12 +249,12 @@
           "boundary": "Booking, provider acceptance, delivery and settlement are separate states."
         }
       },
-      "commercialBoundary": "Compare the current Shuru, Growth and Partner plans, including their published usage limits and qualification steps.",
+      "commercialBoundary": "Compare Get Your Moderator, Moderator Plus and Partnership, including current entitlements and the separate shadow-measurement targets.",
       "pricingEyebrow": "Clear plan choices",
       "pricingTitle": "Choose the plan that fits your workflow",
-      "pricingBody": "New accounts start on Shuru. Growth and Partner have different next steps; see current terms and actions in the live plan catalog.",
+      "pricingBody": "New accounts start on Get Your Moderator (SHURU). Moderator Plus (GROWTH) and Partnership (PARTNER) retain their existing subscription and delivered-order billing records.",
       "closingTitle": "Make customer work easier to follow.",
-      "closingBody": "Create an account to enter the merchant workspace. You start on Shuru and can review plan choices before billing changes.",
+      "closingBody": "Create an account to enter the merchant workspace. You start on Get Your Moderator; selecting another plan does not change billing until the plan transition is confirmed.",
       "brandPromise": "Your initiative, our technology—moving forward together.",
       "viewPricing": "Compare plans",
       "catalogLoading": "Loading current plan details…",
@@ -229,7 +283,7 @@
     "pricing": {
       "eyebrow": "Current public plan catalog",
       "title": "Plans for your connected workflow",
-      "subtitle": "Compare published plan prices, Messenger conversation allowances and Partner terms. New accounts start on Shuru.",
+      "subtitle": "Compare published prices, current Messenger conversation allowances and Partnership terms. Reply targets shown separately are shadow-only and do not change current billing.",
       "catalogLoading": "Loading current plan details…",
       "catalogUnavailable": "Current plan details are unavailable right now. Try again to load the published catalog.",
       "retryCatalog": "Retry",
@@ -242,23 +296,34 @@
       "unlimitedOrders": "Unlimited orders",
       "unlimitedProducts": "Unlimited products",
       "includedLimits": "Published plan limits",
-      "shuruAction": "Create a Shuru account",
-      "growthAction": "Review Growth options",
-      "newAccountsNote": "New accounts start on Shuru. You can review Growth after signup; registration does not activate a paid plan.",
+      "shuruAction": "Create a Get Your Moderator account",
+      "growthAction": "Review Moderator Plus",
+      "getModeratorAction": "Create a Get Your Moderator account",
+      "moderatorPlusAction": "Review Moderator Plus",
+      "moderatorPlusNewAccountsNote": "New shops start with Get Your Moderator. Reviewing Moderator Plus does not activate an upgrade.",
+      "partnershipAction": "Request Partnership review",
+      "partnershipReviewNote": "Submitting a Partnership application requests review; it does not activate delivered-order billing.",
+      "partnershipApplicationTitle": "Partnership application",
+      "partnershipApplicationDescription": "Share your business details for review. This form sends a real application and does not change your plan.",
+      "partnershipSuccessTitle": "Partnership request received",
+      "partnershipSuccessBody": "Your request was recorded for review. Delivered-order billing and eligibility will be confirmed before activation.",
       "growthMonthlyNote": "Growth is shown monthly. New annual selections are not available.",
-      "coreFeatureParity": "All three plans include the same core customer-support and commerce tools. They differ in conversation allowance, Partner billing and qualification.",
-      "topupsTitle": "Growth-only conversation packs",
-      "topupsCaveat": "Eligible Growth accounts only. Each pack is a separate one-time purchase, not part of the monthly plan fee. When bKash checkout is enabled, successful payment adds conversations to the balance. Unused balance carries into the next billing period. AI replies pause only after both the included allowance and top-up balance run out; manual replies remain available.",
-      "partnerQualification": "Partner applications require review. Qualification is based on at least 300 delivered orders in the rolling 30-day window.",
-      "partnerRateTitle": "Partner delivered-order billing period",
-      "partnerBillingNote": "For each Partner invoice period, 0–299 delivered orders have no per-order fee. At 300 or more, the matching rate applies to every delivered order in that period. Period dates follow your account invoice, not calendar months. Application eligibility uses a separate rolling 30-day window.",
+      "coreFeatureParity": "Get Your Moderator, Moderator Plus and Partnership retain the existing SHURU, GROWTH and PARTNER records. Current conversation entitlements and Partnership delivered-order billing remain authoritative.",
+      "topupsTitle": "Moderator Plus (GROWTH) conversation packs",
+      "topupsCaveat": "Eligible Moderator Plus (GROWTH) accounts only. Each pack is a separate one-time purchase, not part of the monthly plan fee. When bKash checkout is enabled, successful payment adds conversation credits to the balance. Unused balance carries into the next billing period. AI replies pause only after both the included allowance and top-up balance run out; manual replies remain available.",
+      "partnerQualification": "Partnership applications require review. Qualification is based on at least 300 delivered orders in the rolling 30-day window.",
+      "partnerRateTitle": "Partnership delivered-order billing period",
+      "partnerBillingNote": "For each Partnership invoice period, 0–299 delivered orders have no per-order fee. At 300 or more, the matching rate applies to every delivered order in that period. Period dates follow your account invoice, not calendar months. Application eligibility uses a separate rolling 30-day window.",
       "partnerThresholdExample": "At {{belowThresholdOrders}} delivered orders: ৳0 per-order fees. At {{orders}}: {{orders}} × ৳{{rate}} = ৳{{total}} for the invoice period.",
-      "partnerAction": "Request Partner review",
-      "partnerReviewNote": "Submitting an application requests review; it does not activate Partner billing.",
+      "partnerAction": "Request Partnership review",
+      "partnerReviewNote": "Submitting an application requests review; it does not activate Partnership billing.",
       "topupPack": "{{amount}} conversations · ৳{{price}} per pack",
-      "catalogUnitNote": "Conversation allowances follow the billing period on the account. A conversation is not counted per message or per AI reply.",
-      "separateBoundary": "These plans cover EasyModerator's core customer-support and commerce tools. A plan includes only the tools listed in its details. If a capability is offered separately, it has separate pricing and access terms.",
-      "applicationTitle": "Partner application",
+      "catalogUnitNote": "Current allowances and top-ups count Messenger conversations in the account billing period. The separate 300/3,000 accepted-AI-reply targets use UTC calendar months in shadow mode only: no fee, no enforcement, and no conversion of conversation credits.",
+      "shadowAllowanceLabel": "Non-billable support reply measurement",
+      "shadowAllowanceTitle": "{{amount}} accepted AI-generated replies per UTC calendar month (shadow target)",
+      "shadowAllowanceNote": "Measurement only; it is not billed or enforced. Your active allowance stays {{conversations}} Messenger conversations per account billing period; Moderator Plus top-ups still add conversations only.",
+      "separateBoundary": "The package names Get Your Moderator, Moderator Plus and Partnership map to SHURU, GROWTH and PARTNER. Ads Studio and Storefront are optional pilots requiring shop approval; their billing terms are not active.",
+      "applicationTitle": "Partnership application",
       "applicationDescription": "Share your business details for review. This form sends an application and does not change your plan.",
       "businessName": "Business name",
       "phone": "Phone number",
@@ -268,10 +333,36 @@
       "applicationSubmit": "Send application for review",
       "applicationSending": "Sending…",
       "applicationSuccessTitle": "Application received",
-      "applicationSuccessBody": "Your Partner application has been recorded for review. Your current plan has not changed.",
+      "applicationSuccessBody": "Your Partnership application has been recorded for review. Your current plan has not changed.",
       "applicationClose": "Close",
       "applicationError": "The application could not be sent. Please try again later.",
       "fieldRequired": "This field is required."
+    },
+    "addons": {
+      "eyebrow": "Optional add-ons",
+      "title": "Choose only the pilot tools your shop needs",
+      "availability": "Both add-ons are approval-gated pilots. Billing terms are not active, and no add-on price or charge is presented here.",
+      "optionalLabel": "Optional pilot add-on",
+      "pilotTerms": "Pilot access requires shop approval and owner/admin opt-in. Billing terms are not activated.",
+      "checkEligibility": "Sign in to check eligibility",
+      "catalogUnavailable": "Optional add-on details are currently unavailable.",
+      "adsStudio": {
+        "summary": "Import a merchant-supplied Meta Ads CSV, review the metrics present in that report, get evidence-grounded suggestions, and save a draft for explicit approval.",
+        "limits": [
+          "No direct Meta Ads account connection is claimed.",
+          "Approving a draft does not publish a campaign or change spend.",
+          "No EasyModerator order attribution, ROAS or profit calculation.",
+          "No Messenger promotional broadcasts."
+        ]
+      },
+      "storefront": {
+        "summary": "Select existing shop products and variants, publish a storefront, and receive validated cash-on-delivery orders in the current workspace.",
+        "limits": [
+          "Uses the existing product, inventory, customer and order records.",
+          "COD only; no online payment verification.",
+          "No courier automation or Meta catalog sync."
+        ]
+      }
     },
     "landingV5": {
       "hero": {
@@ -418,15 +509,15 @@
       "plans": {
         "eyebrow": "Commercial plans",
         "title": "Plans for the way you do business.",
-        "body": "Shuru, Growth and Partner are subscriptions for EasyModerator’s core tools. Prices and conversation limits below come from the live public catalog. A plan includes only the tools listed in its details. If a capability is offered separately, it has separate pricing and access terms.",
-        "partnerBilling": "Delivered-order billing",
-        "topupBoundary": "Growth accounts only: eligible accounts can buy each pack separately as a one-time purchase when bKash checkout is enabled.",
-        "growthIntentNote": "New accounts start on Shuru. You can review Growth from your account after signup; registration does not activate a paid plan.",
-        "catalogNote": "Conversation limits count customer conversations—not each message or AI reply. Current plan data is unavailable if the live catalog cannot be loaded.",
+        "body": "Choose Get Your Moderator (SHURU), Moderator Plus (GROWTH) or Partnership (PARTNER). Current prices and active conversation allowances load from the live catalog; 300/3,000 accepted-AI-reply targets are shadow-only. Ads Studio and Storefront are separate approval-gated pilots; billing terms are not active.",
+        "partnerBilling": "No upfront subscription; delivered-order billing",
+        "topupBoundary": "Moderator Plus (GROWTH) only: eligible accounts can buy conversation-credit packs separately when bKash checkout is enabled.",
+        "growthIntentNote": "New accounts start on Get Your Moderator (SHURU). Review Moderator Plus after signup; registration does not activate a paid plan.",
+        "catalogNote": "Current allowances and top-ups count Messenger conversations in the account billing period. The separate 300/3,000 accepted-AI-reply targets use UTC calendar months in shadow mode only: no fee, no enforcement, and no conversion of conversation credits.",
         "actions": {
-          "shuru": "Create a Shuru account",
-          "growth": "View the Growth path",
-          "partner": "Review Partner terms"
+          "shuru": "Create a Get Your Moderator account",
+          "growth": "Review Moderator Plus",
+          "partner": "Request Partnership review"
         }
       },
       "trust": {
@@ -451,16 +542,16 @@
     "auth": {
       "createAccount": "Create a Shuru account",
       "createAccountHeading": "Your account details",
-      "createShuruButton": "Create a Shuru account",
+      "createShuruButton": "Create your Get Your Moderator account",
       "creatingAccount": "Creating account…",
       "email": "Email",
       "emailPlaceholder": "you@example.com",
       "forgotPassword": "Forgot password?",
-      "growthReviewOnShuru": "Your account starts on Shuru. Review the Growth plan after signup; creating an account does not activate a paid plan.",
+      "growthReviewOnShuru": "Your account starts on Get Your Moderator (SHURU). Review Moderator Plus after signup; creating an account does not activate a paid plan.",
       "haveAccount": "Already have an EasyModerator account?",
       "hidePassword": "Hide characters",
       "nameHelper": "We use your name for your account and first shop. You can change the shop name later under Business information.",
-      "newAccountsStartOnShuru": "A Shuru subscription is created with your account. You can review other current plans separately.",
+      "newAccountsStartOnShuru": "A Get Your Moderator (SHURU) subscription is created with your account. You can review other current plans separately.",
       "noAccount": "New to EasyModerator?",
       "noPaidSubscriptionOnSignup": "No payment information is required to create an account.",
       "panelKicker": "Account access",
@@ -479,7 +570,7 @@
       "privacyPolicy": "Privacy policy",
       "rememberMe": "Keep me signed in on this device",
       "showPassword": "Show characters",
-      "shuruPlanLabel": "Starting plan · Shuru",
+      "shuruPlanLabel": "Starting plan · Get Your Moderator",
       "signInButton": "Sign in",
       "signInKicker": "Welcome back",
       "signInPanelBody": "Continue your customer support, reply and order work from the EasyModerator dashboard.",

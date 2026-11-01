@@ -420,6 +420,9 @@ async function updateDeliveryStatus(shopId, conversationId, message, status, upd
         provider_message_id: providerMessageId,
         ...(updates.provider_message_ids ? { provider_message_ids: updates.provider_message_ids } : {}),
         ...updates,
+        ...(status === 'sent' ? {
+            provider_accepted_at: messageMetadata(message).provider_accepted_at || new Date().toISOString(),
+        } : {}),
     };
     if (typeof message === 'object') {
         message.metadata = metadata;

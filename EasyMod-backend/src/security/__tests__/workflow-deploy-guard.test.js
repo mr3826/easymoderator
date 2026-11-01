@@ -32,6 +32,8 @@ const frontendDockerfilePath = path.resolve(__dirname, '../../../../EasyMod-fron
 const frontendDockerfile = fs.readFileSync(frontendDockerfilePath, 'utf8');
 const workerPath = path.resolve(__dirname, '../../jobs/worker.js');
 const workerSource = fs.readFileSync(workerPath, 'utf8');
+const databaseSyncPath = path.resolve(__dirname, '../../utils/database/sync.js');
+const databaseSyncSource = fs.readFileSync(databaseSyncPath, 'utf8');
 const securityWorkflowPath = path.resolve(
     __dirname,
     '../../../../.github/workflows/security-scan.yml',
@@ -467,6 +469,25 @@ describe('production workflow branch safety', () => {
         // keep its isolated forward-migration proof on the direct Node entrypoint.
         expect(backupWorkflow).toContain('&& node src/database/migrate.js up');
         expect(backupWorkflow).not.toContain('&& npm run migrate');
+    });
+
+    test('wipe bootstrap applies founder-pilot schema migrations before marking history executed', () => {
+        const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
+        const syncIndex = deployBlock.indexOf('backend node src/utils/database/sync.js');
+        const seedIndex = deployBlock.indexOf('backend node src/database/migrate.js seed-as-executed');
+
+        expect(syncIndex).toBeGreaterThan(-1);
+        expect(seedIndex).toBeGreaterThan(syncIndex);
+        expect(databaseSyncSource).toContain('if (sequelize.getDialect() === \'postgres\')');
+        expect(databaseSyncSource).toContain('for (const migration of founderPilotSchemaMigrations)');
+        for (const migration of [
+            '20261101_001_founder_pilot_addons',
+            '20261101_002_ai_reply_shadow_ledger',
+            '20261101_003_ads_studio_manual_reports',
+            '20261101_004_storefront_cod',
+        ]) {
+            expect(databaseSyncSource).toContain(migration);
+        }
     });
 
     test('starts candidate services before Caddy and diagnoses backend health failures', () => {

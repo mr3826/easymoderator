@@ -1,10 +1,25 @@
 export type BillingCycle = "monthly" | "yearly";
 export type PlanCode = "SHURU" | "GROWTH" | "PARTNER";
 
+export const PUBLIC_PLAN_NAME_BY_CODE: Record<PlanCode, string> = {
+  SHURU: "Get Your Moderator",
+  GROWTH: "Moderator Plus",
+  PARTNER: "Partnership",
+};
+
 export interface PartnerOrderTier {
   minOrders: number;
   maxOrders: number | null;
   rateBdt: number;
+}
+
+export interface ShadowSupportAllowance {
+  amount: number;
+  unit: "provider_accepted_ai_reply";
+  period: "utc_calendar_month";
+  status: "shadow_only";
+  billable: false;
+  enforced: false;
 }
 
 export interface TopupPackDefinition {
@@ -17,7 +32,9 @@ export interface SubscriptionPlanDefinition {
   id: string;
   code: PlanCode;
   name: string;
+  publicName: string;
   description: string;
+  descriptionBn: string;
   billingModel: "flat_monthly" | "per_order";
   monthlyPrice: number;
   yearlyPrice: number;
@@ -39,13 +56,16 @@ export interface SubscriptionPlanDefinition {
   highlights: string[];
   topupPacks?: TopupPackDefinition[];
   partnerOrderTiers?: PartnerOrderTier[];
+  supportReplyAllowance: ShadowSupportAllowance | null;
   /** No popularity marker is published by the live catalog. */
 }
 
 export interface PublicSubscriptionPlanPayload {
   code: PlanCode;
   name: string;
+  public_name: string;
   description: string;
+  description_bn: string;
   billing_model: "flat_monthly" | "per_order";
   price_bdt_monthly: number;
   price_bdt_yearly: number;
@@ -55,8 +75,10 @@ export interface PublicSubscriptionPlanPayload {
   can_purchase_topups: boolean;
   per_order_charge_bdt: number | null;
   features?: Record<string, unknown>;
+  highlights?: string[];
   topup_packs?: TopupPackDefinition[];
   partner_order_tiers?: PartnerOrderTier[];
+  support_reply_allowance: ShadowSupportAllowance | null;
 }
 
 export const UNLIMITED = -1;
@@ -84,13 +106,14 @@ export const PARTNER_ORDER_TIERS_FALLBACK: PartnerOrderTier[] = [
 export function publicPlanToDefinition(
   plan: PublicSubscriptionPlanPayload,
 ): SubscriptionPlanDefinition {
-  const fallback = subscriptionPlans.find((item) => item.code === plan.code);
   const features = plan.features || {};
   return {
     id: plan.code.toLowerCase(),
     code: plan.code,
     name: plan.name,
+    publicName: plan.public_name,
     description: plan.description,
+    descriptionBn: plan.description_bn,
     billingModel: plan.billing_model,
     monthlyPrice: Number(plan.price_bdt_monthly),
     yearlyPrice: Number(plan.price_bdt_yearly),
@@ -108,23 +131,25 @@ export function publicPlanToDefinition(
       custom_branding: features.custom_branding === true,
       messenger_dm_only: true,
     },
-    highlights: fallback?.highlights || [],
+    highlights: plan.highlights || [],
     topupPacks: plan.topup_packs,
     partnerOrderTiers: plan.partner_order_tiers,
+    supportReplyAllowance: plan.support_reply_allowance,
   };
 }
 
 /**
- * Small offline fallback for the public plan request. Keep these values pinned
- * to the backend catalog so a temporarily unavailable API cannot display a
- * different commercial model.
+ * Internal display-name/feature map only. Public prices and plan entitlements
+ * must always come from the live catalog and never use these values as fallback.
  */
 export const subscriptionPlans: SubscriptionPlanDefinition[] = [
   {
     id: "shuru",
     code: "SHURU",
     name: "Shuru",
-    description: "No monthly plan fee; core customer-support and order workflows within Shuru’s published conversation allowance.",
+    publicName: "Get Your Moderator",
+    description: "No monthly plan fee; the active Messenger-conversation allowance is published by the live catalog.",
+    descriptionBn: "মাসিক প্ল্যান ফি নেই; সক্রিয় Messenger কথোপকথনের সীমা লাইভ ক্যাটালগে প্রকাশিত হয়।",
     billingModel: "flat_monthly",
     monthlyPrice: 0,
     yearlyPrice: 0,
@@ -137,12 +162,22 @@ export const subscriptionPlans: SubscriptionPlanDefinition[] = [
       "Order capture and COD risk checks",
       "Manual replies always available",
     ],
+    supportReplyAllowance: {
+      amount: 300,
+      unit: "provider_accepted_ai_reply",
+      period: "utc_calendar_month",
+      status: "shadow_only",
+      billable: false,
+      enforced: false,
+    },
   },
   {
     id: "growth",
     code: "GROWTH",
     name: "Growth",
+    publicName: "Moderator Plus",
     description: "The same core features with a larger conversation allowance and optional top-ups.",
+    descriptionBn: "বেশি Messenger কথোপকথনের সীমা ও ঐচ্ছিক top-up-সহ একই মূল সুবিধা।",
     billingModel: "flat_monthly",
     monthlyPrice: 999,
     yearlyPrice: 9990,
@@ -156,12 +191,22 @@ export const subscriptionPlans: SubscriptionPlanDefinition[] = [
       "Top-ups when you need more conversations",
     ],
     topupPacks: TOPUP_PACK_FALLBACK,
+    supportReplyAllowance: {
+      amount: 3000,
+      unit: "provider_accepted_ai_reply",
+      period: "utc_calendar_month",
+      status: "shadow_only",
+      billable: false,
+      enforced: false,
+    },
   },
   {
     id: "partner",
     code: "PARTNER",
     name: "Partner",
+    publicName: "Partnership",
     description: "No upfront fee; pay for successfully delivered orders.",
+    descriptionBn: "কোনো upfront subscription নেই; ডেলিভারি সম্পন্ন হওয়া অর্ডার অনুযায়ী বিল।",
     billingModel: "per_order",
     monthlyPrice: 0,
     yearlyPrice: 0,
@@ -175,6 +220,7 @@ export const subscriptionPlans: SubscriptionPlanDefinition[] = [
       "Flat rate by delivered-order band",
     ],
     partnerOrderTiers: PARTNER_ORDER_TIERS_FALLBACK,
+    supportReplyAllowance: null,
   },
 ];
 

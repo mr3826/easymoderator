@@ -45,6 +45,11 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlanDefinition
   return (await getPublicSubscriptionCatalog()).plans;
 }
 
+export async function getAiReplyShadowUsage(): Promise<unknown> {
+  const response: AxiosResponse<ApiResponse<unknown>> = await httpClient.get('/api/subscription/ai-reply-shadow-ledger/usage');
+  return response.data.data;
+}
+
 /**
  * Subscribe to a plan
  * @param planId - ID of plan to subscribe to

@@ -20,9 +20,7 @@ import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Progress } from "@/app/components/ui/progress";
 import {
-  findPlanByCode,
-  findPlanByName,
-  subscriptionPlans,
+  PUBLIC_PLAN_NAME_BY_CODE,
   type SubscriptionPlanDefinition,
 } from "@/app/lib/subscriptionPlans";
 import {
@@ -53,6 +51,21 @@ type UsageMetric = {
   status: "safe" | "warning" | "exceeded";
 };
 
+type ShadowReplyUsage = {
+  candidate_units: 1;
+  unit: "provider_accepted_ai_reply";
+  target: number | null;
+  current_shadow_use: number;
+  plan_code: string | null;
+  period: { start: string; end: string };
+  billing_mode: "shadow";
+  billable: false;
+  enforce: false;
+  recording_enabled: boolean;
+  recording_status: string;
+  conversation_usage?: { used: number; limit: number };
+};
+
 const numberValue = (value: unknown, fallback = 0) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -74,10 +87,10 @@ export default function Subscription() {
   const formatNumber = (value: number) => value.toLocaleString(i18n.language === "bn" ? "bn-BD" : "en-US");
   const bkashEnabled = isBkashEnabled();
   const growthIntent = isGrowthUpgradeIntent(new URLSearchParams(location.search));
-  const [plans, setPlans] = useState<SubscriptionPlanDefinition[]>(subscriptionPlans);
-  const [conversationPacks, setConversationPacks] = useState(
-    subscriptionPlans.find((plan) => plan.code === "GROWTH")?.topupPacks || [],
-  );
+  const [plans, setPlans] = useState<SubscriptionPlanDefinition[]>([]);
+  const [planCatalogLoading, setPlanCatalogLoading] = useState(true);
+  const [planCatalogUnavailable, setPlanCatalogUnavailable] = useState(false);
+  const [conversationPacks, setConversationPacks] = useState<NonNullable<SubscriptionPlanDefinition["topupPacks"]>>([]);
   const [selectedPackCode, setSelectedPackCode] = useState<string | null>(null);
   const [isRequestingTopup, setIsRequestingTopup] = useState(false);
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
@@ -89,13 +102,14 @@ export default function Subscription() {
   const [hasSubscriptionData, setHasSubscriptionData] = useState(true);
   const [currentPlan, setCurrentPlan] = useState({
     code: "SHURU",
-    name: "Shuru",
+    name: "Get Your Moderator",
     price: 0,
     cycle: "Monthly",
     nextBillingDate: "",
     status: "active",
   });
   const [usage, setUsage] = useState(initialUsage);
+  const [shadowUsage, setShadowUsage] = useState<ShadowReplyUsage | null>(null);
   const [effectiveLimit, setEffectiveLimit] = useState(100);
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const [topupBalance, setTopupBalance] = useState(0);
@@ -111,6 +125,45 @@ export default function Subscription() {
   const [thresholdPeriod, setThresholdPeriod] = useState<string | null>(null);
   const [previousUsagePercentage, setPreviousUsagePercentage] = useState(0);
 
+  const loadPlanCatalog = async () => {
+    setPlanCatalogLoading(true);
+    setPlanCatalogUnavailable(false);
+    try {
+      const livePlans = await apiClient.getSubscriptionPlans();
+      if (!Array.isArray(livePlans) || livePlans.length !== 3
+        || !livePlans.every((plan) => plan.publicName && plan.description && plan.descriptionBn)) {
+        throw new Error("The published plan catalog is incomplete.");
+      }
+      setPlans(livePlans);
+      setConversationPacks(livePlans.find((plan) => plan.code === "GROWTH")?.topupPacks || []);
+    } catch {
+      setPlans([]);
+      setConversationPacks([]);
+      setPlanCatalogUnavailable(true);
+    } finally {
+      setPlanCatalogLoading(false);
+    }
+  };
+
+  const loadShadowUsage = async () => {
+    try {
+      const result = await apiClient.getAiReplyShadowUsage() as ShadowReplyUsage | undefined;
+      if (
+        !result ||
+        result.billing_mode !== "shadow" ||
+        result.billable !== false ||
+        result.enforce !== false ||
+        result.unit !== "provider_accepted_ai_reply"
+      ) {
+        setShadowUsage(null);
+        return;
+      }
+      setShadowUsage(result);
+    } catch {
+      setShadowUsage(null);
+    }
+  };
+
   const loadSubscriptionData = async () => {
     try {
       setLoading(true);
@@ -123,7 +176,6 @@ export default function Subscription() {
 
       const subscription = data.subscription;
       const planCode = String(subscription.plan_code || "SHURU").toUpperCase();
-      const matchedPlan = findPlanByCode(planCode) || findPlanByName(subscription.plan_name || "Shuru");
       const periodStart = data.period?.start || subscription.current_period_start || null;
       const periodEnd = data.period?.end || subscription.current_period_end || null;
       const conversationUsage = data.usage?.conversations || initialUsage.conversations;
@@ -134,7 +186,8 @@ export default function Subscription() {
 
       setCurrentPlan({
         code: planCode,
-        name: subscription.plan_name || matchedPlan?.name || planCode,
+        name: PUBLIC_PLAN_NAME_BY_CODE[planCode as keyof typeof PUBLIC_PLAN_NAME_BY_CODE]
+          || subscription.plan_name || planCode,
         price: numberValue(subscription.plan_price),
         cycle: subscription.billing_cycle === "yearly" ? "Yearly" : "Monthly",
         nextBillingDate: subscription.next_billing_date
@@ -171,6 +224,7 @@ export default function Subscription() {
           percentage: usagePercentage(numberValue(data.usage.products.used), numberValue(data.usage.products.limit, -1)),
         },
       });
+      void loadShadowUsage();
       if (data.partner_eligibility) {
         setPartnerEligibility({
           delivered_orders_30d: numberValue(data.partner_eligibility.delivered_orders_30d),
@@ -265,12 +319,7 @@ export default function Subscription() {
     void loadSubscriptionData();
     void loadInvoices();
     void handlePaymentReturn();
-    if (typeof apiClient.getSubscriptionPlans === "function") {
-      apiClient.getSubscriptionPlans().then(setPlans).catch(() => {});
-    }
-    if (typeof apiClient.getTopupPacks === "function") {
-      apiClient.getTopupPacks().then(setConversationPacks).catch(() => {});
-    }
+    void loadPlanCatalog();
   }, []);
 
   useEffect(() => {
@@ -470,8 +519,14 @@ export default function Subscription() {
             </p>
           </div>
           <div className="md:text-right">
-            <p className="text-3xl font-bold text-gray-900">৳{currentPlan.price.toLocaleString()}</p>
-            <p className="text-sm text-gray-500">{currentPlan.code === "PARTNER" ? t("subscription.partnerUpfront") : currentPlan.cycle === "Yearly" ? t("subscription.perYear") : t("subscription.perMonth")}</p>
+            {currentPlan.code === "PARTNER" ? (
+              <p className="text-xl font-bold text-gray-900">{t("subscription.partnerUpfront")}</p>
+            ) : (
+              <>
+                <p className="text-3xl font-bold text-gray-900">৳{currentPlan.price.toLocaleString()}</p>
+                <p className="text-sm text-gray-500">{currentPlan.cycle === "Yearly" ? t("subscription.perYear") : t("subscription.perMonth")}</p>
+              </>
+            )}
           </div>
           <div className="md:text-right">
             <p className="text-xs uppercase tracking-wide text-gray-400">{t("subscription.period")}</p>
@@ -488,6 +543,14 @@ export default function Subscription() {
           <h2 className="text-xl font-bold text-gray-900">{t("subscription.plansTitle")}</h2>
           <p className="mt-1 text-sm text-gray-500">{t("subscription.plansSubtitle")}</p>
         </div>
+        {planCatalogLoading && <p role="status" className="py-8 text-center text-sm text-gray-500">{t("subscription.planCatalogLoading")}</p>}
+        {!planCatalogLoading && planCatalogUnavailable && (
+          <div role="alert" className="flex flex-col items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+            <p>{t("subscription.planCatalogUnavailable")}</p>
+            <Button type="button" variant="outline" onClick={() => void loadPlanCatalog()}>{t("subscription.retryPlanCatalog")}</Button>
+          </div>
+        )}
+        {!planCatalogLoading && !planCatalogUnavailable && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {plans.map((plan) => {
             const isCurrent = plan.code === currentPlan.code;
@@ -498,21 +561,39 @@ export default function Subscription() {
               <Card id={plan.code === "GROWTH" ? "growth-plan" : undefined} key={plan.id} className={`flex h-full flex-col ${plan.code === "GROWTH" ? "border-brand shadow-lg shadow-emerald-900/10" : ""}`}>
                 <CardHeader>
                   <div className="flex items-center justify-between gap-3">
-                    <CardTitle>{plan.name}</CardTitle>
+                    <CardTitle>{plan.publicName || plan.name}</CardTitle>
                     {plan.code === "GROWTH" && <Badge className="bg-brand text-white">{t("pricing.mostPopular")}</Badge>}
                   </div>
-                  <p className="text-sm text-gray-500">{t(`subscription.planDescriptions.${plan.id}`, plan.description)}</p>
+                  <p className="text-sm text-gray-500">
+                    {i18n.language.startsWith("bn") ? plan.descriptionBn : plan.description}
+                  </p>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col">
                   <div className="mb-4">
-                    <span className="text-3xl font-bold text-gray-900">৳{plan.monthlyPrice.toLocaleString()}</span>
-                    <span className="ml-1 text-sm text-gray-500">{isPartner ? t("subscription.partnerUpfront") : t("subscription.perMonth")}</span>
+                    {isPartner ? (
+                      <span className="text-xl font-bold text-gray-900">{t("subscription.partnerUpfront")}</span>
+                    ) : (
+                      <>
+                        <span className="text-3xl font-bold text-gray-900">৳{plan.monthlyPrice.toLocaleString()}</span>
+                        <span className="ml-1 text-sm text-gray-500">{t("subscription.perMonth")}</span>
+                      </>
+                    )}
                   </div>
                   <p className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-gray-700">
                     {plan.limits.conversations < 0
                       ? t("subscription.unlimitedConversations")
                       : t("subscription.conversationsPerMonth", { count: plan.limits.conversations })}
                   </p>
+                  {plan.supportReplyAllowance?.status === "shadow_only" && (
+                    <aside aria-label={t("subscription.shadowAllowanceLabel")} className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-gray-700">
+                      <p className="font-semibold text-gray-900">
+                        {t("subscription.shadowAllowanceTitle", { count: formatNumber(plan.supportReplyAllowance.amount) })}
+                      </p>
+                      <p className="mt-1">
+                        {t("subscription.shadowAllowanceNote", { conversations: formatNumber(plan.limits.conversations) })}
+                      </p>
+                    </aside>
+                  )}
                   {isPartner && (
                     <div className="mb-4 space-y-1 rounded-lg border border-slate-100 p-3 text-xs text-gray-600">
                       <p className="font-semibold text-gray-800">{t("subscription.partnerRateBands")}</p>
@@ -550,6 +631,7 @@ export default function Subscription() {
             );
           })}
         </div>
+        )}
       </section>
 
       <section className="mb-6">
@@ -593,6 +675,57 @@ export default function Subscription() {
         </div>
       </section>
 
+      {shadowUsage && (
+        <section aria-labelledby="shadow-support-usage-title" className="mb-6">
+          <Card className="border-amber-200 bg-amber-50/40">
+            <CardContent className="space-y-4 p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 id="shadow-support-usage-title" className="text-lg font-bold text-gray-900">
+                  {t("subscription.shadowUsageTitle")}
+                </h2>
+                <Badge className="bg-amber-100 text-amber-900">{t("subscription.shadowOnlyBadge")}</Badge>
+              </div>
+              <p className="max-w-4xl text-sm leading-6 text-gray-700">{t("subscription.shadowUnitDefinition")}</p>
+              <p className="text-xs text-gray-600">
+                {t("subscription.shadowPeriod", {
+                  start: shadowUsage.period.start.slice(0, 10),
+                  end: shadowUsage.period.end.slice(0, 10),
+                })}
+              </p>
+              {shadowUsage.recording_enabled ? (
+                <div className="max-w-2xl space-y-2" aria-live="polite">
+                  <p className="font-semibold text-gray-900">
+                    {shadowUsage.target === null
+                      ? t("subscription.shadowObservedOnly", { count: formatNumber(shadowUsage.current_shadow_use) })
+                      : t("subscription.shadowUsageCount", {
+                          used: formatNumber(shadowUsage.current_shadow_use),
+                          target: formatNumber(shadowUsage.target),
+                        })}
+                  </p>
+                  {shadowUsage.target !== null && (
+                    <Progress
+                      value={Math.min(100, (shadowUsage.current_shadow_use / Math.max(1, shadowUsage.target)) * 100)}
+                      aria-label={t("subscription.shadowUsageProgress", { target: formatNumber(shadowUsage.target) })}
+                      className="h-2"
+                    />
+                  )}
+                  <p className="text-xs text-gray-600">{t("subscription.shadowRecordingActive")}</p>
+                </div>
+              ) : (
+                <p role="status" className="text-sm font-medium text-gray-700">
+                  {shadowUsage.recording_status === "gate_unavailable"
+                    ? t("subscription.shadowGateUnavailable")
+                    : t("subscription.shadowNotEnabled")}
+                </p>
+              )}
+              <p className="border-t border-amber-200 pt-3 text-xs leading-5 text-gray-600">
+                {t("subscription.shadowBillingBoundary")}
+              </p>
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>{t("subscription.addConversationsTitle")}</CardTitle></CardHeader>
@@ -601,6 +734,10 @@ export default function Subscription() {
               <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm text-gray-600">
                 <p>{currentPlan.code === "PARTNER" ? t("subscription.partnerNoTopups") : t("subscription.growthTopupsOnly")}</p>
               </div>
+            ) : planCatalogUnavailable ? (
+              <p role="status" className="text-sm text-gray-600">{t("subscription.topupCatalogUnavailable")}</p>
+            ) : planCatalogUnavailable ? (
+              <p role="status" className="text-sm text-gray-600">{t("subscription.topupCatalogUnavailable")}</p>
             ) : !bkashEnabled ? (
               <p data-testid="topup-bkash-unavailable" className="text-sm text-gray-500">{t("subscription.bkashUnavailable")}</p>
             ) : (
@@ -649,7 +786,7 @@ export default function Subscription() {
       <Card className="mb-6">
         <CardHeader><CardTitle>{t("subscription.billingTitle")}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-center justify-between"><span className="text-gray-600">{t("subscription.basePlan")}</span><span className="font-semibold text-gray-900">৳{currentPlan.price.toLocaleString()}</span></div>
+          <div className="flex items-center justify-between"><span className="text-gray-600">{t("subscription.basePlan")}</span><span className="font-semibold text-gray-900">{currentPlan.code === "PARTNER" ? t("subscription.partnerUpfront") : `৳${currentPlan.price.toLocaleString()}`}</span></div>
           <div className="flex items-center justify-between"><span className="text-gray-600">{t("subscription.topupBalanceLabel")}</span><span className="font-semibold text-gray-900">{topupBalance.toLocaleString()}</span></div>
           <div className="border-t border-gray-100 pt-3 text-sm text-gray-500">{t("subscription.invoiceDisclaimer")}</div>
         </CardContent>

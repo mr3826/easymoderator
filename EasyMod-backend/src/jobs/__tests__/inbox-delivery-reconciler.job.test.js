@@ -5,6 +5,7 @@ const mockOutboxUpdate = jest.fn();
 const mockMessageFindOne = jest.fn();
 const mockMessageUpdate = jest.fn();
 const mockDeliver = jest.fn();
+const mockRecordAcceptedAiReply = jest.fn();
 
 jest.mock('../../modules/entities', () => ({
     Message: {
@@ -18,6 +19,9 @@ jest.mock('../../modules/entities', () => ({
 }));
 jest.mock('../../modules/conversation/conversation.controller', () => ({
     _deliverViaMetaIfApplicable: mockDeliver,
+}));
+jest.mock('../../modules/subscription/ai-reply-shadow-ledger.service', () => ({
+    recordAcceptedAiReply: mockRecordAcceptedAiReply,
 }));
 jest.mock('../../utils/structured-logger', () => ({
     createLogger: jest.fn(() => ({ warn: jest.fn(), info: jest.fn(), error: jest.fn() })),
@@ -59,6 +63,7 @@ beforeEach(() => {
     mockMessageFindOne.mockResolvedValue(pendingMessage);
     mockMessageUpdate.mockResolvedValue([1]);
     mockDeliver.mockResolvedValue({ sent: false });
+    mockRecordAcceptedAiReply.mockResolvedValue({ recorded: false, reason: 'flag_off' });
 });
 
 describe('InboxDeliveryReconcilerJob', () => {
@@ -105,6 +110,7 @@ describe('InboxDeliveryReconcilerJob', () => {
             expect.anything(),
         );
         expect(result.completed).toBe(1);
+        expect(mockRecordAcceptedAiReply).toHaveBeenCalledWith(expect.objectContaining({ shopId: 'shop-1' }));
     });
 
     it('persists a provider acknowledgement saved on the outbox without sending again', async () => {
@@ -121,6 +127,35 @@ describe('InboxDeliveryReconcilerJob', () => {
             expect.anything(),
         );
         expect(result.reconciliations).toBe(1);
+        expect(mockRecordAcceptedAiReply).toHaveBeenCalledWith(expect.objectContaining({
+            shopId: 'shop-1',
+            message: expect.objectContaining({ delivery_source: 'DRAFT_APPROVAL' }),
+        }));
+    });
+
+    it('keeps a provider-confirmed draft pending when the shadow gate is temporarily unavailable', async () => {
+        mockMessageFindOne.mockResolvedValue({
+            ...pendingMessage,
+            delivery_state: 'SENT',
+            provider_message_id: 'mid-confirmed',
+            metadata: {
+                delivered: true,
+                provider_send_confirmed: true,
+                provider_message_id: 'mid-confirmed',
+                provider_accepted_at: '2026-11-01T00:00:00.000Z',
+            },
+        });
+        mockRecordAcceptedAiReply.mockResolvedValue({ recorded: false, reason: 'gate_unavailable' });
+
+        const result = await new InboxDeliveryReconcilerJob().execute();
+
+        expect(mockDeliver).not.toHaveBeenCalled();
+        expect(mockOutboxUpdate).toHaveBeenLastCalledWith(expect.objectContaining({
+            status: 'PENDING',
+            last_error_code: 'AI_REPLY_SHADOW_GATE_UNAVAILABLE',
+            next_attempt_at: expect.any(Date),
+        }), expect.anything());
+        expect(result.retried).toBe(1);
     });
 
     it('does not process a row lost by the outbox claim CAS', async () => {

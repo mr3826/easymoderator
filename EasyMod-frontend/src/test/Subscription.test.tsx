@@ -18,8 +18,8 @@ vi.mock('react-i18next', () => ({
         'subscription.currentPlan': 'Current plan',
         'subscription.plansTitle': 'Plans',
         'subscription.plansSubtitle': 'Choose a plan',
-        'subscription.growthIntentNotice': 'You asked to review Growth.',
-        'subscription.growthIntentViewPlan': 'View Growth plan',
+        'subscription.growthIntentNotice': 'You asked to review Moderator Plus.',
+        'subscription.growthIntentViewPlan': 'View Moderator Plus plan',
         'subscription.bkashUnavailable': 'bKash unavailable',
         'subscription.usageTitle': 'This period usage',
         'subscription.usageSubtitle': 'Usage',
@@ -52,8 +52,7 @@ vi.mock('@/api', () => ({
     getSubscription: vi.fn().mockResolvedValue({
       subscription: {
         plan_code: 'SHURU',
-        plan_name: 'Shuru',
-        plan_price: 0,
+        plan_name: 'Shuru',        plan_price: 0,
         billing_cycle: 'monthly',
         status: 'active',
         conversations_limit: 100,
@@ -103,9 +102,9 @@ vi.mock('lucide-react', () => {
 const renderWithRouter = () => render(<BrowserRouter><Subscription /></BrowserRouter>);
 
 describe('Subscription', () => {
-  it('renders Shuru details and effective usage metrics', async () => {
+  it('renders Get Your Moderator details and effective usage metrics', async () => {
     renderWithRouter();
-    await waitFor(() => expect(screen.getAllByText('Shuru').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('Get Your Moderator').length).toBeGreaterThan(0));
     expect(screen.getByText('Plan & Billing')).toBeInTheDocument();
     expect(screen.getAllByTestId('progress')).toHaveLength(3);
     expect(screen.getByText(/Included allowance: 100/)).toBeInTheDocument();
@@ -137,25 +136,48 @@ describe('Subscription', () => {
   });
 
   it('shows the fixed Growth review notice while keeping the plan change gated', async () => {
-    vi.mocked(apiClient.getSubscriptionPlans).mockResolvedValue([{
-      id: 'growth',
-      code: 'GROWTH',
-      name: 'Growth',
-      description: 'Growth plan',
-      monthlyPrice: 999,
-      yearlyPrice: 9990,
-      limits: { conversations: 500, orders: -1, products: -1 },
-      features: {},
-      highlights: [],
-    }] as any);
+    vi.mocked(apiClient.getSubscriptionPlans).mockResolvedValue([
+      {
+        id: 'shuru', code: 'SHURU', name: 'Shuru', publicName: 'Get Your Moderator',
+        description: 'No monthly plan fee.', descriptionBn: 'মাসিক ফি নেই.', monthlyPrice: 0, yearlyPrice: 0,
+        billingModel: 'flat_monthly', canPurchaseTopups: false,
+        limits: { conversations: 100, orders: -1, products: -1 }, features: {}, highlights: [],
+        supportReplyAllowance: { amount: 300, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false },
+      },
+      {
+        id: 'growth', code: 'GROWTH', name: 'Growth', publicName: 'Moderator Plus',
+        description: 'Monthly plan.', descriptionBn: 'মাসিক প্ল্যান.', monthlyPrice: 999, yearlyPrice: 9990,
+        billingModel: 'flat_monthly', canPurchaseTopups: true,
+        limits: { conversations: 500, orders: -1, products: -1 }, features: {}, highlights: [],
+        supportReplyAllowance: { amount: 3000, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false },
+        topupPacks: [{ code: 'PACK_100', conversations: 100, priceBdt: 250 }],
+      },
+      {
+        id: 'partner', code: 'PARTNER', name: 'Partner', publicName: 'Partnership',
+        description: 'Delivered-order billing.', descriptionBn: 'Delivered-order billing.', monthlyPrice: 0, yearlyPrice: 0,
+        billingModel: 'per_order', canPurchaseTopups: false,
+        limits: { conversations: -1, orders: -1, products: -1 }, features: {}, highlights: [],
+        supportReplyAllowance: null, partnerOrderTiers: [{ minOrders: 300, maxOrders: 999, rateBdt: 15 }],
+      },
+    ] as any);
     window.history.pushState({}, '', '/subscription?intent=growth-upgrade&lang=en');
     renderWithRouter();
 
-    expect(await screen.findByRole('status')).toHaveTextContent('You asked to review Growth.');
-    expect(screen.getByRole('link', { name: 'View Growth plan' })).toHaveAttribute('href', '#growth-plan');
+    expect(await screen.findByRole('status')).toHaveTextContent('You asked to review Moderator Plus.');
+    expect(screen.getByRole('link', { name: 'View Moderator Plus plan' })).toHaveAttribute('href', '#growth-plan');
     expect(await screen.findByRole('button', { name: 'bKash unavailable' })).toBeDisabled();
 
     window.history.replaceState({}, '', '/subscription');
     vi.mocked(apiClient.getSubscriptionPlans).mockResolvedValue([]);
+  });
+
+  it('does not show pinned plan or top-up values when the live catalog is unavailable', async () => {
+    vi.mocked(apiClient.getSubscriptionPlans).mockResolvedValue([]);
+    renderWithRouter();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('subscription.planCatalogUnavailable');
+    expect(screen.queryByText('৳999')).not.toBeInTheDocument();
+    expect(screen.queryByText(/100 conversations.*৳250 per pack/i)).not.toBeInTheDocument();
+    expect(apiClient.getTopupPacks).not.toHaveBeenCalled();
   });
 });

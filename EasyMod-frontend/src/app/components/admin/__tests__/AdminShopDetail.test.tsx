@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AdminShopDetail from '../AdminShopDetail';
 
@@ -32,6 +32,10 @@ vi.mock('@/api/domains/admin', () => ({
 const pilotFlags = (overrides = {}) => ({
   shop_id: 'shop-1',
   customer_intelligence: false,
+  ads_studio: false,
+  storefront: false,
+  ai_reply_shadow_meter: false,
+  ai_reply_shadow_meter_enabled_at: null,
   order_confidence_mode: 'off',
   order_confidence_config: { high_value_cod_threshold: 10000, address_min_length: 15 },
   updated_by: null,
@@ -94,6 +98,28 @@ describe('AdminShopDetail', () => {
     await waitFor(() => expect(section.querySelector('select')).toBeEnabled());
     fireEvent.change(section.querySelector('select')!, { target: { value: 'shadow' } });
     await waitFor(() => expect(mocks.setPilotFeatures).toHaveBeenCalledWith('shop-1', { order_confidence_mode: 'shadow' }));
+  });
+
+  it('lets SUPER_ADMIN approve Ads Studio while keeping platform authorization explicit', async () => {
+    mocks.useIsPlatformAdmin.mockReturnValue({ loading: false, role: 'SUPER_ADMIN' });
+    render(<AdminShopDetail />);
+    fireEvent.click(screen.getByRole('button', { name: 'Orders & Courier' }));
+    const section = await screen.findByTestId('admin-founder-pilot-flags');
+    const adsStudio = within(section).getByLabelText(/EasyModerator Ads Studio/);
+
+    expect(adsStudio).not.toBeChecked();
+    fireEvent.click(adsStudio);
+
+    await waitFor(() => expect(mocks.setPilotFeatures).toHaveBeenCalledWith('shop-1', { ads_studio: true }));
+  });
+
+  it('keeps all founder pilot approval gates read-only to SUPPORT_ADMIN', async () => {
+    mocks.useIsPlatformAdmin.mockReturnValue({ loading: false, role: 'SUPPORT_ADMIN' });
+    render(<AdminShopDetail />);
+    fireEvent.click(screen.getByRole('button', { name: 'Orders & Courier' }));
+    const section = await screen.findByTestId('admin-founder-pilot-flags');
+    await waitFor(() => expect(within(section).getAllByRole('checkbox')).toHaveLength(3));
+    expect(within(section).getAllByRole('checkbox').every((checkbox) => (checkbox as HTMLInputElement).disabled)).toBe(true);
   });
 
   it('disables mutation controls for SUPPORT_ADMIN users', async () => {

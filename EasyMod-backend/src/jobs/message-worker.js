@@ -59,6 +59,46 @@ const {
 } = require('../modules/conversation/message-lifecycle');
 const lifecycleLogger = createLogger('InboxLifecycle');
 
+async function recordAcceptedAiReplyShadow(shopId, message) {
+    try {
+        const { recordAcceptedAiReply } = require('../modules/subscription/ai-reply-shadow-ledger.service');
+        const result = await recordAcceptedAiReply({
+            shopId,
+            message,
+            acceptedAt: messageMetadata(message).provider_accepted_at,
+        });
+        if (['gate_unavailable', 'subscription_unavailable'].includes(result.reason)) {
+            throw new Error('Shadow usage state is temporarily unavailable');
+        }
+    } catch (error) {
+        const code = /^[A-Za-z0-9_-]{1,64}$/.test(String(error?.code || ''))
+            ? error.code
+            : 'UNKNOWN';
+        lifecycleLogger.warn('ai_reply_shadow_record_failed', { code });
+        // Provider acceptance and the outbound message are already durable. Retrying
+        // this job reaches the provider-confirmed branch and retries only the ledger write.
+        throw asRetryableDependencyError(error, 'AI_REPLY_SHADOW_LEDGER_FAILED');
+    }
+}
+
+async function recoverAcceptedAutoReplyShadow(shopId, message, deliveryState) {
+    if (![MESSAGE_DELIVERY_STATES.SENT, MESSAGE_DELIVERY_STATES.DELIVERED].includes(deliveryState)) return false;
+    await recordAcceptedAiReplyShadow(shopId, message);
+    return true;
+}
+
+async function finishAlreadyClaimedAutomaticSend(shopId, conversationId, message, deliveryState) {
+    const sent = deliveryState === MESSAGE_DELIVERY_STATES.SENT
+        || deliveryState === MESSAGE_DELIVERY_STATES.DELIVERED;
+    if (sent) await recoverAcceptedAutoReplyShadow(shopId, message, deliveryState);
+    return {
+        success: true,
+        conversationId,
+        sent,
+        reason: 'provider_send_already_claimed',
+    };
+}
+
 const asRetryableDependencyError = (error, code) => {
     const normalized = error instanceof Error
         ? error
@@ -1532,6 +1572,9 @@ async function finalizeAiMessage(
                 const mergedMetadata = {
                     ...lockedMetadata,
                     provider_message_ids: mergedProviderIds,
+                    ...(delivered ? {
+                        provider_accepted_at: lockedMetadata.provider_accepted_at || new Date().toISOString(),
+                    } : {}),
                 };
                 await Message.update({ metadata: mergedMetadata }, {
                     where: { id: currentMessage.id, conversation_id: conversationId, sender: 'ai' },
@@ -1564,6 +1607,7 @@ async function finalizeAiMessage(
             sender: currentMessage.sender === 'business' ? 'agent' : currentMessage.sender || null,
             created_at: currentMessage.created_at || null,
         });
+        await recordAcceptedAiReplyShadow(shopId, currentMessage);
         return { providerConfirmed: true, persisted: false, message: currentMessage };
     }
 
@@ -1594,6 +1638,9 @@ async function finalizeAiMessage(
             : {}),
         ...(providerFailure ? { provider_failure: providerFailure } : {}),
         provider_send_confirmed: Boolean(delivered),
+        ...(delivered ? {
+            provider_accepted_at: messageMetadata(currentMessage).provider_accepted_at || new Date().toISOString(),
+        } : {}),
         ...(heldReason === 'provider_send_failed' ? { provider_send_attempted: true } : {}),
     };
     lifecycleLogger.info(
@@ -1629,6 +1676,7 @@ async function finalizeAiMessage(
     };
     if (currentMessage) {
         const providerBoundaryFinalization = delivered || heldReason === 'provider_send_failed';
+        let providerOutcomePersisted = false;
         try {
             if (providerBoundaryFinalization && typeof Message.update === 'function') {
                 const finalizationResult = await Message.update(updateValues, {
@@ -1669,6 +1717,7 @@ async function finalizeAiMessage(
                     error.code = 'LIFECYCLE_CONFLICT';
                     throw error;
                 }
+                providerOutcomePersisted = Boolean(delivered);
             } else if (typeof Message.update === 'function') {
                 const finalizationResult = await Message.update(updateValues, {
                     where: {
@@ -1701,11 +1750,15 @@ async function finalizeAiMessage(
                 // Focused unit harnesses may only expose the instance API. Production
                 // always has the conditional static update above.
                 await currentMessage.update(updateValues);
+                providerOutcomePersisted = Boolean(delivered);
             }
             currentMessage.metadata = resolvedMetadata;
             currentMessage.delivery_state = resolvedState;
             currentMessage.delivery_source = deliverySource;
             currentMessage.provider_message_id = primaryProviderMessageId;
+            if (delivered && providerOutcomePersisted) {
+                await recordAcceptedAiReplyShadow(shopId, currentMessage);
+            }
             if (delivered && typeof Conversation.update === 'function' && currentMessage.content) {
                 await Conversation.update(
                     { message: currentMessage.content },
@@ -2179,13 +2232,14 @@ async function processMessageJob(job) {
                 // instead of creating a second row.
                 existingAutomaticCandidate = foundAutomaticCandidate;
             } else {
-                return {
-                    success: true,
+                // An earlier attempt may have durably saved provider acceptance
+                // but exhausted retries before writing the shadow event.
+                return finishAlreadyClaimedAutomaticSend(
+                    shopId,
                     conversationId,
-                    sent: existingState === MESSAGE_DELIVERY_STATES.SENT
-                        || existingState === MESSAGE_DELIVERY_STATES.DELIVERED,
-                    reason: 'provider_send_already_claimed',
-                };
+                    foundAutomaticCandidate,
+                    existingState,
+                );
             }
         }
     }
@@ -3738,6 +3792,8 @@ module.exports = {
         createRecoveryControl,
         resolveStaticConfigAvailability,
         finalizeAiMessage,
+        recoverAcceptedAutoReplyShadow,
+        finishAlreadyClaimedAutomaticSend,
         getAutomaticSendGuard,
         revalidateProductEvidenceBeforeSend,
         revalidateKnowledgeEvidenceBeforeSend,

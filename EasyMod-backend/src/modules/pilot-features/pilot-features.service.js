@@ -28,6 +28,10 @@ const OFF = Object.freeze({
     interactionChoices: false,
     actionQueue: false,
     knowledgeSuggestions: false,
+    adsStudio: false,
+    storefront: false,
+    aiReplyShadowMeter: false,
+    aiReplyShadowMeterEnabledAt: null,
 });
 
 const getModel = () => {
@@ -60,6 +64,12 @@ function toFeatures(row) {
         interactionChoices: row.interaction_choices === true,
         actionQueue: row.action_queue === true,
         knowledgeSuggestions: row.knowledge_suggestions === true,
+        adsStudio: row.ads_studio === true,
+        storefront: row.storefront === true,
+        aiReplyShadowMeter: row.ai_reply_shadow_meter === true,
+        aiReplyShadowMeterEnabledAt: row.ai_reply_shadow_meter_enabled_at
+            ? new Date(row.ai_reply_shadow_meter_enabled_at).toISOString()
+            : null,
     };
 }
 
@@ -68,9 +78,11 @@ function toFeatures(row) {
  * every feature OFF — i.e. exactly the pre-pilot behaviour. The flag read is
  * never the reason an order cannot be booked.
  */
-async function getPilotFeatures(shopId) {
+async function getPilotFeaturesStrict(shopId) {
     const Model = getModel();
-    if (!shopId || typeof Model?.findByPk !== 'function') return toFeatures(null);
+    if (!shopId || typeof Model?.findByPk !== 'function') {
+        throw new AppError('Pilot feature state is unavailable', 503, 'PILOT_FEATURES_UNAVAILABLE');
+    }
     try {
         const row = await Model.findByPk(shopId);
         return toFeatures(row);
@@ -80,6 +92,14 @@ async function getPilotFeatures(shopId) {
             shopId,
             error: error.message,
         });
+        throw new AppError('Pilot feature state is unavailable', 503, 'PILOT_FEATURES_UNAVAILABLE');
+    }
+}
+
+async function getPilotFeatures(shopId) {
+    try {
+        return await getPilotFeaturesStrict(shopId);
+    } catch (_) {
         return toFeatures(null);
     }
 }
@@ -110,6 +130,10 @@ function serialize(row, shopId) {
         interaction_choices: features.interactionChoices,
         action_queue: features.actionQueue,
         knowledge_suggestions: features.knowledgeSuggestions,
+        ads_studio: features.adsStudio,
+        storefront: features.storefront,
+        ai_reply_shadow_meter: features.aiReplyShadowMeter,
+        ai_reply_shadow_meter_enabled_at: features.aiReplyShadowMeterEnabledAt,
         updated_by: row?.updated_by || null,
         updated_at: row?.updated_at || null,
     };
@@ -152,8 +176,25 @@ async function setPilotFeatures(shopId, updates, actorUserId, { transaction = nu
         knowledge_suggestions: typeof updates.knowledge_suggestions === 'boolean'
             ? updates.knowledge_suggestions
             : previous.knowledge_suggestions,
+        ads_studio: typeof updates.ads_studio === 'boolean'
+            ? updates.ads_studio
+            : previous.ads_studio,
+        storefront: typeof updates.storefront === 'boolean'
+            ? updates.storefront
+            : previous.storefront,
+        ai_reply_shadow_meter: typeof updates.ai_reply_shadow_meter === 'boolean'
+            ? updates.ai_reply_shadow_meter
+            : previous.ai_reply_shadow_meter,
+        ai_reply_shadow_meter_enabled_at: false,
         updated_by: actorUserId || null,
     };
+    if (next.ai_reply_shadow_meter) {
+        next.ai_reply_shadow_meter_enabled_at = previous.ai_reply_shadow_meter
+            ? previous.ai_reply_shadow_meter_enabled_at || new Date()
+            : new Date();
+    } else {
+        next.ai_reply_shadow_meter_enabled_at = previous.ai_reply_shadow_meter_enabled_at;
+    }
     if (!ORDER_CONFIDENCE_MODES.includes(next.order_confidence_mode)) {
         throw new AppError('Invalid order_confidence_mode', 400, 'VALIDATION_ERROR');
     }
@@ -176,6 +217,10 @@ async function disableAll(actorUserId, { transaction = null } = {}) {
             interaction_choices: false,
             action_queue: false,
             knowledge_suggestions: false,
+            ads_studio: false,
+            storefront: false,
+            ai_reply_shadow_meter: false,
+            ai_reply_shadow_meter_enabled_at: null,
             updated_by: actorUserId || null,
         },
         { where: {}, ...(transaction ? { transaction } : {}) },
@@ -187,10 +232,14 @@ module.exports = {
     ORDER_CONFIDENCE_MODES,
     DEFAULT_ORDER_CONFIDENCE_CONFIG,
     getPilotFeatures,
+    getPilotFeaturesStrict,
     isCustomerIntelligenceEnabled,
     isInteractionChoicesEnabled,
     isActionQueueEnabled,
     isKnowledgeSuggestionsEnabled,
+    isAdsStudioEnabled: async (shopId) => (await getPilotFeatures(shopId)).adsStudio,
+    isStorefrontEnabled: async (shopId) => (await getPilotFeatures(shopId)).storefront,
+    isAiReplyShadowMeterEnabled: async (shopId) => (await getPilotFeatures(shopId)).aiReplyShadowMeter,
     getForAdmin,
     setPilotFeatures,
     disableAll,

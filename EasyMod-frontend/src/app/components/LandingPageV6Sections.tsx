@@ -66,9 +66,41 @@ export function LandingHero() {
   );
 }
 
-export function CoreCapabilities() {
+export function FeatureBar() {
   const { t } = useTranslation();
-  const capabilities = ["support", "replies", "orders"] as const;
+  const features = ["messenger", "orderReview", "riskSignals", "pilotTools"] as const;
+
+  return (
+    <section id="feature-bar" aria-labelledby="feature-bar-title" className="landing-v7-feature-bar">
+      <div className="landing-v7-feature-inner">
+        <div className="landing-v7-feature-heading">
+          <p className="landing-v6-eyebrow">{t("publicFunnel.landingV6.featureEyebrow")}</p>
+          <h2 id="feature-bar-title">{t("publicFunnel.landingV6.featureTitle")}</h2>
+        </div>
+        <ul className="landing-v7-feature-list">
+          {features.map((feature) => (
+            <li key={feature} className="landing-v7-feature-item">
+              <strong>{t(`publicFunnel.landingV6.features.${feature}.title`)}</strong>
+              <span>{t(`publicFunnel.landingV6.features.${feature}.body`)}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="landing-v7-pilot-note">{t("publicFunnel.landingV6.pilotNote")}</p>
+      </div>
+    </section>
+  );
+}
+
+export function CoreCapabilities() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage || i18n.language;
+  const painCards = [
+    { key: "business", route: "/signup" },
+    { key: "messages", route: "/inbox" },
+    { key: "fakeOrders", route: "/orders" },
+    { key: "adSpend", route: "/signin" },
+    { key: "cash", route: "/orders" },
+  ] as const;
 
   return (
     <section id="capabilities" aria-labelledby="capabilities-title" className="landing-v6-capabilities scroll-mt-20">
@@ -78,11 +110,18 @@ export function CoreCapabilities() {
         <p>{t("publicFunnel.landingV6.capabilityBody")}</p>
       </div>
       <div className="landing-v6-capability-grid">
-        {capabilities.map((capability, index) => (
-          <article key={capability} className="landing-v6-capability">
+        {painCards.map(({ key, route }, index) => (
+          <article key={key} className="landing-v6-capability">
             <span className="landing-v6-capability-index">0{index + 1}</span>
-            <h3>{t(`publicFunnel.landingV6.capabilities.${capability}.title`)}</h3>
-            <p>{t(`publicFunnel.landingV6.capabilities.${capability}.body`)}</p>
+            <h3>{t(`publicFunnel.landingV6.pains.${key}.title`)}</h3>
+            <p className="landing-v7-solution">{t(`publicFunnel.landingV6.pains.${key}.solution`)}</p>
+            <p className="landing-v7-limit">
+              <strong>{t("publicFunnel.landingV6.limitLabel")}</strong>
+              {" "}{t(`publicFunnel.landingV6.pains.${key}.limit`)}
+            </p>
+            <a className="landing-v7-card-action" href={buildAppUrlWithLocale(route, locale)}>
+              {t(`publicFunnel.landingV6.pains.${key}.action`)} <ArrowRight aria-hidden="true" size={16} />
+            </a>
           </article>
         ))}
       </div>
@@ -91,8 +130,13 @@ export function CoreCapabilities() {
 }
 
 export function WorkflowSection() {
-  const { t } = useTranslation();
-  const steps = ["inquiry", "context", "review"] as const;
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage || i18n.language;
+  const steps = [
+    { key: "inquiry", route: "/signup" },
+    { key: "context", route: "/manage-shop/chat-settings" },
+    { key: "review", route: "/orders" },
+  ] as const;
 
   return (
     <section id="workflow" aria-labelledby="workflow-title" className="landing-v6-workflow scroll-mt-20">
@@ -102,10 +146,13 @@ export function WorkflowSection() {
         <p>{t("publicFunnel.landingV6.workflowBody")}</p>
       </div>
       <ol className="landing-v6-workflow-steps">
-        {steps.map((step, index) => (
-          <li key={step}>
-            <span className="landing-v6-step-number">0{index + 1}</span>
-            <div><h3>{t(`publicFunnel.landingV6.steps.${step}.title`)}</h3><p>{t(`publicFunnel.landingV6.steps.${step}.body`)}</p></div>
+        {steps.map(({ key, route }, index) => (
+          <li key={key}>
+            <span className="landing-v6-step-number" aria-hidden="true">0{index + 1}</span>
+            <div>
+              <h3><a href={buildAppUrlWithLocale(route, locale)}>{t(`publicFunnel.landingV6.steps.${key}.title`)}</a></h3>
+              <p>{t(`publicFunnel.landingV6.steps.${key}.body`)}</p>
+            </div>
           </li>
         ))}
       </ol>

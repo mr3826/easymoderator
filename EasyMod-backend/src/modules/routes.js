@@ -31,6 +31,8 @@ const router = express.Router();
 // Register routes
 router.use('/public', require('./public/public-stats.routes')); // unauthenticated marketing stats
 router.use('/subscription/plans', require('./public/subscription-plans.routes'));
+router.use('/subscription/ai-reply-shadow-ledger', require('./subscription/ai-reply-shadow-ledger.routes'));
+router.use('/public/addons', require('./shop-addons/public-addon-catalog.routes'));
 router.use('/auth', authRoutes);
 router.use('/shop', shopRoutes);
 router.use('/setup', setupRoutes);
@@ -49,6 +51,9 @@ router.use('/audit', auditRoutes);
 router.use('/shop/delivery', deliveryRoutes);
 router.use('/delivery/rag', deliveryRagRoutes);
 router.use('/subscription', subscriptionRoutes);
+router.use('/addons', require('./shop-addons/shop-addons.routes'));
+router.use('/ads-studio', require('./ads-studio/ads-studio.routes'));
+router.use('/storefront', require('./storefront/storefront.routes'));
 router.use('/partner', require('./subscription/partner-apply.routes'));
 router.use('/admin/partner', require('./subscription/partner-admin.routes'));
 router.use('/knowledge', knowledgeRoutes);

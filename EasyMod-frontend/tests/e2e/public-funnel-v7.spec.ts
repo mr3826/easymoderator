@@ -8,9 +8,9 @@ mkdirSync(screenshots, { recursive: true });
 
 const features = { image_understanding: true, advanced_ai: true, priority_support: true, custom_branding: false };
 const publicPlans = [
-  { code: 'SHURU', name: 'Shuru', description: 'Start with Messenger', billing_model: 'flat_monthly', price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: 100, orders_limit: -1, products_limit: -1, can_purchase_topups: false, per_order_charge_bdt: null, features },
-  { code: 'GROWTH', name: 'Growth', description: 'More Messenger conversations', billing_model: 'flat_monthly', price_bdt_monthly: 999, price_bdt_yearly: 9990, conversations_limit: 500, orders_limit: -1, products_limit: -1, can_purchase_topups: true, per_order_charge_bdt: null, features, topup_packs: [{ code: 'PACK_100', conversations: 100, priceBdt: 250 }], partner_order_tiers: [] },
-  { code: 'PARTNER', name: 'Partner', description: 'Delivered-order billing', billing_model: 'per_order', price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: -1, orders_limit: -1, products_limit: -1, can_purchase_topups: false, per_order_charge_bdt: 15, features, partner_order_tiers: [{ minOrders: 300, maxOrders: 999, rateBdt: 15 }, { minOrders: 1000, maxOrders: 2999, rateBdt: 12 }, { minOrders: 3000, maxOrders: null, rateBdt: 10 }] },
+  { code: 'SHURU', name: 'Shuru', public_name: 'Get Your Moderator', description: 'No monthly plan fee; the active allowance counts Messenger conversations.', description_bn: 'মাসিক প্ল্যান ফি নেই; সক্রিয় সীমায় Messenger কথোপকথন গণনা হয়।', billing_model: 'flat_monthly', price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: 100, orders_limit: -1, products_limit: -1, can_purchase_topups: false, per_order_charge_bdt: null, support_reply_allowance: { amount: 300, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false }, features },
+  { code: 'GROWTH', name: 'Growth', public_name: 'Moderator Plus', description: 'Monthly subscription with conversation-only top-ups.', description_bn: 'মাসিক সাবস্ক্রিপশন; top-up-এ কথোপকথন যোগ হয়।', billing_model: 'flat_monthly', price_bdt_monthly: 999, price_bdt_yearly: 9990, conversations_limit: 500, orders_limit: -1, products_limit: -1, can_purchase_topups: true, per_order_charge_bdt: null, support_reply_allowance: { amount: 3000, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false }, features, topup_packs: [{ code: 'PACK_100', conversations: 100, priceBdt: 250 }], partner_order_tiers: [] },
+  { code: 'PARTNER', name: 'Partner', public_name: 'Partnership', description: 'No upfront subscription; delivered-order billing.', description_bn: 'কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।', billing_model: 'per_order', price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: -1, orders_limit: -1, products_limit: -1, can_purchase_topups: false, per_order_charge_bdt: 15, support_reply_allowance: null, features, partner_order_tiers: [{ minOrders: 300, maxOrders: 999, rateBdt: 15 }, { minOrders: 1000, maxOrders: 2999, rateBdt: 12 }, { minOrders: 3000, maxOrders: null, rateBdt: 10 }] },
 ];
 
 async function mockPublicApi(page: import('@playwright/test').Page) {
@@ -36,6 +36,10 @@ async function mockPublicApi(page: import('@playwright/test').Page) {
         : json(401, { success: false, error: { code: 'UNAUTHORIZED' } });
     }
     if (url.pathname === '/api/subscription/plans') return json(200, { success: true, data: publicPlans });
+    if (url.pathname === '/api/public/addons') return json(200, { success: true, data: [
+      { code: 'ADS_STUDIO', name: 'EasyModerator Ads Studio', category: 'advertising', availability: 'pilot_approval_required', billing_terms: 'not_activated', price_bdt_monthly: null, summary: 'Import a Meta Ads CSV report, review grounded suggestions and save an explicitly approved draft.', limits: ['No direct Meta Ads account connection is claimed.', 'Draft approval does not publish campaigns or change spend.', 'No EasyModerator order attribution, ROAS or profit calculation.'] },
+      { code: 'STOREFRONT', name: 'EasyModerator Storefront', category: 'commerce', availability: 'pilot_approval_required', billing_terms: 'not_activated', price_bdt_monthly: null, summary: 'Publish selected products and receive validated COD orders in the existing workspace.', limits: ['COD only; no online payment verification or courier automation is claimed.'] },
+    ] });
     if (url.pathname === '/api/analytics/funnel') return json(200, { success: true, data: {} });
     if (url.pathname === '/api/partner/apply' && request.method() === 'POST') {
       return json(200, { success: true, application_id: 'v7-preview-application', eligibility: { delivered_orders_30d: 0, minimum_delivered_orders: 300, eligible: false, available: true } });
@@ -71,9 +75,38 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
     for (const width of [1440, 1280, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/?lang=en');
-      const heroHeading = page.getByRole('heading', { level: 1, name: /focus on selling/i });
+      const heroHeading = page.getByRole('heading', { level: 1, name: 'From Messenger messages to orders, from ad reports to clearer decisions—all in one dashboard.' });
       await expect(heroHeading).toBeVisible();
-      await expect(heroHeading).toContainText(/Moderator help with customer questions/i);
+      await expect(page.getByRole('heading', { name: 'Get Your Moderator', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Moderator Plus', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Partnership', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'EasyModerator Ads Studio', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'EasyModerator Storefront', exact: true })).toBeVisible();
+      await expect(page.locator('#plans article')).toHaveCount(5);
+      await expect(page.getByText('Your Business. Our Technology. Forward, Together.')).toBeVisible();
+      await expect(page.locator('#feature-bar')).toContainText(/Ads Studio \+ Storefront/i);
+      await expect(page.locator('#feature-bar')).toContainText(/approval is required/i);
+      await expect(page.locator('#capabilities article')).toHaveCount(5);
+      const painTitles = await page.locator('#capabilities article h3').allTextContents();
+      expect(painTitles).toEqual([
+        "Business is growing, but the work isn't shrinking?",
+        'Drowning in messages?',
+        'Want to reduce fake orders?',
+        'Worried about wasted ad spend?',
+        'Cash not adding up?',
+      ]);
+      await expect(page.locator('#capabilities article').nth(2)).toContainText(/not proof of fraud or a delivery guarantee/i);
+      await expect(page.locator('#capabilities article').nth(3)).toContainText(/merchant-supplied Meta CSV/i);
+      await expect(page.locator('#capabilities article').nth(3)).toContainText(/No direct Meta ad-account connection/i);
+      await expect(page.locator('#capabilities article').nth(3)).toContainText(/ROAS\/profit\/order attribution/i);
+      await expect(page.locator('#capabilities article').nth(4)).toContainText(/verify actual receipt manually/i);
+      await expect(page.locator('#capabilities article').nth(4)).toContainText(/no online payment verification, courier automation or cash reconciliation/i);
+      const sectionIndexes = await page.locator('#public-funnel-main').evaluate((main) =>
+        ['.landing-v6-hero', '#feature-bar', '#workflow', '#capabilities', '.landing-v6-story']
+          .map((selector) => Array.from(main.children).indexOf(main.querySelector(selector)!)),
+      );
+      expect(sectionIndexes.every((index) => index >= 0)).toBe(true);
+      expect(sectionIndexes).toEqual([...sectionIndexes].sort((left, right) => left - right));
       const skip = page.getByRole('link', { name: /skip to content/i });
       await skip.focus();
       await page.keyboard.press('Enter');
@@ -94,29 +127,30 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
       expect(dimensions.page, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(dimensions.viewport);
       const path = resolve(screenshots, `landing-en-${width}.png`);
       await page.screenshot({ path, fullPage: true });
-      await page.getByRole('link', { name: /see how it works/i }).click();
+      await page.getByRole('link', { name: /see the three steps/i }).click();
       await expect(page).toHaveURL(/#workflow$/);
       await page.goto('/?lang=en');
-      await page.getByRole('link', { name: /create a Shuru account/i }).first().click();
+      await page.getByRole('link', { name: /create your Get Your Moderator account/i }).first().click();
       await expect(page).toHaveURL(/\/signup\?lang=en/);
     }
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/?lang=en');
-    await page.getByRole('link', { name: /create a Shuru account/i }).first().click();
+    await page.getByRole('link', { name: /create your Get Your Moderator account/i }).first().click();
     await expect(page).toHaveURL(/\/signup\?lang=en/);
     await expect(page.getByRole('heading', { name: /create your EasyModerator account/i })).toBeVisible();
 
     await page.goto('/?lang=en');
-    await page.getByRole('link', { name: /see how it works/i }).click();
+    await page.getByRole('link', { name: /see the three steps/i }).click();
     await expect(page).toHaveURL(/#workflow$/);
     await page.getByRole('navigation', { name: /primary navigation/i }).getByRole('link', { name: /^plans$/i }).click();
     await expect(page).toHaveURL(/#plans$/);
+    await expect(page.locator('#plans article')).toHaveCount(5);
 
     await page.goto('/?lang=en');
     const planFaq = page.locator('details').filter({ hasText: /Which plan does a new account get/i });
     await planFaq.locator('summary').click();
-    await expect(planFaq).toContainText(/new accounts start on Shuru/i);
+    await expect(planFaq).toContainText(/new accounts start on Get Your Moderator/i);
     await page.getByRole('link', { name: /sign in/i }).first().click();
     await expect(page).toHaveURL(/\/signin\?lang=en/);
     await expect(page.getByRole('heading', { name: /sign in to EasyModerator/i })).toBeVisible();
@@ -135,8 +169,25 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
       await page.getByRole('button', { name: /open navigation/i }).click();
       await expect(page.getByRole('button', { name: /close navigation/i })).toHaveAttribute('aria-expanded', 'true');
       await page.getByRole('button', { name: /switch to bengali/i }).click();
-      await expect(page.getByRole('heading', { level: 1, name: /আপনি বিক্রিতে মন দিন/i })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: 'মেসেঞ্জারের মেসেজ থেকে অর্ডার, বিজ্ঞাপনের রিপোর্ট থেকে সিদ্ধান্ত—সব এক ড্যাশবোর্ডে' })).toBeVisible();
+      await expect(page.getByText('আপনার ব্যবসা। আমাদের প্রযুক্তি। এগিয়ে চলি একসাথে।')).toBeVisible();
+      const painTitles = await page.locator('#capabilities article h3').allTextContents();
+      expect(painTitles).toEqual([
+        'ব্যবসা বাড়ছে, কিন্তু কাজ কমছে না?',
+        'মেসেজে ডুবে যাচ্ছেন?',
+        'ফেক অর্ডার কমাতে চান?',
+        'বিজ্ঞাপনের টাকা অপচয়?',
+        'ক্যাশ মিলছে না?',
+      ]);
+      await expect(page.locator('#capabilities article').nth(3)).toContainText(/সরাসরি Meta ad-account সংযোগ নয়/i);
+      await expect(page.locator('#capabilities article').nth(4)).toContainText(/cash reconciliation নেই/i);
+      await expect(page.locator('#capabilities article').nth(3).getByRole('link')).toHaveAttribute('href', /\/signin\?lang=bn$/);
       await expect(page.locator('html')).toHaveAttribute('lang', 'bn');
+      const commercialSection = page.locator('#plans');
+      await expect(commercialSection.locator('article')).toHaveCount(5);
+      for (const heading of ['Get Your Moderator', 'Moderator Plus', 'Partnership', 'EasyModerator Ads Studio', 'EasyModerator Storefront']) {
+        await expect(commercialSection.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+      }
       await expect(menuToggle).toHaveAttribute('aria-expanded', 'true');
       await menuToggle.click();
       await expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
@@ -151,7 +202,7 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
     }
   });
 
-  test('loads published plans, explains quota and validates Partner phone locally', async ({ page }) => {
+  test('loads published plans, explains quota and validates Partnership phone locally', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     let partnerPostCount = 0;
     page.on('request', (request) => {
@@ -162,14 +213,15 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
     const planResponse = await planResponsePromise;
     expect(planResponse.status(), await planResponse.text()).toBe(200);
     await expect(page.getByRole('heading', { level: 1, name: /plans for your connected workflow/i })).toBeVisible();
-    await expect(page.getByRole('article').filter({ hasText: 'Growth' })).toContainText('৳999');
+    const moderatorPlusCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moderator Plus' }) });
+    await expect(moderatorPlusCard).toContainText('৳999');
     const activeConversationUnit = page.getByText(/one active Messenger thread for the same shop/i);
     await expect(activeConversationUnit).toBeVisible();
     await expect(activeConversationUnit).toContainText(/until 24 hours pass with no thread activity/i);
     await page.screenshot({ path: resolve(screenshots, 'pricing-en-1280.png'), fullPage: true });
 
-    await page.getByRole('button', { name: /request Partner review/i }).click();
-    await expect(page.getByRole('dialog', { name: /Partner application/i })).toBeVisible();
+    await page.getByRole('button', { name: /request Partnership review/i }).click();
+    await expect(page.getByRole('dialog', { name: /Partnership application/i })).toBeVisible();
     await page.getByLabel(/business name/i).fill('Sample shop');
     await page.getByLabel(/phone/i).fill('12345');
     await page.getByLabel(/Facebook Page/i).fill('https://facebook.com/sample-shop');
@@ -178,11 +230,11 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
     expect(partnerPostCount).toBe(0);
   });
 
-  test('records a local Partner review request without changing a subscription', async ({ page }) => {
+  test('records a local Partnership review request without changing a subscription', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/pricing?lang=en');
-    await page.getByRole('button', { name: /request Partner review/i }).click();
-    await page.getByLabel(/business name/i).fill(`Local preview partner ${Date.now()}`);
+    await page.getByRole('button', { name: /request Partnership review/i }).click();
+    await page.getByLabel(/business name/i).fill(`Local preview partnership ${Date.now()}`);
     await page.getByLabel(/phone/i).fill('+880 1712-345678');
     await page.getByLabel(/Facebook Page/i).fill('https://facebook.com/local-preview-only');
 
@@ -199,16 +251,16 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
       eligibility: { delivered_orders_30d: 0, minimum_delivered_orders: 300, eligible: false },
     });
     expect(body.application_id).toBeTruthy();
-    await expect(page.getByRole('heading', { name: /application received/i })).toBeVisible();
-    await expect(page.getByText(/your current plan has not changed/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Partnership request received/i })).toBeVisible();
+    await expect(page.getByText(/delivered-order billing and eligibility will be confirmed before activation/i)).toBeVisible();
     await page.screenshot({ path: resolve(screenshots, 'partner-application-received-en.png'), fullPage: true });
   });
 
-  test('carries a Growth review request through local signup and keeps payment gated', async ({ page }) => {
+  test('carries a Moderator Plus review request through local signup and keeps payment gated', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/pricing?lang=en');
-    const growthCard = page.locator('article').filter({ hasText: 'Growth' });
-    const growthLink = growthCard.getByRole('link', { name: /review Growth options/i });
+    const growthCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moderator Plus' }) });
+    const growthLink = growthCard.getByRole('link', { name: /review Moderator Plus/i });
     await expect(growthLink).toHaveAttribute('href', /intent=growth-upgrade/);
     await growthLink.click();
     await expect(page).toHaveURL(/\/signup\?lang=en&intent=growth-upgrade$/);
@@ -222,11 +274,11 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
       response.request().method() === 'POST'
       && new URL(response.url()).pathname === '/api/auth/signup',
     );
-    await page.getByRole('button', { name: /create a Shuru account/i }).click();
+    await page.getByRole('button', { name: /create your Get Your Moderator account/i }).click();
     const response = await signupResponse;
     expect(response.status(), await response.text()).toBe(201);
     await expect(page).toHaveURL(/\/subscription\?intent=growth-upgrade&lang=en$/);
-    await expect(page.getByRole('status')).toContainText(/new accounts start on Shuru/i);
+    await expect(page.getByRole('status')).toContainText(/new accounts start on Get Your Moderator/i);
     await expect(page.locator('#growth-plan').getByRole('button')).toBeDisabled();
     await expect(page.locator('#growth-plan').getByRole('button')).toContainText(/bKash payment is not available/i);
     await page.screenshot({ path: resolve(screenshots, 'growth-review-after-signup-en.png'), fullPage: true });
