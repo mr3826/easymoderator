@@ -94,4 +94,42 @@ The dissent does not replace the founder's commercial decision. It limits unsupp
 
 ## Evidence Receipt
 
-Pending. No PR, merge, production deployment, pilot-flag activation, production screenshot, or live merchant checkout has been claimed by this decision record. A final receipt must record merged source SHA, PR/check/deployment IDs, required approvals, running frontend/backend digests, live flags, production workflow checks, real screenshots/logs, unresolved blockers, and rollback-image readiness.
+Recorded 2026-11-01 (UTC) after two bounded, protected production releases. Production environment/branch policy, required checks, and the one-shot deploy confirmation were used as-is; no reviewer was impersonated and no gate bypassed.
+
+### Releases
+
+| Item | Release 1 (pilot implementation) | Release 2 (public add-on CORS fix) |
+| --- | --- | --- |
+| PR | #230 (squash-merged 2026-11-01T20:11:17Z) | #231 (squash-merged 2026-11-01T20:51:03Z) |
+| Merged main SHA | `a473e5a3150eb4b96dd5b178e87b44ff6c0dbc79` | `ab0c958efab03a0214776bdb07c95537eaae828c` |
+| Required checks | PR Merge Gate, Security Scan, Quality fast, Backend integration (PostgreSQL + Redis), frontend Playwright, Meta-shaped E2E, Growth OS gates — all pass | Same set — all pass |
+| Release runs | push `41345546671` (publish) + dispatch `41345665422` with `DEPLOY-a473e5a3…`, deploy job `124969253270` | push `41348957529` + dispatch `41348979305` with `DEPLOY-ab0c958e…`, deploy job `124978825038` |
+| Deployed backend image | `ghcr.io/mr3826/easymoderator-backend@sha256:910119fb784d5ec6ccd16b6f4e3e4e8a672d93af4cba0b00f02891ababafa631` | `ghcr.io/mr3826/easymoderator-backend@sha256:cbb4580797c77ccc2b537536b70b37a56ad78763942c52dbcecfc1b16d6f2ec6` |
+| Deployed frontend image | `ghcr.io/mr3826/easymoderator-frontend@sha256:99e1b358a1ef32e370275d101d0c638db2844b299a5eadcfa34bd9d0c59f5bda` | `ghcr.io/mr3826/easymoderator-frontend@sha256:4a82890ca145a37f0c2f96d7b3fe7294f58ed13b5d108ba887b90f58b27db5eb` |
+
+Both deploy jobs recorded `deploy_succeeded=true`, candidate backend health passed, `Version check passed` for the exact merged SHA, and rollback state was written to `/opt/easymod/.cutover-rollback/<run-id>` with the previous image digests.
+
+### Rollback readiness
+
+- Pre-pilot production baseline (first rollback pair): backend `sha256:fb3ce2ae3606ad28c75cc8c0409d2052d61812ec6487041bcc5c41107ca8190e`, frontend `sha256:d5d3e3716c00c35f3571a4eb69af3dcb5671052746c0d61fbf49a9301164ffb1` (source `068e4f9cc5a4abd02c477164a92e923263adfd24`).
+- Current rollback pair retained by release 2: release 1's deployed images (`910119fb…` backend / `99e1b358…` frontend), plus the pre-pilot pair above in earlier cutover directories.
+
+### Production verification (live, post-release-2)
+
+- `GET /version`: `gitSha=ab0c958efab03a0214776bdb07c95537eaae828c`, 70 migrations, latest `20261101_004_storefront_cod`.
+- `GET /health/ready`: `ready`, database connected, Redis connected (rate-limit client live).
+- Plan catalog: `SHURU` → “Get Your Moderator”, 100 conversations, shadow allowance 300 (`billable:false`, `enforced:false`, `utc_calendar_month`); `GROWTH` → “Moderator Plus”, ৳999, 500 conversations, three conversation top-up packs, shadow allowance 3,000; `PARTNER` → “Partnership”, unlimited conversations, three delivered-order bands (৳15/৳12/৳10), no reply allowance. Active entitlements/top-ups/bands are unchanged from the pre-release contract.
+- Add-on catalog: exactly two entries (`ADS_STUDIO`, `STOREFRONT`), both `price_bdt_monthly:null`, `billing_terms:not_activated`, `availability:pilot_approval_required`.
+- CORS: `Origin: https://easymod.tech` on `/api/public/addons` → 200 with `Access-Control-Allow-Origin: https://easymod.tech`; hostile origin → 403 with no ACAO.
+- Fail-closed pilots: unauthenticated `storefront/manage`, `ads-studio/reports`, and shadow-ledger usage all return 401. All new per-shop pilot flags default off; no merchant was enrolled, no flag activated, no Meta scope requested.
+- Marketing `https://easymod.tech` and `https://app.easymod.tech/signin` return 200. The live pricing page renders the three founder packages with the non-billable shadow boxes, both optional add-on cards with their limits, and the pilot-terms note; the Bangla landing renders the founder hero and add-on sections.
+- Screenshots (real production, Playwright/Chromium): `prod-evidence/release2-check/production-landing-en-1440.png`, `production-pricing-en-1280.png`, `production-landing-bn-390.png`, plus `production-pricing-en-final.png` and `production-landing-bn-390-final.png` (kept off-repo with this run's verification logs).
+- `PRODUCTION_DEPLOY_ENABLED` was set true only for each bounded window and restored to `false` at 2026-11-01T21:09:18Z after the final deploy; it remains `false`.
+- The unchanged local `grounding-boundary` timeout did not reproduce in CI: the required `Quality fast` and `Backend integration` checks passed on Node 20.x for both releases.
+
+### Known blockers (unchanged by deployment)
+
+1. Billable 300/3,000 reply-unit activation: founder-approved customer terms, reply top-up pricing/pack definitions, renewal/proration, customer notice, and contract migration/grandfathering remain undecided; conversation entitlements/top-ups stay authoritative.
+2. Direct Meta Ads integration: `ads_read`/`ads_management` are not granted; Ads Studio stays manual-report-only until app review/advanced access and spending safeguards exist.
+3. Storefront payments/courier: COD only; online payment verification, courier automation, catalog sync, and cash reconciliation stay unclaimed.
+4. Market evidence: willingness-to-pay, support-cost distribution, and add-on ROI data for the pilot cohort are still to be collected; pilot flags stay off until per-shop approval and owner/admin opt-in.
