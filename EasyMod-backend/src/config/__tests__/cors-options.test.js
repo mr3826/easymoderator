@@ -35,6 +35,10 @@ describe('domain-split CORS options', () => {
         expect(planOptions.credentials).toBe(false);
         await expect(checkOrigin(planOptions, 'https://easymod.tech')).resolves.toMatchObject({ allowed: true });
 
+        const addonOptions = buildCorsOptions({ path: '/api/public/addons' }, config);
+        expect(addonOptions.credentials).toBe(false);
+        await expect(checkOrigin(addonOptions, 'https://easymod.tech')).resolves.toMatchObject({ allowed: true });
+
         const protectedOptions = buildCorsOptions({ path: '/api/orders' }, config);
         const result = await checkOrigin(protectedOptions, 'https://easymod.tech');
         expect(result.error).toMatchObject({ status: 403, code: 'CORS_ORIGIN_DENIED' });
