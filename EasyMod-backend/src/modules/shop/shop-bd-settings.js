@@ -21,7 +21,7 @@
 const Shop = require('./shop.entity');
 const { AppError } = require('../../utils/AppError');
 const { bdMobileRegex: BD_PHONE_REGEX } = require('../../utils/validators/phone.validator');
-const { mergeAndSanitizeSettings } = require('./shop-settings.validator');
+const { mergeSettingsPreservingRtoConsent } = require('./shop-settings.validator');
 const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
 const VALID_MFS_TYPES = ['bkash', 'nagad', 'rocket'];
 const VALID_MFS_MODES = ['self', 'business'];
@@ -53,9 +53,6 @@ const getBdSettings = async (shopId) => {
  * @returns {Promise<object>} updated BD settings
  */
 const updateBdSettings = async (shopId, updates) => {
-    const shop = await Shop.findByPk(shopId);
-    if (!shop) throw new AppError('Shop not found', 404);
-
     if (updates.mfs_type && !VALID_MFS_TYPES.includes(updates.mfs_type)) {
         throw new AppError(`mfs_type must be one of: ${VALID_MFS_TYPES.join(', ')}`, 400);
     }
@@ -72,11 +69,13 @@ const updateBdSettings = async (shopId, updates) => {
     const bdUpdates = Object.fromEntries(
         Object.entries(updates).filter(([key]) => allowedKeys.has(key))
     );
-    const currentSettings = shop.settings || {};
-    const newSettings = mergeAndSanitizeSettings(currentSettings, { bd: bdUpdates });
-    const newBd = newSettings.bd || {};
-
-    await shop.update({ settings: newSettings });
+    const newBd = await Shop.sequelize.transaction(async (transaction) => {
+        const shop = await Shop.findByPk(shopId, { transaction, lock: transaction.LOCK?.UPDATE });
+        if (!shop) throw new AppError('Shop not found', 404);
+        const newSettings = mergeSettingsPreservingRtoConsent(shop.settings || {}, { bd: bdUpdates });
+        await shop.update({ settings: newSettings }, { transaction });
+        return newSettings.bd || {};
+    });
     await invalidateShopSettingsCaches(shopId);
     return { ...DEFAULT_BD_SETTINGS, ...newBd };
 };
@@ -101,18 +100,20 @@ const hasSelfMfs = (bdSettings) =>
  * @returns {Promise<object|null>} cleared bd settings, or null when nothing to clear
  */
 const clearSelfMfs = async (shopId) => {
-    const shop = await Shop.findByPk(shopId);
-    if (!shop) return null;
-    const bd = shop.settings?.bd;
-    if (!bd || (bd.mfs_mode == null && bd.mfs_type == null && bd.mfs_number == null)) {
-        return null;
-    }
+    const result = await Shop.sequelize.transaction(async (transaction) => {
+        const shop = await Shop.findByPk(shopId, { transaction, lock: transaction.LOCK?.UPDATE });
+        if (!shop) return null;
+        const bd = shop.settings?.bd;
+        if (!bd || (bd.mfs_mode == null && bd.mfs_type == null && bd.mfs_number == null)) return null;
 
-    const clearedBd = { ...bd, mfs_mode: null, mfs_type: null, mfs_number: null };
-    const newSettings = mergeAndSanitizeSettings(shop.settings || {}, { bd: clearedBd });
-    await shop.update({ settings: newSettings });
+        const clearedBd = { ...bd, mfs_mode: null, mfs_type: null, mfs_number: null };
+        const newSettings = mergeSettingsPreservingRtoConsent(shop.settings || {}, { bd: clearedBd });
+        await shop.update({ settings: newSettings }, { transaction });
+        return newSettings.bd;
+    });
+    if (result === null) return null;
     await invalidateShopSettingsCaches(shopId);
-    return newSettings.bd;
+    return result;
 };
 
 module.exports = { getBdSettings, updateBdSettings, hasSelfMfs, clearSelfMfs, BD_PHONE_REGEX };

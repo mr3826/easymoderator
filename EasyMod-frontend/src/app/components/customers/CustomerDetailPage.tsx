@@ -69,7 +69,7 @@ export default function CustomerDetailPage() {
     return (
       <div className="min-h-screen p-4 md:p-6"><div className="max-w-5xl mx-auto">{back}
         <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center" role="status">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto" />
+          <Loader2 className="w-8 h-8 animate-spin text-brand-hover mx-auto" />
         </div>
       </div></div>
     );
@@ -222,7 +222,7 @@ export default function CustomerDetailPage() {
                   <button
                     type="button"
                     onClick={() => navigate(`/orders?orderId=${encodeURIComponent(order.id)}`)}
-                    className="font-medium text-gray-900 hover:text-blue-700"
+                    className="font-medium text-gray-900 hover:text-brand-hover"
                   >
                     #{order.order_number ?? order.id.slice(0, 8)}
                   </button>
@@ -240,7 +240,7 @@ export default function CustomerDetailPage() {
                     </span>
                   )}
                   {order.confidence && (
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-indigo-50 text-indigo-700">
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">
                       {t(`orderConfidence.decisions.${order.confidence.decision}`)}
                     </span>
                   )}

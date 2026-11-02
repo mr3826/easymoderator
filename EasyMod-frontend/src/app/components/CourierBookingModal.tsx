@@ -7,28 +7,55 @@ import { useTranslation } from "react-i18next";
 import { BDPhoneInput } from '@/shared/components/BDPhoneInput';
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { isConfidenceHold } from "@/api/domains/order-confidence";
+import { getExpectedCourierCollection } from "./orders/orderRules";
 
 interface Props {
   order: Order;
   onClose: () => void;
   onBooked: (trackingId: string, provider: string) => void;
+  paymentMethodCorrectionUnavailable?: boolean;
   /** RTO Shield v2 paused this booking; the order detail shows what to do. */
   onHeld?: () => void;
 }
 
-export default function CourierBookingModal({ order, onClose, onBooked, onHeld }: Props) {
+export default function CourierBookingModal({ order, onClose, onBooked, onHeld, paymentMethodCorrectionUnavailable = false }: Props) {
   const { t } = useTranslation();
   const [provider, setProvider] = useState<'pathao' | 'steadfast' | 'redx'>('steadfast');
   const [recipientName, setRecipientName] = useState(order.customerName);
   const [recipientPhone, setRecipientPhone] = useState(order.customerPhone || '');
   const [recipientAddress, setRecipientAddress] = useState(order.deliveryAddress || '');
-  const [codAmount, setCodAmount] = useState(order.total);
+  const paymentMethod = order.payment_method?.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const isCod = paymentMethod === 'cod' || paymentMethod === 'cash' || paymentMethod === 'cash_on_delivery';
+  const paymentStatus = order.payment_status?.trim().toLowerCase();
+  const codDueIsUnknown = isCod && paymentStatus === 'partially_paid';
+  const paymentMethodIsMissing = !paymentMethod && paymentStatus !== 'paid';
+  const expectedCollection = getExpectedCourierCollection(order);
+  const deliveryStatus = order.delivery_status?.trim().toLowerCase();
+  const hasCourierRecord = Boolean(
+    order.delivery_tracking_code
+    || order.delivery_consignment_id
+    || order.delivery_dispatched_at
+    || (deliveryStatus && !['unfulfilled', 'not_booked'].includes(deliveryStatus))
+  );
+  const canCorrectMissingMethod = !paymentMethodCorrectionUnavailable && !hasCourierRecord
+    && ['draft', 'pending', 'confirmed', 'processing'].includes(order.status);
+  const bookingBlocked = expectedCollection === null;
+  const bookingBlockMessage = codDueIsUnknown
+    ? t('orders.partialCodDueUnknown')
+    : paymentMethodIsMissing
+      ? t(hasCourierRecord || paymentMethodCorrectionUnavailable
+        ? 'orders.paymentMethodCorrectionLockedByCourier'
+        : canCorrectMissingMethod ? 'orders.bookingMethodUnavailable' : 'orders.bookingMethodCorrectionUnavailable')
+      : bookingBlocked
+        ? t('orders.paymentStatusCollectionUnknown')
+        : null;
   const [itemDescription, setItemDescription] = useState(
     order.items.map((i) => `${i.productName} x${i.quantity}`).join(', ')
   );
   const [booking, setBooking] = useState(false);
 
   const handleBook = async () => {
+    if (bookingBlocked) return;
     if (!recipientName.trim() || !recipientPhone.trim() || !recipientAddress.trim()) {
       toast.error(t('courier.errors.fieldsRequired'));
       return;
@@ -40,7 +67,6 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld }
         recipient_name: recipientName,
         recipient_phone: recipientPhone,
         recipient_address: recipientAddress,
-        cod_amount: codAmount,
         item_description: itemDescription || undefined,
       };
       const result = await apiClient.bookCourier(order.id, payload);
@@ -121,16 +147,8 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">{t('courier.codAmount')} (৳)</label>
-            <input
-              type="number"
-              value={codAmount}
-              onChange={(e) => setCodAmount(Number(e.target.value))}
-              min={0}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-            <p className="text-xs text-gray-400 mt-1">{t('courier.codNote')}</p>
+          <div role={bookingBlockMessage ? 'alert' : 'note'} className={bookingBlockMessage ? 'rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-900' : 'rounded-lg bg-gray-50 p-3 text-xs text-gray-600'}>
+            {bookingBlockMessage || t('orders.courierCollectionServerDetermined')}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">{t('courier.itemDescription')}</label>
@@ -152,8 +170,8 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld }
           </button>
           <button
             onClick={handleBook}
-            disabled={booking}
-            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:opacity-60"
+            disabled={booking || bookingBlocked}
+            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {booking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
             {t('courier.bookButton')}

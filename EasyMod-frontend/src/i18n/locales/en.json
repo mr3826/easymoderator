@@ -1353,12 +1353,86 @@
   "orders": {
     "title": "Orders",
     "subtitle": "Manage customer orders and fulfillment",
-    "filterDate": "Filter by Date:",
+    "toolbarLabel": "Order worklist filters",
+    "filterDate": "Created date",
+    "dateAll": "All dates",
     "dateToday": "Today",
     "dateLast7": "Last 7 days",
     "dateLast30": "Last 30 days",
-    "dateCustom": "Custom range",
-    "searchPlaceholder": "Order ID / Customer / Channel",
+    "searchLabel": "Search order number, customer name, or phone",
+    "searchPlaceholder": "Order number, customer name, or phone",
+    "filterOrderStatus": "Order status",
+    "orderStatusAll": "All order statuses",
+    "filterFulfillmentStatus": "Fulfillment status",
+    "fulfillmentStatusAll": "All fulfillment statuses",
+    "filterPaymentStatus": "Payment status",
+    "paymentStatusAll": "All payment statuses",
+    "listScope": "Showing up to the latest 100 matching orders; the API does not provide a total count.",
+    "loading": "Loading orders…",
+    "loadError": "Orders could not be loaded. Your previous results are not shown.",
+    "retry": "Retry",
+    "noMatches": "No orders match these filters.",
+    "emptyShop": "No orders are available yet.",
+    "deepLinkFailed": "This order could not be loaded. It may be unavailable or outside this shop.",
+    "rtoSignal": "Prior RTO signal · review order evidence",
+    "partialCodDueUnknown": "No authoritative COD due amount exists for this partially paid order. Booking stays disabled. Reconcile against the source payment record; this app cannot store or infer a partial COD balance.",
+    "bookingMethodUnavailable": "This legacy order has no saved payment method. Close this dialog and record a verified method in order details; only an owner/admin can save it.",
+    "bookingMethodCorrectionUnavailable": "This legacy order has no saved payment method and its current state is not editable in Orders. Do not retry courier booking; ask an owner/admin to reconcile the source record.",
+    "paymentMethodCorrectionLockedByCourier": "A courier claim or tracking record exists. Payment method correction and booking are disabled to prevent a provider amount mismatch; reconcile with the owner/admin and courier first.",
+    "paymentMethodCorrectionOwnerOnly": "Verify the method against the original order/payment record. Saving this correction is owner/admin-only and audited.",
+    "paymentConfigUnavailable": "Payment methods could not be loaded. Only Cash on Delivery is available until retry.",
+    "courierCollectionServerDetermined": "The server calculates courier collection from the saved payment method and payment status. The amount cannot be edited here.",
+    "paymentMethodUpdated": "Verified payment method saved.",
+    "channelUnknown": "Channel unavailable",
+    "expectedCollectionUnknown": "Unknown",
+    "paymentStatusCollectionUnknown": "Payment status does not support a safe collection calculation. Verify the payment status before booking.",
+    "paymentReconciliation": {
+      "cod": {
+        "title": "COD collection needs reconciliation",
+        "body": "The delivery record does not show how much cash the courier collected or what remains due. This alert does not confirm that the order total was collected or that COD is settled.",
+        "nextStep": "Compare the courier booking/remittance with the buyer's receipt and verify any remaining due manually. This screen cannot resolve the reconciliation flag or confirm settlement."
+      },
+      "verifiedPayment": {
+        "title": "Verified payment needs courier reconciliation",
+        "body": "The gateway payment was verified, but the courier collection record has not been reconciled against it. The amount collected by the courier is not established here.",
+        "nextStep": "Compare the gateway transaction with the courier booking/remittance and buyer receipt. This screen cannot determine the collected amount or resolve the reconciliation flag."
+      },
+      "terminalOrder": {
+        "title": "Payment and order state need review",
+        "body": "Gateway payment verification was recorded after this order had already reached a terminal state. That verification alone does not show whether courier collection changed or settlement is complete.",
+        "nextStep": "Compare the source payment, order, and courier records with the buyer's receipt before taking action. This screen cannot resolve the flag."
+      },
+      "unknown": {
+        "title": "Payment and courier records need review",
+        "body": "A reconciliation flag is stored for this order, but its code does not provide enough information to determine payment settlement or courier collection.",
+        "nextStep": "Compare the original payment and order records with the courier booking/remittance and buyer receipt. This screen cannot clear the flag or record settlement."
+      }
+    },
+    "additionalItems": "+{{count}} more",
+    "paymentMethod": {
+      "unknown": "Payment method unavailable",
+      "cod": "Cash on Delivery (COD)",
+      "selfMfs": "Self-managed mobile payment",
+      "bkash": "bKash",
+      "nagad": "Nagad",
+      "rocket": "Rocket"
+    },
+    "deliveryStatus": {
+      "unknown": "Delivery status unavailable",
+      "noTracking": "No tracking recorded",
+      "booked": "Booked",
+      "in_transit": "In transit",
+      "out_for_delivery": "Out for delivery",
+      "failed_delivery": "Delivery attempt failed",
+      "delivered": "Delivered",
+      "returned": "Returned"
+    },
+    "fulfillmentStatus": {
+      "unfulfilled": "Unfulfilled",
+      "fulfilled": "Fulfilled",
+      "partially_fulfilled": "Partially fulfilled",
+      "cancelled": "Cancelled"
+    },
     "export": "Export",
     "exportCSV": "Export CSV",
     "exportExcel": "Export Excel",
@@ -1379,7 +1453,10 @@
       "status": "Status",
       "actions": "Actions",
       "payment": "Payment",
-      "courier": "Courier / tracking"
+      "courier": "Courier / tracking",
+      "delivery": "Delivery",
+      "expectedCollection": "Expected courier collection",
+      "created": "Created"
     },
     "itemCount": "{{count}} items",
     "createModal": {
@@ -1411,6 +1488,8 @@
       "vat": "VAT / TAX:",
       "delivery": "Delivery:",
       "total": "Total:",
+      "paymentMethod": "Payment method",
+      "selectPaymentMethod": "Select a verified method",
       "paymentStatus": "Payment Status",
       "payPending": "Pending",
       "payPaid": "Paid",
@@ -1419,8 +1498,9 @@
       "payPartial": "Partially Paid",
       "notes": "Order Notes",
       "notesPlaceholder": "Optional notes",
-      "rtoWarning": "COD/unpaid orders carry higher return-to-origin (RTO) risk.",
+      "rtoWarning": "A prior return signal may need review. It does not determine payment status or automatically decline this order.",
       "createButton": "Create Order",
+      "createSuccess": "Order {{orderId}} created as a draft.",
       "searchProducts": "Search and add products…",
       "noProductsFound": "No matching products. Try another product name or SKU."
     },
@@ -1453,7 +1533,9 @@
       "noAddress": "No address added yet",
       "viewOnMap": "View on Map",
       "paymentStatusLabel": "Payment Status",
-      "codPending": "COD pending",
+      "paymentMethodCorrection": "Correct the missing payment method",
+      "savePaymentMethod": "Save verified method",
+      "deliveryStatusLabel": "Delivery Status",
       "customerChat": "Customer Chat (last 3 messages)",
       "noChatSnippet": "No chat snippet found.",
       "linkedChatEmpty": "The linked conversation has no recent messages.",
@@ -1483,9 +1565,9 @@
     "errors": {
       "loadFailed": "Failed to load orders",
       "updateStatus": "Failed to update order status",
-      "highRTO": "High RTO-risk orders require manual review before confirmation",
       "nameRequired": "Customer name is required",
       "phoneRequired": "Customer phone is required",
+      "paymentMethodRequired": "Select the verified payment method",
       "addressRequired": "Delivery address is required — please select Division, District, Upazila and enter street details",
       "noExportData": "No orders available to export.",
       "csvFallback": "Excel export is not available yet. Downloaded CSV instead.",
@@ -1530,8 +1612,7 @@
       "redx": "RedX",
       "steadfast": "Steadfast"
     },
-    "resultsCount": "Results: {{count}}",
-    "desktopTableScrollHint": "Order actions stay beside each order. Scroll horizontally to see courier details and channel.",
+    "desktopTableScrollHint": "Select an order to review it beside the worklist. Scroll horizontally for all order and delivery fields.",
     "clearFilters": "Clear filters"
   },
   "customers": {
@@ -1615,7 +1696,8 @@
       "title": "Delete Customer",
       "message": "Are you sure you want to delete this customer? This action cannot be undone.",
       "deleteButton": "Delete Customer",
-      "deleting": "Deleting..."
+      "deleting": "Deleting...",
+      "erasureNote": "This removes the customer profile from this shop only. Delivery/return history recorded for fraud protection is keyed to phone numbers and may remain."
     },
     "success": {
       "created": "Customer created successfully",
@@ -1634,7 +1716,20 @@
       "blacklistFailed": "Failed to update blacklist status"
     },
     "mobileListLabel": "Customer records",
-    "desktopListLabel": "Customer records table"
+    "desktopListLabel": "Customer records table",
+    "resultCount": "{{total}} customers in this shop",
+    "searchNamePlaceholder": "Search by name",
+    "searchPhonePlaceholder": "Search by phone",
+    "clearFilters": "Clear filters",
+    "noMatches": "No customers match",
+    "noMatchesHint": "Adjust or clear the filters to see more customers.",
+    "viewOrders": "View orders for this phone",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "empty": {
+      "title": "No customers yet",
+      "hint": "Add a customer manually, or connect your Facebook Page so Messenger contacts appear here."
+    }
   },
   "customer360": {
     "title": "Customers",
@@ -2580,14 +2675,14 @@
     "partnerNoTopups": "Partnership includes unlimited conversations; conversation top-ups are not available.",
     "growthTopupsOnly": "Conversation top-ups are available on Moderator Plus (GROWTH).",
     "shadowAllowanceLabel": "Non-billable reply measurement",
-    "shadowAllowanceTitle": "{{count}} accepted AI-generated replies per UTC month (shadow target)",
+    "shadowAllowanceTitle": "{{formattedCount}} accepted AI-generated replies per UTC month (shadow target)",
     "shadowAllowanceNote": "Shadow measurement only. The active {{conversations}}-conversation entitlement and current conversation top-ups are unchanged.",
     "shadowUsageTitle": "AI support reply measurement",
     "shadowOnlyBadge": "Shadow only",
     "shadowUnitDefinition": "One unit is one logical AI-originated reply accepted by Meta and durably recorded. Incoming messages, conversations, unsent drafts and failed sends are not units.",
     "shadowPeriod": "UTC calendar month: {{start}} through just before {{end}}.",
     "shadowUsageCount": "Observed accepted AI replies: {{used}} / {{target}} shadow target.",
-    "shadowObservedOnly": "Observed accepted AI replies this month: {{count}}. Partnership has no monthly reply target.",
+    "shadowObservedOnly": "Observed accepted AI replies this month: {{formattedCount}}. Partnership has no monthly reply target.",
     "shadowUsageProgress": "Shadow reply usage against a target of {{target}}.",
     "shadowRecordingActive": "Measurement is active. It does not limit message sending or change billing.",
     "shadowNotEnabled": "Shadow measurement is not enabled for this shop; replies are not being counted.",
@@ -2787,7 +2882,11 @@
       "contributeHelp": "Anonymously add your delivery outcomes so the network protects everyone — including you.",
       "privacyNote": "Only a phone number's delivery/return history is shared — never names, messages or other details.",
       "saved": "Network settings saved",
-      "saveFailed": "Could not save network settings"
+      "saveFailed": "Could not save network settings",
+      "unavailable": "Participation status unavailable",
+      "unavailableHelp": "Network participation could not be loaded. Nothing is being assumed on or off. Retry, or try again shortly.",
+      "retry": "Try again",
+      "ownerOnly": "Only an owner or admin can change participation."
     }
   },
   "pwa": {

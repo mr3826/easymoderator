@@ -69,6 +69,9 @@ export default function OrderConfidencePanel({ orderId, refreshKey = 0 }: Props)
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-4 mb-6 text-sm text-red-800" role="alert">
         {t("orderConfidence.loadFailed")}
+        <button type="button" onClick={() => void load()} className="ml-3 font-semibold underline">
+          {t("orders.retry")}
+        </button>
       </div>
     );
   }

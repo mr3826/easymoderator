@@ -8,12 +8,16 @@ const { deriveCustomerState, STATES, INACTIVE_AFTER_DAYS } = require('../custome
 describe('classifyOrderOutcome', () => {
     test.each([
         ['courier delivered', { delivery_status: 'delivered' }, OUTCOMES.DELIVERED],
-        ['partial delivery counts as delivered', { delivery_status: 'partial_delivered' }, OUTCOMES.DELIVERED],
+        ['partial delivery remains in progress without item-level value evidence', { delivery_status: 'partial_delivered' }, OUTCOMES.IN_PROGRESS],
+        ['partial delivery remains in progress despite legacy full-delivery fields', { delivery_status: 'partial_delivered', order_status: 'delivered', delivered_at: '2026-09-01T00:00:00Z' }, OUTCOMES.IN_PROGRESS],
         ['order marked delivered', { order_status: 'delivered' }, OUTCOMES.DELIVERED],
         ['delivered_at recorded', { delivered_at: '2026-09-01T00:00:00Z' }, OUTCOMES.DELIVERED],
         ['courier returned', { delivery_status: 'returned', delivery_consignment_id: 'C1' }, OUTCOMES.RETURNED],
-        ['partial return', { delivery_status: 'partial_returned' }, OUTCOMES.RETURNED],
-        ['courier cancel after pickup is a return', { delivery_status: 'cancelled', delivery_tracking_code: 'T1', order_status: 'cancelled' }, OUTCOMES.RETURNED],
+        ['partial return', { delivery_status: 'partial_returned', order_status: 'cancelled' }, OUTCOMES.RETURNED],
+        ['partial return supersedes legacy partial-delivery completion fields', { delivery_status: 'partial_returned', order_status: 'delivered', delivered_at: '2026-09-01T00:00:00Z' }, OUTCOMES.RETURNED],
+        ['courier cancel after pickup remains a cancellation', { delivery_status: 'cancelled', delivery_tracking_code: 'T1', order_status: 'cancelled' }, OUTCOMES.CANCELLED],
+        ['courier-only cancellation status is not an RTO', { delivery_status: 'cancelled', delivery_tracking_code: 'T1' }, OUTCOMES.CANCELLED],
+        ['authoritative return status remains an RTO', { delivery_status: 'returned', order_status: 'cancelled' }, OUTCOMES.RETURNED],
         ['merchant cancel before dispatch', { order_status: 'cancelled' }, OUTCOMES.CANCELLED],
         ['refund before dispatch', { order_status: 'refunded' }, OUTCOMES.CANCELLED],
         ['failed attempt is not an outcome', { delivery_status: 'failed_delivery', delivery_tracking_code: 'T1' }, OUTCOMES.IN_PROGRESS],
@@ -62,6 +66,31 @@ describe('summarizeOrders', () => {
             first_order_at: '2026-09-01T00:00:00.000Z',
             last_order_at: '2026-09-07T00:00:00.000Z',
             last_delivered_at: '2026-09-03T00:00:00.000Z',
+        });
+    });
+
+    test('does not include a dispatched courier cancellation in returned-order stats', () => {
+        const summary = summarizeOrders([{
+            total: 300,
+            order_status: 'cancelled',
+            delivery_status: 'cancelled',
+            delivery_tracking_code: 'T1',
+        }]);
+
+        expect(summary).toMatchObject({ returned_orders: 0, cancelled_orders: 1 });
+    });
+
+    test('partial delivery is not included in delivered order counts or value', () => {
+        const summary = summarizeOrders([{
+            total: 1250,
+            delivery_status: 'partial_delivered',
+            order_status: 'processing',
+        }]);
+
+        expect(summary).toMatchObject({
+            delivered_orders: 0,
+            in_progress_orders: 1,
+            delivered_value: 0,
         });
     });
 

@@ -171,6 +171,14 @@ describe('Order Domain API', () => {
 
       expect(httpClient.patch).toHaveBeenCalledWith('/api/order/1', { note: 'call before delivery' });
     });
+
+    it('sends a verified payment method through the audited update path', async () => {
+      (httpClient.patch as any).mockResolvedValue({ data: { data: { id: '1', payment_method: 'cod' } } });
+
+      await order.updateOrder('1', { payment_method: 'cod' });
+
+      expect(httpClient.patch).toHaveBeenCalledWith('/api/order/1', { payment_method: 'cod' });
+    });
   });
 
   describe('confirmOrder', () => {
@@ -241,7 +249,12 @@ describe('Order Domain API', () => {
 
   describe('bookCourier', () => {
     it('should book courier successfully', async () => {
-      const payload = { provider: 'steadfast', cod_amount: 500 };
+      const payload = {
+        provider: 'steadfast',
+        recipient_name: 'Test Customer',
+        recipient_phone: '01700000000',
+        recipient_address: 'Mirpur, Dhaka',
+      };
       const mockResponse = {
         data: { data: { tracking_id: 'TRK123', provider: 'steadfast' } },
       };

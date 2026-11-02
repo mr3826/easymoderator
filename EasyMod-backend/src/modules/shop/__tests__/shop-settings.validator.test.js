@@ -9,6 +9,7 @@ const {
   validateSettings,
   sanitizeSettings,
   mergeAndSanitizeSettings,
+  mergeSettingsPreservingRtoConsent,
   stripAutomationModeFromShopUpdate,
   AI_SETTINGS_SCHEMA,
   BD_SETTINGS_SCHEMA,
@@ -511,6 +512,32 @@ describe('Shop Settings Validator', () => {
       expect(() => mergeAndSanitizeSettings({}, {
         ai: { handoff_settings: { cooldown_minutes: 1441 } },
       })).toThrow(AppError);
+    });
+  });
+
+  describe('mergeSettingsPreservingRtoConsent', () => {
+    it('preserves persisted opt-out while merging an unrelated settings patch', () => {
+      const current = { rto_network: { contribute: false, enforce: true }, delivery: { cod_enabled: false } };
+      const stalePatch = { rto_network: { contribute: true, enforce: true }, delivery: { cod_enabled: true } };
+
+      const merged = mergeSettingsPreservingRtoConsent(current, stalePatch);
+
+      expect(merged).toEqual({
+        rto_network: { contribute: false, enforce: true },
+        delivery: { cod_enabled: true },
+      });
+      expect(current.rto_network.contribute).toBe(false);
+      expect(stalePatch.rto_network.contribute).toBe(true);
+    });
+
+    it('does not let a general settings patch create RTO consent when none is persisted', () => {
+      const merged = mergeSettingsPreservingRtoConsent({}, {
+        rto_network: { contribute: true },
+        delivery: { cod_enabled: true },
+      });
+
+      expect(merged.rto_network).toBeUndefined();
+      expect(merged.delivery).toEqual({ cod_enabled: true });
     });
   });
 

@@ -4,7 +4,6 @@ const KnowledgeGap = require('../analytics/knowledge-gap.entity');
 const { AppError } = require('../../utils/AppError');
 const ragService = require('../rag/rag.service');
 const cacheService = require('../../utils/cache.service');
-const { mergeAndSanitizeSettings } = require('../shop/shop-settings.validator');
 const {
     MERCHANT_KNOWLEDGE_CACHE_KEY,
     AI_KNOWLEDGE_CACHE_KEY,
@@ -16,6 +15,10 @@ const { Op, fn, col, literal } = require('sequelize');
 const KNOWLEDGE_CACHE_KEY = MERCHANT_KNOWLEDGE_CACHE_KEY;
 const KNOWLEDGE_CACHE_TTL = 300; // 5 minutes
 const MAX_DOC_SIZE = 100 * 1024; // 100 KB
+const safeErrorCode = (error, fallback = 'KNOWLEDGE_RAG_ERROR') => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : fallback;
+};
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -78,10 +81,13 @@ const syncFaqRagIndex = async (shopId, faq) => {
             type: 'faq',
             faq_id: faq.id
         }
-    }).catch((error) => ({ success: false, message: error.message }));
+    }).catch((error) => ({ success: false, errorCode: safeErrorCode(error, 'FAQ_RAG_SYNC_FAILED') }));
 
     if (!result?.success) {
-        console.warn('FAQ RAG sync skipped:', result?.message || 'unknown error');
+        console.warn('FAQ RAG sync skipped', {
+            faqId: faq.id,
+            errorCode: safeErrorCode({ code: result?.errorCode }, 'FAQ_RAG_SYNC_FAILED'),
+        });
     }
 };
 
@@ -113,10 +119,13 @@ const syncBusinessInfoRagIndex = async (shopId, businessInfo) => {
             shopId,
             type: 'business_info'
         }
-    }).catch((error) => ({ success: false, message: error.message }));
+    }).catch((error) => ({ success: false, errorCode: safeErrorCode(error, 'BUSINESS_INFO_RAG_SYNC_FAILED') }));
 
     if (!result?.success) {
-        console.warn('Business info RAG sync skipped:', result?.message || 'unknown error');
+        console.warn('Business info RAG sync skipped', {
+            shopId,
+            errorCode: safeErrorCode({ code: result?.errorCode }, 'BUSINESS_INFO_RAG_SYNC_FAILED'),
+        });
     }
 };
 
@@ -197,36 +206,30 @@ const getKnowledge = async (userId, shopId) => {
 
 const updateBusinessInfo = async (userId, shopId, data) => {
     await verifyShopAccess(userId, shopId);
-    const shop = await getShop(shopId);
+    const normalizedShopName = data.shopName && String(data.shopName).trim();
+    const shopUpdates = normalizedShopName
+        ? { shop_name: normalizedShopName, name: normalizedShopName }
+        : {};
+    let businessInfo;
+    await shopService.updateShopSettingsPreservingRtoConsent(shopId, (settings) => {
+        const existing = normalizeObject(settings.businessInfo);
 
-    const settings = normalizeObject(shop.settings);
-    const existing = normalizeObject(settings.businessInfo);
-
-    // Merge incoming data onto existing values — never overwrite with empty strings on partial save
-    const businessInfo = {
-        ...existing,
-        shopName:       data.shopName       !== undefined ? String(data.shopName).trim()       : existing.shopName       || '',
-        address:        data.address        !== undefined ? String(data.address).trim()        : existing.address        || '',
-        phone:          data.phone          !== undefined ? String(data.phone).trim()          : existing.phone          || '',
-        openingHours:   data.openingHours   !== undefined ? String(data.openingHours).trim()   : existing.openingHours   || '',
-        additionalInfo: data.additionalInfo !== undefined ? String(data.additionalInfo).trim() : existing.additionalInfo || '',
-        deliveryAreas:  data.deliveryAreas  !== undefined ? normalizeArray(data.deliveryAreas)  : normalizeArray(existing.deliveryAreas),
-        paymentMethods: data.paymentMethods !== undefined ? normalizeArray(data.paymentMethods) : normalizeArray(existing.paymentMethods),
-        // Social links surfaced in the order-confirmation closing (ai-messaging.renderSocialLinks).
-        socialLinks:    data.socialLinks    !== undefined ? normalizeObject(data.socialLinks)    : normalizeObject(existing.socialLinks),
-    };
-
-    const shopUpdates = {
-        settings: mergeAndSanitizeSettings(settings, { businessInfo })
-    };
-    if (data.shopName && String(data.shopName).trim()) {
-        shopUpdates.shop_name = data.shopName.trim();
-        shopUpdates.name = data.shopName.trim();
-    }
-
-    await shop.update(shopUpdates);
+        // Merge incoming data onto fresh values; partial saves must not restore stale settings.
+        businessInfo = {
+            ...existing,
+            shopName:       data.shopName       !== undefined ? String(data.shopName).trim()       : existing.shopName       || '',
+            address:        data.address        !== undefined ? String(data.address).trim()        : existing.address        || '',
+            phone:          data.phone          !== undefined ? String(data.phone).trim()          : existing.phone          || '',
+            openingHours:   data.openingHours   !== undefined ? String(data.openingHours).trim()   : existing.openingHours   || '',
+            additionalInfo: data.additionalInfo !== undefined ? String(data.additionalInfo).trim() : existing.additionalInfo || '',
+            deliveryAreas:  data.deliveryAreas  !== undefined ? normalizeArray(data.deliveryAreas)  : normalizeArray(existing.deliveryAreas),
+            paymentMethods: data.paymentMethods !== undefined ? normalizeArray(data.paymentMethods) : normalizeArray(existing.paymentMethods),
+            // Social links surfaced in the order-confirmation closing (ai-messaging.renderSocialLinks).
+            socialLinks:    data.socialLinks    !== undefined ? normalizeObject(data.socialLinks)    : normalizeObject(existing.socialLinks),
+        };
+        return { businessInfo };
+    }, shopUpdates);
     await syncBusinessInfoRagIndex(shopId, businessInfo);
-    await invalidateShopKnowledgeCaches(shopId);
 
     return { businessInfo };
 };
@@ -235,13 +238,9 @@ const updateBusinessInfo = async (userId, shopId, data) => {
 
 const updateBrandingRules = async (userId, shopId, brandingRules) => {
     await verifyShopAccess(userId, shopId);
-    const shop = await getShop(shopId);
-
-    const settings = normalizeObject(shop.settings);
-    await shop.update({
-        settings: mergeAndSanitizeSettings(settings, { brandingRules: brandingRules || {} })
+    await shopService.updateShopSettingsPreservingRtoConsent(shopId, {
+        brandingRules: brandingRules || {},
     });
-    await invalidateShopKnowledgeCaches(shopId);
 
     return { brandingRules };
 };
@@ -370,10 +369,6 @@ const createDocument = async (userId, shopId, document) => {
         );
     }
 
-    const shop = await getShop(shopId);
-    const settings = normalizeObject(shop.settings);
-    const documents = normalizeArray(settings.documents);
-
     const newDocument = {
         id: crypto.randomUUID(),
         name: document.name,
@@ -385,10 +380,9 @@ const createDocument = async (userId, shopId, document) => {
         status: document?.text ? 'processing' : 'indexed'
     };
 
-    documents.push(newDocument);
-    await shop.update({
-        settings: mergeAndSanitizeSettings(settings, { documents })
-    });
+    await shopService.updateShopSettingsPreservingRtoConsent(shopId, (settings) => ({
+        documents: [...normalizeArray(settings.documents), newDocument],
+    }));
 
     // Fix #8: Non-blocking RAG ingestion — update status in background
     if (document?.text) {
@@ -404,29 +398,20 @@ const createDocument = async (userId, shopId, document) => {
             }
         }).then(async () => {
             // Update status to indexed
-            const s = await Shop.findByPk(shopId);
-            if (!s) return;
-            const st = normalizeObject(s.settings);
-            const docs = normalizeArray(st.documents).map(d =>
-                d.id === newDocument.id ? { ...d, status: 'indexed' } : d
-            );
-            await s.update({
-                settings: mergeAndSanitizeSettings(st, { documents: docs })
-            });
-            await invalidateShopKnowledgeCaches(shopId);
+            await shopService.updateShopSettingsPreservingRtoConsent(shopId, (settings) => ({
+                documents: normalizeArray(settings.documents).map(d =>
+                    d.id === newDocument.id ? { ...d, status: 'indexed' } : d
+                ),
+            }));
         }).catch(async (err) => {
-            console.warn(`RAG ingest (doc-${newDocument.id}) failed:`, err.message);
+            const errorCode = safeErrorCode(err, 'RAG_INGEST_FAILED');
+            console.warn('RAG document ingest failed', { documentId: newDocument.id, errorCode });
             // Update status to failed
-            const s = await Shop.findByPk(shopId);
-            if (!s) return;
-            const st = normalizeObject(s.settings);
-            const docs = normalizeArray(st.documents).map(d =>
-                d.id === newDocument.id ? { ...d, status: 'failed', error: err.message } : d
-            );
-            await s.update({
-                settings: mergeAndSanitizeSettings(st, { documents: docs })
-            }).catch(() => {});
-            await invalidateShopKnowledgeCaches(shopId);
+            await shopService.updateShopSettingsPreservingRtoConsent(shopId, (settings) => ({
+                documents: normalizeArray(settings.documents).map(d =>
+                    d.id === newDocument.id ? { ...d, status: 'failed', error: errorCode } : d
+                ),
+            })).catch(() => {});
         });
     }
 
@@ -435,15 +420,10 @@ const createDocument = async (userId, shopId, document) => {
 
 const deleteDocument = async (userId, shopId, documentId) => {
     await verifyShopAccess(userId, shopId);
-    const shop = await getShop(shopId);
-
-    const settings = normalizeObject(shop.settings);
-    const documents = normalizeArray(settings.documents).filter(doc => doc.id !== documentId);
-    await shop.update({
-        settings: mergeAndSanitizeSettings(settings, { documents })
-    });
+    await shopService.updateShopSettingsPreservingRtoConsent(shopId, (settings) => ({
+        documents: normalizeArray(settings.documents).filter(doc => doc.id !== documentId),
+    }));
     ragService.deletePoint(documentId, shopId).catch(() => {});
-    await invalidateShopKnowledgeCaches(shopId);
 
     return { message: 'Document deleted successfully' };
 };

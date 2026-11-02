@@ -96,7 +96,10 @@ const mockOrderItem = { id: 'item-1', product_id: 'prod-1', quantity: 2, price: 
 const makeOrder = (overrides = {}) => ({
     // The column is order_status. A fixture setting `status` leaves
     // order_status undefined, so every status-dependent guard reads as unset.
+    // fulfillment_status is persisted with a schema default of 'unfulfilled',
+    // so every real row carries it; the fixture must match the true shape.
     id: 'order-1', shop_id: 'shop-1', order_number: 'ORD-042', order_status: 'pending',
+    fulfillment_status: 'unfulfilled',
     customer_id: 'cust-1', total_amount: 1000, payment_method: 'COD',
     items: [mockOrderItem],
     update: jest.fn(async function (d) { Object.assign(this, d); return this; }),
@@ -118,6 +121,9 @@ jest.mock('src/modules/entities', () => ({
     Channel: { findOne: jest.fn() },
     OrderReturn: { findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() },
     CourierDispatch: { findOne: jest.fn(), findOrCreate: jest.fn(), update: jest.fn() },
+    // Lifecycle guards fail closed (503) when tracking state cannot be read;
+    // the real schema always exposes this entity.
+    DeliveryTracking: { findOne: jest.fn(), findAll: jest.fn() },
     Invoice: { create: jest.fn() },
     Campaign: { findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() },
     PushSubscription: { create: jest.fn(), findOne: jest.fn(), destroy: jest.fn() }
@@ -155,6 +161,9 @@ beforeEach(() => {
     Product.findAll.mockResolvedValue([mockProduct]);
     const { CourierDispatch } = require('src/modules/entities');
     CourierDispatch.findOne.mockResolvedValue(null);
+    const { DeliveryTracking } = require('src/modules/entities');
+    DeliveryTracking.findOne.mockResolvedValue(null);
+    DeliveryTracking.findAll.mockResolvedValue([]);
     Customer.findOne.mockResolvedValue({ id: 'cust-1', display_name: 'Test Customer', phone: '01700000000' });
     Customer.findOrCreate.mockResolvedValue([{ id: 'cust-1' }, false]);
 });

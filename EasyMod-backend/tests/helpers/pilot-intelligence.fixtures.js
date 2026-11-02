@@ -84,6 +84,9 @@ function createFixtures(label) {
             delivery_address: 'House 12, Road 5, Dhanmondi, Dhaka',
             total: 1250,
             order_status: 'confirmed',
+            // Booking requires a recorded payment method (or a paid order);
+            // the canonical bookable fixture is a pending COD order.
+            payment_method: 'COD',
             payment_status: 'pending',
             fulfillment_status: 'unfulfilled',
             items: [{ product_id: null, name: 'Pilot Item', quantity: 1 }],

@@ -114,9 +114,9 @@ describe("V7-enhanced V6 LandingPage", () => {
     ]);
     expect(screen.getByText(/নিজের দেওয়া Meta CSV import/i)).toBeInTheDocument();
     expect(screen.getByText(/প্রকৃত টাকা পাওয়া ম্যানুয়ালি যাচাই করুন/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Get Your Moderator" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Moderator Plus" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Partnership" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Get Your Moderator$/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Moderator Plus$/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Partnership$/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "EasyModerator Ads Studio" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "EasyModerator Storefront" })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /Get Your Moderator অ্যাকাউন্ট তৈরি করুন/i }).every((link) => link.getAttribute("href")?.endsWith("?lang=bn"))).toBe(true);

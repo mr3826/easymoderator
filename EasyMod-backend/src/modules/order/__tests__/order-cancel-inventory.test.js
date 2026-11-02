@@ -38,6 +38,7 @@ const makeOrder = (overrides = {}) => ({
     id: 'order-1',
     shop_id: 'shop-1',
     order_status: 'confirmed',
+    fulfillment_status: 'unfulfilled',
     order_number: 'ORD-001',
     customer_id: 'cust-1',
     total_amount: 1000,
@@ -87,6 +88,7 @@ jest.mock('../../entities', () => ({
         findAll: jest.fn()
     },
     CourierDispatch: { findOne: jest.fn(), findOrCreate: jest.fn(), update: jest.fn() },
+    DeliveryTracking: { findOne: jest.fn() },
     Invoice: { create: jest.fn(), findOne: jest.fn() },
     Subscription: { findOne: jest.fn() },
     PartnerBillingAdjustment: { create: jest.fn(), findOne: jest.fn() }
@@ -126,7 +128,7 @@ jest.mock('../../../jobs/queue-manager', () => ({
 const orderService = require('../order.service');
 const returnService = require('../return.service');
 const {
-    Order, OrderItem, Product, UserShop, OrderReturn, Invoice, Subscription, PartnerBillingAdjustment, CourierDispatch
+    Order, OrderItem, Product, UserShop, OrderReturn, Invoice, Subscription, PartnerBillingAdjustment, CourierDispatch, DeliveryTracking
 } = require('../../entities');
 const { AppError } = require('../../../utils/AppError');
 const stockGuard = require('../../product/stock-status-guard.service');
@@ -140,6 +142,7 @@ describe('Order Cancel → Inventory Sync', () => {
         Order.findOne.mockResolvedValue(order);
         UserShop.findOne.mockResolvedValue({ id: 'us-1', is_active: true });
         CourierDispatch.findOne.mockResolvedValue(null);
+        DeliveryTracking.findOne.mockResolvedValue(null);
         PartnerBillingAdjustment.findOne.mockResolvedValue(null);
         OrderItem.findAll.mockResolvedValue(mockOrderItems);
         Product.findAll.mockResolvedValue([
@@ -214,6 +217,52 @@ describe('Order Cancel → Inventory Sync', () => {
         Order.findOne.mockResolvedValue(makeOrder({ order_status: 'cancelled' }));
         await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1')).rejects.toMatchObject({ status: 400 });
         expect(mockProduct.increment).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['fulfilled order status', { order_status: 'fulfilled' }],
+        ['completed order status', { order_status: 'completed' }],
+        ['delivered fulfillment status', { fulfillment_status: 'delivered' }],
+        ['fulfilled fulfillment status', { fulfillment_status: 'fulfilled' }],
+    ])('does not restore stock for %s', async (_label, overrides) => {
+        order = makeOrder(overrides);
+        Order.findOne.mockResolvedValue(order);
+
+        await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1'))
+            .rejects.toMatchObject({ status: 409 });
+
+        expect(order.update).not.toHaveBeenCalled();
+        expect(OrderItem.findAll).not.toHaveBeenCalled();
+        expect(Product.findAll).not.toHaveBeenCalled();
+        expect(mockProduct.increment).not.toHaveBeenCalled();
+    });
+
+    it('does not cancel or restore full stock for a partially fulfilled order', async () => {
+        order = makeOrder({
+            fulfillment_status: 'partially_fulfilled',
+            delivery_status: 'partial_delivered',
+        });
+        Order.findOne.mockResolvedValue(order);
+
+        await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1'))
+            .rejects.toMatchObject({ status: 409, code: 'PARTIAL_FULFILLMENT_INVENTORY_UNKNOWN' });
+
+        expect(order.update).not.toHaveBeenCalled();
+        expect(OrderItem.findAll).not.toHaveBeenCalled();
+        expect(Product.findAll).not.toHaveBeenCalled();
+        expect(mockProduct.increment).not.toHaveBeenCalled();
+    });
+
+    it('does not cancel or restore stock when a delivered timestamp exists', async () => {
+        order = makeOrder({ delivered_at: new Date() });
+        Order.findOne.mockResolvedValue(order);
+
+        await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1'))
+            .rejects.toMatchObject({ status: 409, code: 'ORDER_LOCKED_AFTER_COURIER_DISPATCH' });
+
+        expect(order.update).not.toHaveBeenCalled();
+        expect(OrderItem.findAll).not.toHaveBeenCalled();
+        expect(Product.findAll).not.toHaveBeenCalled();
     });
 
     it('does not increment stock when order has no items', async () => {

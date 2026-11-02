@@ -8,18 +8,22 @@ class RtoShieldController {
     try {
       const { phone } = req.body;
       const shopId = resolveShopId(req);
-      const { enforce } = await getNetworkSettings(shopId);
-      const result = await RtoShieldService.checkPhone(phone, shopId, { enforceNetwork: enforce });
+      const result = await RtoShieldService.checkPhone(phone, shopId, {
+        trustedContext: false,
+        enforceNetwork: false,
+      });
       res.json({ success: true, data: result });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   }
 
-  /** Cross-shop network signal for a phone — surfaced as a "fraud reach" badge in the UI. */
+  /** Free-form phone stats stay local-only; cross-shop reads require an internal verified context. */
   static async networkStats(req, res) {
     try {
-      const result = await RtoShieldService.getNetworkStats(req.query.phone, resolveShopId(req));
+      const result = await RtoShieldService.getNetworkStats(req.query.phone, resolveShopId(req), {
+        trustedContext: false,
+      });
       res.json({ success: true, data: result });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -88,17 +92,21 @@ class RtoShieldController {
       const settings = await getNetworkSettings(resolveShopId(req));
       res.json({ success: true, data: settings });
     } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(err.status || err.statusCode || 500).json({ success: false, error: err.message });
     }
   }
 
   /** Update this shop's network participation. */
   static async updateSettings(req, res) {
     try {
-      const settings = await updateNetworkSettings(resolveShopId(req), req.body);
+      const settings = await updateNetworkSettings(resolveShopId(req), req.body, {
+        userId: req.user?.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers?.['user-agent'],
+      });
       res.json({ success: true, data: settings });
     } catch (err) {
-      const status = err.statusCode || 400;
+      const status = err.status || err.statusCode || 400;
       res.status(status).json({ success: false, error: err.message });
     }
   }

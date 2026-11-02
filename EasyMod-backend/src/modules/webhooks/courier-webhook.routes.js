@@ -12,6 +12,10 @@ const { createLogger } = require('../../utils/structured-logger');
 
 const router = express.Router();
 const logger = createLogger();
+const safeErrorCode = (error) => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : 'COURIER_WEBHOOK_ERROR';
+};
 const parseJsonWithRawBody = express.json({
     verify: (req, _res, buf) => {
         req.rawBody = buf;
@@ -101,7 +105,7 @@ async function validateSteadfastSignature(req, res, next) {
         req.resolvedTracking = resolved.tracking;
         next();
     } catch (err) {
-        logger.error('Steadfast webhook validation error', { error: err.message });
+        logger.error('Steadfast webhook validation error', { errorCode: safeErrorCode(err) });
         res.status(500).json({ error: 'Internal error' });
     }
 }
@@ -140,7 +144,7 @@ async function validateRedxSignature(req, res, next) {
         req.resolvedTracking = resolved.tracking;
         next();
     } catch (err) {
-        logger.error('RedX webhook validation error', { error: err.message });
+        logger.error('RedX webhook validation error', { errorCode: safeErrorCode(err) });
         res.status(500).json({ error: 'Internal error' });
     }
 }
@@ -181,7 +185,7 @@ async function validatePathaoSignature(req, res, next) {
         req.resolvedTracking = resolved.tracking;
         next();
     } catch (err) {
-        logger.error('Pathao webhook validation error', { error: err.message });
+        logger.error('Pathao webhook validation error', { errorCode: safeErrorCode(err) });
         res.status(500).json({ error: 'Internal error' });
     }
 }
@@ -237,7 +241,7 @@ function makeHandler(provider) {
 
             res.json({ received: true, ...result });
         } catch (err) {
-            logger.error(`${provider} webhook handler error`, { error: err.message });
+            logger.error(`${provider} webhook handler error`, { errorCode: safeErrorCode(err) });
             res.status(500).json({ error: 'Internal error' });
         }
     };
@@ -250,6 +254,7 @@ router.post('/pathao',    parseJsonWithRawBody, validatePathaoSignature,     mak
 module.exports = router;
 module.exports._private = {
     timingSafeStringEqual,
+    safeErrorCode,
     validatePathaoSignature,
     validateRedxSignature,
     validateSteadfastSignature,

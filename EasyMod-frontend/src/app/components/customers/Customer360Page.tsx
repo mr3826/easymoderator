@@ -94,7 +94,7 @@ function CustomerList({ search }: { search: string }) {
   if (state === "loading") {
     return (
       <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center" role="status">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-hover mx-auto mb-3" />
         <p className="text-gray-600">{t("customer360.loading")}</p>
       </div>
     );
@@ -132,7 +132,7 @@ function CustomerList({ search }: { search: string }) {
               className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-sm p-4"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 text-white font-semibold flex items-center justify-center">
+                <div className="w-10 h-10 shrink-0 rounded-full bg-muted text-muted-foreground font-semibold flex items-center justify-center">
                   {initialOf(c.name)}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -145,7 +145,7 @@ function CustomerList({ search }: { search: string }) {
                 <span>{t("customer360.ordersCount", { delivered: c.delivered_orders, total: c.total_orders })}</span>
                 <span className="font-medium">{formatMoney(c.delivered_value, i18n.language)}</span>
                 {c.open_opportunity && (
-                  <span className="inline-flex items-center gap-1 text-indigo-700 font-medium">
+                  <span className="inline-flex items-center gap-1 text-brand-hover font-medium">
                     <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> {t(`customer360.strength.${c.open_opportunity.strength}`)}
                   </span>
                 )}
@@ -177,14 +177,14 @@ function CustomerList({ search }: { search: string }) {
               >
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 text-white text-sm font-semibold flex items-center justify-center">
+                    <div className="w-9 h-9 shrink-0 rounded-full bg-muted text-muted-foreground text-sm font-semibold flex items-center justify-center">
                       {initialOf(c.name)}
                     </div>
                     <div className="min-w-0">
                       <a
                         href={`/customers/${c.id}`}
                         onClick={(e) => { e.preventDefault(); open(c.id); }}
-                        className="font-medium text-gray-900 hover:text-blue-700 truncate block"
+                        className="font-medium text-gray-900 hover:text-brand-hover truncate block"
                       >
                         {c.name || t("customer360.unknownName")}
                       </a>
@@ -202,7 +202,7 @@ function CustomerList({ search }: { search: string }) {
                 <td className="px-5 py-3 text-sm text-gray-600">{formatRelative(c.last_activity_at, i18n.language)}</td>
                 <td className="px-5 py-3 text-sm">
                   {c.open_opportunity ? (
-                    <span className="inline-flex items-center gap-1 text-indigo-700 font-medium">
+                    <span className="inline-flex items-center gap-1 text-brand-hover font-medium">
                       <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> {t(`customer360.strength.${c.open_opportunity.strength}`)}
                     </span>
                   ) : <span className="text-gray-400">{t("customer360.never")}</span>}
@@ -242,7 +242,7 @@ function OpportunityList({ onCount }: { onCount: (n: number) => void }) {
   if (state === "loading") {
     return (
       <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center" role="status">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-hover mx-auto mb-3" />
       </div>
     );
   }
@@ -333,13 +333,13 @@ export default function Customer360Page() {
                 onClick={() => setTab(key)}
                 data-testid={`customers-tab-${key}`}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  tab === key ? "bg-blue-600 text-white" : "text-gray-700 hover:bg-gray-50"
+                  tab === key ? "bg-primary text-primary-foreground" : "text-gray-700 hover:bg-gray-50"
                 }`}
               >
                 {t(`customer360.tabs.${key}`)}
                 {key === "opportunities" && opportunityCount !== null && (
                   <span className={`ml-2 inline-flex min-w-[1.5rem] justify-center px-1.5 rounded-full text-xs ${
-                    tab === key ? "bg-white/20" : "bg-indigo-100 text-indigo-800"
+                    tab === key ? "bg-white/20" : "bg-emerald-100 text-emerald-800"
                   }`}>
                     {opportunityCount}
                   </span>
@@ -357,7 +357,7 @@ export default function Customer360Page() {
                 placeholder={t("customer360.searchPlaceholder")}
                 aria-label={t("customer360.searchPlaceholder")}
                 maxLength={100}
-                className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
           )}

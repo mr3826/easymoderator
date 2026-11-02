@@ -130,4 +130,26 @@ describe('courier dispatch reconciliation', () => {
         expect(order.update).not.toHaveBeenCalled();
         expect(merchantNotificationService.notifyShop).not.toHaveBeenCalled();
     });
+
+    test('logs only the order identifier and safe code when courier booking throws', async () => {
+        const sensitiveError = Object.assign(
+            new Error('Provider response includes Rahim, 01711111111, Mirpur and private request payload'),
+            { code: 'UPSTREAM_TIMEOUT' },
+        );
+        orderService.bookForOrder.mockRejectedValueOnce(sensitiveError);
+        const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        await OrderSessionService.dispatchParcelWithRetry(order, stepData, SHOP, {
+            authorization: { actionType: 'BOOK_COURIER', shopId: SHOP },
+        });
+
+        expect(errorLog).toHaveBeenCalledWith('[AutoParcel] Courier dispatch stopped', {
+            orderId: 'order-1',
+            errorCode: 'UPSTREAM_TIMEOUT',
+        });
+        const logs = JSON.stringify(errorLog.mock.calls);
+        expect(logs).not.toContain('01711111111');
+        expect(logs).not.toContain('Mirpur');
+        expect(logs).not.toContain('private request payload');
+    });
 });

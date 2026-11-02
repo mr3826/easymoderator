@@ -8,7 +8,11 @@
 
 process.env.NODE_ENV = 'test';
 
-jest.mock('../../shop/shop.entity', () => ({ findByPk: jest.fn() }));
+const mockTransaction = { LOCK: { UPDATE: 'UPDATE' } };
+jest.mock('../../shop/shop.entity', () => ({
+    findByPk: jest.fn(),
+    sequelize: { transaction: (callback) => callback(mockTransaction) },
+}));
 jest.mock('../../../utils/shop-settings-cache', () => ({ invalidateShopSettingsCaches: jest.fn().mockResolvedValue(undefined) }));
 
 const Shop = require('../../shop/shop.entity');
@@ -32,6 +36,11 @@ test('nulls mfs fields, preserves unrelated bd settings (google sheet)', async (
 
     expect(shop.update).toHaveBeenCalledTimes(1);
     const saved = shop.update.mock.calls[0][0].settings;
+    expect(shop.update.mock.calls[0][1]).toEqual({ transaction: mockTransaction });
+    expect(Shop.findByPk).toHaveBeenCalledWith('shop-1', expect.objectContaining({
+        transaction: mockTransaction,
+        lock: 'UPDATE',
+    }));
     expect(saved.bd.mfs_mode).toBeNull();
     expect(saved.bd.mfs_type).toBeNull();
     expect(saved.bd.mfs_number).toBeNull();

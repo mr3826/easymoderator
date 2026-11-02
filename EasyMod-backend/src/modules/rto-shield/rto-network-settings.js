@@ -32,9 +32,12 @@ const DEFAULT_NETWORK_SETTINGS = {
  * @param {string} shopId
  * @returns {Promise<{contribute:boolean, enforce:boolean}>}
  */
-const getNetworkSettings = async (shopId) => {
-  const shop = await Shop.findByPk(shopId, { attributes: ['id', 'settings'] });
-  if (!shop) return { ...DEFAULT_NETWORK_SETTINGS };
+const getNetworkSettings = async (shopId, { transaction = null } = {}) => {
+  const shop = await Shop.findByPk(shopId, {
+    attributes: ['id', 'settings'],
+    ...(transaction ? { transaction } : {}),
+  });
+  if (!shop) throw new AppError('Shop not found', 404);
   return { ...DEFAULT_NETWORK_SETTINGS, ...(shop.settings?.rto_network || {}) };
 };
 
@@ -44,23 +47,60 @@ const getNetworkSettings = async (shopId) => {
  * @param {{contribute?:boolean, enforce?:boolean}} updates
  * @returns {Promise<{contribute:boolean, enforce:boolean}>}
  */
-const updateNetworkSettings = async (shopId, updates) => {
-  const shop = await Shop.findByPk(shopId);
-  if (!shop) throw new AppError('Shop not found', 404);
-
+const updateNetworkSettings = async (shopId, updates, actor = {}) => {
   const clean = {};
   if (typeof updates.contribute === 'boolean') clean.contribute = updates.contribute;
   if (typeof updates.enforce === 'boolean') clean.enforce = updates.enforce;
 
-  const currentSettings = shop.settings || {};
-  const currentNetwork = currentSettings.rto_network || {};
-  const newNetwork = { ...DEFAULT_NETWORK_SETTINGS, ...currentNetwork, ...clean };
+  const result = await Shop.sequelize.transaction(async (transaction) => {
+    const shop = await Shop.findByPk(shopId, {
+      transaction,
+      lock: transaction.LOCK?.UPDATE,
+    });
+    if (!shop) throw new AppError('Shop not found', 404);
 
-  await shop.update({
-    settings: mergeAndSanitizeSettings(currentSettings, { rto_network: newNetwork })
+    const currentSettings = shop.settings || {};
+    const currentNetwork = { ...DEFAULT_NETWORK_SETTINGS, ...(currentSettings.rto_network || {}) };
+    const newNetwork = { ...currentNetwork, ...clean };
+    const changedFields = Object.keys(clean).filter((key) => currentNetwork[key] !== newNetwork[key]);
+    if (changedFields.length) {
+      if (!actor.userId) throw new AppError('An authorized actor is required to update network settings', 403);
+      await shop.update({
+        settings: mergeAndSanitizeSettings(currentSettings, { rto_network: newNetwork })
+      }, { transaction });
+      await require('../audit/audit.service').logOperation({
+        userId: actor.userId,
+        shopId,
+        action: 'RTO_NETWORK_SETTINGS_UPDATED',
+        resourceType: 'shop_settings',
+        resourceId: shopId,
+        oldValues: { rto_network: currentNetwork },
+        newValues: { rto_network: newNetwork },
+        metadata: { changedFields },
+        ipAddress: actor.ipAddress || null,
+        userAgent: actor.userAgent || null,
+      }, { transaction, required: true });
+      if (changedFields.includes('contribute')) {
+        try {
+          await require('./rto-shield.service').refreshNetworkSignalsForShop(shopId, { transaction });
+        } catch (_) {
+          throw new AppError(
+            'Network signals could not be refreshed; consent was not changed',
+            503,
+            'RTO_SIGNAL_REFRESH_FAILED'
+          );
+        }
+      }
+    }
+    return {
+      settings: newNetwork,
+      changed: changedFields.length > 0,
+    };
   });
+
+  if (!result.changed) return result.settings;
   await invalidateShopSettingsCaches(shopId);
-  return newNetwork;
+  return result.settings;
 };
 
 module.exports = { getNetworkSettings, updateNetworkSettings, DEFAULT_NETWORK_SETTINGS };

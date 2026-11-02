@@ -15,6 +15,7 @@ jest.mock('../order.service', () => ({
     createOrderInternal: jest.fn(),
 }));
 jest.mock('../../payment/self-mfs-handler.service', () => ({ verifyPaymentScreenshot: jest.fn() }));
+jest.mock('../../rto-shield/rto-shield.service', () => ({ checkPhone: jest.fn() }));
 jest.mock('../../product/product-search.service', () => ({
     checkStock: jest.fn(),
     searchForOrder: jest.fn(),
@@ -45,6 +46,7 @@ const productSearch = require('../../product/product-search.service');
 const { matchImageMessage } = require('../../ai/image-product-matcher.service');
 const { authorize } = require('../../ai/action-gate');
 const { issueInvoiceForOrder } = require('../../invoice/chat-invoice.service');
+const RtoShieldService = require('../../rto-shield/rto-shield.service');
 const ShopEntity = require('../../shop/shop.entity');
 const PaymentConfigEntity = require('../../payment/payment-config.entity');
 let previousPhotoMatchFlag;
@@ -95,6 +97,29 @@ describe('COLLECTING_NAME', () => {
 
         expect(res.current_step).toBe('COLLECTING_PHONE');
         expect(res.step_data.name).toBe(name);
+    });
+});
+
+describe('COLLECTING_PHONE', () => {
+    test('continues a flagged phone without disclosing a risk signal or declining the order', async () => {
+        RtoShieldService.checkPhone.mockResolvedValue({
+            flagged: true,
+            tier: 'block',
+            risk_score: 95,
+            reason: 'global network signal',
+        });
+        const session = makeSession({
+            current_step: 'COLLECTING_PHONE',
+            step_data: { language: 'en', name: 'Evan' },
+        });
+
+        const result = await OrderSessionService.handleCurrentStep(session, '01712345678', null);
+
+        expect(result.current_step).toBe('COLLECTING_ADDRESS');
+        expect(result.step_data.phone).toBe('01712345678');
+        expect(result.prompt).toMatch(/delivery address/i);
+        expect(JSON.stringify(result)).not.toMatch(/global network signal|risk_score|flagged|blacklist|declin/i);
+        expect(RtoShieldService.checkPhone).not.toHaveBeenCalled();
     });
 });
 

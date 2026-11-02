@@ -3,7 +3,7 @@ const { COURIER_REGISTRY } = require('./providers/provider.registry');
 const deliveryService = require('./delivery.service');
 const { AppError } = require('../../utils/AppError');
 const { Shop } = require('../entities');
-const { mergeAndSanitizeSettings } = require('../shop/shop-settings.validator');
+const { mergeSettingsPreservingRtoConsent } = require('../shop/shop-settings.validator');
 const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
 const pickupLocationService = require('./pickup-location.service');
 const courierReadinessService = require('./courier-readiness.service');
@@ -354,29 +354,26 @@ class DeliveryController {
     async updateSettings(req, res, next) {
         try {
             const shopId = req.user.shopId;
-            const shop = await Shop.findByPk(shopId);
+            const merged = await Shop.sequelize.transaction(async (transaction) => {
+                const shop = await Shop.findByPk(shopId, { transaction, lock: transaction.LOCK?.UPDATE });
+                if (!shop) throw new AppError('Shop not found', 404);
 
-            if (!shop) {
-                throw new AppError('Shop not found', 404);
-            }
-
-            const existingSettings = shop.settings || {};
-            const existingDelivery = existingSettings.delivery || {};
-            const incoming = pickDeliverySettings(req.body || {});
-            const normalizedDelivery = applyDeliveryDefaults({
-                ...existingDelivery,
-                ...incoming
-            });
-            const mergedSettings = mergeAndSanitizeSettings(existingSettings, {
-                delivery: {
+                const existingSettings = shop.settings || {};
+                const existingDelivery = existingSettings.delivery || {};
+                const incoming = pickDeliverySettings(req.body || {});
+                const normalizedDelivery = applyDeliveryDefaults({
                     ...existingDelivery,
-                    ...normalizedDelivery
-                }
-            });
-            const merged = mergedSettings.delivery;
+                    ...incoming,
+                });
+                const mergedSettings = mergeSettingsPreservingRtoConsent(existingSettings, {
+                    delivery: {
+                        ...existingDelivery,
+                        ...normalizedDelivery,
+                    },
+                });
 
-            await shop.update({
-                settings: mergedSettings
+                await shop.update({ settings: mergedSettings }, { transaction });
+                return mergedSettings.delivery;
             });
             await invalidateShopSettingsCaches(shopId);
 

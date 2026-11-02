@@ -1,4 +1,4 @@
-const { Order, OrderItem, Product, ProductVariant, Customer, UserShop, OrderReturn, CourierDispatch, AuditLog } = require('../entities');
+const { Order, OrderItem, Product, ProductVariant, Customer, UserShop, OrderReturn, CourierDispatch, AuditLog, PaymentConfig } = require('../entities');
 const courierDispatchClaims = require('../delivery/courier-dispatch-claim.service');
 const { AppError, sanitizeErrorMessage } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
@@ -9,6 +9,7 @@ const { createLogger } = require('../../utils/structured-logger');
 const { invalidate: invalidateStock } = require('../product/stock-status-guard.service');
 const { findOrderByIdempotencyKey } = require('./order-idempotency.service');
 const { isRuntimeFlagEnabled } = require('../../config/ai-runtime-flags');
+const { normalizeCourierProvider, normalizeTrackingId, trackingUnavailableMessage } = require('../delivery/tracking-identity');
 
 /**
  * Constants for order processing
@@ -19,15 +20,28 @@ const ORDER_NUMBER_PAD_LENGTH = 6;
 const SHOP_PREFIX_LENGTH = 8;
 const RTO_RISK_THRESHOLD = 70;
 
-// State machine definitions
-// Pilot+ F3: this is the coercion allow-list for order_status at creation, NOT
-// the workflow definition. It must cover the LIVE vocabulary actually written
-// by the API validator (draft|confirmed|processing|completed|cancelled), the
-// conversational checkout ('confirmed'), and the legacy values below —
-// otherwise a real committed order was silently renamed to 'draft'.
-const ORDER_STATES = ['draft', 'confirmed', 'processing', 'completed', 'placed', 'paid', 'fulfilled', 'cancelled', 'refunded'];
+// State values recognized by post-create consistency handling. Pending remains
+// a supported create state; terminal client-supplied values are rejected before
+// persistence but stay recognized for server-authoritative lifecycle writes.
+const ORDER_STATES = ['draft', 'pending', 'confirmed', 'processing', 'completed', 'placed', 'paid', 'fulfilled', 'cancelled', 'refunded'];
 const PAYMENT_STATES = ['pending', 'paid', 'unpaid', 'refunded', 'partially_paid'];
-const COD_PAYMENT_STATUSES = ['unpaid', 'pending', null, undefined];
+const COD_PAYMENT_METHODS = new Set(['cod', 'cash', 'cash_on_delivery']);
+const NON_BOOKABLE_ORDER_STATES = new Set([
+    'completed', 'delivered', 'shipped', 'cancelled', 'fulfilled', 'returned', 'refunded', 'partial_returned',
+]);
+const ORDER_STATUS_TRANSITIONS = {
+    draft: ['confirmed'],
+    // Pending is the primary create state (storefront, inbox, manual orders);
+    // merchant confirmation must remain available.
+    pending: ['confirmed'],
+    confirmed: ['processing', 'completed'],
+    processing: ['completed'],
+};
+const COURIER_MUTATION_FIELDS = new Set([
+    'order_status', 'fulfillment_status', 'payment_status', 'payment_method',
+    'customer_name', 'customer_phone', 'delivery_address', 'items', 'quantity',
+    'subtotal', 'discount', 'tax', 'delivery_fee', 'total', 'note', 'notes',
+]);
 
 const COURIER_SETUP_REQUIRED_STATUS = 'courier_setup_required';
 const DISPATCH_INDETERMINATE_STATUS = 'dispatch_indeterminate';
@@ -38,13 +52,14 @@ const DISPATCH_NOTIFICATION_TTL_SECONDS = 24 * 60 * 60;
 /**
  * Verify user has access to shop
  */
-const verifyShopAccess = async (userId, shopId) => {
+const verifyShopAccess = async (userId, shopId, transaction = null) => {
     const userShop = await UserShop.findOne({
         where: {
             user_id: userId,
             shop_id: shopId,
             is_active: true
-        }
+        },
+        ...(transaction ? { transaction } : {}),
     });
 
     if (!userShop) {
@@ -110,7 +125,27 @@ const generateOrderNumber = async (shopId, transaction = null) => {
 /**
  * Check if order is COD (Cash on Delivery)
  */
-const isCodOrder = (paymentStatus) => COD_PAYMENT_STATUSES.includes(paymentStatus);
+const isCodOrder = (paymentStatus, paymentMethod) => {
+    return isCodPaymentMethod(paymentMethod)
+        && ['unpaid', 'pending', 'partially_paid', null, undefined].includes(paymentStatus);
+};
+
+const isCodPaymentMethod = (paymentMethod) => COD_PAYMENT_METHODS.has(
+    String(paymentMethod || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+);
+
+const hasCodPaymentMethodHistory = (order) => {
+    let metadata = order?.metadata || {};
+    if (typeof metadata === 'string') {
+        try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
+    }
+    return Array.isArray(metadata.audit_log) && metadata.audit_log.some((entry) => {
+        const change = entry?.changes?.payment_method;
+        return change && [change.from, change.to].some(isCodPaymentMethod);
+    });
+};
+
+const normalizeOrderStatus = (status) => String(status || '').trim().toLowerCase();
 
 /**
  * Run RTO Shield check for COD orders
@@ -122,22 +157,22 @@ const runRtoShieldCheck = async (customerPhone, shopId) => {
     const { getNetworkSettings } = require('../rto-shield/rto-network-settings');
 
     // Honor the shop's network participation: opted-out shops are scored on their own list only.
-    let enforceNetwork = true;
+    let enforceNetwork = false;
     try {
-        enforceNetwork = (await getNetworkSettings(shopId)).enforce !== false;
-    } catch (_) { /* default to enforcing if settings unavailable */ }
+        enforceNetwork = (await getNetworkSettings(shopId)).enforce === true;
+    } catch (_) { /* Do not consume a shared signal when consent settings are unavailable. */ }
 
-    const result = await RtoShieldService.checkPhone(customerPhone, shopId, { enforceNetwork });
-
-    if (result.flagged && result.risk_score >= RTO_RISK_THRESHOLD) {
-        return {
-            blocked: true,
-            reason: `Order blocked by RTO Shield: ${result.reason} (risk score: ${result.risk_score})`
-        };
-    }
-
-    // Mid-risk (verify tier): allow the order but tell the caller to confirm before dispatch.
-    return { blocked: false, tier: result.tier, requiresVerification: result.tier === 'verify' };
+    const result = await RtoShieldService.checkPhone(customerPhone, shopId, {
+        trustedContext: true,
+        enforceNetwork,
+    });
+    // A phone signal is review evidence, never an order-create auto-decline.
+    return {
+        blocked: false,
+        tier: result.tier,
+        requiresVerification: result.tier === 'verify'
+            || (result.flagged && Number(result.risk_score) >= RTO_RISK_THRESHOLD),
+    };
 };
 
 /**
@@ -477,6 +512,64 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null, {
     createStorefrontCustomer = false,
     strictIdempotencyRead = false,
 } = {}) => {
+    const requestedFulfillmentStatus = orderData?.fulfillment_status;
+    if (requestedFulfillmentStatus !== undefined
+        && requestedFulfillmentStatus !== null
+        && String(requestedFulfillmentStatus).trim().toLowerCase() !== 'unfulfilled') {
+        throw new AppError(
+            'Fulfillment status is server-authoritative and cannot be set during order creation.',
+            409,
+            'FULFILLMENT_STATUS_SERVER_AUTHORITY',
+        );
+    }
+    if (NON_BOOKABLE_ORDER_STATES.has(normalizeOrderStatus(orderData?.order_status))) {
+        throw new AppError(
+            'Terminal order statuses cannot be set during order creation.',
+            400,
+            'ORDER_STATUS_SERVER_AUTHORITY',
+        );
+    }
+    const paymentMethodIdAliases = [orderData?.paymentMethodId, orderData?.payment_method_id]
+        .filter((value) => value !== undefined && value !== null)
+        .map((value) => String(value).trim().toLowerCase());
+    if (paymentMethodIdAliases.length > 1
+        && paymentMethodIdAliases.some((value) => value !== paymentMethodIdAliases[0])) {
+        throw new AppError(
+            'Payment method ID aliases must refer to the same configured payment method.',
+            400,
+            'PAYMENT_METHOD_ID_CONFLICT',
+        );
+    }
+    const paymentMethodId = paymentMethodIdAliases.find(Boolean) || null;
+    let configuredPaymentMethod = null;
+    if (paymentMethodId) {
+        if (typeof PaymentConfig?.findOne !== 'function') {
+            throw new AppError('The selected payment method cannot be verified for this shop.', 409, 'PAYMENT_METHOD_CONFIGURATION_REQUIRED');
+        }
+        const paymentConfig = await PaymentConfig.findOne({
+            where: { id: paymentMethodId, shop_id: shopId },
+            attributes: ['gateway'],
+        });
+        configuredPaymentMethod = String(paymentConfig?.gateway || '').trim();
+        if (!configuredPaymentMethod) {
+            throw new AppError('The selected payment method is not configured for this shop.', 400, 'PAYMENT_METHOD_NOT_AVAILABLE');
+        }
+        if (orderData?.payment_method
+            && isCodPaymentMethod(orderData.payment_method) !== isCodPaymentMethod(configuredPaymentMethod)) {
+            throw new AppError('The payment method does not match the selected shop configuration.', 400, 'PAYMENT_METHOD_CONFIGURATION_MISMATCH');
+        }
+    }
+    const resolvedPaymentMethod = configuredPaymentMethod || orderData?.payment_method || null;
+    const creatingPaidOrder = String(orderData?.payment_status || '').trim().toLowerCase() === 'paid';
+    if (creatingPaidOrder
+        && isCodPaymentMethod(resolvedPaymentMethod)) {
+        throw new AppError(
+            'COD orders cannot be created as paid. Use the owner-confirmed COD settlement action after full delivery.',
+            409,
+            'COD_SETTLEMENT_PATH_REQUIRED',
+        );
+    }
+
     const findExistingOrder = (transaction = null) => strictIdempotencyRead
         ? Order.findOne({ where: { shop_id: shopId, idempotency_key: requestId }, transaction })
         : findOrderByIdempotencyKey(shopId, requestId, transaction ? { transaction } : {});
@@ -492,16 +585,15 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null, {
     await subscriptionService.checkOrderLimit(shopId);
 
     // RTO Shield: check phone blacklist for COD orders before opening transaction
-    const codOrder = isCodOrder(orderData.payment_status);
+    const codOrder = isCodOrder(orderData.payment_status, resolvedPaymentMethod);
     if (codOrder) {
         const rtoCheck = await runRtoShieldCheck(orderData.customer_phone, shopId);
-        if (rtoCheck.blocked) {
-            throw new AppError(rtoCheck.reason, 422);
-        }
         if (rtoCheck.requiresVerification) {
-            // Mid-risk COD: allowed through, but flagged so the seller verifies before dispatch.
-            logger.warn('RTO Shield: COD order requires manual verification before dispatch', {
-                shopId, phone: orderData.customer_phone
+            // Preserve the signal for review. The booking-confidence gate remains
+            // the server-side control before any courier mutation.
+            logger.warn('RTO Shield: COD booking review required', {
+                decision: 'manual_review_required',
+                riskTier: rtoCheck.tier || 'high',
             });
         }
     }
@@ -600,7 +692,9 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null, {
             channel: orderData.channel || 'manual',
             order_status: orderData.order_status || 'draft',
             payment_status: orderData.payment_status || 'pending',
-            fulfillment_status: orderData.fulfillment_status || 'unfulfilled',
+            fulfillment_status: requestedFulfillmentStatus == null
+                ? 'unfulfilled'
+                : String(requestedFulfillmentStatus).trim().toLowerCase(),
             items: itemsSnapshot,
             subtotal: totals.subtotal,
             discount: totals.discount,
@@ -609,8 +703,8 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null, {
             total: totals.total,
             delivery_address: orderData.delivery_address || null,
             delivery_zone: orderData.delivery_zone || null,
-            payment_method: orderData.payment_method || null,
-            payment_method_id: orderData.paymentMethodId || orderData.payment_method_id || null,
+            payment_method: resolvedPaymentMethod,
+            payment_method_id: paymentMethodId || null,
             note: orderData.note,
             idempotency_key: requestId || null,
             ...(orderData.metadata !== undefined ? { metadata: orderData.metadata } : {}),
@@ -804,115 +898,194 @@ const createStorefrontCodOrder = async (shopId, orderData, requestId, {
 const updateOrder = async (orderId, userId, shopId, updateData) => {
     await verifyShopAccess(userId, shopId);
 
-    if (updateData.order_status === 'cancelled') {
-        await sequelize.transaction(async (transaction) => {
-            const query = { where: { id: orderId, shop_id: shopId }, transaction };
-            if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
-            const order = await Order.findOne(query);
-            if (!order) throw new AppError('Order not found', 404);
-            if (order.order_status === 'cancelled') return;
-            if (order.order_status === 'shipped' || order.order_status === 'delivered') {
-                throw new AppError(`Cannot cancel order with status '${order.order_status}'`, 409);
-            }
-            await ensureNoActiveCourierDispatch(orderId, shopId, transaction);
-
-            const allowedUpdates = [
-                'order_status', 'payment_status', 'fulfillment_status', 'note',
-                'quantity', 'notes', 'delivery_address', 'customer_phone', 'customer_name', 'payment_method'
-            ];
-            const updates = { order_status: 'cancelled' };
-            const auditChanges = {
-                order_status: { from: order.order_status, to: 'cancelled' },
-            };
-            for (const key of allowedUpdates) {
-                if (key === 'order_status' || updateData[key] === undefined) continue;
-                if (order[key] !== updateData[key]) {
-                    auditChanges[key] = { from: order[key], to: updateData[key] };
-                }
-                updates[key] = updateData[key];
-            }
-            const metadata = order.metadata || {};
-            updates.metadata = {
-                ...metadata,
-                audit_log: [...(Array.isArray(metadata.audit_log) ? metadata.audit_log : []), {
-                    changed_by: userId,
-                    changed_at: new Date().toISOString(),
-                    changes: auditChanges,
-                }],
-            };
-
-            await order.update(updates, { transaction });
-            await restoreOrderInventory(orderId, shopId, transaction);
-        });
-        return getOrderById(orderId, userId, shopId);
-    }
-
-    const order = await Order.findOne({
-        where: { id: orderId, shop_id: shopId }
-    });
-
-    if (!order) {
-        throw new AppError('Order not found', 404);
-    }
-
-    if (updateData.order_status === 'draft' && order.order_status !== 'draft') {
-        throw new AppError('An existing order cannot be moved back to Draft', 409, 'ORDER_STATUS_TRANSITION_INVALID');
-    }
-
-    // Block edits once order has moved beyond editable states
-    const NON_EDITABLE_STATUSES = ['shipped', 'delivered', 'cancelled'];
-    if (NON_EDITABLE_STATUSES.includes(order.order_status)) {
+    if (normalizeOrderStatus(updateData.order_status) === 'cancelled') {
         throw new AppError(
-            `Cannot edit order with status '${order.order_status}'. Only orders not yet shipped can be edited.`,
-            409
+            'Use the order cancellation endpoint so lifecycle, courier state, inventory, and history are checked together.',
+            409,
+            'ORDER_CANCELLATION_PATH_REQUIRED',
         );
     }
 
-    // Allow updating statuses, note, and agent-editable fields
-    const allowedUpdates = [
-        'order_status', 'payment_status', 'fulfillment_status', 'note',
-        'quantity', 'notes', 'delivery_address', 'customer_phone', 'customer_name', 'payment_method'
-    ];
-    const updates = {};
-    const auditChanges = {};
+    const updateResult = await sequelize.transaction(async (transaction) => {
+        const query = { where: { id: orderId, shop_id: shopId }, transaction };
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+        const order = await Order.findOne(query);
+        if (!order) throw new AppError('Order not found', 404);
 
-    Object.keys(updateData).forEach(key => {
-        if (allowedUpdates.includes(key) && updateData[key] !== undefined) {
+        const paymentStateIsBeingChanged = updateData.payment_status !== undefined
+            || updateData.payment_method !== undefined;
+        const resultingPaymentStatus = String((updateData.payment_status ?? order.payment_status) || '').trim().toLowerCase();
+        const resultingPaymentMethod = updateData.payment_method ?? order.payment_method;
+        let configuredPaymentMethod = null;
+        if (paymentStateIsBeingChanged && resultingPaymentStatus === 'paid' && order.payment_method_id) {
+            if (typeof PaymentConfig?.findOne !== 'function') {
+                throw new AppError('The existing payment method cannot be verified for this shop.', 409, 'PAYMENT_METHOD_CONFIGURATION_REQUIRED');
+            }
+            const paymentConfig = await PaymentConfig.findOne({
+                where: { id: order.payment_method_id, shop_id: shopId },
+                attributes: ['gateway'],
+                transaction,
+            });
+            configuredPaymentMethod = String(paymentConfig?.gateway || '').trim();
+            if (!configuredPaymentMethod) {
+                throw new AppError('The existing payment method is no longer verifiable for this shop.', 409, 'PAYMENT_METHOD_CONFIGURATION_REQUIRED');
+            }
+        }
+        if (paymentStateIsBeingChanged
+            && resultingPaymentStatus === 'paid'
+            && (isCodPaymentMethod(order.payment_method)
+                || isCodPaymentMethod(resultingPaymentMethod)
+                || isCodPaymentMethod(configuredPaymentMethod)
+                || hasCodPaymentMethodHistory(order))) {
+            throw new AppError(
+                'COD settlement must use the owner-confirmed COD payment action after full delivery.',
+                409,
+                'COD_SETTLEMENT_PATH_REQUIRED',
+            );
+        }
+
+        const currentOrderStatus = normalizeOrderStatus(order.order_status);
+        const requestedOrderStatus = updateData.order_status === undefined
+            ? undefined
+            : normalizeOrderStatus(updateData.order_status);
+        const isOrderStatusChange = requestedOrderStatus !== undefined
+            && requestedOrderStatus !== currentOrderStatus;
+        if (isOrderStatusChange
+            && !(ORDER_STATUS_TRANSITIONS[currentOrderStatus] || []).includes(requestedOrderStatus)) {
+            throw new AppError(
+                `Cannot move order from '${order.order_status}' to '${updateData.order_status}'.`,
+                409,
+                'ORDER_STATUS_TRANSITION_INVALID',
+            );
+        }
+
+        const requestedFulfillmentStatus = updateData.fulfillment_status === undefined
+            ? undefined
+            : String(updateData.fulfillment_status || '').trim().toLowerCase();
+        if (requestedFulfillmentStatus === 'partially_fulfilled') {
+            throw new AppError(
+                'Partial fulfillment can only be recorded from authoritative item-level delivery evidence.',
+                409,
+                'PARTIAL_FULFILLMENT_EVIDENCE_REQUIRED',
+            );
+        }
+        if (requestedFulfillmentStatus === 'cancelled') {
+            throw new AppError(
+                'Fulfillment cancellation must use the dedicated order cancellation path.',
+                409,
+                'FULFILLMENT_STATUS_SERVER_AUTHORITY',
+            );
+        }
+        if (requestedFulfillmentStatus !== undefined
+            && !['unfulfilled', 'fulfilled'].includes(requestedFulfillmentStatus)) {
+            throw new AppError(
+                'Fulfillment status is server-authoritative.',
+                409,
+                'FULFILLMENT_STATUS_SERVER_AUTHORITY',
+            );
+        }
+        const currentFulfillmentStatus = String(order.fulfillment_status || '').trim().toLowerCase();
+        if (requestedFulfillmentStatus === 'unfulfilled' && currentFulfillmentStatus !== 'unfulfilled') {
+            throw new AppError(
+                'Fulfillment status cannot regress to unfulfilled after delivery has started.',
+                409,
+                'FULFILLMENT_STATUS_TRANSITION_INVALID',
+            );
+        }
+
+        const completesOrder = isOrderStatusChange && requestedOrderStatus === 'completed';
+        const requiresFullDeliveryEvidence = completesOrder || requestedFulfillmentStatus === 'fulfilled';
+        const hasFullDeliveryEvidence = requiresFullDeliveryEvidence
+            ? await hasAuthoritativeFullDelivery(order, orderId, transaction)
+            : false;
+        if (completesOrder && !hasFullDeliveryEvidence) {
+            throw new AppError(
+                'An order can only be completed after authoritative full-delivery evidence.',
+                409,
+                'ORDER_COMPLETION_REQUIRES_DELIVERY',
+            );
+        }
+        if (requestedFulfillmentStatus === 'fulfilled' && !hasFullDeliveryEvidence) {
+            throw new AppError(
+                'Fulfillment cannot be marked complete without authoritative full-delivery evidence.',
+                409,
+                'FULFILLMENT_REQUIRES_DELIVERY',
+            );
+        }
+
+        const changedCourierFields = getChangedCourierFields(order, updateData);
+        const guardedCourierFields = changedCourierFields.filter((field) => (
+            !(field === 'fulfillment_status' && requestedFulfillmentStatus === 'fulfilled')
+        ));
+        if (requestedFulfillmentStatus === 'fulfilled' && !completesOrder) {
+            await ensureNoUnresolvedCourierDispatch(orderId, shopId, transaction);
+        }
+        if (completesOrder) {
+            await ensureNoUnresolvedCourierDispatch(orderId, shopId, transaction);
+            const otherChangedCourierFields = guardedCourierFields.filter((field) => field !== 'order_status');
+            if (otherChangedCourierFields.length) {
+                await ensureCourierFieldsEditable(order, orderId, shopId, transaction, otherChangedCourierFields);
+            }
+        } else if (guardedCourierFields.length) {
+            await ensureCourierFieldsEditable(order, orderId, shopId, transaction, guardedCourierFields);
+        }
+
+        const NON_EDITABLE_STATUSES = ['shipped', 'delivered', 'completed', 'fulfilled', 'returned', 'refunded', 'cancelled'];
+        if (NON_EDITABLE_STATUSES.includes(String(order.order_status || '').trim().toLowerCase())) {
+            throw new AppError(
+                `Cannot edit order with status '${order.order_status}'. Only orders not yet shipped can be edited.`,
+                409
+            );
+        }
+        if (updateData.payment_method !== undefined
+            && (typeof updateData.payment_method !== 'string' || !updateData.payment_method.trim())) {
+            throw new AppError('A verified payment method is required', 400, 'PAYMENT_METHOD_REQUIRED');
+        }
+        const allowedUpdates = [
+            'order_status', 'payment_status', 'fulfillment_status', 'note',
+            'quantity', 'notes', 'delivery_address', 'customer_phone', 'customer_name', 'payment_method'
+        ];
+        const updates = {};
+        const auditChanges = {};
+        for (const key of allowedUpdates) {
+            if (updateData[key] === undefined) continue;
             const oldValue = order[key];
             const newValue = updateData[key];
-            if (oldValue !== newValue) {
-                auditChanges[key] = { from: oldValue, to: newValue };
-            }
+            if (oldValue !== newValue) auditChanges[key] = { from: oldValue, to: newValue };
             updates[key] = newValue;
         }
+
+        if (Object.keys(updates).length === 0) return { order, auditChanges };
+
+        // The order row lock serializes this metadata read-modify-write so
+        // concurrent corrections cannot replace one another's audit entries.
+        const existingMeta = order.metadata || {};
+        const auditLog = Array.isArray(existingMeta.audit_log) ? existingMeta.audit_log : [];
+        updates.metadata = {
+            ...existingMeta,
+            audit_log: [...auditLog, {
+                changed_by: userId,
+                changed_at: new Date().toISOString(),
+                changes: auditChanges,
+            }],
+        };
+
+        await order.update(updates, { transaction });
+        return { order, auditChanges };
     });
 
-    if (Object.keys(updates).length === 0) {
-        return await getOrderById(orderId, userId, shopId);
-    }
-
-    // Persist the changes and append audit trail to metadata
-    const existingMeta = order.metadata || {};
-    const auditLog = existingMeta.audit_log || [];
-    auditLog.push({
-        changed_by: userId,
-        changed_at: new Date().toISOString(),
-        changes: auditChanges
-    });
-    updates.metadata = { ...existingMeta, audit_log: auditLog };
-
-    await order.update(updates);
-
-    // B2: When status changes to 'shipped', send tracking notification
-    if (auditChanges.order_status && auditChanges.order_status.to === 'shipped') {
+    if (updateResult.auditChanges.order_status && updateResult.auditChanges.order_status.to === 'shipped') {
         const orderTrackingService = require('./order-tracking.service');
         const trackingNumber = updateData.tracking_number || null;
-        orderTrackingService.sendTrackingNotification(order, shopId, { trackingNumber }).catch(err => {
-            console.warn('Tracking notification failed:', err.message);
+        orderTrackingService.sendTrackingNotification(updateResult.order, shopId, { trackingNumber }).catch(err => {
+            console.warn('Tracking notification failed', {
+                orderId,
+                errorCode: safeErrorCode(err, 'TRACKING_NOTIFICATION_FAILED'),
+            });
         });
     }
 
-    return await getOrderById(orderId, userId, shopId);
+    return getOrderById(orderId, userId, shopId);
 };
 
 /**
@@ -1038,17 +1211,11 @@ const listOrders = async (userId, shopId, filters = {}) => {
  */
 const deleteOrder = async (orderId, userId, shopId) => {
     await verifyShopAccess(userId, shopId);
-
-    const order = await Order.findOne({
-        where: { id: orderId, shop_id: shopId }
-    });
-
-    if (!order) {
-        throw new AppError('Order not found', 404);
-    }
-
-    await order.destroy();
-    return { message: 'Order deleted successfully' };
+    throw new AppError(
+        'Hard deletion of orders is unsupported. Use the order cancellation endpoint to preserve inventory and delivery history.',
+        410,
+        'ORDER_HARD_DELETE_UNSUPPORTED',
+    );
 };
 
 /**
@@ -1105,7 +1272,10 @@ const confirmOrder = async (orderId, userId, shopId) => {
             }
         });
     } catch (err) {
-        console.error('Invoice creation failed:', err.message);
+        console.error('Invoice creation failed', {
+            orderId: order.id,
+            errorCode: safeErrorCode(err, 'INVOICE_CREATION_FAILED'),
+        });
     }
 
     // --- EMAIL LOGIC ---
@@ -1124,7 +1294,10 @@ const confirmOrder = async (orderId, userId, shopId) => {
             await sendEmail({ to: customerEmail, subject, html, text });
         }
     } catch (err) {
-        console.error('Order confirmation email failed:', err.message);
+        console.error('Order confirmation email failed', {
+            orderId: order.id,
+            errorCode: safeErrorCode(err, 'ORDER_CONFIRMATION_EMAIL_FAILED'),
+        });
     }
     // Return order (with invoice info if needed)
 
@@ -1146,7 +1319,10 @@ const confirmOrder = async (orderId, userId, shopId) => {
         });
     } catch (deliveryError) {
         // Log error but don't fail order confirmation
-        console.error('Delivery dispatch failed:', deliveryError.message);
+        console.error('Delivery dispatch failed', {
+            orderId: order.id,
+            errorCode: safeErrorCode(deliveryError, 'DELIVERY_DISPATCH_FAILED'),
+        });
         // Order is still confirmed, just without delivery tracking
     }
 
@@ -1207,30 +1383,54 @@ const getOrdersByCustomer = async (userId, shopId, customerId, options = {}) => 
 /**
  * V2: Cancel order
  */
-const cancelOrder = async (userId, shopId, orderId, reason, customerId) => {
-    await verifyShopAccess(userId, shopId);
+const cancelOrderInTransaction = async (userId, shopId, orderId, reason, transaction, customerId) => {
+    if (!transaction) {
+        throw new AppError('Order cancellation requires an active transaction.', 500, 'ORDER_CANCELLATION_TRANSACTION_REQUIRED');
+    }
+    await verifyShopAccess(userId, shopId, transaction);
 
-    return sequelize.transaction(async (transaction) => {
-        const query = { where: { id: orderId, shop_id: shopId }, transaction };
-        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
-        const order = await Order.findOne(query);
-        if (!order) throw new AppError('Order not found', 404);
-        if (customerId && String(order.customer_id) !== String(customerId)) {
-            throw new AppError('Customer verification failed', 403);
-        }
-        if (order.order_status === 'cancelled') throw new AppError('Order is already cancelled', 400);
-        if (order.order_status === 'shipped' || order.order_status === 'delivered') {
-            throw new AppError(`Cannot cancel order with status '${order.order_status}'`, 409);
-        }
-        await ensureNoActiveCourierDispatch(orderId, shopId, transaction);
-
-        await order.update(
-            { order_status: 'cancelled', note: reason ? `Cancelled: ${reason}` : order.note },
-            { transaction }
+    const query = { where: { id: orderId, shop_id: shopId }, transaction };
+    if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+    const order = await Order.findOne(query);
+    if (!order) throw new AppError('Order not found', 404);
+    if (customerId && String(order.customer_id) !== String(customerId)) {
+        throw new AppError('Customer verification failed', 403);
+    }
+    if (order.order_status === 'cancelled') throw new AppError('Order is already cancelled', 400);
+    const orderStatus = String(order.order_status || '').trim().toLowerCase();
+    const fulfillmentStatus = String(order.fulfillment_status || '').trim().toLowerCase();
+    if (fulfillmentStatus === 'partially_fulfilled') {
+        throw new AppError(
+            'Cannot cancel a partially fulfilled order without item-level inventory quantities.',
+            409,
+            'PARTIAL_FULFILLMENT_INVENTORY_UNKNOWN',
         );
-        await restoreOrderInventory(orderId, shopId, transaction);
-        return order;
-    });
+    }
+    if (['shipped', 'delivered', 'completed', 'fulfilled', 'returned', 'refunded'].includes(orderStatus)
+        || ['fulfilled', 'delivered', 'completed', 'returned', 'cancelled'].includes(fulfillmentStatus)) {
+        throw new AppError(`Cannot cancel order with status '${order.order_status}'`, 409);
+    }
+    if (fulfillmentStatus !== 'unfulfilled') {
+        throw new AppError(
+            'Inventory can only be restored when the order is explicitly unfulfilled.',
+            409,
+            'CANCELLATION_REQUIRES_UNFULFILLED_ORDER',
+        );
+    }
+    await ensureNoCourierActivityForCancellation(order, orderId, shopId, transaction);
+
+    await order.update(
+        { order_status: 'cancelled', note: reason ? `Cancelled: ${reason}` : order.note },
+        { transaction }
+    );
+    await restoreOrderInventory(orderId, shopId, transaction);
+    return order;
+};
+
+const cancelOrder = async (userId, shopId, orderId, reason, customerId) => {
+    return sequelize.transaction((transaction) => cancelOrderInTransaction(
+        userId, shopId, orderId, reason, transaction, customerId,
+    ));
 };
 
 /**
@@ -1296,7 +1496,174 @@ const ensureNoActiveCourierDispatch = async (orderId, shopId, transaction) => {
     if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
     const activeDispatch = await model.findOne(query);
     if (activeDispatch) {
-        throw new AppError('Order cannot be cancelled while courier dispatch is active', 409, 'COURIER_DISPATCH_ACTIVE');
+        throw new AppError(
+            'Courier dispatch is active or committed. Refresh the order and reconcile courier state before changing order details.',
+            409,
+            'COURIER_DISPATCH_ACTIVE',
+        );
+    }
+};
+
+const ensureNoUnresolvedCourierDispatch = async (orderId, shopId, transaction) => {
+    const model = getCourierDispatchModel();
+    if (!model || typeof model.findOne !== 'function') {
+        throw new AppError('Courier dispatch state is unavailable', 503, 'COURIER_DISPATCH_CHECK_UNAVAILABLE');
+    }
+    const query = {
+        where: {
+            shop_id: shopId,
+            order_id: orderId,
+            status: { [Op.in]: ['PENDING', 'INDETERMINATE'] },
+        },
+        transaction,
+    };
+    if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+    if (await model.findOne(query)) {
+        throw new AppError(
+            'Order completion is blocked while courier dispatch remains unresolved.',
+            409,
+            'COURIER_DISPATCH_RECONCILIATION_REQUIRED',
+        );
+    }
+};
+
+const ensureNoCourierActivityForCancellation = async (order, orderId, shopId, transaction) => {
+    await ensureNoActiveCourierDispatch(orderId, shopId, transaction);
+
+    const deliveryStatus = String(order.delivery_status || '').trim().toLowerCase();
+    if (order.delivery_tracking_code || order.delivery_consignment_id || order.delivery_dispatched_at || order.delivered_at
+        || (deliveryStatus && !['unfulfilled', 'not_booked'].includes(deliveryStatus))) {
+        throw new AppError(
+            'Courier tracking has started. Reconcile courier state before cancelling this order.',
+            409,
+            'ORDER_LOCKED_AFTER_COURIER_DISPATCH',
+        );
+    }
+
+    const { DeliveryTracking } = require('../entities');
+    if (!DeliveryTracking || typeof DeliveryTracking.findOne !== 'function') {
+        throw new AppError('Courier tracking state is unavailable', 503, 'COURIER_TRACKING_CHECK_UNAVAILABLE');
+    }
+    const query = { where: { order_id: orderId }, transaction };
+    if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+    if (await DeliveryTracking.findOne(query)) {
+        throw new AppError(
+            'Courier tracking has started. Reconcile courier state before cancelling this order.',
+            409,
+            'ORDER_LOCKED_AFTER_COURIER_DISPATCH',
+        );
+    }
+};
+
+const hasAuthoritativeFullDelivery = async (order, orderId, transaction) => {
+    const { DeliveryTracking } = require('../entities');
+    if (!DeliveryTracking || typeof DeliveryTracking.findOne !== 'function') {
+        throw new AppError('Courier tracking state is unavailable', 503, 'COURIER_TRACKING_CHECK_UNAVAILABLE');
+    }
+    const query = { where: { order_id: orderId }, transaction };
+    if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+    const tracking = await DeliveryTracking.findOne(query);
+    const deliveryStatuses = [order.delivery_status, tracking?.current_status]
+        .map((status) => String(status || '').trim().toLowerCase())
+        .filter(Boolean);
+    if (deliveryStatuses.length) return deliveryStatuses.every((status) => status === 'delivered');
+    return Boolean(order.delivered_at);
+};
+
+const assertCourierOrderBookable = (order) => {
+    const states = [order?.order_status, order?.fulfillment_status, order?.delivery_status]
+        .map((state) => String(state || '').trim().toLowerCase());
+    if (states.some((state) => NON_BOOKABLE_ORDER_STATES.has(state)) || order?.delivered_at) {
+        throw new AppError(
+            'Cannot book a courier for a completed, delivered, shipped, cancelled, or fulfilled order.',
+            409,
+            'ORDER_NOT_BOOKABLE',
+        );
+    }
+};
+
+const valuesEqual = (left, right) => {
+    if (Object.is(left, right)) return true;
+    try {
+        return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+        return false;
+    }
+};
+
+const getChangedCourierFields = (order, updateData) => Object.keys(updateData || {}).filter((field) => (
+    COURIER_MUTATION_FIELDS.has(field)
+    && updateData[field] !== undefined
+    && !valuesEqual(order[field], updateData[field])
+));
+
+const ensureCourierFieldsEditable = async (order, orderId, shopId, transaction, changedFields) => {
+    await ensureNoActiveCourierDispatch(orderId, shopId, transaction);
+
+    const changedPaymentField = changedFields.find((field) => (
+        field === 'payment_method' || field === 'payment_status'
+    ));
+    if (changedPaymentField) {
+        await ensureNoCourierTracking(order, orderId, transaction, changedPaymentField);
+        return;
+    }
+
+    const deliveryStatus = String(order.delivery_status || '').trim().toLowerCase();
+    if (order.delivery_tracking_code || order.delivery_consignment_id || order.delivery_dispatched_at
+        || (deliveryStatus && !['unfulfilled', 'not_booked'].includes(deliveryStatus))) {
+        throw new AppError(
+            'Courier tracking has started. Refresh the order and reconcile courier state before changing order details.',
+            409,
+            'ORDER_LOCKED_AFTER_COURIER_DISPATCH',
+        );
+    }
+
+    const { DeliveryTracking } = require('../entities');
+    if (!DeliveryTracking || typeof DeliveryTracking.findOne !== 'function') {
+        throw new AppError('Courier tracking state is unavailable', 503, 'COURIER_TRACKING_CHECK_UNAVAILABLE');
+    }
+    const tracking = await DeliveryTracking.findOne({ where: { order_id: orderId }, transaction });
+    if (tracking) {
+        throw new AppError(
+            'Courier tracking has started. Refresh the order and reconcile courier state before changing order details.',
+            409,
+            'ORDER_LOCKED_AFTER_COURIER_DISPATCH',
+        );
+    }
+};
+
+const ensureNoCourierTracking = async (order, orderId, transaction, paymentField = 'payment_method') => {
+    const deliveryStatus = String(order.delivery_status || '').trim().toLowerCase();
+    const label = paymentField === 'payment_status' ? 'Payment status' : 'Payment method';
+    const code = paymentField === 'payment_status'
+        ? 'PAYMENT_STATUS_LOCKED_AFTER_DISPATCH'
+        : 'PAYMENT_METHOD_LOCKED_AFTER_DISPATCH';
+    if (order.delivery_tracking_code || order.delivery_consignment_id) {
+        throw new AppError(
+            `${label} cannot be changed after courier booking`,
+            409,
+            code
+        );
+    }
+    if (deliveryStatus && !['unfulfilled', 'not_booked'].includes(deliveryStatus)) {
+        throw new AppError(
+            `${label} cannot be changed after courier tracking starts`,
+            409,
+            code
+        );
+    }
+    const { DeliveryTracking } = require('../entities');
+    if (!DeliveryTracking || typeof DeliveryTracking.findOne !== 'function') {
+        throw new AppError('Courier tracking state is unavailable', 503, 'COURIER_TRACKING_CHECK_UNAVAILABLE');
+    }
+    const query = { where: { order_id: orderId }, transaction };
+    const tracking = await DeliveryTracking.findOne(query);
+    if (tracking) {
+        throw new AppError(
+            `${label} cannot be changed after courier tracking exists`,
+            409,
+            code
+        );
     }
 };
 
@@ -1313,6 +1680,11 @@ const getCourierReadinessService = () => {
 const asSafeReason = (value, fallback) => {
     if (typeof value !== 'string' || !value.trim()) return fallback;
     return sanitizeErrorMessage(value.trim()).slice(0, 500);
+};
+
+const safeErrorCode = (error, fallback = 'ORDER_OPERATION_FAILED') => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : fallback;
 };
 
 const isDefinitiveProviderRejection = (error) => {
@@ -1509,15 +1881,32 @@ const buildCourierOrderData = (order, { stepData = {}, overrides = {}, pickup = 
         order?.delivery_address || stepValues.address || overrideValues.delivery_address || overrideValues.recipient_address
     );
     const total = numericOr(order?.total, 0);
-    // Cash-to-collect on delivery must reflect what the customer still owes,
-    // not the order's face value. A 'paid' order was already settled online
-    // (bKash/Nagad/card) so the courier must collect 0, or every provider
-    // re-invoices the customer for the full amount as COD. There is no
-    // due-balance/paid-amount field on the Order model today, so
-    // 'partially_paid' (and every other non-'paid' status, including an
-    // unset payment_status on legacy/manual orders) falls back to the full
-    // total exactly like a normal COD order.
-    const collectionAmount = order?.payment_status === 'paid' ? 0 : total;
+    const paymentMethod = String(order?.payment_method || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const paymentStatus = String(order?.payment_status || '').trim().toLowerCase();
+    const isCod = COD_PAYMENT_METHODS.has(paymentMethod);
+    if (isCod && paymentStatus === 'partially_paid') {
+        throw new AppError(
+            'COD balance is unavailable for this partially paid order. Verify the amount due before courier booking.',
+            409,
+            'COD_DUE_AMOUNT_UNKNOWN'
+        );
+    }
+    if (!paymentMethod && paymentStatus !== 'paid') {
+        throw new AppError(
+            'Payment method is not recorded. Verify the payment method before courier booking.',
+            409,
+            'PAYMENT_METHOD_REQUIRED'
+        );
+    }
+    if (isCod && paymentStatus !== 'paid' && paymentStatus !== 'pending' && paymentStatus !== 'unpaid') {
+        throw new AppError(
+            'COD collection is unavailable until the payment status is verified.',
+            409,
+            'PAYMENT_STATUS_REQUIRED'
+        );
+    }
+    // Only an explicitly recorded COD method asks the courier to collect money.
+    const collectionAmount = isCod && ['pending', 'unpaid'].includes(paymentStatus) ? total : 0;
     const items = orderItemsForCourier(order);
     const itemQuantity = items.reduce((sum, item) => {
         const quantity = Number(item?.quantity);
@@ -1629,7 +2018,10 @@ const markCourierSetupRequired = async (order, shopId, resolution = {}) => {
         return { booked: false, marked: true, order: latestOrder };
     });
 
-    if (marker.booked) return synthesizeCourierResult(marker.order, marker.order.delivery_provider || resolution.provider);
+    if (marker.booked) {
+        const committed = await findCommittedDispatch(marker.order, shopId);
+        return synthesizeCommittedCourierResult(marker.order, committed);
+    }
     if (marker.marked) {
         payload.orderNumber = marker.order.order_number || payload.orderNumber;
         await notifyCourierEvent(
@@ -1808,13 +2200,49 @@ const claimCourierDispatchRecord = async (order, shopId, provider, transaction =
     });
 };
 
-const synthesizeCourierResult = (order, provider, record) => ({
-    provider: provider || order?.delivery_provider || null,
-    consignment_id: record?.consignment_id || order?.delivery_consignment_id || record?.tracking_code || order?.delivery_tracking_code,
-    tracking_code: record?.tracking_code || order?.delivery_tracking_code || record?.consignment_id || order?.delivery_consignment_id,
-    status: order?.delivery_status || 'booked',
-    invoice: order?.order_number || null,
+const resolveCommittedCourierProvider = (order, record) => {
+    const claimProvider = record?.provider;
+    const providerValue = claimProvider === undefined
+        || claimProvider === null
+        || (typeof claimProvider === 'string' && !claimProvider.trim())
+        ? order?.delivery_provider
+        : claimProvider;
+    return normalizeCourierProvider(providerValue);
+};
+
+const committedTrackingUnavailable = (code, provider = null) => ({
+    blocked: true,
+    status: 'tracking_unavailable',
+    code,
+    reason: code,
+    message: trackingUnavailableMessage(code),
+    provider,
 });
+
+const synthesizeCommittedCourierResult = (order, record) => {
+    const provider = resolveCommittedCourierProvider(order, record);
+    if (!provider) {
+        return committedTrackingUnavailable('COURIER_DISPATCH_PROVIDER_UNAVAILABLE');
+    }
+
+    const consignmentId = normalizeTrackingId(record?.consignment_id, order?.delivery_consignment_id);
+    const trackingCode = normalizeTrackingId(
+        record?.tracking_code,
+        order?.delivery_tracking_code,
+        consignmentId,
+    );
+    if (!trackingCode) {
+        return committedTrackingUnavailable('COURIER_TRACKING_UNAVAILABLE', provider);
+    }
+
+    return {
+        provider,
+        consignment_id: consignmentId,
+        tracking_code: trackingCode,
+        status: order?.delivery_status || 'booked',
+        invoice: order?.order_number || null,
+    };
+};
 
 const persistDeliveryResult = async (order, deliveryResult) => {
     const trackingNumber = deliveryResult?.tracking_code || deliveryResult?.consignment_id;
@@ -1953,6 +2381,13 @@ const recordAgentActionOutcome = async (options, mutationResult, outboundResult)
     }
 };
 
+// Keep order_status separate from a merchant decision fingerprint, but bind
+// it into the reviewed booking snapshot so any intervening state change aborts.
+const courierBookingFingerprint = (order, confidenceRules) => JSON.stringify([
+    confidenceRules.fingerprint(order),
+    String(order?.order_status || '').trim().toLowerCase(),
+]);
+
 /**
  * Canonical courier booking entry point for all order paths.
  *
@@ -1975,15 +2410,17 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
         throw new AppError('Order does not belong to the selected shop', 403, 'TENANT_MISMATCH');
     }
 
+    const committedBeforeWork = await findCommittedDispatch(order, shopId);
     if (order.delivery_consignment_id || order.delivery_tracking_code) {
-        return synthesizeCourierResult(order, options.provider || order.delivery_provider, options.dispatchRecord);
+        return synthesizeCommittedCourierResult(order, committedBeforeWork);
     }
 
-    const committedBeforeWork = await findCommittedDispatch(order, shopId);
     if (committedBeforeWork) {
         require('../pilot-features/pilot-metrics').increment('order_confidence.committed_reconcile_allowed', shopId);
-        return synthesizeCourierResult(order, committedBeforeWork.provider || order.delivery_provider, committedBeforeWork);
+        return synthesizeCommittedCourierResult(order, committedBeforeWork);
     }
+
+    assertCourierOrderBookable(order);
 
     // V6 contract port (IC-V1), reconciled for review findings F1/F2:
     // a DRAFT is under merchant review — no booking path may mutate or notify it
@@ -1997,7 +2434,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
         const committed = await findCommittedDispatch(candidateOrder, shopId);
         if (committed) {
             require('../pilot-features/pilot-metrics').increment('order_confidence.committed_reconcile_allowed', shopId);
-            return synthesizeCourierResult(candidateOrder, committed.provider || candidateOrder.delivery_provider, committed);
+            return synthesizeCommittedCourierResult(candidateOrder, committed);
         }
         throw new AppError('Draft orders must be confirmed before courier booking', 409, 'DRAFT_ORDER_NOT_BOOKABLE');
     };
@@ -2016,7 +2453,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
     if (options.mutationAuthority?.kind === 'system' && !isRuntimeFlagEnabled('AI_COURIER_BOOKING_ENABLED')) {
         await verifyMutationAuthority(options.provider || order.delivery_provider || 'active');
         const committed = await findCommittedDispatch(order, shopId);
-        if (committed) return synthesizeCourierResult(order, committed.provider || order.delivery_provider, committed);
+        if (committed) return synthesizeCommittedCourierResult(order, committed);
         const draftReconcile = await draftBookingGuard();
         if (draftReconcile) return draftReconcile;
         return { blocked: true, status: 'automation_disabled', reason: 'AI_COURIER_BOOKING_DISABLED' };
@@ -2041,48 +2478,40 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
         return setupResult;
     }
 
-    const orderData = buildCourierOrderData(order, {
-        stepData: options.stepData,
-        overrides: options.overrides,
-        pickup: resolution.pickup,
-    });
-    const missingOrderData = [
-        ['customer_name', orderData.customer_name],
-        ['customer_phone', orderData.customer_phone],
-        ['delivery_address', orderData.delivery_address],
-    ].filter(([, value]) => !String(value || '').trim()).map(([key]) => key);
-    if (missingOrderData.length) {
-        const draftReconcile = await draftBookingGuard();
-        if (draftReconcile) return draftReconcile;
-        await verifyMutationAuthority(resolution.provider);
-        const setupResult = await markCourierSetupRequired(order, shopId, {
-            provider: resolution.provider,
-            reason: 'COURIER_ORDER_DATA_INCOMPLETE',
-            missing: missingOrderData,
-        });
-        await recordAgentActionOutcome(options, {
-            success: false,
-            state: 'COURIER_SETUP_REQUIRED',
-            code: 'COURIER_ORDER_DATA_INCOMPLETE',
-            resourceId: order.id,
-        }, { success: false, state: 'NOT_ATTEMPTED' });
-        return setupResult;
-    }
-
     // RTO Shield v2 / Order Confidence (ADR-0007). Runs before the durable
     // claim so a held order never creates a PENDING dispatch row and never
     // reaches the provider. It does not replace the claim: idempotency and
     // provider-timeout handling below are unchanged. An order that already
     // has a COMMITTED claim is always allowed through so reconciliation of a
     // parcel that was really booked cannot be blocked by a later decision.
-    const confidenceGate = await orderConfidenceService().checkBookingGate(order, shopId, {
+    const orderConfidenceRules = require('../order-confidence/order-confidence.rules');
+    const gateOrder = await sequelize.transaction(async (transaction) => {
+        const query = { where: { id: order.id, shop_id: shopId }, transaction };
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+        const latestOrder = await Order.findOne(query);
+        if (!latestOrder) throw new AppError('Order not found', 404);
+        assertCourierOrderBookable(latestOrder);
+        return latestOrder;
+    });
+    // Order Confidence intentionally omits order_status so confirmation does
+    // not invalidate an approval. Courier booking binds that status separately.
+    const evaluatedFingerprint = courierBookingFingerprint(gateOrder, orderConfidenceRules);
+    const evaluatedTotal = Number(gateOrder.total);
+    const confidenceGate = await orderConfidenceService().checkBookingGate(gateOrder, shopId, {
         trigger: options.trigger || 'AUTO',
     });
+    if (confidenceGate.snapshotStale) {
+        throw new AppError(
+            'Order details changed during courier review. Refresh the order before booking.',
+            409,
+            'ORDER_CHANGED_BEFORE_COURIER_CLAIM'
+        );
+    }
     if (!confidenceGate.allowed) {
-        const committedDispatch = await findCommittedDispatch(order, shopId);
+        const committedDispatch = await findCommittedDispatch(gateOrder, shopId);
         if (!committedDispatch) {
             await verifyMutationAuthority(resolution.provider);
-            const held = await markConfidenceHold(order, shopId, confidenceGate);
+            const held = await markConfidenceHold(gateOrder, shopId, confidenceGate);
             await recordAgentActionOutcome(options, {
                 success: false,
                 state: 'CONFIDENCE_HOLD',
@@ -2097,7 +2526,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
     // V6 contract port (IC-V1): runs AFTER the already-booked return and AFTER the
     // Order-Confidence gate (held drafts keep the ORDER_CONFIDENCE_HOLD contract);
     // throws unless the draft has a COMMITTED dispatch to reconcile (then returns it).
-    const draftReconcile = await draftBookingGuard();
+    const draftReconcile = await draftBookingGuard(gateOrder);
     if (draftReconcile) return draftReconcile;
     await verifyMutationAuthority(resolution.provider);
 
@@ -2106,41 +2535,82 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
     let providerCallStarted = false;
     let providerCallCompleted = false;
     let dispatchCommitted = false;
-    let bookingOrder = order;
+    let bookingOrder = gateOrder;
+    let orderData = null;
     try {
         const claim = await sequelize.transaction(async (transaction) => {
             const query = { where: { id: order.id, shop_id: shopId }, transaction };
             if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
             const latestOrder = await Order.findOne(query);
             if (!latestOrder) throw new AppError('Order not found', 404);
+            assertCourierOrderBookable(latestOrder);
             if (latestOrder.delivery_consignment_id || latestOrder.delivery_tracking_code) {
+                const committed = await findCommittedDispatch(latestOrder, shopId);
                 return {
                     state: 'already_booked',
                     order: latestOrder,
-                    result: synthesizeCourierResult(latestOrder, latestOrder.delivery_provider),
+                    result: synthesizeCommittedCourierResult(latestOrder, committed),
                 };
+            }
+            const latestTotal = Number(latestOrder.total);
+            if (courierBookingFingerprint(latestOrder, orderConfidenceRules) !== evaluatedFingerprint
+                || !Number.isFinite(evaluatedTotal)
+                || latestTotal !== evaluatedTotal) {
+                throw new AppError(
+                    'Order details changed during courier review. Refresh the order before booking.',
+                    409,
+                    'ORDER_CHANGED_BEFORE_COURIER_CLAIM'
+                );
             }
             const draftResult = await draftBookingGuard(latestOrder);
             if (draftResult) return { state: 'draft_reconcile', order: latestOrder, result: draftResult };
-            if (['cancelled', 'delivered', 'returned', 'refunded'].includes(String(latestOrder.order_status || '').toLowerCase())) {
-                throw new AppError(`Cannot book a courier for an order with status '${latestOrder.order_status}'`, 409, 'ORDER_NOT_BOOKABLE');
+            const latestOrderData = buildCourierOrderData(latestOrder, {
+                stepData: options.stepData,
+                overrides: options.overrides,
+                pickup: resolution.pickup,
+            });
+            const missingOrderData = [
+                ['customer_name', latestOrderData.customer_name],
+                ['customer_phone', latestOrderData.customer_phone],
+                ['delivery_address', latestOrderData.delivery_address],
+            ].filter(([, value]) => !String(value || '').trim()).map(([key]) => key);
+            if (missingOrderData.length) {
+                return { state: 'setup_required', order: latestOrder, missingOrderData };
             }
             return {
                 ...(await claimCourierDispatchRecord(latestOrder, shopId, resolution.provider, transaction)),
                 order: latestOrder,
+                orderData: latestOrderData,
             };
         });
         bookingOrder = claim.order || order;
-        if (claim.state === 'already_booked' || claim.state === 'draft_reconcile') {
+        if (claim.state === 'setup_required') {
+            const setupResult = await markCourierSetupRequired(bookingOrder, shopId, {
+                provider: resolution.provider,
+                reason: 'COURIER_ORDER_DATA_INCOMPLETE',
+                missing: claim.missingOrderData,
+            });
             await recordAgentActionOutcome(options, {
-                success: true,
-                state: 'RECONCILED',
+                success: false,
+                state: 'COURIER_SETUP_REQUIRED',
+                code: 'COURIER_ORDER_DATA_INCOMPLETE',
+                resourceId: bookingOrder.id,
+            }, { success: false, state: 'NOT_ATTEMPTED' });
+            return setupResult;
+        }
+        if (claim.state === 'already_booked' || claim.state === 'draft_reconcile') {
+            const trackingUnavailable = Boolean(claim.result?.blocked);
+            await recordAgentActionOutcome(options, {
+                success: !trackingUnavailable,
+                state: trackingUnavailable ? 'TRACKING_UNAVAILABLE' : 'RECONCILED',
+                ...(trackingUnavailable ? { code: claim.result.code } : {}),
                 resourceId: bookingOrder.id,
             }, { success: false, state: 'NOT_ATTEMPTED' });
             return claim.result;
         }
         dispatchRecord = claim.record;
         dispatchOwnerToken = claim.ownerToken || null;
+        orderData = claim.orderData;
         if (claim.state === 'unavailable') {
             const claimError = new Error('Courier dispatch claim service is unavailable');
             claimError.code = 'COURIER_DISPATCH_CLAIM_UNAVAILABLE';
@@ -2154,7 +2624,16 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
             // just-attempted resolution.provider, or persistDeliveryResult
             // below would overwrite order.delivery_provider with a courier
             // that never touched this order.
-            const committedResult = synthesizeCourierResult(bookingOrder, dispatchRecord?.provider || resolution.provider, dispatchRecord);
+            const committedResult = synthesizeCommittedCourierResult(bookingOrder, dispatchRecord);
+            if (committedResult.blocked) {
+                await recordAgentActionOutcome(options, {
+                    success: false,
+                    state: 'TRACKING_UNAVAILABLE',
+                    code: committedResult.code,
+                    resourceId: bookingOrder.id,
+                }, { success: false, state: 'NOT_ATTEMPTED' });
+                return committedResult;
+            }
             await persistDeliveryResult(bookingOrder, committedResult);
             await recordAgentActionOutcome(options, {
                 success: true,
@@ -2167,7 +2646,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
             const existingClaim = {
                 blocked: true,
                 status: DISPATCH_INDETERMINATE_STATUS,
-                provider: resolution.provider,
+                provider: normalizeCourierProvider(dispatchRecord?.provider),
                 reason: 'existing_courier_dispatch_claim',
             };
             await recordAgentActionOutcome(options, {
@@ -2257,16 +2736,31 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
             );
         }
         if (error.code !== 'ACTION_GATE_RESULT_AUDIT_FAILED') {
-            await recordAgentActionOutcome(options, {
-                success: false,
-                state: providerCallStarted && !definitiveProviderRejection ? 'DISPATCH_INDETERMINATE' : 'DISPATCH_FAILED',
-                code: error.code || 'COURIER_BOOKING_FAILED',
-                resourceId: bookingOrder.id,
-            }, {
-                success: false,
-                state: providerCallStarted && !definitiveProviderRejection ? 'UNKNOWN' : 'NOT_SENT',
-                code: error.code || 'COURIER_BOOKING_FAILED',
-            });
+            try {
+                await recordAgentActionOutcome(options, {
+                    success: false,
+                    state: providerCallStarted && !definitiveProviderRejection ? 'DISPATCH_INDETERMINATE' : 'DISPATCH_FAILED',
+                    code: error.code || 'COURIER_BOOKING_FAILED',
+                    resourceId: bookingOrder.id,
+                }, {
+                    success: false,
+                    state: providerCallStarted && !definitiveProviderRejection ? 'UNKNOWN' : 'NOT_SENT',
+                    code: error.code || 'COURIER_BOOKING_FAILED',
+                });
+            } catch (outcomeError) {
+                if (error.code !== 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE') throw outcomeError;
+            }
+        }
+        if (!providerCallStarted
+            && [
+                'ORDER_CHANGED_BEFORE_COURIER_CLAIM',
+                'ORDER_NOT_BOOKABLE',
+                'COD_DUE_AMOUNT_UNKNOWN',
+                'PAYMENT_METHOD_REQUIRED',
+                'PAYMENT_STATUS_REQUIRED',
+                'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
+            ].includes(error.code)) {
+            throw error;
         }
         if (options.throwOnError === false) {
             return {
@@ -2294,6 +2788,7 @@ module.exports = {
     finalizeOrder,
     getOrdersByCustomer,
     cancelOrder,
+    cancelOrderInTransaction,
     createReturnRequest,
     bookForOrder,
     claimCourierDispatchRecord,

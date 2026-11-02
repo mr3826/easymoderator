@@ -10,6 +10,21 @@ jest.mock('src/config/redis', () => ({
     sessionRedis: null, cacheRedis: null, rateLimitRedis: null, legacyRedis: null,
     closeAllRedis: jest.fn(), checkRedisAvailability: jest.fn(() => ({}))
 }));
+jest.mock('src/jobs/message-queue', () => ({
+    messageQueue: {
+        on: jest.fn(),
+        add: jest.fn().mockResolvedValue({ id: 'job-1' }),
+        getJob: jest.fn().mockResolvedValue(null),
+        getJobCounts: jest.fn().mockResolvedValue({ waiting: 0, active: 0, failed: 0, delayed: 0 }),
+        getWaitingCount: jest.fn().mockResolvedValue(0),
+        getActiveCount: jest.fn().mockResolvedValue(0),
+        getFailedCount: jest.fn().mockResolvedValue(0),
+        getDelayedCount: jest.fn().mockResolvedValue(0),
+        close: jest.fn().mockResolvedValue(undefined),
+    },
+    connection: {},
+    drainChannelJobs: jest.fn().mockResolvedValue({ removed: 0 }),
+}));
 
 // ── Mock Redis ─────────────────────────────────────────────────────────────
 const redisStore = {};
@@ -36,10 +51,18 @@ const mockModel = {
     belongsTo: jest.fn(), hasMany: jest.fn(), hasOne: jest.fn(), belongsToMany: jest.fn(),
     addScope: jest.fn(), scope: jest.fn(function() { return this; }),
 };
+const mockTransaction = {
+    LOCK: { UPDATE: 'UPDATE' },
+    commit: jest.fn(),
+    rollback: jest.fn(),
+    afterCommit: jest.fn((callback) => callback()),
+};
 jest.mock('src/utils/database/database-setup', () => ({
     sequelize: {
         define:       jest.fn(() => ({ ...mockModel })),
-        transaction:  jest.fn(() => Promise.resolve({ commit: jest.fn(), rollback: jest.fn() })),
+        transaction:  jest.fn((callback) => typeof callback === 'function'
+            ? Promise.resolve(callback(mockTransaction))
+            : Promise.resolve(mockTransaction)),
         authenticate: jest.fn(() => Promise.resolve()),
         sync:         jest.fn(() => Promise.resolve()),
     },
@@ -189,7 +212,7 @@ describe('Shop AI Settings API', () => {
                     new_mode: 'AUTO',
                     actor_id: 'user-1',
                 },
-            }));
+            }), { transaction: mockTransaction });
             expect(sseManager.emit).toHaveBeenCalledWith(
                 'shop-1',
                 'ai_reply_mode_changed',
@@ -458,6 +481,47 @@ describe('Shop AI Settings API', () => {
             const saved = shopWithSettings.update.mock.calls[0][0].settings.ai;
             expect(saved.greeting).toEqual({ enabled: true, custom_text: 'Hello', tone: 'warm' });
             expect(saved.closing).toEqual({ enabled: false, custom_text: 'Thanks', include_socials: true });
+        });
+    });
+
+    describe('PUT /shop/llm-config', () => {
+        it('merges the LLM patch into fresh settings and preserves concurrent RTO consent', async () => {
+            const latestSettings = {
+                rto_network: { contribute: false, enforce: true, updated_at: '2026-10-31T10:00:00.000Z' },
+                ai: { automation_mode: 'AUTO', llm_model: 'old-model', retained_flag: 'fresh' },
+                merchant_preferences: { locale: 'bn', currency: 'BDT' },
+            };
+            const staleSettings = {
+                rto_network: { contribute: true, enforce: false, updated_at: '2026-10-01T10:00:00.000Z' },
+                ai: { automation_mode: 'DRAFT', stale_flag: 'must-not-return' },
+            };
+            mockShop.settings = latestSettings;
+            Shop.findByPk.mockResolvedValue(mockShop);
+            UserShop.findOne.mockResolvedValue({
+                ...mockUserShop,
+                shop: {
+                    settings: staleSettings,
+                    toJSON: () => ({ id: 'shop-1', settings: staleSettings }),
+                },
+            });
+
+            const res = await request(app)
+                .put('/api/shop/llm-config')
+                .send({ model: 'gpt-4o-mini', temperature: 0.4 });
+
+            expect(res.status).toBe(200);
+            const saved = mockShop.update.mock.calls[0][0].settings;
+            expect(saved).toEqual(expect.objectContaining({
+                rto_network: latestSettings.rto_network,
+                merchant_preferences: latestSettings.merchant_preferences,
+                ai: expect.objectContaining({
+                    automation_mode: 'AUTO',
+                    llm_model: 'gpt-4o-mini',
+                    llm_temperature: 0.4,
+                    retained_flag: 'fresh',
+                }),
+            }));
+            expect(saved.ai).not.toHaveProperty('stale_flag');
         });
     });
 });

@@ -126,6 +126,68 @@ describe('Order Controller', () => {
         });
     });
 
+    describe('bulkCreateOrders', () => {
+        it('returns a conflicting payment ID alias as a per-row validation failure', async () => {
+            const row = {
+                customer_name: 'Test Customer',
+                customer_phone: '01712345678',
+                items: [{ product_id: 'prod-1', quantity: 1 }],
+                paymentMethodId: 'online-config-1',
+                payment_method_id: 'cod-config-1',
+                payment_status: 'paid',
+            };
+            mockReq.body = { orders: [row] };
+            orderService.createOrder.mockRejectedValue(new AppError(
+                'Payment method ID aliases must refer to the same configured payment method.',
+                400,
+                'PAYMENT_METHOD_ID_CONFLICT',
+            ));
+
+            await orderController.bulkCreateOrders(mockReq, mockRes, mockNext);
+
+            expect(orderService.createOrder).toHaveBeenCalledWith('user-1', 'shop-1', row);
+            expect(mockRes.status).toHaveBeenCalledWith(207);
+            expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({
+                summary: { total: 1, succeeded: 0, failed: 1 },
+                results: [expect.objectContaining({
+                    index: 1,
+                    success: false,
+                    error: 'Payment method ID aliases must refer to the same configured payment method.',
+                })],
+            }));
+            expect(mockNext).not.toHaveBeenCalled();
+        });
+
+        it('returns a terminal order status as a per-row validation failure', async () => {
+            const terminalRow = {
+                customer_name: 'Test Customer',
+                customer_phone: '01712345678',
+                items: [{ product_id: 'prod-1', quantity: 1 }],
+                order_status: 'completed',
+            };
+            mockReq.body = { orders: [terminalRow] };
+            orderService.createOrder.mockRejectedValue(new AppError(
+                'Terminal order statuses cannot be set during order creation.',
+                400,
+                'ORDER_STATUS_SERVER_AUTHORITY',
+            ));
+
+            await orderController.bulkCreateOrders(mockReq, mockRes, mockNext);
+
+            expect(orderService.createOrder).toHaveBeenCalledWith('user-1', 'shop-1', terminalRow);
+            expect(mockRes.status).toHaveBeenCalledWith(207);
+            expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({
+                summary: { total: 1, succeeded: 0, failed: 1 },
+                results: [expect.objectContaining({
+                    index: 1,
+                    success: false,
+                    error: 'Terminal order statuses cannot be set during order creation.',
+                })],
+            }));
+            expect(mockNext).not.toHaveBeenCalled();
+        });
+    });
+
     describe('updateOrder', () => {
         it('should update order and return 200', async () => {
             mockReq.body = { order_id: 'order-1', order_status: 'confirmed' };
@@ -341,17 +403,22 @@ describe('Order Controller', () => {
     });
 
     describe('deleteOrder', () => {
-        it('should delete order and return 200', async () => {
+        it('forwards the explicit hard-delete unsupported error', async () => {
             // The legacy POST /order/delete endpoint takes the id in the body
             // or query string; only deleteOrderById reads params.
             mockReq.body = { order_id: 'order-1' };
 
-            orderService.deleteOrder.mockResolvedValue(true);
+            const unsupportedError = Object.assign(
+                new Error('Hard deletion of orders is unsupported. Use the order cancellation endpoint.'),
+                { status: 410, code: 'ORDER_HARD_DELETE_UNSUPPORTED' },
+            );
+            orderService.deleteOrder.mockRejectedValue(unsupportedError);
 
             await orderController.deleteOrder(mockReq, mockRes, mockNext);
 
             expect(orderService.deleteOrder).toHaveBeenCalledWith('order-1', 'user-1', 'shop-1');
-            expect(mockRes.status).toHaveBeenCalledWith(200);
+            expect(mockNext).toHaveBeenCalledWith(unsupportedError);
+            expect(mockRes.status).not.toHaveBeenCalled();
         });
     });
 

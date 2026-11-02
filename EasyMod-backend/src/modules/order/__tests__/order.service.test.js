@@ -3,6 +3,8 @@
  * Comprehensive test suite for order creation, management, and business logic
  */
 
+var mockOrderLogger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
+const { Op } = require('sequelize');
 const { AppError } = require('../../../utils/AppError');
 
 // Mock entities before requiring service
@@ -64,11 +66,7 @@ jest.mock('../../rto-shield/rto-network-settings', () => ({
 }));
 
 jest.mock('../../../utils/structured-logger', () => ({
-    createLogger: jest.fn(() => ({
-        info: jest.fn(),
-        error: jest.fn(),
-        warn: jest.fn()
-    }))
+    createLogger: jest.fn(() => mockOrderLogger)
 }));
 
 jest.mock('../../product/stock-status-guard.service', () => ({
@@ -113,7 +111,9 @@ jest.mock('../../entities', () => ({
         findOne: jest.fn()
     },
     CourierDispatch: { findOne: jest.fn(), findOrCreate: jest.fn(), update: jest.fn() },
+    DeliveryTracking: { findOne: jest.fn() },
     AuditLog: { create: jest.fn() },
+    PaymentConfig: { findOne: jest.fn() },
     Invoice: {
         create: jest.fn()
     }
@@ -124,7 +124,8 @@ jest.mock('../../../utils/email.service', () => ({
 }));
 
 const orderService = require('../order.service');
-const { Order, OrderItem, Product, UserShop, Customer, Invoice, Channel, CourierDispatch, AuditLog } = require('../../entities');
+const orderController = require('../order.controller');
+const { Order, OrderItem, Product, UserShop, Customer, Invoice, Channel, CourierDispatch, DeliveryTracking, AuditLog, PaymentConfig } = require('../../entities');
 const { sequelize } = require('../../../utils/database/database-setup');
 const subscriptionService = require('../../subscription/subscription.service');
 const rtoShieldService = require('../../rto-shield/rto-shield.service');
@@ -208,6 +209,8 @@ describe('Order Service', () => {
         });
         Channel.findOne = jest.fn().mockResolvedValue(null);
         CourierDispatch.findOne.mockResolvedValue(null);
+        DeliveryTracking.findOne.mockResolvedValue(null);
+        PaymentConfig.findOne.mockResolvedValue(null);
         AuditLog.create.mockResolvedValue({ id: 'audit-1' });
         
         sendEmail.mockResolvedValue(true);
@@ -338,6 +341,225 @@ describe('Order Service', () => {
             payment_status: 'pending'
         };
 
+        it.each(['cod', 'cash on delivery', 'cash_on_delivery'])(
+            'rejects creation of a COD order as paid for method %s',
+            async (payment_method) => {
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+                await expect(orderService.createOrder('user-1', 'shop-1', {
+                    ...validOrderData,
+                    payment_method,
+                    payment_status: 'paid',
+                })).rejects.toMatchObject({ status: 409, code: 'COD_SETTLEMENT_PATH_REQUIRED' });
+
+                expect(Order.create).not.toHaveBeenCalled();
+                expect(subscriptionService.checkOrderLimit).not.toHaveBeenCalled();
+            },
+        );
+
+        it.each(['paymentMethodId', 'payment_method_id'])(
+            'rejects paid creation when the shop-scoped %s resolves to COD',
+            async (idField) => {
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+                PaymentConfig.findOne.mockResolvedValue({ gateway: 'cod' });
+
+                await expect(orderService.createOrder('user-1', 'shop-1', {
+                    ...validOrderData,
+                    [idField]: 'cod-config-1',
+                    payment_status: 'paid',
+                })).rejects.toMatchObject({ status: 409, code: 'COD_SETTLEMENT_PATH_REQUIRED' });
+
+                expect(PaymentConfig.findOne).toHaveBeenCalledWith({
+                    where: { id: 'cod-config-1', shop_id: 'shop-1' },
+                    attributes: ['gateway'],
+                });
+                expect(Order.create).not.toHaveBeenCalled();
+                expect(OrderItem.create).not.toHaveBeenCalled();
+                expect(Product.findAll).not.toHaveBeenCalled();
+                expect(subscriptionService.checkOrderLimit).not.toHaveBeenCalled();
+            },
+        );
+
+        it('accepts equivalent payment ID aliases and resolves the canonical shop gateway', async () => {
+            const replay = createMockOrder({ id: 'existing-order' });
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            PaymentConfig.findOne.mockResolvedValue({ gateway: 'bkash' });
+            Order.findOne.mockResolvedValue(replay);
+
+            const result = await orderService.createOrder('user-1', 'shop-1', {
+                ...validOrderData,
+                paymentMethodId: 'online-config-1',
+                payment_method_id: 'online-config-1',
+                payment_status: 'paid',
+            }, 'same-payment-aliases');
+
+            expect(result).toBe(replay);
+            expect(PaymentConfig.findOne).toHaveBeenCalledWith({
+                where: { id: 'online-config-1', shop_id: 'shop-1' },
+                attributes: ['gateway'],
+            });
+            expect(subscriptionService.checkOrderLimit).not.toHaveBeenCalled();
+            expect(Order.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects conflicting payment ID aliases before any order or stock mutation', async () => {
+            const decrement = jest.fn();
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            Product.findAll.mockResolvedValue([{
+                id: 'prod-1',
+                name: 'Test Product',
+                price: 100,
+                quantity: 10,
+                track_quantity: true,
+                decrement,
+            }]);
+
+            await expect(orderService.createOrder('user-1', 'shop-1', {
+                ...validOrderData,
+                paymentMethodId: 'online-config-1',
+                payment_method_id: 'cod-config-1',
+                payment_status: 'paid',
+            })).rejects.toMatchObject({ status: 400, code: 'PAYMENT_METHOD_ID_CONFLICT' });
+
+            expect(PaymentConfig.findOne).not.toHaveBeenCalled();
+            expect(subscriptionService.checkOrderLimit).not.toHaveBeenCalled();
+            expect(sequelize.transaction).not.toHaveBeenCalled();
+            expect(Product.findAll).not.toHaveBeenCalled();
+            expect(Order.create).not.toHaveBeenCalled();
+            expect(OrderItem.create).not.toHaveBeenCalled();
+            expect(decrement).not.toHaveBeenCalled();
+        });
+
+        it('returns conflicting payment aliases and terminal statuses as bulk row failures without writes', async () => {
+            const rows = [
+                {
+                    ...validOrderData,
+                    paymentMethodId: 'online-config-1',
+                    payment_method_id: 'cod-config-1',
+                },
+                { ...validOrderData, order_status: 'completed' },
+            ];
+            const req = { user: { userId: 'user-1', shopId: 'shop-1' }, body: { orders: rows } };
+            const res = {
+                status: jest.fn().mockReturnThis(),
+                json: jest.fn(),
+            };
+            const next = jest.fn();
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await orderController.bulkCreateOrders(req, res, next);
+
+            expect(res.status).toHaveBeenCalledWith(207);
+            expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+                summary: { total: 2, succeeded: 0, failed: 2 },
+                results: [
+                    expect.objectContaining({
+                        index: 1,
+                        success: false,
+                        error: 'Payment method ID aliases must refer to the same configured payment method.',
+                    }),
+                    expect.objectContaining({
+                        index: 2,
+                        success: false,
+                        error: 'Terminal order statuses cannot be set during order creation.',
+                    }),
+                ],
+            }));
+            expect(PaymentConfig.findOne).not.toHaveBeenCalled();
+            expect(subscriptionService.checkOrderLimit).not.toHaveBeenCalled();
+            expect(sequelize.transaction).not.toHaveBeenCalled();
+            expect(Product.findAll).not.toHaveBeenCalled();
+            expect(Order.create).not.toHaveBeenCalled();
+            expect(OrderItem.create).not.toHaveBeenCalled();
+            expect(next).not.toHaveBeenCalled();
+        });
+
+        it('rejects one shop-scoped COD payment_method_id with paid status as a bulk row failure before writes', async () => {
+            const codRow = {
+                ...validOrderData,
+                payment_method_id: 'cod-config-1',
+                payment_status: 'paid',
+            };
+            UserShop.findOne.mockResolvedValue({ id: 'user-shop-1' });
+            PaymentConfig.findOne.mockResolvedValue({ gateway: 'cod' });
+            const req = { user: { userId: 'user-1', shopId: 'shop-1' }, body: { orders: [codRow] } };
+            const res = {
+                status: jest.fn().mockReturnThis(),
+                json: jest.fn(),
+            };
+            const next = jest.fn();
+
+            await orderController.bulkCreateOrders(req, res, next);
+
+            expect(PaymentConfig.findOne).toHaveBeenCalledWith({
+                where: { id: 'cod-config-1', shop_id: 'shop-1' },
+                attributes: ['gateway'],
+            });
+            expect(res.status).toHaveBeenCalledWith(207);
+            expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+                summary: { total: 1, succeeded: 0, failed: 1 },
+                results: [expect.objectContaining({
+                    index: 1,
+                    success: false,
+                    error: 'COD orders cannot be created as paid. Use the owner-confirmed COD settlement action after full delivery.',
+                })],
+            }));
+            expect(sequelize.transaction).not.toHaveBeenCalled();
+            expect(Product.findAll).not.toHaveBeenCalled();
+            expect(Order.create).not.toHaveBeenCalled();
+            expect(OrderItem.create).not.toHaveBeenCalled();
+            expect(next).not.toHaveBeenCalled();
+        });
+
+        it('rejects a payment method ID not configured for the order shop', async () => {
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            PaymentConfig.findOne.mockResolvedValue(null);
+
+            await expect(orderService.createOrder('user-1', 'shop-1', {
+                ...validOrderData,
+                paymentMethodId: 'foreign-config-1',
+            })).rejects.toMatchObject({ status: 400, code: 'PAYMENT_METHOD_NOT_AVAILABLE' });
+
+            expect(PaymentConfig.findOne).toHaveBeenCalledWith({
+                where: { id: 'foreign-config-1', shop_id: 'shop-1' },
+                attributes: ['gateway'],
+            });
+            expect(Order.create).not.toHaveBeenCalled();
+        });
+
+        it.each(['fulfilled', 'partially_fulfilled', 'cancelled'])(
+            'rejects client creation with fulfillment status %s',
+            async (fulfillment_status) => {
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+                await expect(orderService.createOrder('user-1', 'shop-1', {
+                    ...validOrderData,
+                    fulfillment_status,
+                })).rejects.toMatchObject({ status: 409, code: 'FULFILLMENT_STATUS_SERVER_AUTHORITY' });
+
+                expect(Order.create).not.toHaveBeenCalled();
+                expect(subscriptionService.checkOrderLimit).not.toHaveBeenCalled();
+            },
+        );
+
+        it.each(['completed', 'fulfilled', 'cancelled', 'delivered'])(
+            'rejects terminal order status %s before creating an order or reserving stock',
+            async (order_status) => {
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+                await expect(orderService.createOrder('user-1', 'shop-1', {
+                    ...validOrderData,
+                    order_status,
+                })).rejects.toMatchObject({ status: 400, code: 'ORDER_STATUS_SERVER_AUTHORITY' });
+
+                expect(sequelize.transaction).not.toHaveBeenCalled();
+                expect(Product.findAll).not.toHaveBeenCalled();
+                expect(Order.create).not.toHaveBeenCalled();
+                expect(OrderItem.create).not.toHaveBeenCalled();
+                expect(subscriptionService.checkOrderLimit).not.toHaveBeenCalled();
+            },
+        );
+
         it('should create order successfully with valid data', async () => {
             const mockProduct = {
                 id: 'prod-1',
@@ -372,6 +594,7 @@ describe('Order Service', () => {
             // Without this the manual order showed an empty "Order Items" list while
             // its total was correct (founder bug 2026-06-12).
             const createArg = Order.create.mock.calls[0][0];
+            expect(createArg.fulfillment_status).toBe('unfulfilled');
             expect(createArg.items).toEqual([
                 expect.objectContaining({
                     product_id: 'prod-1',
@@ -394,22 +617,56 @@ describe('Order Service', () => {
                 .toThrow('Order limit exceeded');
         });
 
-        it('should block COD order for high-risk phone numbers', async () => {
+        it('creates a COD order on a neutral network review signal without auto-declining the buyer', async () => {
+            const mockProduct = {
+                id: 'prod-1',
+                name: 'Test Product',
+                price: 100,
+                quantity: 10,
+                track_quantity: true,
+                allow_backorder: false,
+                decrement: jest.fn().mockResolvedValue(true),
+            };
+            const mockOrder = createMockOrder();
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            Product.findAll = jest.fn().mockResolvedValue([mockProduct]);
+            Order.create = jest.fn().mockImplementation((data) => Promise.resolve({ ...mockOrder, ...data }));
+            OrderItem.create = jest.fn().mockResolvedValue({ id: 'item-1' });
+            PaymentConfig.findOne.mockResolvedValue({ gateway: 'cod' });
             rtoShieldService.checkPhone = jest.fn().mockResolvedValue({
-                flagged: true,
-                risk_score: 85,
-                reason: 'Multiple RTOs'
+                flagged: false,
+                risk_score: 0,
+                tier: 'verify',
+                reason: 'Elevated cross-shop return history'
             });
 
             const codOrderData = {
                 ...validOrderData,
                 payment_status: 'unpaid',
+                paymentMethodId: 'cod-config-1',
                 customer_phone: '01712345678'
             };
 
-            await expect(orderService.createOrder('user-1', 'shop-1', codOrderData))
-                .rejects
-                .toThrow('RTO Shield');
+            const created = await orderService.createOrder('user-1', 'shop-1', codOrderData);
+
+            expect(created).toBeDefined();
+            expect(Order.create).toHaveBeenCalled();
+            expect(Order.create).toHaveBeenCalledWith(expect.objectContaining({
+                payment_method: 'cod',
+                payment_method_id: 'cod-config-1',
+            }), { transaction: expect.any(Object) });
+            expect(rtoShieldService.checkPhone).toHaveBeenCalledWith(
+                '01712345678', 'shop-1', { trustedContext: true, enforceNetwork: true }
+            );
+            const reviewLog = mockOrderLogger.warn.mock.calls.find(([message]) =>
+                message === 'RTO Shield: COD booking review required'
+            );
+            expect(reviewLog).toEqual([
+                'RTO Shield: COD booking review required',
+                { decision: 'manual_review_required', riskTier: 'verify' },
+            ]);
+            expect(JSON.stringify(reviewLog)).not.toContain('01712345678');
+            expect(JSON.stringify(reviewLog)).not.toContain('Elevated cross-shop return history');
         });
 
         it('should reject order with insufficient stock', async () => {
@@ -481,6 +738,7 @@ describe('Order Service', () => {
 
             const orderData = {
                 ...validOrderData,
+                payment_method: 'cod',
                 payment_status: 'unpaid',
                 items: [{ product_id: 'prod-1', quantity: 1 }]
             };
@@ -775,6 +1033,49 @@ describe('Order Service', () => {
         });
     });
 
+    describe('deleteOrder', () => {
+        it('rejects hard deletion without changing order, stock, tracking, or history', async () => {
+            const mockOrder = createMockOrder({
+                order_status: 'confirmed',
+                metadata: { audit_log: [{ event: 'created' }] },
+            });
+            const tracking = {
+                current_status: 'in_transit',
+                status_history: [{ status: 'booked' }],
+                update: jest.fn(),
+            };
+            const beforeOrder = { order_status: mockOrder.order_status, metadata: structuredClone(mockOrder.metadata) };
+            const beforeTracking = structuredClone({
+                current_status: tracking.current_status,
+                status_history: tracking.status_history,
+            });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            DeliveryTracking.findOne = jest.fn().mockResolvedValue(tracking);
+
+            await expect(orderService.deleteOrder('order-1', 'user-1', 'shop-1'))
+                .rejects.toMatchObject({
+                    status: 410,
+                    code: 'ORDER_HARD_DELETE_UNSUPPORTED',
+                    message: expect.stringContaining('cancellation endpoint'),
+                });
+
+            expect(UserShop.findOne).toHaveBeenCalledWith({ where: {
+                user_id: 'user-1', shop_id: 'shop-1', is_active: true,
+            } });
+            expect(Order.findOne).not.toHaveBeenCalled();
+            expect(mockOrder.destroy).not.toHaveBeenCalled();
+            expect(OrderItem.findAll).not.toHaveBeenCalled();
+            expect(Product.increment).not.toHaveBeenCalled();
+            expect(CourierDispatch.findOne).not.toHaveBeenCalled();
+            expect(DeliveryTracking.findOne).not.toHaveBeenCalled();
+            expect(tracking.update).not.toHaveBeenCalled();
+            expect(AuditLog.create).not.toHaveBeenCalled();
+            expect({ order_status: mockOrder.order_status, metadata: mockOrder.metadata }).toEqual(beforeOrder);
+            expect({ current_status: tracking.current_status, status_history: tracking.status_history }).toEqual(beforeTracking);
+        });
+    });
+
     describe('confirmOrder', () => {
         it('should confirm order successfully', async () => {
             const mockOrder = createMockOrder({
@@ -847,12 +1148,56 @@ describe('Order Service', () => {
                 .rejects
                 .toThrow('Order not found');
         });
+
+        it('does not cancel a completed order or restore its inventory', async () => {
+            const mockOrder = createMockOrder({ order_status: 'completed' });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1'))
+                .rejects.toMatchObject({ status: 409 });
+
+            expect(mockOrder.update).not.toHaveBeenCalled();
+            expect(OrderItem.findAll).not.toHaveBeenCalled();
+            expect(Product.findAll).not.toHaveBeenCalled();
+        });
+
+        it.each(['PENDING', 'INDETERMINATE', 'COMMITTED'])(
+            'does not cancel or restore inventory with a %s courier claim',
+            async (status) => {
+                const mockOrder = createMockOrder({ order_status: 'confirmed' });
+                Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+                CourierDispatch.findOne.mockResolvedValue({ status });
+
+                await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1'))
+                    .rejects.toMatchObject({ status: 409, code: 'COURIER_DISPATCH_ACTIVE' });
+
+                expect(CourierDispatch.findOne).toHaveBeenCalledWith(expect.objectContaining({
+                    where: expect.objectContaining({ shop_id: 'shop-1', order_id: 'order-1' }),
+                }));
+                expect(mockOrder.update).not.toHaveBeenCalled();
+                expect(OrderItem.findAll).not.toHaveBeenCalled();
+            },
+        );
+
+        it('does not cancel or restore inventory after tracking has started', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed' });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            CourierDispatch.findOne.mockResolvedValue(null);
+            DeliveryTracking.findOne.mockResolvedValue({ id: 'tracking-1', order_id: 'order-1' });
+
+            await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1'))
+                .rejects.toMatchObject({ status: 409, code: 'ORDER_LOCKED_AFTER_COURIER_DISPATCH' });
+
+            expect(mockOrder.update).not.toHaveBeenCalled();
+            expect(OrderItem.findAll).not.toHaveBeenCalled();
+        });
     });
 
     describe('updateOrder', () => {
-        // The dashboard Cancel button patches order_status='cancelled' through this path,
-        // which must restore inventory (mirrors the dedicated cancelOrder endpoint).
-        it('restores tracked stock when an order is cancelled via order_status', async () => {
+        it('restores tracked stock through the dedicated cancellation path', async () => {
             const mockOrder = createMockOrder({ order_status: 'confirmed', metadata: {} });
             const prod = { id: 'prod-1', track_quantity: true, increment: jest.fn().mockResolvedValue(true) };
             const transaction = { LOCK: { UPDATE: 'UPDATE' }, commit: jest.fn(), rollback: jest.fn() };
@@ -862,7 +1207,7 @@ describe('Order Service', () => {
             Product.findAll = jest.fn().mockResolvedValue([prod]);
             sequelize.transaction = jest.fn(async (cb) => cb(transaction));
 
-            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'cancelled' });
+            await orderService.cancelOrder('user-1', 'shop-1', 'order-1');
 
             expect(mockOrder.update).toHaveBeenCalledWith(
                 expect.objectContaining({ order_status: 'cancelled' }),
@@ -871,7 +1216,7 @@ describe('Order Service', () => {
             expect(prod.increment).toHaveBeenCalledWith('quantity', { by: 2, transaction });
         });
 
-        it('rolls back the order cancellation when stock restoration fails', async () => {
+        it('rolls back dedicated cancellation when stock restoration fails', async () => {
             const restoreError = new Error('stock write failed');
             const mockOrder = createMockOrder({ order_status: 'confirmed', metadata: {} });
             const product = { id: 'prod-1', track_quantity: true, increment: jest.fn().mockRejectedValue(restoreError) };
@@ -889,7 +1234,7 @@ describe('Order Service', () => {
             OrderItem.findAll = jest.fn().mockResolvedValue([{ product_id: 'prod-1', quantity: 2 }]);
             Product.findAll = jest.fn().mockResolvedValue([product]);
 
-            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'cancelled' }))
+            await expect(orderService.cancelOrder('user-1', 'shop-1', 'order-1'))
                 .rejects.toBe(restoreError);
 
             expect(mockOrder.update).toHaveBeenCalledWith(
@@ -900,14 +1245,13 @@ describe('Order Service', () => {
             expect(transaction.commit).not.toHaveBeenCalled();
         });
 
-        it('does not restore inventory twice for a repeated cancellation', async () => {
-            const mockOrder = createMockOrder({ order_status: 'cancelled', metadata: {} });
-            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+        it('does not let generic order updates bypass the cancellation path', async () => {
             UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
-            OrderItem.findAll = jest.fn().mockResolvedValue([{ product_id: 'prod-1', quantity: 2 }]);
 
-            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'cancelled' });
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'cancelled' }))
+                .rejects.toMatchObject({ status: 409, code: 'ORDER_CANCELLATION_PATH_REQUIRED' });
 
+            expect(Order.findOne).not.toHaveBeenCalled();
             expect(OrderItem.findAll).not.toHaveBeenCalled();
             expect(Product.findAll).not.toHaveBeenCalled();
         });
@@ -919,8 +1263,371 @@ describe('Order Service', () => {
 
             await orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'processing' });
 
-            expect(mockOrder.update).toHaveBeenCalledWith(expect.objectContaining({ order_status: 'processing' }));
+            expect(mockOrder.update).toHaveBeenCalledWith(
+                expect.objectContaining({ order_status: 'processing' }),
+                { transaction: expect.any(Object) }
+            );
             expect(Product.findOne).not.toHaveBeenCalled();
+        });
+
+        it('records an explicit payment method correction in the order audit log', async () => {
+            const mockOrder = createMockOrder({
+                order_status: 'confirmed',
+                payment_method: null,
+                metadata: {},
+            });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_method: 'cod' });
+
+            expect(mockOrder.update).toHaveBeenCalledWith(expect.objectContaining({
+                payment_method: 'cod',
+                metadata: expect.objectContaining({
+                    audit_log: [expect.objectContaining({
+                        changed_by: 'user-1',
+                        changes: { payment_method: { from: null, to: 'cod' } },
+                    })],
+                }),
+            }), { transaction: expect.any(Object) });
+        });
+
+        it.each(['cod', 'cash', 'cash_on_delivery'])(
+            'does not allow generic updates to settle COD method %s',
+            async (payment_method) => {
+                const mockOrder = createMockOrder({
+                    order_status: 'confirmed',
+                    payment_status: 'unpaid',
+                    payment_method,
+                    metadata: {},
+                });
+                Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+                await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_status: 'paid' }))
+                    .rejects.toMatchObject({ status: 409, code: 'COD_SETTLEMENT_PATH_REQUIRED' });
+                expect(mockOrder.update).not.toHaveBeenCalled();
+                expect(CourierDispatch.findOne).not.toHaveBeenCalled();
+            },
+        );
+
+        it('does not allow a generic update to set COD and paid together', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', payment_status: 'unpaid', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+                payment_method: 'Cash on Delivery',
+                payment_status: 'paid',
+            })).rejects.toMatchObject({ status: 409, code: 'COD_SETTLEMENT_PATH_REQUIRED' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('does not allow a COD order to be changed to non-COD and paid in one patch', async () => {
+            const mockOrder = createMockOrder({
+                order_status: 'confirmed',
+                payment_status: 'unpaid',
+                payment_method: 'COD',
+                metadata: {},
+            });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+                payment_method: 'bkash',
+                payment_status: 'paid',
+            })).rejects.toMatchObject({ status: 409, code: 'COD_SETTLEMENT_PATH_REQUIRED' });
+
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('retains COD origin in the audit history to block a later generic paid patch', async () => {
+            const mockOrder = createMockOrder({
+                order_status: 'confirmed',
+                payment_status: 'unpaid',
+                payment_method: 'COD',
+                metadata: {},
+            });
+            mockOrder.update = jest.fn(async function update(values) {
+                Object.assign(this, values);
+                return this;
+            });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_method: 'bkash' });
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_status: 'paid' }))
+                .rejects.toMatchObject({ status: 409, code: 'COD_SETTLEMENT_PATH_REQUIRED' });
+
+            expect(mockOrder.payment_method).toBe('bkash');
+            expect(mockOrder.update).toHaveBeenCalledTimes(1);
+        });
+
+        it('requires authoritative full delivery before generic order completion', async () => {
+            const mockOrder = createMockOrder({ order_status: 'processing', delivery_status: null, metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            DeliveryTracking.findOne.mockResolvedValue(null);
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'completed' }))
+                .rejects.toMatchObject({ status: 409, code: 'ORDER_COMPLETION_REQUIRES_DELIVERY' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('allows processing to completed only with authoritative full-delivery evidence', async () => {
+            const mockOrder = createMockOrder({ order_status: 'processing', delivery_status: null, metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            DeliveryTracking.findOne.mockResolvedValue({ current_status: 'delivered' });
+            CourierDispatch.findOne.mockResolvedValue(null);
+
+            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'completed' });
+
+            expect(mockOrder.update).toHaveBeenCalledWith(
+                expect.objectContaining({ order_status: 'completed' }),
+                { transaction: expect.any(Object) },
+            );
+        });
+
+        it('rejects unsupported order status jumps', async () => {
+            const mockOrder = createMockOrder({ order_status: 'draft', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { order_status: 'processing' }))
+                .rejects.toMatchObject({ status: 409, code: 'ORDER_STATUS_TRANSITION_INVALID' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('does not let generic updates fabricate partial fulfillment', async () => {
+            const mockOrder = createMockOrder({ order_status: 'processing', fulfillment_status: 'unfulfilled', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+                fulfillment_status: 'partially_fulfilled',
+            })).rejects.toMatchObject({ status: 409, code: 'PARTIAL_FULFILLMENT_EVIDENCE_REQUIRED' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('does not let generic updates cancel fulfillment outside the cancellation path', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', fulfillment_status: 'unfulfilled', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+                fulfillment_status: 'cancelled',
+            })).rejects.toMatchObject({ status: 409, code: 'FULFILLMENT_STATUS_SERVER_AUTHORITY' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it.each(['partially_fulfilled', 'fulfilled'])(
+            'does not let generic updates regress %s fulfillment to unfulfilled',
+            async (fulfillment_status) => {
+                const mockOrder = createMockOrder({ order_status: 'processing', fulfillment_status, metadata: {} });
+                Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+                await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+                    fulfillment_status: 'unfulfilled',
+                })).rejects.toMatchObject({ status: 409, code: 'FULFILLMENT_STATUS_TRANSITION_INVALID' });
+                expect(mockOrder.update).not.toHaveBeenCalled();
+            },
+        );
+
+        it('allows fulfillment completion when an authoritative full-delivery status exists', async () => {
+            const mockOrder = createMockOrder({
+                order_status: 'processing',
+                fulfillment_status: 'unfulfilled',
+                delivery_status: 'delivered',
+                metadata: {},
+            });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            DeliveryTracking.findOne.mockResolvedValue(null);
+            CourierDispatch.findOne.mockResolvedValue(null);
+
+            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { fulfillment_status: 'fulfilled' });
+
+            expect(mockOrder.update).toHaveBeenCalledWith(
+                expect.objectContaining({ fulfillment_status: 'fulfilled' }),
+                { transaction: expect.any(Object) },
+            );
+        });
+
+        it('requires authoritative full delivery before generic fulfillment completion', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', delivery_status: null, metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            DeliveryTracking.findOne.mockResolvedValue(null);
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { fulfillment_status: 'fulfilled' }))
+                .rejects.toMatchObject({ status: 409, code: 'FULFILLMENT_REQUIRES_DELIVERY' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('does not treat partial delivery as evidence for full fulfillment', async () => {
+            const mockOrder = createMockOrder({ order_status: 'processing', delivery_status: 'partial_delivered', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            DeliveryTracking.findOne.mockResolvedValue({ current_status: 'partial_delivered' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { fulfillment_status: 'fulfilled' }))
+                .rejects.toMatchObject({ status: 409 });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('refuses payment method correction after any active courier claim', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', payment_method: null, metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            CourierDispatch.findOne = jest.fn().mockResolvedValue({ status: 'COMMITTED' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_method: 'cod' }))
+                .rejects.toMatchObject({ status: 409, code: 'COURIER_DISPATCH_ACTIVE' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it.each(['PENDING', 'INDETERMINATE', 'COMMITTED'])(
+            'rejects status, address, phone, and item changes after a %s courier claim',
+            async (status) => {
+                const updates = [
+                    { order_status: 'processing' },
+                    { delivery_address: 'New address, Dhaka' },
+                    { customer_phone: '01722222222' },
+                    { items: [{ product_id: 'product-2', quantity: 2 }] },
+                ];
+                for (const update of updates) {
+                    const mockOrder = createMockOrder({
+                        order_status: 'confirmed',
+                        delivery_address: 'Old address, Dhaka',
+                        customer_phone: '01711111111',
+                        items: [{ product_id: 'product-1', quantity: 1 }],
+                        metadata: {},
+                    });
+                    Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+                    UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+                    CourierDispatch.findOne = jest.fn().mockResolvedValue({ status });
+
+                    await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', update))
+                        .rejects.toMatchObject({
+                            status: 409,
+                            code: 'COURIER_DISPATCH_ACTIVE',
+                            message: expect.stringContaining('reconcile courier state'),
+                        });
+                    expect(mockOrder.update).not.toHaveBeenCalled();
+                }
+            },
+        );
+
+        it.each(['PENDING', 'INDETERMINATE', 'COMMITTED'])(
+            'refuses payment status changes after a %s courier claim',
+            async (status) => {
+                const mockOrder = createMockOrder({ order_status: 'confirmed', payment_status: 'unpaid', metadata: {} });
+                Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+                UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+                CourierDispatch.findOne = jest.fn().mockResolvedValue({ status });
+
+                await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_status: 'paid' }))
+                    .rejects.toMatchObject({ status: 409, code: 'COURIER_DISPATCH_ACTIVE' });
+                expect(mockOrder.update).not.toHaveBeenCalled();
+            },
+        );
+
+        it('refuses payment method correction when a legacy delivery tracking row exists', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', payment_method: null, metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            CourierDispatch.findOne = jest.fn().mockResolvedValue(null);
+            DeliveryTracking.findOne = jest.fn().mockResolvedValue({ id: 'tracking-1', order_id: 'order-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_method: 'cod' }))
+                .rejects.toMatchObject({ status: 409, code: 'PAYMENT_METHOD_LOCKED_AFTER_DISPATCH' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('refuses payment status changes when courier tracking exists', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', payment_status: 'unpaid', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            CourierDispatch.findOne = jest.fn().mockResolvedValue(null);
+            DeliveryTracking.findOne = jest.fn().mockResolvedValue({ id: 'tracking-1', order_id: 'order-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_status: 'paid' }))
+                .rejects.toMatchObject({ status: 409, code: 'PAYMENT_STATUS_LOCKED_AFTER_DISPATCH' });
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('resolves an ID-only COD method before allowing a paid transition', async () => {
+            const mockOrder = createMockOrder({
+                order_status: 'confirmed',
+                payment_method: null,
+                payment_method_id: 'cod-config-1',
+                payment_status: 'unpaid',
+                metadata: {},
+            });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            PaymentConfig.findOne.mockResolvedValue({ gateway: 'cod' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_status: 'paid' }))
+                .rejects.toMatchObject({ status: 409, code: 'COD_SETTLEMENT_PATH_REQUIRED' });
+
+            expect(PaymentConfig.findOne).toHaveBeenCalledWith(expect.objectContaining({
+                where: { id: 'cod-config-1', shop_id: 'shop-1' },
+                attributes: ['gateway'],
+            }));
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('allows payment correction after a definitively failed dispatch claim', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', payment_status: 'unpaid', payment_method: 'bkash', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            CourierDispatch.findOne = jest.fn().mockResolvedValue(null);
+            DeliveryTracking.findOne = jest.fn().mockResolvedValue(null);
+
+            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_status: 'paid' });
+
+            expect(CourierDispatch.findOne).toHaveBeenCalledWith(expect.objectContaining({
+                where: expect.objectContaining({ status: { [Op.in]: ['PENDING', 'INDETERMINATE', 'COMMITTED'] } }),
+            }));
+            expect(mockOrder.update).toHaveBeenCalledWith(expect.objectContaining({ payment_status: 'paid' }), {
+                transaction: expect.any(Object),
+            });
+        });
+
+        it('serializes concurrent payment corrections so both audit entries survive', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', payment_method: null, metadata: {} });
+            mockOrder.update = jest.fn(async (updates) => {
+                Object.assign(mockOrder, updates);
+                return mockOrder;
+            });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            CourierDispatch.findOne = jest.fn().mockResolvedValue(null);
+            DeliveryTracking.findOne = jest.fn().mockResolvedValue(null);
+
+            let transactionTail = Promise.resolve();
+            sequelize.transaction = jest.fn(async (callback) => {
+                const previous = transactionTail;
+                let release;
+                transactionTail = new Promise((resolve) => { release = resolve; });
+                await previous;
+                try {
+                    return await callback({ LOCK: { UPDATE: 'UPDATE' } });
+                } finally {
+                    release();
+                }
+            });
+
+            await Promise.all([
+                orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_method: 'cod' }),
+                orderService.updateOrder('order-1', 'user-1', 'shop-1', { payment_method: 'self-mfs' }),
+            ]);
+
+            expect(mockOrder.metadata.audit_log).toHaveLength(2);
+            expect(mockOrder.metadata.audit_log.map((entry) => entry.changes.payment_method.to)).toEqual(['cod', 'self-mfs']);
         });
 
         it('does not transition an existing confirmed order back into Draft', async () => {
@@ -949,11 +1656,8 @@ describe('Order Service', () => {
         });
     });
 
-    // Pilot+ F3: the conversational checkout commits orders with
-    // order_status 'confirmed' — the vocabulary used across the API validator,
-    // controllers, dashboard and webhooks. enforceStateConsistency must not
-    // silently rename a real, committed order to 'draft' behind the merchant's
-    // back, while still coercing genuinely unknown values.
+    // Creation supports documented nonterminal statuses, but terminal lifecycle
+    // states must only be reached through their server-side transition paths.
     describe('State consistency at creation (Pilot+ F3)', () => {
         const runCreateInternal = async (orderDataOverrides) => {
             UserShop.findOne = jest.fn().mockResolvedValue({ id: 'us-1' });
@@ -974,20 +1678,33 @@ describe('Order Service', () => {
             });
         };
 
-        it.each(['confirmed', 'processing', 'completed', 'cancelled', 'draft'])(
-            'creation preserves the live validator vocabulary status "%s"',
+        it.each(['confirmed', 'processing', 'draft', 'pending'])(
+            'creation preserves nonterminal status "%s"',
             async (status) => {
                 const order = await runCreateInternal({ order_status: status });
                 expect(order.order_status).toBe(status);
             }
         );
 
-        it('legacy statuses placed/paid/fulfilled/refunded are still recognized', async () => {
-            for (const status of ['placed', 'paid', 'fulfilled', 'refunded']) {
+        it('legacy nonterminal statuses placed and paid are still recognized', async () => {
+            for (const status of ['placed', 'paid']) {
                 const order = await runCreateInternal({ order_status: status });
                 expect(order.order_status).toBe(status);
             }
         });
+
+        it.each(['completed', 'fulfilled', 'cancelled', 'delivered', 'refunded'])(
+            'rejects terminal status "%s" before creating the order',
+            async (status) => {
+                await expect(runCreateInternal({ order_status: status })).rejects.toMatchObject({
+                    status: 400,
+                    code: 'ORDER_STATUS_SERVER_AUTHORITY',
+                });
+                expect(Order.create).not.toHaveBeenCalled();
+                expect(OrderItem.create).not.toHaveBeenCalled();
+                expect(Product.findAll).not.toHaveBeenCalled();
+            }
+        );
 
         it('a genuinely unknown status is still coerced to draft', async () => {
             const order = await runCreateInternal({ order_status: 'not-a-real-state' });

@@ -53,6 +53,14 @@ describe('order.validator', () => {
       expect(bodyResult.error).toBeUndefined();
     });
 
+    it('accepts a non-empty payment method for the owner/admin correction path', () => {
+      const result = orderValidator.updateOrder.body.validate({ payment_method: 'cod' });
+
+      expect(result.error).toBeUndefined();
+      expect(result.value.payment_method).toBe('cod');
+      expect(orderValidator.updateOrder.body.validate({ payment_method: ' ' }).error).toBeDefined();
+    });
+
     it('rejects empty update payload', () => {
       const bodyResult = orderValidator.updateOrder.body.validate({});
       expect(bodyResult.error).toBeDefined();
@@ -90,12 +98,51 @@ describe('order.validator', () => {
       expect(result.error).toBeUndefined();
     });
 
+    it('accepts either payment method ID alias for service-side shop resolution', () => {
+      const paymentMethodId = '550e8400-e29b-41d4-a716-446655440001';
+      for (const alias of ['paymentMethodId', 'payment_method_id']) {
+        expect(orderValidator.createOrder.body.validate({ ...base, [alias]: paymentMethodId }).error).toBeUndefined();
+      }
+    });
+
     it('rejects a non-address value type for delivery_address', () => {
       const result = orderValidator.createOrder.body.validate({
         ...base,
         delivery_address: 12345
       });
       expect(result.error).toBeDefined();
+    });
+
+    it('preserves draft and pending creation states while rejecting terminal states', () => {
+      for (const order_status of ['draft', 'pending']) {
+        expect(orderValidator.createOrder.body.validate({ ...base, order_status }).error).toBeUndefined();
+      }
+      for (const order_status of ['completed', 'fulfilled', 'cancelled']) {
+        expect(orderValidator.createOrder.body.validate({ ...base, order_status }).error).toBeDefined();
+      }
+    });
+
+    it('rejects client-supplied fulfilled, partial, or cancelled fulfillment values', () => {
+      for (const fulfillment_status of ['fulfilled', 'partially_fulfilled', 'cancelled']) {
+        const result = orderValidator.createOrder.body.validate({ ...base, fulfillment_status });
+        expect(result.error).toBeDefined();
+      }
+    });
+  });
+
+  describe('fulfillment PATCH validation', () => {
+    it('rejects client-supplied partial and cancelled fulfillment values', () => {
+      for (const fulfillment_status of ['partially_fulfilled', 'cancelled']) {
+        const result = orderValidator.updateOrder.body.validate({ fulfillment_status });
+        expect(result.error).toBeDefined();
+      }
+    });
+
+    it('accepts unfulfilled and fully fulfilled values for service-side evidence checks', () => {
+      for (const fulfillment_status of ['unfulfilled', 'fulfilled']) {
+        const result = orderValidator.updateOrder.body.validate({ fulfillment_status });
+        expect(result.error).toBeUndefined();
+      }
     });
   });
 

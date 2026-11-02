@@ -55,6 +55,9 @@ class OrderValidator {
                 'array.min': 'Order must contain at least one item',
                 'any.required': 'Items are required'
             }),
+            order_status: Joi.string().valid('draft', 'pending').optional().messages({
+                'any.only': 'New orders must start as draft or pending'
+            }),
             discount: Joi.number().min(0).optional().messages({
                 'number.min': 'Discount must be a non-negative number'
             }),
@@ -67,11 +70,14 @@ class OrderValidator {
             payment_status: Joi.string().valid('pending', 'paid', 'unpaid', 'refunded', 'partially_paid').default('unpaid').messages({
                 'any.only': 'Invalid payment status'
             }),
-            fulfillment_status: Joi.string().valid('unfulfilled', 'fulfilled', 'cancelled', 'partially_fulfilled').optional().messages({
+            fulfillment_status: Joi.string().valid('unfulfilled').optional().messages({
                 'any.only': 'Invalid fulfillment status'
             }),
             note: Joi.string().trim().allow('').optional(),
             paymentMethodId: Joi.string().uuid().optional().messages({
+                'string.uuid': 'Payment method ID must be a valid UUID'
+            }),
+            payment_method_id: Joi.string().uuid().optional().messages({
                 'string.uuid': 'Payment method ID must be a valid UUID'
             }),
             payment_method: Joi.string().trim().max(30).optional()
@@ -92,9 +98,10 @@ class OrderValidator {
             payment_status: Joi.string().valid('pending', 'paid', 'unpaid', 'refunded', 'partially_paid').optional().messages({
                 'any.only': 'Invalid payment status'
             }),
-            fulfillment_status: Joi.string().valid('unfulfilled', 'fulfilled', 'cancelled', 'partially_fulfilled').optional().messages({
+            fulfillment_status: Joi.string().valid('unfulfilled', 'fulfilled').optional().messages({
                 'any.only': 'Invalid fulfillment status'
             }),
+            payment_method: Joi.string().trim().min(1).max(30).optional(),
             note: Joi.string().trim().allow('').optional()
         }).min(1).messages({
             'object.min': 'At least one field to update is required'
@@ -158,6 +165,7 @@ class OrderValidator {
             order_status: Joi.string().valid('draft', 'confirmed', 'processing', 'completed', 'cancelled').optional(),
             payment_status: Joi.string().valid('pending', 'paid', 'unpaid', 'refunded', 'partially_paid').optional(),
             fulfillment_status: Joi.string().valid('unfulfilled', 'fulfilled', 'cancelled', 'partially_fulfilled').optional(),
+            payment_method: Joi.string().trim().min(1).max(30).optional(),
             note: Joi.string().trim().optional()
         }).min(1).messages({
             'object.min': 'At least one field to update is required'

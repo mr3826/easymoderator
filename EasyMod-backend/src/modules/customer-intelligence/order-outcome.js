@@ -22,8 +22,8 @@ const OUTCOMES = Object.freeze({
 });
 
 // Normalized courier statuses (delivery/providers/provider.registry.js).
-const DELIVERED_STATUSES = new Set(['delivered', 'partial_delivered']);
 const RETURN_STATUSES = new Set(['returned', 'partial_returned']);
+const CANCELLED_STATUSES = new Set(['cancelled', 'canceled']);
 
 const lower = (value) => String(value || '').trim().toLowerCase();
 
@@ -39,18 +39,18 @@ const wasDispatched = (order) => Boolean(
 function classifyOrderOutcome(order) {
     const deliveryStatus = lower(order?.delivery_status);
     const orderStatus = lower(order?.order_status);
-    const dispatched = wasDispatched(order);
 
-    if (DELIVERED_STATUSES.has(deliveryStatus) || orderStatus === 'delivered' || order?.delivered_at) {
+    // Only provider-normalized final return states count as RTO; courier
+    // cancellation remains cancellation even when the parcel was dispatched.
+    if (RETURN_STATUSES.has(deliveryStatus)) return OUTCOMES.RETURNED;
+    // A partial receipt is still in progress, even if a legacy callback wrote
+    // full-delivery fields before item-level amounts were available.
+    if (deliveryStatus === 'partial_delivered') return OUTCOMES.IN_PROGRESS;
+    if (deliveryStatus === 'delivered' || orderStatus === 'delivered' || order?.delivered_at) {
         return OUTCOMES.DELIVERED;
     }
-    if (RETURN_STATUSES.has(deliveryStatus)) return OUTCOMES.RETURNED;
-    // A courier-side cancellation after pickup is a return to origin for the
-    // merchant (the parcel left and came back); before dispatch it is a plain
-    // cancellation.
-    if (dispatched && deliveryStatus.includes('cancel')) return OUTCOMES.RETURNED;
-    if (orderStatus === 'cancelled' || orderStatus === 'refunded') {
-        return dispatched ? OUTCOMES.RETURNED : OUTCOMES.CANCELLED;
+    if (CANCELLED_STATUSES.has(deliveryStatus) || orderStatus === 'cancelled' || orderStatus === 'refunded') {
+        return OUTCOMES.CANCELLED;
     }
     // failed_delivery is an attempt, not an outcome: the courier retries.
     return OUTCOMES.IN_PROGRESS;

@@ -7,7 +7,7 @@ const { AppError } = require('../../utils/AppError');
 const cacheService = require('../../utils/cache.service');
 const { getBdSettings: getBdSettingsHelper, updateBdSettings: updateBdSettingsHelper } = require('./shop-bd-settings');
 const {
-    mergeAndSanitizeSettings,
+    mergeSettingsPreservingRtoConsent,
     stripAutomationModeFromShopUpdate,
 } = require('./shop-settings.validator');
 const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
@@ -130,15 +130,21 @@ const completeOnboarding = async (req, res, next) => {
             });
         }
 
-        const shop = await Shop.findByPk(shopId);
-        if (!shop) throw new AppError('Shop not found', 404);
-        await shop.update({
-            settings: mergeAndSanitizeSettings(shop.settings || {}, {
-                onboarding_completed: true,
-                onboarding_completed_at: new Date().toISOString(),
-                onboarding_status_snapshot: status,
-            }),
+        await Shop.sequelize.transaction(async (transaction) => {
+            const shop = await Shop.findByPk(shopId, {
+                transaction,
+                lock: transaction.LOCK?.UPDATE,
+            });
+            if (!shop) throw new AppError('Shop not found', 404);
+            await shop.update({
+                settings: mergeSettingsPreservingRtoConsent(shop.settings || {}, {
+                    onboarding_completed: true,
+                    onboarding_completed_at: new Date().toISOString(),
+                    onboarding_status_snapshot: status,
+                }),
+            }, { transaction });
         });
+        await invalidateShopSettingsCaches(shopId);
 
         const nextSetupStatus = await setupStatusService.getSetupStatus({ shopId, userId });
         const nextStatus = setupStatusService.toLegacyOnboardingStatus(nextSetupStatus);
@@ -354,20 +360,14 @@ const updateLLMConfig = async (req, res, next) => {
             throw new AppError('temperature must be a number between 0 and 2', 400);
         }
 
-        const shop = await shopService.getShopById(shopId, req.user.userId);
-        const currentSettings = shop.settings || {};
-        const currentAI = currentSettings.ai || {};
-
-        await shopService.updateShopById(shopId, req.user.userId, {
-            settings: {
-                ...currentSettings,
-                ai: {
-                    ...currentAI,
-                    llm_model: model,
-                    ...(temperature !== undefined && { llm_temperature: temperature })
-                }
+        await shopService.getShopById(shopId, req.user.userId);
+        await shopService.updateShopSettingsPreservingRtoConsent(shopId, (currentSettings) => ({
+            ai: {
+                ...(currentSettings.ai || {}),
+                llm_model: model,
+                ...(temperature !== undefined && { llm_temperature: temperature })
             }
-        });
+        }));
 
         res.status(200).json({ success: true, data: { model, temperature } });
     } catch (error) {
@@ -630,31 +630,36 @@ const updatePlatformPriority = async (req, res, next) => {
         if (!Array.isArray(payment) || !Array.isArray(delivery)) {
             return res.status(400).json({ success: false, message: 'payment and delivery must be arrays' });
         }
-        const shop = await Shop.findByPk(shopId);
-        if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
+        const updateResult = await Shop.sequelize.transaction(async (transaction) => {
+            const shop = await Shop.findByPk(shopId, { transaction, lock: transaction.LOCK?.UPDATE });
+            if (!shop) return { missing: true };
 
-        if (delivery.length > 0) {
-            const integrations = await DeliveryIntegration.findAll({
-                where: { shop_id: shopId, is_active: true, is_connected: true },
-                attributes: ['provider']
-            });
-            const connectedProviders = new Set(integrations.map((integration) => integration.provider));
-            const invalidProvider = delivery.find((provider) => !connectedProviders.has(provider));
-            if (invalidProvider !== undefined) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Delivery priority provider is not active and connected: ${invalidProvider}`
+            if (delivery.length > 0) {
+                const integrations = await DeliveryIntegration.findAll({
+                    where: { shop_id: shopId, is_active: true, is_connected: true },
+                    attributes: ['provider'],
+                    transaction,
                 });
+                const connectedProviders = new Set(integrations.map((integration) => integration.provider));
+                const invalidProvider = delivery.find((provider) => !connectedProviders.has(provider));
+                if (invalidProvider !== undefined) return { invalidProvider };
             }
-        }
 
-        // Merge into settings JSONB (preserve other keys like onboarding_completed).
-        await shop.update({
-            settings: mergeAndSanitizeSettings(shop.settings || {}, {
-                payment_platform_priority: payment,
-                delivery_platform_priority: delivery
-            })
+            await shop.update({
+                settings: mergeSettingsPreservingRtoConsent(shop.settings || {}, {
+                    payment_platform_priority: payment,
+                    delivery_platform_priority: delivery,
+                }),
+            }, { transaction });
+            return { updated: true };
         });
+        if (updateResult.missing) return res.status(404).json({ success: false, message: 'Shop not found' });
+        if (updateResult.invalidProvider !== undefined) {
+            return res.status(400).json({
+                success: false,
+                message: `Delivery priority provider is not active and connected: ${updateResult.invalidProvider}`
+            });
+        }
         await invalidateShopSettingsCaches(shopId);
         res.json({ success: true, data: { payment, delivery } });
     } catch (error) {

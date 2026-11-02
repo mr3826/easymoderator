@@ -11,6 +11,17 @@ const { AppError } = require('../../utils/AppError');
 const BaseMerchantService = require('./base-merchant.service');
 const { getOrigins, joinOrigin } = require('../../config/origins');
 
+const safeErrorCode = (error) => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : 'BKASH_MERCHANT_ERROR';
+};
+const safeCorrelationId = (value) => (
+    typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : null
+);
+const safePaymentStatus = (value) => (
+    ['Completed', 'Initiated', 'Pending', 'Cancelled', 'Failed'].includes(value) ? value : 'unknown'
+);
+
 class BkashMerchantService extends BaseMerchantService {
     constructor() {
         const baseUrl = process.env.BKASH_ENVIRONMENT === 'production' 
@@ -108,8 +119,7 @@ class BkashMerchantService extends BaseMerchantService {
             this.logger.info('bKash payment created', {
                 shopId,
                 orderId: orderData.id,
-                paymentId: paymentID,
-                amount: orderData.total
+                paymentId: safeCorrelationId(paymentID),
             });
 
             return {
@@ -123,7 +133,7 @@ class BkashMerchantService extends BaseMerchantService {
             this.logger.error('bKash payment creation failed', {
                 shopId,
                 orderId: orderData.id,
-                error: error.response?.data || error.message
+                errorCode: safeErrorCode(error),
             });
             throw new AppError('Failed to create bKash payment', 500);
         }
@@ -171,9 +181,8 @@ class BkashMerchantService extends BaseMerchantService {
 
             this.logger.info('bKash payment executed', {
                 shopId,
-                paymentId,
-                status: paymentData.transactionStatus,
-                amount: paymentData.amount
+                paymentId: safeCorrelationId(paymentId),
+                status: safePaymentStatus(paymentData.transactionStatus),
             });
 
             return {
@@ -187,8 +196,8 @@ class BkashMerchantService extends BaseMerchantService {
         } catch (error) {
             this.logger.error('bKash payment execution failed', {
                 shopId,
-                paymentId,
-                error: error.response?.data || error.message
+                paymentId: safeCorrelationId(paymentId),
+                errorCode: safeErrorCode(error),
             });
             throw new AppError('Failed to execute bKash payment', 500);
         }
@@ -244,8 +253,8 @@ class BkashMerchantService extends BaseMerchantService {
         } catch (error) {
             this.logger.error('bKash payment query failed', {
                 shopId,
-                paymentId,
-                error: error.response?.data || error.message
+                paymentId: safeCorrelationId(paymentId),
+                errorCode: safeErrorCode(error),
             });
             throw new AppError('Failed to query bKash payment status', 500);
         }

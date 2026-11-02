@@ -33,6 +33,7 @@ export interface CreateOrderPayload {
   tax?: number;
   delivery_fee?: number;
   payment_status?: string;
+  payment_method: string;
   note?: string;
 }
 
@@ -54,12 +55,20 @@ export interface Order {
   rto_risk?: 'high' | 'medium' | 'low';
   payment_status?: string;
   payment_method?: string;
+  fulfillment_status?: string | null;
   delivery_tracking_code?: string;
   delivery_consignment_id?: string;
   delivery_provider?: string;
   delivery_booked_at?: string;
   delivery_status?: string | null;
   delivery_dispatched_at?: string | null;
+  metadata?: {
+    payment_reconciliation?: {
+      required?: boolean;
+      code?: string | null;
+    };
+    [key: string]: unknown;
+  } | null;
   note?: string;
 }
 
@@ -203,7 +212,6 @@ export interface CourierBookingPayload {
   recipient_name: string;
   recipient_phone: string;
   recipient_address: string;
-  cod_amount: number;
   weight_kg?: number;
   item_description?: string;
 }

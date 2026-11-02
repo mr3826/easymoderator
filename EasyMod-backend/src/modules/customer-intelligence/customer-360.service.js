@@ -160,7 +160,10 @@ async function loadRtoSignal(shopId, phone) {
         const RtoShieldService = require('../rto-shield/rto-shield.service');
         const { getNetworkSettings } = require('../rto-shield/rto-network-settings');
         const { enforce } = await getNetworkSettings(shopId);
-        const result = await RtoShieldService.checkPhone(normalized, shopId, { enforceNetwork: enforce !== false });
+        const result = await RtoShieldService.checkPhone(normalized, shopId, {
+            trustedContext: true,
+            enforceNetwork: enforce !== false,
+        });
         return {
             available: true,
             tier: result.tier,

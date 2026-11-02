@@ -14,6 +14,7 @@ const { DEFAULT_AI_SETTINGS } = require('./shop-defaults');
 const {
     validateAISettings,
     mergeAndSanitizeSettings,
+    mergeSettingsPreservingRtoConsent,
     stripAutomationModeFromShopUpdate,
 } = require('./shop-settings.validator');
 const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
@@ -243,51 +244,78 @@ const updateShopById = async (shopId, userId, updateData) => {
         throw new AppError('Shop not found or you do not have access', 404);
     }
 
-    // Find and update shop
-    const shop = await Shop.findByPk(shopId);
-    if (!shop) {
-        throw new AppError('Shop not found', 404);
-    }
+    const updated = await sequelize.transaction(async (transaction) => {
+        const query = { where: { id: shopId }, transaction };
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+        const shop = await Shop.findByPk(shopId, query);
+        if (!shop) throw new AppError('Shop not found', 404);
 
-    const nextUpdate = stripAutomationModeFromShopUpdate({ ...updateData });
+        const nextUpdate = stripAutomationModeFromShopUpdate({ ...updateData });
+        delete nextUpdate.id;
+        if (hasOwn(nextUpdate, 'settings')
+            && (!nextUpdate.settings || typeof nextUpdate.settings !== 'object' || Array.isArray(nextUpdate.settings))) {
+            delete nextUpdate.settings;
+        }
+        if (nextUpdate.shop_name && !nextUpdate.name) nextUpdate.name = nextUpdate.shop_name;
 
-    // Don't allow updating unique_code
-    delete nextUpdate.id;
+        const currentSettings = shop.settings || {};
+        if (nextUpdate.settings && typeof nextUpdate.settings === 'object') {
+            // Consent has a dedicated owner/admin write path. Never restore it
+            // from a stale full-settings snapshot supplied by this general API.
+            nextUpdate.settings = mergeSettingsPreservingRtoConsent(currentSettings, nextUpdate.settings);
+        }
 
-    if (nextUpdate.shop_name && !nextUpdate.name) {
-        nextUpdate.name = nextUpdate.shop_name;
-    }
-
-    const currentSettings = shop.settings || {};
-    if (nextUpdate.settings) {
-        nextUpdate.settings = mergeAndSanitizeSettings(currentSettings, nextUpdate.settings);
-    }
-
-    // Bug #13: keep settings.businessInfo.shopName in sync with the shop name column
-    // so Knowledge Base and ManageShop always show the same value.
-    const newShopName = nextUpdate.shop_name || nextUpdate.name;
-    if (newShopName) {
-        nextUpdate.settings = mergeAndSanitizeSettings(
-            currentSettings,
-            {
-                ...(nextUpdate.settings || {}),
-                businessInfo: {
-                    ...(nextUpdate.settings?.businessInfo || {}),
-                    shopName: newShopName
+        const newShopName = nextUpdate.shop_name || nextUpdate.name;
+        if (newShopName) {
+            nextUpdate.settings = mergeSettingsPreservingRtoConsent(
+                currentSettings,
+                {
+                    ...(nextUpdate.settings || {}),
+                    businessInfo: {
+                        ...(nextUpdate.settings?.businessInfo || {}),
+                        shopName: newShopName,
+                    },
                 }
+            );
+        }
+
+        await shop.update(nextUpdate, { transaction });
+        return { shop, changedSettings: Boolean(nextUpdate.settings || newShopName) };
+    });
+
+    if (updated.changedSettings) await invalidateShopSettingsCaches(shopId);
+    return { ...updated.shop.toJSON(), role: userShop.role };
+};
+
+const updateShopSettingsPreservingRtoConsent = async (shopId, settingsPatch, updateFields = {}) => {
+    const updatedSettings = await sequelize.transaction(async (transaction) => {
+        const query = { transaction };
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+        const shop = await Shop.findByPk(shopId, query);
+        if (!shop) throw new AppError('Shop not found', 404);
+
+        let currentSettings = shop.settings || {};
+        if (typeof currentSettings === 'string') {
+            try {
+                currentSettings = JSON.parse(currentSettings);
+            } catch {
+                currentSettings = {};
             }
-        );
-    }
+        }
+        if (!currentSettings || typeof currentSettings !== 'object' || Array.isArray(currentSettings)) {
+            currentSettings = {};
+        }
 
-    await shop.update(nextUpdate);
-    if (nextUpdate.settings || newShopName) {
-        await invalidateShopSettingsCaches(shopId);
-    }
+        const patch = typeof settingsPatch === 'function'
+            ? await settingsPatch(currentSettings, shop)
+            : settingsPatch;
+        const mergedSettings = mergeSettingsPreservingRtoConsent(currentSettings, patch || {});
+        await shop.update({ ...updateFields, settings: mergedSettings }, { transaction });
+        return mergedSettings;
+    });
 
-    return {
-        ...shop.toJSON(),
-        role: userShop.role
-    };
+    await invalidateShopSettingsCaches(shopId);
+    return updatedSettings;
 };
 
 /**
@@ -637,7 +665,13 @@ const updateShopAiSettings = async (
     updates,
     { transaction = null, auditRequired = false } = {},
 ) => {
-    const findOptions = transaction ? { transaction } : {};
+    if (!transaction) {
+        return sequelize.transaction((ownedTransaction) => updateShopAiSettings(shopId, userId, updates, {
+            transaction: ownedTransaction,
+            auditRequired,
+        }));
+    }
+    const findOptions = { transaction, lock: transaction.LOCK?.UPDATE };
     const shop = await Shop.findByPk(shopId, findOptions);
     if (!shop) throw new AppError('Shop not found', 404);
 
@@ -680,7 +714,10 @@ const updateShopAiSettings = async (
     newAI.automation_mode = normalizeAiReplyMode(newAI.automation_mode);
     newAI.auto_reply_enabled = isAutoSendMode(newAI.automation_mode);
 
-    const sanitizedSettings = mergeAndSanitizeSettings(currentSettings, { ai: newAI });
+    const sanitizedSettings = mergeSettingsPreservingRtoConsent(
+        currentSettings,
+        mergeAndSanitizeSettings(currentSettings, { ai: newAI })
+    );
 
     if (transaction) await shop.update({ settings: sanitizedSettings }, { transaction });
     else await shop.update({ settings: sanitizedSettings });
@@ -789,22 +826,20 @@ const applyBrandingPreset = async (shopId, presetName) => {
         );
     }
 
-    const shop = await Shop.findByPk(shopId);
-    if (!shop) throw new AppError('Shop not found', 404);
+    const newBranding = await sequelize.transaction(async (transaction) => {
+        const shop = await Shop.findByPk(shopId, { transaction, lock: transaction.LOCK?.UPDATE });
+        if (!shop) throw new AppError('Shop not found', 404);
 
-    const currentSettings = shop.settings || {};
-    const currentAI = currentSettings.ai || {};
-    const currentBranding = currentAI.branding || {};
+        const currentSettings = shop.settings || {};
+        const currentAI = currentSettings.ai || {};
+        const currentBranding = currentAI.branding || {};
+        const nextBranding = { ...currentBranding, ...preset, preset: presetName };
+        const settings = mergeSettingsPreservingRtoConsent(currentSettings, mergeAndSanitizeSettings(currentSettings, {
+            ai: { ...currentAI, branding: nextBranding },
+        }));
 
-    const newBranding = { ...currentBranding, ...preset, preset: presetName };
-
-    await shop.update({
-        settings: mergeAndSanitizeSettings(currentSettings, {
-            ai: {
-                ...currentAI,
-                branding: newBranding
-            }
-        })
+        await shop.update({ settings }, { transaction });
+        return nextBranding;
     });
     await invalidateShopSettingsCaches(shopId);
 
@@ -816,6 +851,7 @@ module.exports = {
     getShopById,
     createShop,
     updateShopById,
+    updateShopSettingsPreservingRtoConsent,
     deleteShopById,
     addUserToShop,
     removeUserFromShop,

@@ -76,7 +76,7 @@ const COURIER_REGISTRY = {
                 item_quantity: orderData.item_quantity ?? 1,
                 item_weight: weight,
                 item_description: firstDefined(orderData.item_description, ''),
-                amount_to_collect: firstPresent(orderData.amount_to_collect, orderData.total, orderData.cod_amount, 0),
+                amount_to_collect: firstPresent(orderData.amount_to_collect, orderData.cod_amount, orderData.total, 0),
             };
 
             const locationData = orderData.location
@@ -281,8 +281,8 @@ const COURIER_REGISTRY = {
                 cash_collection_amount: firstPresent(
                     orderData.cash_collection_amount,
                     orderData.amount_to_collect,
-                    orderData.total,
                     orderData.cod_amount,
+                    orderData.total,
                     0,
                 ),
                 parcel_weight: parcelWeight,
