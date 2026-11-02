@@ -307,3 +307,13 @@ The approved brand source of truth resolved in G0 was the repo's own production 
 **Typography:** Hind Siliguri is now applied once at the `DashboardLayout` workspace root (it is the approved Bengali-first face with full Latin coverage), instead of relying on scattered per-element `font-bn` classes; public/landing routes are untouched.
 
 **Validation:** strict `tsc --noEmit` pass; 92-file/791-test unit suite pass; production build pass; 26/26 serialized Orders+Customers browser journeys pass. Real-viewport type-scale measurement, 125–200% zoom, and contrast audit are scheduled in G5 with screenshots.
+
+## Release outcome (2026-11-02, closeout)
+
+The Orders & Customers production release completed through the protected pipeline in dependency-correct order: mobile isolation slice PR #234 (c17f942c), web release PR #233 (af48a7ee), owner-notification contract PR #235 (91c0558e). Every merge passed branch protection with the required contexts (PR Merge Gate, Security Scan); the mobile protected-path guard passes on each PR by construction (split), never by suppression.
+
+Production deploy run 41537253598 (target=all, DEPLOY-91c0558e token, PRODUCTION_DEPLOY_ENABLED enabled for the run and restored to false immediately after) executed migrations before cutover — including the phone-key drift fix 20261102_001 against the real production schema (UP complete) — with the schema-drift audit reporting No drift found, candidate and post-cutover health gates passing, and the version endpoint externally returning gitSha 91c0558ef3f9e110e8fb065b744f18e51d22e701 with the migration listed as latest applied (71 total). The app shell, sign-in route, and unauthenticated 401 walls on Orders/Customers/RTO endpoints were confirmed from outside. Images are digest-pinned and previous-digest rollback state is recorded by the job.
+
+Remaining external dependency: authenticated production merchant journeys require the SEED_ADMIN_* review-account credentials held only as unreadable GitHub Actions secrets; that verification is therefore handed to the founder/holder rather than claimed.
+
+Mission-committed surfaces (full history preserved on main): Orders worklist and lifecycle/courier contracts incl. the closed tracking_unavailable disposition and the pending→confirmed fix; Customers verified worklist with fail-closed RTO disclosure (A4-G3-05); brand-token and Hind Siliguri typography convergence; payment webhook terminal-receipt ordering; delivery webhook single-row lock (0A000 root cause); the drift migration; and this repository-visible evidence ledger.
