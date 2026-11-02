@@ -5,6 +5,12 @@ const asyncHandler = require('../../utils/async-middleware-handler');
 const { AppError, sendSuccess } = require('../../utils/AppError');
 const orderService = require('../order/order.service');
 const { Op } = require('sequelize');
+const {
+    normalizeCourierProvider,
+    normalizeTrackingId,
+    resolveCourierTrackingIdentity,
+    trackingUnavailableMessage,
+} = require('../delivery/tracking-identity');
 
 let AuditLog = null;
 let Order = null;
@@ -23,6 +29,11 @@ try {
 } catch (_) {}
 
 const MAX_PAGE_SIZE = 50;
+const NO_COURIER_BOOKING_STATUSES = new Set(['not_booked', 'courier_setup_required', 'confidence_hold']);
+const safeErrorCode = (error, fallback) => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : fallback;
+};
 const PROBLEM_STATUSES = [
     'cancelled',
     'returned',
@@ -75,6 +86,7 @@ const bookCourier = asyncHandler(async (req, res) => {
     const userId = req.user.userId || req.user.id;
     const provider = req.body?.provider ? String(req.body.provider).trim().toLowerCase() : null;
     const idempotencyKey = String(req.headers?.['x-idempotency-key'] || req.body?.idempotencyKey || '').trim();
+    let idempotencyReplay = false;
 
     if (!Order) {
         throw new AppError('Order database entity unavailable', 500, 'INTERNAL_ERROR');
@@ -89,18 +101,7 @@ const bookCourier = asyncHandler(async (req, res) => {
     if (idempotencyKey && redisClient) {
         const lockKey = `mobile:courier:book:${shopId}:${orderId}:${idempotencyKey}`;
         const acquired = await redisClient.set(lockKey, '1', 'NX', 'EX', 60).catch(() => null);
-        if (!acquired) {
-            if (order.delivery_consignment_id || order.delivery_tracking_code) {
-                return sendSuccess(res, {
-                    tracking_id: order.delivery_tracking_code || order.delivery_consignment_id,
-                    consignment_id: order.delivery_consignment_id,
-                    provider: order.delivery_provider || provider,
-                    booked_at: order.delivery_dispatched_at || new Date().toISOString(),
-                    status: order.delivery_status || 'booked',
-                    idempotencyReplay: true,
-                });
-            }
-        }
+        idempotencyReplay = !acquired && Boolean(order.delivery_consignment_id || order.delivery_tracking_code);
     }
 
     const overrides = {
@@ -130,7 +131,7 @@ const bookCourier = asyncHandler(async (req, res) => {
                 code: 'COURIER_SETUP_REQUIRED',
                 message: 'Courier setup is required before booking this order',
                 missing: result.missing || [],
-                provider: result.provider || provider || null,
+                provider: result.provider || null,
             },
         });
     }
@@ -150,13 +151,27 @@ const bookCourier = asyncHandler(async (req, res) => {
         });
     }
 
+    if (result?.blocked && result.status === 'tracking_unavailable') {
+        const code = result.code === 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE'
+            ? result.code
+            : 'COURIER_TRACKING_UNAVAILABLE';
+        return res.status(409).json({
+            success: false,
+            error: {
+                code,
+                message: trackingUnavailableMessage(code),
+                provider: normalizeCourierProvider(result.provider),
+            },
+        });
+    }
+
     if (result?.blocked) {
         return res.status(409).json({
             success: false,
             error: {
                 code: 'COURIER_DISPATCH_INDETERMINATE',
-                message: 'Courier booking needs reconciliation before it can be retried',
-                provider: result.provider || provider || null,
+                message: 'Do not book again until the existing courier dispatch has been reconciled.',
+                provider: normalizeCourierProvider(result.provider),
             },
         });
     }
@@ -171,15 +186,33 @@ const bookCourier = asyncHandler(async (req, res) => {
         });
     }
 
+    const trackingIdentity = resolveCourierTrackingIdentity(
+        result?.provider,
+        result?.tracking_code,
+        result?.consignment_id,
+    );
+    if (!trackingIdentity) {
+        const code = normalizeCourierProvider(result?.provider)
+            ? 'COURIER_TRACKING_UNAVAILABLE'
+            : 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE';
+        return res.status(409).json({
+            success: false,
+            error: { code, message: trackingUnavailableMessage(code) },
+        });
+    }
+
     const bookingData = {
-        tracking_id: result.tracking_code || result.consignment_id,
-        consignment_id: result.consignment_id,
-        provider: result.provider || provider,
-        booked_at: new Date().toISOString(),
-        status: result.status || 'booked',
+        tracking_id: trackingIdentity.trackingNumber,
+        consignment_id: normalizeTrackingId(result.consignment_id),
+        provider: trackingIdentity.provider,
+        booked_at: idempotencyReplay
+            ? order.delivery_dispatched_at || new Date().toISOString()
+            : new Date().toISOString(),
+        status: result.status || order.delivery_status || 'booked',
+        ...(idempotencyReplay ? { idempotencyReplay: true } : {}),
     };
 
-    if (AuditLog && typeof AuditLog.create === 'function') {
+    if (!idempotencyReplay && AuditLog && typeof AuditLog.create === 'function') {
         const auditHash = crypto.createHash('sha256')
             .update(['COURIER_BOOKED', shopId, orderId, userId, idempotencyKey || Date.now()].join('|'))
             .digest('hex');
@@ -196,7 +229,10 @@ const bookCourier = asyncHandler(async (req, res) => {
                 tracking_id: bookingData.tracking_id,
                 consignment_id: bookingData.consignment_id,
             },
-        }).catch((err) => console.warn('Mobile courier booking audit log failed:', err.message));
+        }).catch((err) => console.warn('Mobile courier booking audit log failed', {
+            orderId,
+            errorCode: safeErrorCode(err, 'COURIER_BOOKING_AUDIT_FAILED'),
+        }));
     }
 
     sendSuccess(res, bookingData);
@@ -315,12 +351,65 @@ const getDeliveryTracking = asyncHandler(async (req, res) => {
         throw new AppError('Order not found', 404, 'NOT_FOUND');
     }
 
-    let tracking = null;
-    if (DeliveryTracking && typeof DeliveryTracking.findOne === 'function') {
+    if (!DeliveryTracking || typeof DeliveryTracking.findOne !== 'function') {
+        throw new AppError(
+            'Courier tracking is temporarily unavailable. Try again shortly.',
+            503,
+            'COURIER_TRACKING_READ_UNAVAILABLE',
+        );
+    }
+
+    let tracking;
+    try {
         tracking = await DeliveryTracking.findOne({
             where: { order_id: order.id },
             order: [['created_at', 'DESC']],
-        }).catch(() => null);
+        });
+    } catch (_) {
+        throw new AppError(
+            'Courier tracking is temporarily unavailable. Try again shortly.',
+            503,
+            'COURIER_TRACKING_READ_UNAVAILABLE',
+        );
+    }
+
+    let trackingIdentity = null;
+    if (tracking) {
+        trackingIdentity = resolveCourierTrackingIdentity(tracking.provider, tracking.tracking_number);
+        if (!trackingIdentity) {
+            throw new AppError(
+                'Courier tracking details are unavailable. Do not book again; reconcile with the provider.',
+                503,
+                'COURIER_TRACKING_UNAVAILABLE',
+            );
+        }
+    } else {
+        const hasPersistedTrackingFields = [
+            order.delivery_provider,
+            order.delivery_tracking_code,
+            order.delivery_consignment_id,
+        ].some((value) => typeof value === 'string' && value.trim());
+        if (hasPersistedTrackingFields) {
+            trackingIdentity = resolveCourierTrackingIdentity(
+                order.delivery_provider,
+                order.delivery_tracking_code,
+                order.delivery_consignment_id,
+            );
+            if (!trackingIdentity) {
+                throw new AppError(
+                    'Courier tracking details are unavailable. Do not book again; reconcile with the provider.',
+                    503,
+                    'COURIER_TRACKING_UNAVAILABLE',
+                );
+            }
+        } else if (order.delivery_status
+            && !NO_COURIER_BOOKING_STATUSES.has(String(order.delivery_status).trim().toLowerCase())) {
+            throw new AppError(
+                'Courier tracking details are unavailable. Do not book again; reconcile with the provider.',
+                503,
+                'COURIER_TRACKING_UNAVAILABLE',
+            );
+        }
     }
 
     const history = Array.isArray(tracking?.status_history) ? tracking.status_history : [];
@@ -328,10 +417,10 @@ const getDeliveryTracking = asyncHandler(async (req, res) => {
     sendSuccess(res, {
         order_id: order.id,
         order_number: order.order_number,
-        provider: tracking?.provider || order.delivery_provider,
-        tracking_number: tracking?.tracking_number || order.delivery_tracking_code || order.delivery_consignment_id,
-        consignment_id: order.delivery_consignment_id,
-        current_status: tracking?.current_status || order.delivery_status || 'not_booked',
+        provider: trackingIdentity?.provider || null,
+        tracking_number: trackingIdentity?.trackingNumber || null,
+        consignment_id: normalizeTrackingId(order.delivery_consignment_id),
+        current_status: tracking?.current_status || order.delivery_status || (trackingIdentity ? 'booked' : 'not_booked'),
         estimated_delivery: tracking?.estimated_delivery || null,
         actual_delivery: tracking?.actual_delivery || null,
         location_info: tracking?.location_info || null,
