@@ -110,10 +110,18 @@ describe('manual order creation idempotency on real PostgreSQL', () => {
         expect(tracking.body.data.current_status).toBe('not_booked');
         expect(tracking.body.data.status_history).toEqual([]);
 
-        const cancellation = await request(app)
+        const bypassCancellation = await request(app)
             .patch(`/api/order/${first.body.data.id}`)
             .set('Authorization', `Bearer ${token}`)
             .send({ order_status: 'cancelled' });
+        expect(bypassCancellation.status).toBe(409);
+        expect(bypassCancellation.body.code).toBe('ORDER_CANCELLATION_PATH_REQUIRED');
+        expect(Number((await Product.findByPk(product.id)).quantity)).toBe(8);
+
+        const cancellation = await request(app)
+            .post(`/api/order/${first.body.data.id}/cancel`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ reason: 'test cancellation' });
         expect(cancellation.status).toBe(200);
         expect(cancellation.body.data.order_status).toBe('cancelled');
         expect(Number((await Product.findByPk(product.id)).quantity)).toBe(10);

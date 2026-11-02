@@ -1353,12 +1353,86 @@
   "orders": {
     "title": "অর্ডার",
     "subtitle": "কাস্টমারের অর্ডার ও ডেলিভারি পরিচালনা করুন",
-    "filterDate": "তারিখ ফিল্টার করুন:",
+    "toolbarLabel": "অর্ডার ওয়ার্কলিস্ট ফিল্টার",
+    "filterDate": "তৈরির তারিখ",
+    "dateAll": "সব তারিখ",
     "dateToday": "আজ",
     "dateLast7": "গত ৭ দিন",
     "dateLast30": "গত ৩০ দিন",
-    "dateCustom": "কাস্টম পরিসর",
-    "searchPlaceholder": "অর্ডার ID / কাস্টমার / চ্যানেল",
+    "searchLabel": "অর্ডার নম্বর, কাস্টমারের নাম বা ফোন দিয়ে খুঁজুন",
+    "searchPlaceholder": "অর্ডার নম্বর, কাস্টমারের নাম বা ফোন",
+    "filterOrderStatus": "অর্ডারের অবস্থা",
+    "orderStatusAll": "সব অর্ডারের অবস্থা",
+    "filterFulfillmentStatus": "ফুলফিলমেন্টের অবস্থা",
+    "fulfillmentStatusAll": "সব ফুলফিলমেন্ট অবস্থা",
+    "filterPaymentStatus": "পেমেন্টের অবস্থা",
+    "paymentStatusAll": "সব পেমেন্ট অবস্থা",
+    "listScope": "সর্বশেষ সর্বোচ্চ ১০০টি মিলে যাওয়া অর্ডার দেখানো হচ্ছে; API মোট সংখ্যা দেয় না।",
+    "loading": "অর্ডার লোড হচ্ছে…",
+    "loadError": "অর্ডার লোড করা যায়নি। আগের ফলাফল দেখানো হচ্ছে না।",
+    "retry": "আবার চেষ্টা করুন",
+    "noMatches": "এই ফিল্টারের সঙ্গে কোনো অর্ডার মেলেনি।",
+    "emptyShop": "এখনো কোনো অর্ডার নেই।",
+    "deepLinkFailed": "এই অর্ডার লোড করা যায়নি। এটি অনুপলব্ধ বা এই শপের বাইরের হতে পারে।",
+    "rtoSignal": "আগের RTO সংকেত · অর্ডারের প্রমাণ যাচাই করুন",
+    "partialCodDueUnknown": "আংশিক পরিশোধিত এই অর্ডারের নির্ভরযোগ্য COD বকেয়া নেই। বুকিং বন্ধ থাকবে। মূল পেমেন্ট রেকর্ড মিলিয়ে নিন; এই অ্যাপ আংশিক COD বকেয়া সংরক্ষণ বা অনুমান করে না।",
+    "bookingMethodUnavailable": "পুরোনো এই অর্ডারে পেমেন্ট পদ্ধতি নেই। ডায়ালগ বন্ধ করে অর্ডারের বিবরণে যাচাইকৃত পদ্ধতি যোগ করুন; শুধু owner/admin এটি সংরক্ষণ করতে পারবেন।",
+    "bookingMethodCorrectionUnavailable": "পুরোনো এই অর্ডারে পেমেন্ট পদ্ধতি নেই এবং বর্তমান অবস্থায় Orders থেকে সম্পাদনা করা যায় না। কুরিয়ার বুকিং আবার চেষ্টা করবেন না; owner/admin-কে মূল রেকর্ড যাচাই করতে বলুন।",
+    "paymentMethodCorrectionLockedByCourier": "কুরিয়ার ক্লেইম বা ট্র্যাকিং রেকর্ড আছে। কুরিয়ারের সংগ্রহের পরিমাণ না মেলার ঝুঁকি এড়াতে পেমেন্ট পদ্ধতি সংশোধন ও বুকিং বন্ধ। আগে owner/admin এবং কুরিয়ারের সঙ্গে মিলিয়ে নিন।",
+    "paymentMethodCorrectionOwnerOnly": "মূল অর্ডার/পেমেন্ট রেকর্ড দেখে পদ্ধতি যাচাই করুন। এই সংশোধন শুধু owner/admin করতে পারবেন এবং অডিট হবে।",
+    "paymentConfigUnavailable": "পেমেন্ট পদ্ধতি লোড করা যায়নি। আবার চেষ্টা না করা পর্যন্ত শুধু Cash on Delivery পাওয়া যাবে।",
+    "courierCollectionServerDetermined": "সংরক্ষিত পেমেন্ট পদ্ধতি ও অবস্থা দেখে সার্ভার কুরিয়ারের সংগ্রহের পরিমাণ নির্ধারণ করে। এখানে পরিমাণ বদলানো যায় না।",
+    "paymentMethodUpdated": "যাচাইকৃত পেমেন্ট পদ্ধতি সংরক্ষিত হয়েছে।",
+    "channelUnknown": "চ্যানেলের তথ্য নেই",
+    "expectedCollectionUnknown": "অজানা",
+    "paymentStatusCollectionUnknown": "এই পেমেন্ট অবস্থায় নিরাপদ সংগ্রহের পরিমাণ নির্ধারণ করা যায় না। বুক করার আগে পেমেন্ট অবস্থা যাচাই করুন।",
+    "paymentReconciliation": {
+      "cod": {
+        "title": "COD সংগ্রহ মিলিয়ে দেখা দরকার",
+        "body": "ডেলিভারি রেকর্ডে কুরিয়ার কত নগদ নিয়েছে বা কত বাকি আছে তা দেখা যায় না। এই সতর্কতা অর্ডারের পুরো টাকা নেওয়া হয়েছে বা COD নিষ্পত্তি হয়েছে তা নিশ্চিত করে না।",
+        "nextStep": "কুরিয়ারের বুকিং/রেমিট্যান্সের সঙ্গে ক্রেতার রসিদ মিলিয়ে বাকি টাকা ম্যানুয়ালি যাচাই করুন। এই স্ক্রিনে reconciliation flag মেটানো বা নিষ্পত্তি নিশ্চিত করা যায় না।"
+      },
+      "verifiedPayment": {
+        "title": "যাচাইকৃত পেমেন্টের সঙ্গে কুরিয়ারের হিসাব মিলিয়ে দেখুন",
+        "body": "গেটওয়ে পেমেন্ট যাচাই হয়েছে, কিন্তু কুরিয়ারের সংগ্রহের রেকর্ডের সঙ্গে তা মেলানো হয়নি। কুরিয়ার কত টাকা নিয়েছে তা এখানে নিশ্চিত নয়।",
+        "nextStep": "গেটওয়ে লেনদেনের সঙ্গে কুরিয়ারের বুকিং/রেমিট্যান্স ও ক্রেতার রসিদ মিলিয়ে দেখুন। এই স্ক্রিনে সংগ্রহের পরিমাণ নির্ধারণ বা reconciliation flag মেটানো যায় না।"
+      },
+      "terminalOrder": {
+        "title": "পেমেন্ট ও অর্ডারের অবস্থা যাচাই দরকার",
+        "body": "অর্ডারটি চূড়ান্ত অবস্থায় পৌঁছানোর পরে গেটওয়ে পেমেন্ট যাচাইয়ের রেকর্ড হয়েছে। এই যাচাই একা কুরিয়ারের সংগ্রহ বদলেছে বা নিষ্পত্তি সম্পন্ন হয়েছে তা জানায় না।",
+        "nextStep": "পদক্ষেপের আগে মূল পেমেন্ট, অর্ডার ও কুরিয়ারের রেকর্ডের সঙ্গে ক্রেতার রসিদ মিলিয়ে দেখুন। এই স্ক্রিনে flag মেটানো যায় না।"
+      },
+      "unknown": {
+        "title": "পেমেন্ট ও কুরিয়ারের রেকর্ড যাচাই দরকার",
+        "body": "এই অর্ডারে reconciliation flag আছে, কিন্তু এর code থেকে পেমেন্ট নিষ্পত্তি বা কুরিয়ারের সংগ্রহ সম্পর্কে যথেষ্ট তথ্য পাওয়া যায় না।",
+        "nextStep": "মূল পেমেন্ট ও অর্ডার রেকর্ডের সঙ্গে কুরিয়ারের বুকিং/রেমিট্যান্স এবং ক্রেতার রসিদ মিলিয়ে দেখুন। এই স্ক্রিনে flag মুছে ফেলা বা নিষ্পত্তি রেকর্ড করা যায় না।"
+      }
+    },
+    "additionalItems": "আরও {{count}}টি",
+    "paymentMethod": {
+      "unknown": "পেমেন্ট পদ্ধতির তথ্য নেই",
+      "cod": "ক্যাশ অন ডেলিভারি (COD)",
+      "selfMfs": "নিজস্ব মোবাইল পেমেন্ট",
+      "bkash": "বিকাশ",
+      "nagad": "নগদ",
+      "rocket": "রকেট"
+    },
+    "deliveryStatus": {
+      "unknown": "ডেলিভারি অবস্থার তথ্য নেই",
+      "noTracking": "ট্র্যাকিং সংরক্ষিত নেই",
+      "booked": "বুক হয়েছে",
+      "in_transit": "পথে আছে",
+      "out_for_delivery": "ডেলিভারির জন্য বের হয়েছে",
+      "failed_delivery": "ডেলিভারির চেষ্টা ব্যর্থ",
+      "delivered": "ডেলিভারি সম্পন্ন",
+      "returned": "ফেরত এসেছে"
+    },
+    "fulfillmentStatus": {
+      "unfulfilled": "ফুলফিলমেন্ট হয়নি",
+      "fulfilled": "ফুলফিলমেন্ট সম্পন্ন",
+      "partially_fulfilled": "আংশিক ফুলফিলমেন্ট",
+      "cancelled": "বাতিল"
+    },
     "export": "রপ্তানি",
     "exportCSV": "CSV রপ্তানি",
     "exportExcel": "Excel রপ্তানি",
@@ -1379,7 +1453,10 @@
       "status": "অবস্থা",
       "actions": "কার্যক্রম",
       "payment": "পেমেন্ট",
-      "courier": "কুরিয়ার / ট্র্যাকিং"
+      "courier": "কুরিয়ার / ট্র্যাকিং",
+      "delivery": "ডেলিভারি",
+      "expectedCollection": "কুরিয়ারের সম্ভাব্য সংগ্রহ",
+      "created": "তৈরি"
     },
     "itemCount": "{{count}}টি আইটেম",
     "createModal": {
@@ -1407,6 +1484,8 @@
       "vat": "ভ্যাট/ট্যাক্স:",
       "delivery": "ডেলিভারি:",
       "total": "মোট:",
+      "paymentMethod": "পেমেন্ট পদ্ধতি",
+      "selectPaymentMethod": "যাচাইকৃত পদ্ধতি বেছে নিন",
       "paymentStatus": "পেমেন্ট অবস্থা",
       "payPending": "অপেক্ষমান",
       "payPaid": "পরিশোধিত",
@@ -1415,8 +1494,9 @@
       "payPartial": "আংশিক পরিশোধিত",
       "notes": "অর্ডার নোট",
       "notesPlaceholder": "ঐচ্ছিক নোট",
-      "rtoWarning": "COD/অপরিশোধিত অর্ডারে RTO ঝুঁকি বেশি।",
+      "rtoWarning": "আগের রিটার্নের সংকেত যাচাইয়ের প্রয়োজন হতে পারে। এটি পেমেন্টের অবস্থা নির্ধারণ বা স্বয়ংক্রিয়ভাবে অর্ডার বাতিল করে না।",
       "createButton": "অর্ডার তৈরি করুন",
+      "createSuccess": "{{orderId}} অর্ডারটি Draft হিসেবে তৈরি হয়েছে।",
       "searchProducts": "পণ্য খুঁজে যোগ করুন…",
       "noProductsFound": "মিল পাওয়া যায়নি। অন্য product name বা SKU দিয়ে চেষ্টা করুন।",
       "division": "বিভাগ",
@@ -1453,7 +1533,9 @@
       "noAddress": "ঠিকানা এখনো যোগ করা হয়নি",
       "viewOnMap": "ম্যাপে দেখুন",
       "paymentStatusLabel": "পেমেন্ট অবস্থা",
-      "codPending": "ক্যাশ অন ডেলিভারি বাকি",
+      "paymentMethodCorrection": "পেমেন্ট পদ্ধতি সংশোধন করুন",
+      "savePaymentMethod": "যাচাইকৃত পদ্ধতি সংরক্ষণ",
+      "deliveryStatusLabel": "ডেলিভারির অবস্থা",
       "customerChat": "কাস্টমার চ্যাট (শেষ ৩ বার্তা)",
       "noChatSnippet": "কোনো চ্যাট পাওয়া যায়নি।",
       "linkedChatEmpty": "সংযুক্ত কথোপকথনে সাম্প্রতিক কোনো বার্তা নেই।",
@@ -1483,9 +1565,9 @@
     "errors": {
       "loadFailed": "অর্ডার লোড করতে ব্যর্থ",
       "updateStatus": "অর্ডারের অবস্থা আপডেট করতে ব্যর্থ",
-      "highRTO": "উচ্চ RTO ঝুঁকির অর্ডার নিশ্চিত করার আগে ম্যানুয়াল রিভিউ প্রয়োজন",
       "nameRequired": "কাস্টমারের নাম আবশ্যিক",
       "phoneRequired": "কাস্টমারের ফোন নম্বর আবশ্যিক",
+      "paymentMethodRequired": "যাচাইকৃত পেমেন্ট পদ্ধতি বেছে নিন",
       "addressRequired": "ডেলিভারি ঠিকানা আবশ্যিক — বিভাগ, জেলা, উপজেলা বেছে নিন এবং রাস্তার বিবরণ দিন",
       "noExportData": "রপ্তানির জন্য কোনো অর্ডার নেই।",
       "csvFallback": "Excel রপ্তানি এখনো পাওয়া যাচ্ছে না। CSV ডাউনলোড হয়েছে।",
@@ -1530,8 +1612,7 @@
       "redx": "RedX",
       "steadfast": "Steadfast"
     },
-    "resultsCount": "ফলাফল: {{count}}",
-    "desktopTableScrollHint": "প্রতিটি অর্ডারের পাশে কাজের বোতাম আছে। কুরিয়ারের তথ্য ও চ্যানেল দেখতে টেবিলটি আড়াআড়ি স্ক্রল করুন।",
+    "desktopTableScrollHint": "ওয়ার্কলিস্টের পাশে অর্ডার পর্যালোচনা করতে একটি অর্ডার বাছুন। সব অর্ডার ও ডেলিভারি তথ্য দেখতে আড়াআড়ি স্ক্রল করুন।",
     "clearFilters": "ফিল্টার মুছুন"
   },
   "customers": {
@@ -1615,7 +1696,8 @@
       "title": "কাস্টমার মুছুন",
       "message": "আপনি কি এই কাস্টমার মুছতে চান? এই কাজ পূর্বাবস্থায় ফেরানো যাবে না।",
       "deleteButton": "কাস্টমার মুছুন",
-      "deleting": "মুছে ফেলা হচ্ছে..."
+      "deleting": "মুছে ফেলা হচ্ছে...",
+      "erasureNote": "এটি শুধু এই শপ থেকে কাস্টমার প্রোফাইল মুছে ফেলবে। প্রতারণা-সুরক্ষায় ফোন নম্বরের সাথে যুক্ত ডেলিভারি/রিটার্ন ইতিহাস থেকে যেতে পারে।"
     },
     "success": {
       "created": "কাস্টমার সফলভাবে তৈরি হয়েছে",
@@ -1634,7 +1716,20 @@
       "blacklistFailed": "কালো তালিকার অবস্থা আপডেট করতে ব্যর্থ"
     },
     "mobileListLabel": "কাস্টমার তালিকা",
-    "desktopListLabel": "কাস্টমার তালিকা টেবিল"
+    "desktopListLabel": "কাস্টমার তালিকা টেবিল",
+    "resultCount": "এই শপে {{total}} জন কাস্টমার",
+    "searchNamePlaceholder": "নাম দিয়ে খুঁজুন",
+    "searchPhonePlaceholder": "ফোন দিয়ে খুঁজুন",
+    "clearFilters": "ফিল্টার মুছুন",
+    "noMatches": "মিল এমন কোনো কাস্টমার নেই",
+    "noMatchesHint": "বেশি কাস্টমার দেখতে ফিল্টার বদলান বা মুছে ফেলুন।",
+    "viewOrders": "এই ফোনের অর্ডার দেখুন",
+    "previousPage": "পূর্ববর্তী পাতা",
+    "nextPage": "পরবর্তী পাতা",
+    "empty": {
+      "title": "এখনো কোনো কাস্টমার নেই",
+      "hint": "নিজে থেকে কাস্টমার যোগ করুন, অথবা Facebook Page সংযুক্ত করলে Messenger যোগাযোগগুলো এখানে দেখা যাবে।"
+    }
   },
   "customer360": {
     "title": "কাস্টমার",
@@ -2580,14 +2675,14 @@
     "partnerNoTopups": "Partnership-এ unlimited conversation আছে; conversation top-up পাওয়া যায় না।",
     "growthTopupsOnly": "Conversation top-up শুধু Moderator Plus (GROWTH)-এ পাওয়া যায়।",
     "shadowAllowanceLabel": "বিলযোগ্য নয় এমন reply measurement",
-    "shadowAllowanceTitle": "প্রতি UTC মাসে {{count}}টি Meta-তে গৃহীত AI-generated reply (shadow লক্ষ্য)",
+    "shadowAllowanceTitle": "প্রতি UTC মাসে {{formattedCount}}টি Meta-তে গৃহীত AI-generated reply (shadow লক্ষ্য)",
     "shadowAllowanceNote": "শুধু shadow measurement। সক্রিয় {{conversations}}টি কথোপকথনের entitlement এবং বর্তমান conversation top-up অপরিবর্তিত।",
     "shadowUsageTitle": "AI support reply measurement",
     "shadowOnlyBadge": "শুধু shadow",
     "shadowUnitDefinition": "একটি unit হলো Meta-তে গৃহীত ও স্থায়ীভাবে নথিভুক্ত একটি logical AI-generated reply। Incoming message, conversation, না-পাঠানো draft বা ব্যর্থ send unit নয়।",
     "shadowPeriod": "UTC calendar মাস: {{start}} থেকে {{end}} তারিখ শুরুর ঠিক আগ পর্যন্ত।",
     "shadowUsageCount": "নথিভুক্ত Meta-গৃহীত AI reply: {{used}} / {{target}} shadow লক্ষ্য।",
-    "shadowObservedOnly": "এই মাসে নথিভুক্ত Meta-গৃহীত AI reply: {{count}}। Partnership-এর মাসিক reply লক্ষ্য নেই।",
+    "shadowObservedOnly": "এই মাসে নথিভুক্ত Meta-গৃহীত AI reply: {{formattedCount}}। Partnership-এর মাসিক reply লক্ষ্য নেই।",
     "shadowUsageProgress": "{{target}} লক্ষ্য অনুযায়ী shadow reply ব্যবহার।",
     "shadowRecordingActive": "Measurement সক্রিয়। এটি message sending সীমিত করে না বা billing বদলায় না।",
     "shadowNotEnabled": "এই শপে shadow measurement চালু নেই; reply গণনা হচ্ছে না।",
@@ -2787,7 +2882,11 @@
       "contributeHelp": "বেনামে আপনার ডেলিভারি ফলাফল যোগ করুন যাতে নেটওয়ার্ক সবাইকে — আপনাকেসহ — সুরক্ষা দেয়।",
       "privacyNote": "শুধু ফোন নম্বরের ডেলিভারি/রিটার্ন ইতিহাস শেয়ার হয় — নাম, মেসেজ বা অন্য কোনো তথ্য নয়।",
       "saved": "নেটওয়ার্ক সেটিংস সংরক্ষিত হয়েছে",
-      "saveFailed": "নেটওয়ার্ক সেটিংস সংরক্ষণ করা যায়নি"
+      "saveFailed": "নেটওয়ার্ক সেটিংস সংরক্ষণ করা যায়নি",
+      "unavailable": "অংশগ্রহণের অবস্থা পাওয়া যায়নি",
+      "unavailableHelp": "নেটওয়ার্ক অংশগ্রহণ লোড করা যায়নি। কোনো কিছু চালু বা বন্ধ ধরা হচ্ছে না। আবার চেষ্টা করুন।",
+      "retry": "আবার চেষ্টা করুন",
+      "ownerOnly": "শুধু মালিক বা অ্যাডমিন অংশগ্রহণ পরিবর্তন করতে পারবেন।"
     }
   },
   "pwa": {

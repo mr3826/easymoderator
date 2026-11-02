@@ -152,6 +152,21 @@ describe('courier provider adapters', () => {
         expect(payload).not.toHaveProperty('special_instruction');
     });
 
+    test('all providers preserve an explicit zero collection amount ahead of order total fallbacks', () => {
+        const orderData = {
+            order_number: 'ORD-PREPAID',
+            customer_name: 'Customer',
+            customer_phone: '01700000000',
+            delivery_address: 'House 1',
+            total: 1200,
+            cod_amount: 0,
+        };
+
+        expect(COURIER_REGISTRY.pathao.normalizePayload(orderData).amount_to_collect).toBe(0);
+        expect(COURIER_REGISTRY.steadfast.normalizePayload(orderData).cod_amount).toBe(0);
+        expect(COURIER_REGISTRY.redx.normalizePayload(orderData).cash_collection_amount).toBe(0);
+    });
+
     test('Pathao production host, weight bounds, and asynchronous bulk response are supported', async () => {
         axios.post.mockResolvedValue({ status: 202, data: { code: 202, message: 'Accepted' } });
         const provider = new PathaoProvider({ access_token: 'token', refresh_token: 'refresh' });

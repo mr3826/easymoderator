@@ -15,7 +15,7 @@ export const stateStyles: Record<CustomerState, string> = {
 };
 
 export const strengthStyles: Record<OpportunityStrength, string> = {
-  HIGH: "bg-indigo-100 text-indigo-800",
+  HIGH: "bg-emerald-100 text-emerald-800",
   MEDIUM: "bg-sky-50 text-sky-700",
 };
 

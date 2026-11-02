@@ -59,7 +59,7 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
             <button
               type="button"
               onClick={() => navigate(`/customers/${opportunity.customer_id}`)}
-              className="font-semibold text-gray-900 hover:text-blue-700 truncate text-left"
+              className="font-semibold text-gray-900 hover:text-brand-hover truncate text-left"
             >
               {opportunity.customer.name || t("customer360.unknownName")}
             </button>
@@ -115,7 +115,7 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
             <button
               type="button"
               onClick={() => navigate(`/inbox?conversation=${encodeURIComponent(opportunity.conversation_id!)}`)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-brand-hover"
             >
               <MessageSquare className="w-4 h-4" aria-hidden="true" />
               {t("customer360.actions.openConversation")}

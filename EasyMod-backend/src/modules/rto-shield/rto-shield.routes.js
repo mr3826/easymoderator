@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticate } = require('../../middleware/auth.middleware');
 const { verifyShopAccess } = require('../../middleware/shop-access.middleware');
+const { requireOwnerOrAdmin } = require('../../middleware/shop-permission.middleware');
 const RtoShieldController = require('./rto-shield.controller');
 const {
   addEntrySchema, checkPhoneSchema, bulkImportSchema, listSchema,
@@ -34,7 +35,7 @@ router.use(verifyShopAccess);
 
 router.get('/', validate(listSchema), RtoShieldController.listBlacklist);
 router.get('/settings', RtoShieldController.getSettings);
-router.put('/settings', validate(networkSettingsSchema), RtoShieldController.updateSettings);
+router.put('/settings', requireOwnerOrAdmin, validate(networkSettingsSchema), RtoShieldController.updateSettings);
 router.get('/network-stats', validate(networkStatsSchema), RtoShieldController.networkStats);
 router.post('/check', validate(checkPhoneSchema), RtoShieldController.checkPhone);
 router.post('/whitelist', validate(whitelistSchema), RtoShieldController.whitelist);

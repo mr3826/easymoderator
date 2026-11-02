@@ -587,7 +587,10 @@ export default function Subscription() {
                   {plan.supportReplyAllowance?.status === "shadow_only" && (
                     <aside aria-label={t("subscription.shadowAllowanceLabel")} className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-gray-700">
                       <p className="font-semibold text-gray-900">
-                        {t("subscription.shadowAllowanceTitle", { count: formatNumber(plan.supportReplyAllowance.amount) })}
+                        {t("subscription.shadowAllowanceTitle", {
+                          count: plan.supportReplyAllowance.amount,
+                          formattedCount: formatNumber(plan.supportReplyAllowance.amount),
+                        })}
                       </p>
                       <p className="mt-1">
                         {t("subscription.shadowAllowanceNote", { conversations: formatNumber(plan.limits.conversations) })}
@@ -696,7 +699,10 @@ export default function Subscription() {
                 <div className="max-w-2xl space-y-2" aria-live="polite">
                   <p className="font-semibold text-gray-900">
                     {shadowUsage.target === null
-                      ? t("subscription.shadowObservedOnly", { count: formatNumber(shadowUsage.current_shadow_use) })
+                      ? t("subscription.shadowObservedOnly", {
+                          count: shadowUsage.current_shadow_use,
+                          formattedCount: formatNumber(shadowUsage.current_shadow_use),
+                        })
                       : t("subscription.shadowUsageCount", {
                           used: formatNumber(shadowUsage.current_shadow_use),
                           target: formatNumber(shadowUsage.target),

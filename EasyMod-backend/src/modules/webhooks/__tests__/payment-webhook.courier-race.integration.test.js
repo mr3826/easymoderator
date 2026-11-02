@@ -103,6 +103,9 @@ describe('real bKash webhook courier claim boundary', () => {
             items: [{ name: 'bKash Race Item', quantity: 1 }],
             order_status: 'placed',
             fulfillment_status: 'unfulfilled',
+            // The customer chose bKash at checkout; the webhook verifies the
+            // payment. A bookable order must carry its payment method.
+            payment_method: 'bkash',
             payment_status: 'pending',
         });
         payment = await PaymentTransaction.create({

@@ -49,6 +49,13 @@ const canonical = (value) => {
     return value;
 };
 const reasonsKey = (reasons = []) => JSON.stringify(canonical(reasons.map((r) => [r.code, r.severity, r.evidence || {}])));
+const COD_METHODS = new Set(['cod', 'cash', 'cash_on_delivery']);
+const isCodOrder = (order) => COD_METHODS.has(
+    String(order?.payment_method || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+);
+const hasMandatoryRtoReview = (row) => Array.isArray(row?.reasons) && row.reasons.some((reason) => (
+    reason.source === 'RTO_SHIELD' && ['RTO_SHIELD_BLOCK', 'RTO_SHIELD_VERIFY'].includes(reason.code)
+));
 // What a merchant's decision is about: which reasons apply, not their exact
 // numbers. Evidence alone (e.g. a network count moving because another shop
 // recorded a delivery) must not invalidate an approval in progress.
@@ -99,7 +106,10 @@ async function loadRtoShield(order, shopId) {
     const RtoShieldService = require('../rto-shield/rto-shield.service');
     const { getNetworkSettings } = require('../rto-shield/rto-network-settings');
     const { enforce } = await getNetworkSettings(shopId);
-    return RtoShieldService.checkPhone(normalized, shopId, { enforceNetwork: enforce !== false });
+    return RtoShieldService.checkPhone(normalized, shopId, {
+        trustedContext: true,
+        enforceNetwork: enforce !== false,
+    });
 }
 
 /**
@@ -107,21 +117,27 @@ async function loadRtoShield(order, shopId) {
  * rules turn into INPUT_UNAVAILABLE (fail closed to verification), never
  * silently into a READY decision.
  */
-async function gatherFacts(order, shopId) {
+async function gatherFacts(order, shopId, options = {}) {
     let history = null;
     let recentActiveOrders = [];
     let rtoShield = null;
     try {
         ({ history, recentActiveOrders } = await loadHistory(order, shopId));
-    } catch (error) {
+    } catch (_) {
         metrics.increment('order_confidence.input_unavailable');
-        logger.warn('order_confidence.history_unavailable', { shopId, orderId: order.id, error: error.message });
+        logger.warn('order_confidence.history_unavailable', {
+            shopId, orderId: order.id, code: 'ORDER_CONFIDENCE_HISTORY_UNAVAILABLE',
+        });
     }
     try {
-        rtoShield = await loadRtoShield(order, shopId);
-    } catch (error) {
+        rtoShield = Object.prototype.hasOwnProperty.call(options, 'rtoShieldOverride')
+            ? options.rtoShieldOverride
+            : await loadRtoShield(order, shopId);
+    } catch (_) {
         metrics.increment('order_confidence.input_unavailable');
-        logger.warn('order_confidence.rto_shield_unavailable', { shopId, orderId: order.id, error: error.message });
+        logger.warn('order_confidence.rto_shield_unavailable', {
+            shopId, orderId: order.id, code: 'ORDER_CONFIDENCE_RTO_SHIELD_UNAVAILABLE',
+        });
         rtoShield = null;
     }
     return { order, history, recentActiveOrders, rtoShield };
@@ -169,10 +185,15 @@ async function auditSystemChange(order, shopId, previous, next) {
  * Evaluate from current facts and persist. Returns the persisted row (the
  * winner's row when this caller loses a concurrent write).
  */
-async function evaluateAndPersist(order, shopId, { mode, config } = {}) {
+async function evaluateAndPersist(order, shopId, options = {}) {
+    const { mode, config, rtoShieldOverride } = options;
     const { OrderConfidence } = entities();
     const started = Date.now();
-    const facts = await gatherFacts(order, shopId);
+    const facts = await gatherFacts(
+        order,
+        shopId,
+        Object.prototype.hasOwnProperty.call(options, 'rtoShieldOverride') ? { rtoShieldOverride } : {},
+    );
     const result = rules.evaluate(facts, config);
     const inputFingerprint = rules.fingerprint(order);
     metrics.increment(`order_confidence.evaluated.${result.decision}`);
@@ -290,7 +311,21 @@ async function writeGate(row, gateResult, released) {
 async function checkBookingGate(order, shopId, { trigger = 'AUTO' } = {}) {
     const { getPilotFeatures } = require('../pilot-features/pilot-features.service');
     const features = await getPilotFeatures(shopId);
-    const mode = features.orderConfidenceMode;
+    let mode = features.orderConfidenceMode;
+    let rtoShieldOverride;
+    let hasRtoShieldOverride = false;
+    if ((mode === 'off' || mode === 'shadow') && isCodOrder(order)) {
+        try {
+            rtoShieldOverride = await loadRtoShield(order, shopId);
+            hasRtoShieldOverride = true;
+        } catch (_) {
+            // A failed safety lookup must not silently allow a COD courier mutation.
+            mode = 'enforce';
+            rtoShieldOverride = null;
+            hasRtoShieldOverride = true;
+        }
+        if (['block', 'verify'].includes(rtoShieldOverride?.tier)) mode = 'enforce';
+    }
     if (mode === 'off') return { allowed: true, mode };
 
     try {
@@ -301,6 +336,7 @@ async function checkBookingGate(order, shopId, { trigger = 'AUTO' } = {}) {
         const { row, inputFingerprint } = await evaluateAndPersist(fresh, shopId, {
             mode,
             config: features.orderConfidenceConfig,
+            ...(hasRtoShieldOverride ? { rtoShieldOverride } : {}),
         });
         const effective = rules.effectiveState(row, { currentFingerprint: inputFingerprint });
         const bookable = !hasBlock(row.reasons);
@@ -338,9 +374,11 @@ async function checkBookingGate(order, shopId, { trigger = 'AUTO' } = {}) {
         metrics.increment('order_confidence.gate_allowed');
         await recordGate(row, 'ALLOWED', { released: true });
         return { ...outcome, allowed: true };
-    } catch (error) {
+    } catch (_) {
         metrics.increment('order_confidence.engine_failure');
-        logger.error('order_confidence.engine_failure', { shopId, orderId: order?.id, trigger, error: error.message });
+        logger.error('order_confidence.engine_failure', {
+            shopId, orderId: order?.id, code: 'ORDER_CONFIDENCE_ENGINE_FAILURE',
+        });
         if (mode === 'shadow') return { allowed: true, mode, engineFailure: true };
         return {
             allowed: false,
@@ -360,16 +398,19 @@ const OWNER_OR_ADMIN = new Set(['owner', 'admin']);
 async function loadForResolution(shopId, orderId) {
     const { getPilotFeatures } = require('../pilot-features/pilot-features.service');
     const features = await getPilotFeatures(shopId);
-    if (features.orderConfidenceMode === 'off') {
-        throw new AppError('Order confidence is not enabled for this shop', 409, 'FEATURE_DISABLED');
-    }
     const order = await entities().Order.findOne({ where: { id: orderId, shop_id: shopId } });
     if (!order) throw new AppError('Order not found', 404, 'NOT_FOUND');
+    const existing = await findRow(order.id, shopId);
+    const mandatoryRtoReview = existing?.mode === 'enforce' && hasMandatoryRtoReview(existing);
+    if (features.orderConfidenceMode === 'off' && !mandatoryRtoReview) {
+        throw new AppError('Order confidence is not enabled for this shop', 409, 'FEATURE_DISABLED');
+    }
+    const mode = mandatoryRtoReview ? 'enforce' : features.orderConfidenceMode;
     const evaluated = await evaluateAndPersist(order, shopId, {
-        mode: features.orderConfidenceMode,
+        mode,
         config: features.orderConfidenceConfig,
     });
-    return { order, features, ...evaluated };
+    return { order, features: { ...features, orderConfidenceMode: mode }, ...evaluated };
 }
 
 function conflict(message, code, row, inputFingerprint) {
@@ -462,13 +503,22 @@ const approve = (shopId, orderId, input) => resolve(shopId, orderId, { ...input,
 
 async function getDecision(shopId, orderId) {
     const { getPilotFeatures } = require('../pilot-features/pilot-features.service');
-    if ((await getPilotFeatures(shopId)).orderConfidenceMode === 'off') {
-        const order = await entities().Order.findOne({ where: { id: orderId, shop_id: shopId }, attributes: ['id'] });
+    const features = await getPilotFeatures(shopId);
+    if (features.orderConfidenceMode === 'off') {
+        const order = await entities().Order.findOne({ where: { id: orderId, shop_id: shopId } });
         if (!order) throw new AppError('Order not found', 404, 'NOT_FOUND');
-        return { order_id: orderId, mode: 'off', decision: null };
+        const existing = await findRow(orderId, shopId);
+        if (existing?.mode !== 'enforce' || !hasMandatoryRtoReview(existing)) {
+            return { order_id: orderId, mode: 'off', decision: null };
+        }
+        const evaluated = await evaluateAndPersist(order, shopId, {
+            mode: 'enforce',
+            config: features.orderConfidenceConfig,
+        });
+        return serializeDecision(evaluated.row, { currentFingerprint: evaluated.inputFingerprint, mode: 'enforce' });
     }
-    const { row, inputFingerprint, features } = await loadForResolution(shopId, orderId);
-    return serializeDecision(row, { currentFingerprint: inputFingerprint, mode: features.orderConfidenceMode });
+    const { row, inputFingerprint, features: resolutionFeatures } = await loadForResolution(shopId, orderId);
+    return serializeDecision(row, { currentFingerprint: inputFingerprint, mode: resolutionFeatures.orderConfidenceMode });
 }
 
 // ── Outcome feedback ────────────────────────────────────────────────────────
@@ -494,9 +544,11 @@ async function recordOutcome(order) {
             logger.info('order_confidence.outcome_recorded', { shopId: order.shop_id, orderId: order.id, outcome });
         }
         return updated > 0;
-    } catch (error) {
+    } catch (_) {
         metrics.increment('order_confidence.outcome_hook_failed');
-        logger.warn('order_confidence.outcome_hook_failed', { orderId: order?.id, error: error.message });
+        logger.warn('order_confidence.outcome_hook_failed', {
+            shopId: order?.shop_id, orderId: order?.id, code: 'ORDER_CONFIDENCE_OUTCOME_HOOK_FAILED',
+        });
         return false;
     }
 }

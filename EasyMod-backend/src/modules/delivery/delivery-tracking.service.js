@@ -11,6 +11,28 @@ const deliveryService = require('./delivery.service');
 const { COURIER_REGISTRY, normalizeStatus: normalizeRegistryStatus } = require('./providers/provider.registry');
 const RtoShieldService = require('../rto-shield/rto-shield.service');
 
+const FINAL_DELIVERY_STATUSES = new Set([
+    'delivered', 'returned', 'partial_returned',
+]);
+const SAFE_LOG_STATUSES = new Set([
+    'booked', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered',
+    'partial_delivered', 'failed_delivery', 'returned', 'partial_returned', 'cancelled', 'unknown',
+]);
+const safeErrorCode = (error) => {
+    const code = typeof error?.code === 'string' ? error.code : '';
+    return /^[A-Z0-9][A-Z0-9_.:-]{0,63}$/.test(code) ? code : 'DELIVERY_TRACKING_ERROR';
+};
+const safeLogProvider = (provider) => {
+    const normalized = String(provider || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(COURIER_REGISTRY, normalized) ? normalized : 'unknown';
+};
+const safeLogStatus = (status) => SAFE_LOG_STATUSES.has(status) ? status : 'unknown';
+const safeTrackingId = (id) => (
+    typeof id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(id) ? id : null
+);
+const isReturnedStatus = (status) => ['returned', 'partial_returned'].includes(status);
+const isFinalDeliveryStatus = (status) => FINAL_DELIVERY_STATUSES.has(status);
+
 class DeliveryTrackingService {
     constructor() {
         this.logger = createLogger();
@@ -31,6 +53,10 @@ class DeliveryTrackingService {
                 bn: 'পণ্য সফলভাবে ডেলিভারি হয়েছে ✅',
                 en: 'Package successfully delivered ✅'
             },
+            'partial_delivered': {
+                bn: 'অর্ডারের কিছু পণ্য ডেলিভারি হয়েছে ✅',
+                en: 'Part of your order has been delivered ✅'
+            },
             'failed_delivery': {
                 bn: 'ডেলিভারি ব্যর্থ, আবার চেষ্টা করা হবে',
                 en: 'Delivery failed, will retry'
@@ -42,6 +68,10 @@ class DeliveryTrackingService {
             'returned': {
                 bn: 'পণ্য ফেরত পাঠানো হয়েছে',
                 en: 'Package returned'
+            },
+            'partial_returned': {
+                bn: 'অর্ডারের কিছু পণ্য ফেরত পাঠানো হয়েছে',
+                en: 'Part of your order has been returned'
             }
         };
     }
@@ -78,10 +108,9 @@ class DeliveryTrackingService {
             });
 
             this.logger.info('Delivery tracking created', {
-                trackingId: tracking.id,
+                trackingId: safeTrackingId(tracking.id),
                 orderId: order.id,
-                provider: deliveryResult.provider,
-                trackingNumber: deliveryResult.tracking_code
+                provider: safeLogProvider(deliveryResult.provider),
             });
 
             return tracking;
@@ -89,7 +118,7 @@ class DeliveryTrackingService {
         } catch (error) {
             this.logger.error('Failed to create delivery tracking', {
                 orderId: order.id,
-                error: error.message
+                errorCode: safeErrorCode(error),
             });
             throw new AppError('Failed to create delivery tracking', 500);
         }
@@ -99,11 +128,12 @@ class DeliveryTrackingService {
      * Handle delivery status webhook
      */
     async handleDeliveryWebhook(provider, trackingNumber, statusData) {
+        let trackingId = null;
         try {
+            const normalizedStatus = this.normalizeStatus(provider, statusData?.status);
             this.logger.info('Delivery webhook received', {
-                provider,
-                trackingNumber,
-                status: statusData.status
+                provider: safeLogProvider(provider),
+                status: safeLogStatus(normalizedStatus),
             });
 
             // Find tracking record
@@ -121,79 +151,148 @@ class DeliveryTrackingService {
             });
 
             if (!tracking) {
-                this.logger.warn('Tracking record not found', { provider, trackingNumber });
+                this.logger.warn('Tracking record not found', { provider: safeLogProvider(provider) });
                 return { success: false, error: 'Tracking record not found' };
             }
-
-            // Normalize status
-            const normalizedStatus = this.normalizeStatus(provider, statusData.status);
+            trackingId = safeTrackingId(tracking.id);
             
-            // Check if status actually changed
+            // Cheap replay path; the same checks are repeated under a row lock
+            // below so two different terminal callbacks cannot both win.
             if (normalizedStatus === tracking.current_status) {
                 await tracking.update({ webhook_received_at: new Date() });
                 return { success: true, message: 'No status change' };
             }
-            if (['delivered', 'cancelled', 'returned'].includes(tracking.current_status)) {
-                this.logger.warn('Ignored courier status regression after terminal state', {
-                    trackingId: tracking.id,
-                    provider,
-                    currentStatus: tracking.current_status,
-                    attemptedStatus: normalizedStatus,
+            if (isFinalDeliveryStatus(tracking.current_status)
+                || (tracking.current_status === 'cancelled' && !isFinalDeliveryStatus(normalizedStatus))) {
+                this.logger.warn('Ignored courier status regression after final outcome or cancellation', {
+                    trackingId,
+                    provider: safeLogProvider(provider),
+                    currentStatus: safeLogStatus(tracking.current_status),
+                    attemptedStatus: safeLogStatus(normalizedStatus),
                 });
                 return { success: true, message: 'Terminal status preserved', ignored: true };
             }
 
-            // Update tracking record
-            const statusHistory = tracking.status_history || [];
-            statusHistory.push({
-                status: normalizedStatus,
-                timestamp: new Date().toISOString(),
-                location: statusData.location || 'Unknown',
-                agent: statusData.delivery_agent
-            });
-
-            const trackingUpdates = {
-                previous_status: tracking.current_status,
-                current_status: normalizedStatus,
-                status_history: statusHistory,
-                location_info: statusData.location,
-                delivery_agent_info: statusData.delivery_agent,
-                webhook_received_at: new Date(),
-                last_api_check: new Date()
-            };
-            const orderUpdates = { delivery_status: normalizedStatus };
-            let terminalOutcome = null;
-
-            // Handle special cases
-            if (normalizedStatus === 'delivered') {
-                Object.assign(orderUpdates, {
-                    fulfillment_status: 'delivered',
-                    order_status: 'delivered',
-                    delivered_at: new Date()
-                });
-                terminalOutcome = 'delivered';
-            } else if (normalizedStatus.includes('cancelled') || normalizedStatus === 'returned') {
-                Object.assign(orderUpdates, {
-                    fulfillment_status: 'cancelled',
-                    order_status: 'cancelled'
-                });
-                terminalOutcome = 'failed';
-            } else if (normalizedStatus === 'failed_delivery') {
-                terminalOutcome = 'failed';
-            }
-
-            // Tracking and order state must move together. Tests and older
-            // lightweight harnesses may not expose a Sequelize transaction;
-            // production models always do.
             const database = DeliveryTracking.sequelize || tracking.sequelize || Order.sequelize;
-            if (database && typeof database.transaction === 'function') {
-                await database.transaction(async (transaction) => {
+            let statusChanged = false;
+            let terminalStatusPreserved = false;
+            let previousStatus = tracking.current_status;
+            let terminalOutcome = null;
+const applyStatus = async (transaction = null) => {
+                if (transaction) {
+                    // Serialize concurrent callbacks on the delivery_tracking row
+                    // itself. reload({ lock }) is unusable here: Sequelize re-applies
+                    // the eager Order→Shop includes from the webhook lookup, and
+                    // PostgreSQL refuses FOR UPDATE on the nullable side of an outer
+                    // join (0A000). A single-table lock row-scoped to this tracking
+                    // record provides the same serialization without the join.
+                    const locked = await DeliveryTracking.findOne({
+                        where: { id: tracking.id },
+                        transaction,
+                        lock: transaction.LOCK?.UPDATE,
+                    });
+                    if (!locked) {
+                        throw new AppError('Delivery tracking record disappeared before the status update', 409, 'DELIVERY_TRACKING_NOT_FOUND');
+                    }
+                    tracking.set(locked.get({ plain: true }));
+                }
+                previousStatus = tracking.current_status;
+                if (normalizedStatus === previousStatus) {
+                    if (transaction) await tracking.update({ webhook_received_at: new Date() }, { transaction });
+                    else await tracking.update({ webhook_received_at: new Date() });
+                    return;
+                }
+                if (isFinalDeliveryStatus(previousStatus)
+                    || (previousStatus === 'cancelled' && !isFinalDeliveryStatus(normalizedStatus))) {
+                    terminalStatusPreserved = true;
+                    return;
+                }
+
+                const now = new Date();
+                const statusHistory = [
+                    ...(tracking.status_history || []),
+                    {
+                        status: normalizedStatus,
+                        timestamp: now.toISOString(),
+                        location: statusData.location || 'Unknown',
+                        agent: statusData.delivery_agent
+                    },
+                ];
+                const trackingUpdates = {
+                    previous_status: previousStatus,
+                    current_status: normalizedStatus,
+                    status_history: statusHistory,
+                    location_info: statusData.location,
+                    delivery_agent_info: statusData.delivery_agent,
+                    webhook_received_at: now,
+                    last_api_check: now
+                };
+                const orderUpdates = { delivery_status: normalizedStatus };
+
+                if (normalizedStatus === 'delivered') {
+                    Object.assign(orderUpdates, {
+                        fulfillment_status: 'delivered',
+                        order_status: 'delivered',
+                        delivered_at: now
+                    });
+                    terminalOutcome = 'delivered';
+                } else if (normalizedStatus === 'partial_delivered') {
+                    Object.assign(orderUpdates, {
+                        fulfillment_status: 'partially_fulfilled',
+                        order_status: 'processing',
+                    });
+                } else if (isReturnedStatus(normalizedStatus)) {
+                    Object.assign(orderUpdates, {
+                        fulfillment_status: 'cancelled',
+                        order_status: 'cancelled'
+                    });
+                    terminalOutcome = 'returned';
+                } else if (normalizedStatus === 'cancelled') {
+                    Object.assign(orderUpdates, {
+                        fulfillment_status: 'cancelled',
+                        order_status: 'cancelled'
+                    });
+                }
+
+                if (transaction) {
                     await tracking.update(trackingUpdates, { transaction });
                     await tracking.order.update(orderUpdates, { transaction });
-                });
+                } else {
+                    await tracking.update(trackingUpdates);
+                    await tracking.order.update(orderUpdates);
+                }
+                if (terminalOutcome === 'delivered' || isReturnedStatus(normalizedStatus)) {
+                    const args = [
+                        tracking.order.customer_phone,
+                        tracking.order.shop_id,
+                        isReturnedStatus(normalizedStatus),
+                    ];
+                    if (transaction) await RtoShieldService.trackDeliveryOutcome(...args, { transaction });
+                    else await RtoShieldService.trackDeliveryOutcome(...args);
+                }
+                statusChanged = true;
+            };
+
+            // A row lock serializes different terminal callbacks. Only the
+            // transaction that moves a non-terminal row to its final outcome
+            // performs the downstream outcome and RTO-stat writes.
+            if (database && typeof database.transaction === 'function') {
+                await database.transaction(async (transaction) => applyStatus(transaction));
             } else {
-                await tracking.update(trackingUpdates);
-                await tracking.order.update(orderUpdates);
+                await applyStatus();
+            }
+
+            if (!statusChanged) {
+                if (terminalStatusPreserved) {
+                    this.logger.warn('Ignored courier status regression after final outcome or cancellation', {
+                        trackingId,
+                        provider: safeLogProvider(provider),
+                        currentStatus: safeLogStatus(previousStatus),
+                        attemptedStatus: safeLogStatus(normalizedStatus),
+                    });
+                    return { success: true, message: 'Terminal status preserved', ignored: true };
+                }
+                return { success: true, message: 'No status change' };
             }
 
             if (terminalOutcome) {
@@ -205,34 +304,45 @@ class DeliveryTrackingService {
 
             if (terminalOutcome === 'delivered') {
                 await this.handleSuccessfulDelivery(tracking);
-                RtoShieldService.trackDeliveryOutcome(
-                    tracking.order.customer_phone, tracking.order.shop_id, false
-                ).catch(() => {});
-            } else if (terminalOutcome === 'failed') {
+            } else if (terminalOutcome === 'returned') {
                 await this.handleFailedDelivery(tracking);
-                RtoShieldService.trackDeliveryOutcome(
-                    tracking.order.customer_phone, tracking.order.shop_id, true
-                ).catch(() => {});
+            } else if (normalizedStatus === 'failed_delivery') {
+                // This is a failed attempt that can be retried, not final RTO.
+                await this.handleFailedDelivery(tracking);
             }
 
             // Send customer notification
             await this.sendCustomerNotification(tracking, normalizedStatus);
 
             this.logger.info('Delivery status updated', {
-                trackingId: tracking.id,
-                provider,
-                trackingNumber,
-                oldStatus: tracking.previous_status,
-                newStatus: normalizedStatus
+                trackingId,
+                provider: safeLogProvider(provider),
+                oldStatus: safeLogStatus(previousStatus),
+                newStatus: safeLogStatus(normalizedStatus),
             });
 
             return { success: true, tracking };
 
         } catch (error) {
             this.logger.error('Failed to handle delivery webhook', {
-                provider,
-                trackingNumber,
-                error: error.message
+                provider: safeLogProvider(provider),
+                trackingId,
+                errorCode: safeErrorCode(error),
+            });
+            // Diagnostics stay limited to the error CLASS name. Messages can
+            // carry credentials or shipment data, so they are never logged;
+            // the class alone identifies Sequelize constraint violations,
+            // TypeErrors, and AppErrors without leaking any payload. sqlState/
+            // constraint/table are PostgreSQL schema metadata identifiers only
+            // — never row values.
+            const pg = error?.original ?? error;
+            this.logger.warn('Delivery webhook failure classified', {
+                trackingId,
+                errorName: String(error?.name || 'Error').slice(0, 60),
+                sqlState: /^[0-9A-Z]{5}$/.test(String(pg?.sqlState || '')) ? pg.sqlState : undefined,
+                constraint: /^[A-Za-z0-9_]{1,63}$/.test(String(pg?.constraint || '')) ? pg.constraint : undefined,
+                column: /^[A-Za-z0-9_]{1,63}$/.test(String(pg?.column || '')) ? pg.column : undefined,
+                table: /^[A-Za-z0-9_]{1,63}$/.test(String(pg?.table || '')) ? pg.table : undefined,
             });
             throw new AppError('Failed to handle delivery webhook', 500);
         }
@@ -255,7 +365,7 @@ class DeliveryTrackingService {
                         }
                     ],
                     current_status: {
-                        [require('sequelize').Op.notIn]: ['delivered', 'cancelled', 'returned']
+                        [require('sequelize').Op.notIn]: [...FINAL_DELIVERY_STATUSES]
                     }
                 },
                 include: [{
@@ -273,14 +383,14 @@ class DeliveryTrackingService {
                     await this.pollSingleTracking(tracking);
                 } catch (error) {
                     this.logger.error('Failed to poll tracking', {
-                        trackingId: tracking.id,
-                        error: error.message
+                        trackingId: safeTrackingId(tracking.id),
+                        errorCode: safeErrorCode(error),
                     });
                 }
             }
 
         } catch (error) {
-            this.logger.error('Failed to poll delivery status', { error: error.message });
+            this.logger.error('Failed to poll delivery status', { errorCode: safeErrorCode(error) });
         }
     }
 
@@ -309,8 +419,8 @@ class DeliveryTrackingService {
 
         } catch (error) {
             this.logger.warn('Failed to poll tracking status', {
-                trackingId: tracking.id,
-                error: error.message
+                trackingId: safeTrackingId(tracking.id),
+                errorCode: safeErrorCode(error),
             });
         }
     }
@@ -338,7 +448,7 @@ class DeliveryTrackingService {
         try {
             const message = this.statusMessages[status];
             if (!message) {
-                this.logger.warn('No message template for status', { status });
+                this.logger.warn('No message template for status', { status: safeLogStatus(status) });
                 return;
             }
 
@@ -359,22 +469,22 @@ class DeliveryTrackingService {
             if (result.sent) {
                 await tracking.update({ customer_notified: true });
                 this.logger.info('Customer notified about delivery status', {
-                    trackingId: tracking.id,
-                    status,
+                    trackingId: safeTrackingId(tracking.id),
+                    status: safeLogStatus(status),
                 });
             } else {
                 this.logger.info('Delivery notification not delivered', {
-                    trackingId: tracking.id,
-                    status,
-                    reason: result.reason,
+                    trackingId: safeTrackingId(tracking.id),
+                    status: safeLogStatus(status),
+                    reasonCode: 'DELIVERY_NOTIFICATION_NOT_SENT',
                 });
             }
 
         } catch (error) {
             this.logger.error('Failed to send customer notification', {
-                trackingId: tracking.id,
-                status,
-                error: error.message
+                trackingId: safeTrackingId(tracking.id),
+                status: safeLogStatus(status),
+                errorCode: safeErrorCode(error),
             });
         }
     }
@@ -386,7 +496,10 @@ class DeliveryTrackingService {
         try {
             // Send delivery completion notification to the customer via their PSID.
             const webhookService = require('../webhook/webhook.service');
-            const completionMessage = `✅ ডেলিভারি সম্পন্ন হয়েছে!\n\nআপনার অর্ডার #${tracking.order.order_number} সফলভাবে ডেলিভারি হয়েছে।\n\nপণ্য পেয়ে থাকলে আমাদের জানান।\n\nধন্যবাদ!\n\n---\n\n✅ Delivery Completed!\n\nYour order #${tracking.order.order_number} has been successfully delivered.\n\nPlease let us know once you've received the package.\n\nThank you!`;
+            const isPartialDelivery = tracking.current_status === 'partial_delivered';
+            const completionMessage = isPartialDelivery
+                ? `✅ অর্ডারের কিছু পণ্য ডেলিভারি হয়েছে।\n\nআপনার অর্ডার #${tracking.order.order_number}-এর আংশিক ডেলিভারি সম্পন্ন হয়েছে।\n\n---\n\n✅ Partial Delivery Completed.\n\nPart of your order #${tracking.order.order_number} has been delivered.`
+                : `✅ ডেলিভারি সম্পন্ন হয়েছে!\n\nআপনার অর্ডার #${tracking.order.order_number} সফলভাবে ডেলিভারি হয়েছে।\n\nপণ্য পেয়ে থাকলে আমাদের জানান।\n\nধন্যবাদ!\n\n---\n\n✅ Delivery Completed!\n\nYour order #${tracking.order.order_number} has been successfully delivered.\n\nPlease let us know once you've received the package.\n\nThank you!`;
 
             await webhookService.sendToCustomer({
                 shopId: tracking.order.shop_id,
@@ -400,14 +513,14 @@ class DeliveryTrackingService {
             });
 
             this.logger.info('Delivery completion processed', {
-                trackingId: tracking.id,
-                orderId: tracking.order.id
+                trackingId: safeTrackingId(tracking.id),
+                orderId: tracking.order.id,
             });
 
         } catch (error) {
             this.logger.error('Failed to handle successful delivery', {
-                trackingId: tracking.id,
-                error: error.message
+                trackingId: safeTrackingId(tracking.id),
+                errorCode: safeErrorCode(error),
             });
         }
     }
@@ -441,14 +554,14 @@ class DeliveryTrackingService {
             );
 
             this.logger.info('Delivery failure processed', {
-                trackingId: tracking.id,
+                trackingId: safeTrackingId(tracking.id),
                 orderId: tracking.order.id
             });
 
         } catch (error) {
             this.logger.error('Failed to handle delivery failure', {
-                trackingId: tracking.id,
-                error: error.message
+                trackingId: safeTrackingId(tracking.id),
+                errorCode: safeErrorCode(error),
             });
         }
     }

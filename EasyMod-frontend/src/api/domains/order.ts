@@ -133,6 +133,7 @@ export async function getOrder(orderId: string): Promise<Order> {
  * const newOrder = await createOrder({ 
  *   customer_id: 'cust123', 
  *   items: [{ product_id: 'prod1', quantity: 2 }],
+ *   payment_method: 'cod',
  *   total: 199.99 
  * });
  * ```
@@ -168,6 +169,7 @@ export async function updateOrder(orderId: string, order: Partial<Order>): Promi
   if (order.status !== undefined) body.order_status = order.status;
   if (order.note !== undefined) body.note = order.note;
   if (order.payment_status !== undefined) body.payment_status = order.payment_status;
+  if (order.payment_method !== undefined) body.payment_method = order.payment_method;
 
   const response: AxiosResponse<ApiResponse<Order>> = await httpClient.patch(
     `/api/order/${orderId}`,

@@ -4,13 +4,30 @@
  * Updates payment status and triggers order confirmation.
  */
 
-const { PaymentTransaction, Order, OrderSession } = require('../entities');
+const { PaymentTransaction, Order, OrderSession, CourierDispatch, DeliveryTracking } = require('../entities');
 const { Op } = require('sequelize');
 const { AppError } = require('../../utils/AppError');
+const { sequelize } = require('../../utils/database/database-setup');
 const { createLogger } = require('../../utils/structured-logger');
 const bkashService = require('../payment/bkash-merchant.service');
 const paymentService = require('../payment/payment.service');
 const OrderSessionService = require('../order/order-session-standalone.service');
+
+const safeErrorCode = (error) => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : 'PAYMENT_WEBHOOK_ERROR';
+};
+const normalizeSettings = (value) => {
+    if (!value) return {};
+    if (typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value !== 'string') return {};
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+};
 
 function normalizeAmountToMinorUnits(value) {
     if (value === null || value === undefined) return null;
@@ -32,21 +49,12 @@ class PaymentWebhookController {
         try {
             const { paymentID, transactionStatus, trxID, merchantInvoiceNumber, amount } = req.body;
 
-            this.logger.info('bKash webhook received', {
-                paymentID,
-                transactionStatus,
-                trxID,
-                merchantInvoiceNumber,
-                amount
-            });
-
             // Find payment transaction
             const paymentTransaction = await PaymentTransaction.findOne({
                 where: { transaction_id: paymentID }
             });
 
             if (!paymentTransaction) {
-                this.logger.warn('Payment transaction not found', { paymentID });
                 return res.status(404).json({ error: 'Payment transaction not found' });
             }
 
@@ -88,9 +96,8 @@ class PaymentWebhookController {
                 const providerAmount = normalizeAmountToMinorUnits(amount);
                 if (expectedAmount === null || providerAmount === null || expectedAmount !== providerAmount) {
                     this.logger.warn('bKash webhook amount mismatch', {
-                        paymentID,
-                        expectedAmount: paymentTransaction.amount,
-                        providerAmount: amount,
+                        paymentTransactionId: paymentTransaction.id,
+                        errorCode: 'PAYMENT_AMOUNT_MISMATCH',
                     });
                     return res.status(400).json({ error: 'Payment amount mismatch' });
                 }
@@ -117,6 +124,7 @@ class PaymentWebhookController {
                         transactionId: trxID,
                         amount,
                         order: paymentOrder,
+                        gatewayResponse: req.body,
                         mutationAuthority: {
                             kind: 'system',
                             source: 'payment_webhook',
@@ -136,11 +144,6 @@ class PaymentWebhookController {
                     throw processingError;
                 }
 
-                await paymentTransaction.update({
-                    status: 'paid',
-                    gateway_response: req.body,
-                    verified_at: new Date()
-                });
             } else {
                 // A late failure callback must never downgrade a completed payment.
                 if (['paid', 'verified', 'processing'].includes(paymentTransaction.status)) {
@@ -175,7 +178,7 @@ class PaymentWebhookController {
             res.status(200).json({ success: true });
 
         } catch (error) {
-            this.logger.error('bKash webhook error', { error: error.message });
+            this.logger.error('bKash webhook error', { errorCode: safeErrorCode(error) });
             res.status(500).json({ error: 'Webhook processing failed' });
         }
     }
@@ -206,20 +209,91 @@ class PaymentWebhookController {
                 throw new AppError('Payment and order belong to different shops', 403, 'TENANT_MISMATCH');
             }
 
-            // Update order payment status
-            await order.update({
-                payment_status: 'paid',
-                paid_at: new Date(),
-                // `payment_method_id` is a local payment_configs FK, not the
-                // gateway transaction identifier. bKash callbacks carry the
-                // latter, so preserve an existing local method unless the
-                // caller explicitly supplies a config ID.
-                payment_method_id: paymentInfo.paymentConfigId || order.payment_method_id || null,
-                order_status: 'confirmed'
+            const database = Order.sequelize?.transaction ? Order.sequelize : sequelize;
+            const paymentState = await database.transaction(async (transaction) => {
+                const orderQuery = {
+                    where: { id: order.id, shop_id: order.shop_id },
+                    transaction,
+                };
+                if (transaction?.LOCK?.UPDATE) orderQuery.lock = transaction.LOCK.UPDATE;
+                const currentOrder = await Order.findOne(orderQuery);
+                if (!currentOrder) throw new AppError('Order not found for successful payment', 404, 'PAYMENT_ORDER_NOT_FOUND');
+
+                const lockOptions = transaction?.LOCK?.UPDATE ? { transaction, lock: transaction.LOCK.UPDATE } : { transaction };
+                const dispatch = CourierDispatch && typeof CourierDispatch.findOne === 'function'
+                    ? await CourierDispatch.findOne({
+                        where: { order_id: currentOrder.id, shop_id: currentOrder.shop_id },
+                        ...lockOptions,
+                    })
+                    : null;
+                const tracking = DeliveryTracking && typeof DeliveryTracking.findOne === 'function'
+                    ? await DeliveryTracking.findOne({ where: { order_id: currentOrder.id }, ...lockOptions })
+                    : null;
+                const deliveryStatus = String(currentOrder.delivery_status || '').trim().toLowerCase();
+                const providerStateExists = Boolean(
+                    dispatch
+                    || tracking
+                    || currentOrder.delivery_tracking_code
+                    || currentOrder.delivery_consignment_id
+                    || currentOrder.delivery_dispatched_at
+                    || (deliveryStatus && !['unfulfilled', 'not_booked', 'courier_setup_required', 'confidence_hold'].includes(deliveryStatus))
+                );
+                const lifecycleStatus = String(currentOrder.order_status || '').trim().toLowerCase();
+                const terminalLifecycle = ['completed', 'delivered', 'fulfilled', 'cancelled', 'returned', 'refunded']
+                    .includes(lifecycleStatus);
+                const orderMetadata = normalizeSettings(currentOrder.metadata);
+                const existingReconciliation = normalizeSettings(orderMetadata.payment_reconciliation);
+                const requiresReconciliation = providerStateExists
+                    || terminalLifecycle
+                    || existingReconciliation.required === true;
+                const paymentMethod = String(currentOrder.payment_method || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+                const reconciliationCode = providerStateExists
+                    ? (['cod', 'cash', 'cash_on_delivery'].includes(paymentMethod)
+                        ? 'COD_COURIER_COLLECTION_REVIEW_REQUIRED'
+                        : 'PAYMENT_VERIFIED_AFTER_COURIER_CLAIM')
+                    : terminalLifecycle
+                        ? 'PAYMENT_VERIFIED_AFTER_TERMINAL_ORDER_STATE'
+                        : existingReconciliation.code || null;
+                const orderUpdates = {
+                    payment_status: 'paid',
+                    paid_at: new Date(),
+                    // This is a local payment_configs FK, not the gateway transaction ID.
+                    payment_method_id: paymentInfo.paymentConfigId || currentOrder.payment_method_id || null,
+                };
+                if (!requiresReconciliation && ['draft', 'pending', 'placed'].includes(lifecycleStatus)) {
+                    orderUpdates.order_status = 'confirmed';
+                }
+                if (requiresReconciliation) {
+                    orderUpdates.metadata = {
+                        ...orderMetadata,
+                        payment_reconciliation: {
+                            ...existingReconciliation,
+                            required: true,
+                            code: reconciliationCode,
+                            detected_at: existingReconciliation.detected_at || new Date().toISOString(),
+                        },
+                    };
+                }
+                await currentOrder.update(orderUpdates, { transaction });
+                // NOTE: paymentTransaction.status is deliberately NOT set to
+                // 'paid' here. The gateway receipt is only terminal once
+                // fulfillment has been attempted; committing 'paid' before the
+                // courier booking let a concurrent replay observe a terminal
+                // status and receive 200 while booking was still in flight.
+                return { order: currentOrder, providerStateExists, requiresReconciliation, reconciliationCode };
             });
+            order = paymentState.order;
+
+            if (paymentState.reconciliationCode) {
+                this.logger.warn('Verified payment requires courier reconciliation', {
+                    eventCode: paymentState.reconciliationCode,
+                    orderId: order.id,
+                    paymentTransactionId: paymentTransaction?.id || null,
+                });
+            }
 
             // Check if there's an active order session to complete
-            const activeSession = OrderSession && typeof OrderSession.findOne === 'function'
+            const activeSession = !paymentState.requiresReconciliation && OrderSession && typeof OrderSession.findOne === 'function'
                 ? await OrderSession.findOne({
                     where: {
                         shop_id: order.shop_id,
@@ -235,7 +309,14 @@ class PaymentWebhookController {
                 // method. Payment fulfilment must continue without turning that
                 // compatibility gap into a failed order/payment webhook.
                 if (typeof OrderSessionService.autoConfirmOrder === 'function') {
-                    await OrderSessionService.autoConfirmOrder(activeSession);
+                    try {
+                        await OrderSessionService.autoConfirmOrder(activeSession);
+                    } catch (error) {
+                        this.logger.warn('Payment order session confirmation deferred', {
+                            orderId: order.id,
+                            errorCode: safeErrorCode(error),
+                        });
+                    }
                 }
             }
 
@@ -245,46 +326,69 @@ class PaymentWebhookController {
             // and abort delivery booking + customer confirmation below.
             const { issueInvoiceForOrder } = require('../invoice/chat-invoice.service');
             await issueInvoiceForOrder(order).catch(err =>
-                this.logger.warn('Invoice generation failed (continuing fulfillment)', { error: err.message }));
+                this.logger.warn('Invoice generation failed (continuing fulfillment)', { errorCode: safeErrorCode(err) }));
 
-            // Trigger delivery booking through the canonical order path. A
-            // missing courier setup is an operational state and must not roll
-            // back or corrupt a payment-confirmed order.
-            const orderService = require('../order/order.service');
-            const booking = typeof orderService.bookForOrder === 'function'
-                ? await orderService.bookForOrder(order, {
-                    shopId: order.shop_id,
-                    requireAiDefault: true,
-                    throwOnError: false,
-                    mutationAuthority: paymentInfo.mutationAuthority,
-                    stepData: {
-                        name: order.customer_name,
-                        phone: order.customer_phone,
-                        address: order.delivery_address,
-                        notes: order.note || order.notes || null,
-                    },
-                })
-                : { failed: true, status: 'dispatch_failed', reason: 'canonical booking service unavailable' };
-            if (booking?.blocked || booking?.failed) {
-                this.logger.warn('Payment-confirmed order was not courier-booked', {
-                    orderId: order.id,
-                    orderNumber: order.order_number,
-                    status: booking.status,
-                    reason: booking.reason,
+            if (!paymentState.requiresReconciliation) {
+                const orderService = require('../order/order.service');
+                try {
+                    const booking = typeof orderService.bookForOrder === 'function'
+                        ? await orderService.bookForOrder(order, {
+                            shopId: order.shop_id,
+                            requireAiDefault: true,
+                            throwOnError: false,
+                            mutationAuthority: paymentInfo.mutationAuthority,
+                            stepData: {
+                                name: order.customer_name,
+                                phone: order.customer_phone,
+                                address: order.delivery_address,
+                                notes: order.note || order.notes || null,
+                            },
+                        })
+                        : { failed: true };
+                    if (booking?.blocked || booking?.failed) {
+                        this.logger.warn('Payment-confirmed order was not courier-booked', {
+                            orderId: order.id,
+                            errorCode: safeErrorCode({ code: booking.code }),
+                        });
+                    }
+                } catch (error) {
+                    this.logger.warn('Payment-confirmed order was not courier-booked', {
+                        orderId: order.id,
+                        errorCode: safeErrorCode(error),
+                    });
+                }
+            }
+
+            // The gateway receipt becomes terminal only now that fulfillment
+            // has been attempted. Until this point the transaction row stays
+            // 'processing', so a concurrent replay is deduped to 202 rather
+            // than observing a premature 'paid' and returning 200.
+            if (typeof paymentTransaction?.update === 'function') {
+                await paymentTransaction.update({
+                    status: 'paid',
+                    verified_at: new Date(),
+                    ...(paymentInfo.gatewayResponse ? { gateway_response: paymentInfo.gatewayResponse } : {}),
                 });
             }
 
             // Send confirmation to customer
-            await this.sendPaymentConfirmationToCustomer(order, paymentInfo);
+            await this.sendPaymentConfirmationToCustomer(order, {
+                ...paymentInfo,
+                reconciliationRequired: paymentState.requiresReconciliation,
+            });
 
-            this.logger.info('Payment processed and order fulfilled', {
+            this.logger.info('Verified payment recorded', {
                 orderId: order.id,
-                orderNumber: order.order_number,
-                gateway: paymentInfo.gateway
+                paymentTransactionId: paymentTransaction?.id || null,
+                reconciliationRequired: paymentState.requiresReconciliation,
             });
 
         } catch (error) {
-            this.logger.error('Failed to process successful payment', { error: error.message });
+            this.logger.error('Failed to process successful payment', {
+                orderId: paymentInfo.order?.id || null,
+                paymentTransactionId: paymentTransaction?.id || null,
+                errorCode: safeErrorCode(error),
+            });
             throw error;
         }
     }
@@ -295,6 +399,12 @@ class PaymentWebhookController {
     async sendPaymentConfirmationToCustomer(order, paymentInfo) {
         try {
             const webhookService = require('../webhook/webhook.service');
+            const fulfillmentNoticeBn = paymentInfo.reconciliationRequired
+                ? 'পেমেন্ট ও ডেলিভারি তথ্য আমাদের টিম যাচাই করবে।'
+                : 'আপনার অর্ডার নিশ্চিত হয়েছে এবং ডেলিভারি প্রক্রিয়া শুরু হবে।';
+            const fulfillmentNoticeEn = paymentInfo.reconciliationRequired
+                ? 'Our team will reconcile the payment and delivery records.'
+                : 'Your order is confirmed and the delivery process will start.';
 
             const confirmationMessage = `✅ পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!
 
@@ -303,7 +413,7 @@ class PaymentWebhookController {
 💳 পেমেন্ট পদ্ধতি: ${paymentInfo.gateway.toUpperCase()}
 🔗 ট্রানজেকশন ID: ${paymentInfo.transactionId}
 
-আপনার অর্ডার নিশ্চিত হয়েছে এবং ডেলিভারি প্রক্রিয়া শুরু হবে।
+${fulfillmentNoticeBn}
 
 ---
 
@@ -314,7 +424,7 @@ class PaymentWebhookController {
 💳 Payment Method: ${paymentInfo.gateway.toUpperCase()}
 🔗 Transaction ID: ${paymentInfo.transactionId}
 
-Your order is confirmed and delivery process will start.`;
+${fulfillmentNoticeEn}`;
 
             // Resolve the customer's PSID from the order and send via the live
             // provider. (The old code passed `order.customer_id` — the internal
@@ -330,11 +440,17 @@ Your order is confirmed and delivery process will start.`;
                 message: confirmationMessage,
             });
             if (!result.sent) {
-                this.logger.info('Payment confirmation not delivered', { orderId: order.id, reason: result.reason });
+                this.logger.info('Payment confirmation not delivered', {
+                    orderId: order.id,
+                    errorCode: 'PAYMENT_CONFIRMATION_NOT_DELIVERED',
+                });
             }
 
         } catch (error) {
-            this.logger.error('Failed to send payment confirmation', { error: error.message });
+            this.logger.error('Failed to send payment confirmation', {
+                orderId: order?.id || null,
+                errorCode: safeErrorCode(error),
+            });
         }
     }
 
@@ -349,7 +465,6 @@ Your order is confirmed and delivery process will start.`;
             this.logger.info('Owner payment confirmation', {
                 notificationId,
                 action,
-                ownerInfo
             });
 
             const ownerNotificationService = require('../notification/owner-notification.service');
@@ -362,7 +477,7 @@ Your order is confirmed and delivery process will start.`;
             res.status(200).json(result);
 
         } catch (error) {
-            this.logger.error('Owner payment confirmation error', { error: error.message });
+            this.logger.error('Owner payment confirmation error', { errorCode: safeErrorCode(error) });
             res.status(500).json({ error: 'Processing failed' });
         }
     }

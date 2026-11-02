@@ -5,6 +5,11 @@
 
 const { createLogger } = require('../../utils/structured-logger');
 
+const safeErrorCode = (error) => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : 'TRACKING_NOTIFICATION_FAILED';
+};
+
 /**
  * Format a Bengali tracking notification message.
  * @param {object} order - Sequelize Order instance or plain object
@@ -44,8 +49,7 @@ const trySendViaChannel = async (order, shopId, message, logger) => {
         // undefined `Channel` model and read a nonexistent `customer.external_id`,
         // so this notification silently never sent.)
         if (!order.customer_id) {
-            logger.info('No customer linked to order — logging only', { orderId: order.id });
-            console.log(`[TrackingNotification] Shop ${shopId} | Order ${order.order_number || order.id}: ${message}`);
+            logger.info('No customer linked to order; tracking message content was not logged', { orderId: order.id });
             return { sent: false, reason: 'no_customer' };
         }
 
@@ -66,15 +70,13 @@ const trySendViaChannel = async (order, shopId, message, logger) => {
             orderId: order.id,
             reason: result.reason
         });
-        console.log(`[TrackingNotification] Shop ${shopId} | Order ${order.order_number || order.id}: ${message}`);
         return { sent: false, reason: result.reason };
     } catch (err) {
         // Non-fatal: log and fall back
         logger.warn('Failed to send tracking notification via channel, falling back to log', {
-            error: err.message,
+            errorCode: safeErrorCode(err),
             orderId: order.id
         });
-        console.log(`[TrackingNotification] Shop ${shopId} | Order ${order.order_number || order.id}: ${message}`);
         return { sent: false, reason: 'send_error', error: err.message };
     }
 };

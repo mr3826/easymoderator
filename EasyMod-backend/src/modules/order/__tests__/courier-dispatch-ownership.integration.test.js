@@ -37,6 +37,7 @@ const makeOrderData = () => ({
     items: [{ name: 'Courier Race Item', quantity: 1 }],
     order_status: 'confirmed',
     fulfillment_status: 'unfulfilled',
+    payment_method: 'COD',
     payment_status: 'pending',
 });
 

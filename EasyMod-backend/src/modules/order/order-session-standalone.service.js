@@ -18,6 +18,12 @@ const finiteNumberOrNull = (value) => (
         ? Number(value)
         : null
 );
+const safeErrorCode = (error, fallback = 'ORDER_SESSION_ERROR') => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    if (/^[A-Z][A-Z0-9_:-]{0,63}$/.test(code)) return code;
+    const status = Number(error?.status ?? error?.statusCode);
+    return status >= 400 && status <= 599 ? `HTTP_${status}` : fallback;
+};
 
 const normalizeSessionChannel = (channel) => (
     channel === 'facebook' ? 'messenger' : (channel || 'messenger')
@@ -838,18 +844,6 @@ class OrderSessionService {
             case 'COLLECTING_PHONE': {
                 const phone = this.extractPhoneNumber(answer);
                 if (phone) {
-                    // Fix 11: RTO Shield — early blacklist check before collecting address
-                    try {
-                        const RtoShieldService = require('../rto-shield/rto-shield.service');
-                        const rtoResult = await RtoShieldService.checkPhone(phone, session.shop_id);
-                        if (rtoResult.flagged) {
-                            // Stay on COLLECTING_PHONE — do not advance or store the phone
-                            prompt = pickLang(lang,
-                                'দুঃখিত, এই নম্বর থেকে অর্ডার প্রক্রিয়া করা সম্ভব হচ্ছে না। আমাদের পেজে মেসেজ করুন।',
-                                'Sorry, we are unable to process an order from this number. Please message our page for assistance.');
-                            break;
-                        }
-                    } catch (_) { /* non-fatal — proceed if RTO check fails */ }
                     step_data.phone = phone;
                     nextStep = 'COLLECTING_ADDRESS';
                     prompt = pickLang(lang, 'আপনার ডেলিভারির ঠিকানা কি?', "What's your delivery address?");
@@ -1177,7 +1171,10 @@ class OrderSessionService {
                             });
                             orderPrompt += `\n\n${invoiceText}`;
                         } catch (invErr) {
-                            console.error(`[OrderSession] Invoice generation failed for order ${order.order_number}:`, invErr.message);
+                            console.error('[OrderSession] Invoice generation failed', {
+                                orderId: order.id,
+                                errorCode: safeErrorCode(invErr, 'INVOICE_GENERATION_FAILED'),
+                            });
                         }
 
                         // Append the shop's closing message (thank-you + "follow us"
@@ -1187,7 +1184,10 @@ class OrderSessionService {
                             const closingText = await OrderSessionService.buildShopClosing(session.shop_id, lang);
                             if (closingText) orderPrompt += `\n\n${closingText}`;
                         } catch (closeErr) {
-                            console.error(`[OrderSession] Closing message failed for order ${order.order_number}:`, closeErr.message);
+                            console.error('[OrderSession] Closing message failed', {
+                                orderId: order.id,
+                                errorCode: safeErrorCode(closeErr, 'SHOP_CLOSING_MESSAGE_FAILED'),
+                            });
                         }
                     } catch (orderErr) {
                         // Surface genuine business rejections (out of stock, COD limit,
@@ -1195,10 +1195,14 @@ class OrderSessionService {
                         // reason. AppError exposes the HTTP code as `.status` (NOT
                         // `.statusCode`) — reading the wrong property made every 4xx look
                         // like a 5xx, so customers saw the scary "our team will contact
-                        // you" generic instead of "only 2 left in stock". Log the real
-                        // error too (the old catch swallowed it, hiding the root cause).
+                        // you" generic instead of "only 2 left in stock". Log a stable
+                        // code without copying customer or provider values into logs.
                         const errCode = orderErr.status ?? orderErr.statusCode;
-                        console.error(`[OrderSession] Order creation failed for session ${session.id} (code=${errCode}):`, orderErr.message);
+                        console.error('[OrderSession] Order creation failed', {
+                            sessionId: session.id,
+                            orderId: order?.id || null,
+                            errorCode: safeErrorCode(orderErr, errCode ? `HTTP_${errCode}` : 'ORDER_CREATE_FAILED'),
+                        });
                         const userMsg = (errCode >= 400 && errCode < 500)
                             ? orderErr.message
                             : pickLang(lang,
@@ -2151,7 +2155,10 @@ class OrderSessionService {
             );
             if (!transition?.updated) return false;
         } catch (err) {
-            console.error('[AutoParcel] Failed to update courier_dispatch indeterminate state:', err.message);
+            console.error('[AutoParcel] Failed to update courier_dispatch indeterminate state', {
+                orderId: order?.id || null,
+                errorCode: safeErrorCode(err, 'DISPATCH_STATE_WRITE_FAILED'),
+            });
             return false;
         }
 
@@ -2166,7 +2173,10 @@ class OrderSessionService {
                 );
             }
         } catch (err) {
-            console.error('[AutoParcel] Failed to mark dispatch_indeterminate:', err.message);
+            console.error('[AutoParcel] Failed to mark dispatch_indeterminate', {
+                orderId: order?.id || null,
+                errorCode: safeErrorCode(err, 'DISPATCH_MARKER_WRITE_FAILED'),
+            });
         }
 
         try {
@@ -2188,7 +2198,10 @@ class OrderSessionService {
                 }
             );
         } catch (err) {
-            console.error('[AutoParcel] Failed to notify dispatch_indeterminate:', err.message);
+            console.error('[AutoParcel] Failed to notify dispatch_indeterminate', {
+                orderId: order?.id || null,
+                errorCode: safeErrorCode(err, 'DISPATCH_NOTIFICATION_FAILED'),
+            });
         }
         return true;
     }
@@ -2315,7 +2328,10 @@ class OrderSessionService {
             return result?.blocked || result?.failed ? null : result;
         } catch (err) {
             if (err.code !== 'BOOK_COURIER_UNAUTHORIZED') {
-                console.error(`[AutoParcel] Courier dispatch stopped for ${order.order_number}: ${err.message}`);
+                console.error('[AutoParcel] Courier dispatch stopped', {
+                    orderId: order?.id || null,
+                    errorCode: safeErrorCode(err, 'COURIER_DISPATCH_FAILED'),
+                });
             }
             return null;
         }

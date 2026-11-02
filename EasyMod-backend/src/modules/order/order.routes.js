@@ -4,6 +4,7 @@ const orderValidator = require('./order.validator');
 const { validate } = require('../helpers');
 const { authenticate } = require('../../middleware/auth.middleware');
 const { verifyShopAccess } = require('../../middleware/shop-access.middleware');
+const { requireOwnerOrAdmin } = require('../../middleware/shop-permission.middleware');
 
 const router = express.Router();
 
@@ -11,12 +12,21 @@ const router = express.Router();
 router.use(authenticate);
 router.use(verifyShopAccess);
 
+const requireOwnerForPaymentCorrection = (req, res, next) => {
+    const body = req.body || {};
+    if (Object.prototype.hasOwnProperty.call(body, 'payment_method')
+        || Object.prototype.hasOwnProperty.call(body, 'payment_status')) {
+        return requireOwnerOrAdmin(req, res, next);
+    }
+    return next();
+};
+
 // Legacy routes (for backward compatibility)
 // Keep static legacy paths before parameterized routes to avoid route shadowing.
 router.get('/list', validate(orderValidator.getOrders), orderController.listOrders);
 router.get('/get', validate(orderValidator.legacyGet), orderController.getOrder);
 router.post('/create', validate(orderValidator.createOrder), orderController.createOrder);
-router.post('/update', validate(orderValidator.legacyUpdate), orderController.updateOrder);
+router.post('/update', validate(orderValidator.legacyUpdate), requireOwnerForPaymentCorrection, orderController.updateOrder);
 router.post('/delete', validate(orderValidator.legacyDelete), orderController.deleteOrder);
 
 // Additional routes
@@ -35,7 +45,7 @@ router.get('/by-customer/:customerId', orderController.getOrdersByCustomer);
 router.get('/:id', validate(orderValidator.getOrderById), orderController.getOrderById);
 router.post('/', validate(orderValidator.createOrder), orderController.createOrderRest);
 router.post('/:orderId/confirm', orderController.confirmOrder);
-router.patch('/:id', validate(orderValidator.updateOrder), orderController.updateOrderById);
+router.patch('/:id', validate(orderValidator.updateOrder), requireOwnerForPaymentCorrection, orderController.updateOrderById);
 router.post('/:orderId/cancel', orderController.cancelOrder);
 router.patch('/:orderId/cancel', orderController.cancelOrder);
 router.post('/:orderId/return-request', orderController.createReturnRequest);

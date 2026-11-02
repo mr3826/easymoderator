@@ -23,6 +23,10 @@ const { createLogger } = require('../../utils/structured-logger');
 const { MAX_AUDIO_BYTES } = require('./voice-processing.limits');
 
 const logger = createLogger('VoiceProcessing');
+const safeErrorCode = (error) => {
+  const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+  return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : 'VOICE_PROCESSING_ERROR';
+};
 
 // Gemini API
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -84,7 +88,7 @@ async function processVoiceMessage(messageId, customerId, shopId, mediaData) {
       length: transcript.length
     };
   } catch (error) {
-    logger.error('Error processing voice message', { messageId, error });
+    logger.error('Error processing voice message', { messageId, errorCode: safeErrorCode(error) });
     throw error;
   }
 }
@@ -121,7 +125,7 @@ async function downloadMediaFromMeta(mediaData, shopId) {
     logger.info('Downloaded media from Meta', { mediaId, size: downloadResponse.data.length });
     return downloadResponse.data;
   } catch (error) {
-    logger.error('Error downloading media from Meta', { error });
+    logger.error('Error downloading media from Meta', { shopId, errorCode: safeErrorCode(error) });
     throw error;
   }
 }
@@ -138,7 +142,7 @@ async function detectLanguage(audioBuffer) {
 
     return 'auto'; // Let Gemini auto-detect
   } catch (error) {
-    logger.warn('Error detecting language, defaulting to auto', { error });
+    logger.warn('Error detecting language, defaulting to auto', { errorCode: safeErrorCode(error) });
     return 'auto';
   }
 }
@@ -222,9 +226,9 @@ Please transcribe the audio and return ONLY the transcribed text without any add
 
     return transcript.trim();
   } catch (error) {
-    logger.error('Error calling Gemini API', { error, language });
+    logger.error('Error calling Gemini API', { errorCode: safeErrorCode(error) });
     if (error instanceof AppError) throw error;
-    throw new AppError(`Transcription failed: ${error.message}`, 500);
+    throw new AppError('Transcription failed', 500, 'VOICE_TRANSCRIPTION_FAILED');
   }
 }
 
@@ -281,7 +285,7 @@ async function processVoiceInConversation(conversationId, voiceMessage) {
       language
     };
   } catch (error) {
-    logger.error('Error processing voice in conversation', { conversationId, error });
+    logger.error('Error processing voice in conversation', { conversationId, errorCode: safeErrorCode(error) });
     throw error;
   }
 }
@@ -291,17 +295,12 @@ async function processVoiceInConversation(conversationId, voiceMessage) {
  */
 async function configureVoiceProcessing(shopId, enabled) {
   try {
-    const shop = require('../entities').Shop;
-    const shopRecord = await shop.findByPk(shopId);
-
-    if (!shopRecord) {
-      throw new AppError('Shop not found', 404);
-    }
-
-    shopRecord.settings = shopRecord.settings || {};
-    shopRecord.settings.ai = shopRecord.settings.ai || {};
-    shopRecord.settings.ai.voice_processing_enabled = enabled;
-    await shopRecord.save();
+    await require('../shop/shop.service').updateShopSettingsPreservingRtoConsent(shopId, (settings) => ({
+      ai: {
+        ...(settings.ai || {}),
+        voice_processing_enabled: enabled,
+      },
+    }));
 
     logger.info('Voice processing configuration updated', { shopId, enabled });
 
@@ -310,7 +309,7 @@ async function configureVoiceProcessing(shopId, enabled) {
       voiceProcessingEnabled: enabled
     };
   } catch (error) {
-    logger.error('Error configuring voice processing', { shopId, error });
+    logger.error('Error configuring voice processing', { shopId, errorCode: safeErrorCode(error) });
     throw error;
   }
 }
@@ -357,7 +356,7 @@ async function getVoiceProcessingStats(shopId, days = 7) {
       averageMessageLength: totalVoiceMessages > 0 ? totalDuration / totalVoiceMessages : 0
     };
   } catch (error) {
-    logger.error('Error getting voice processing stats', { shopId, error });
+    logger.error('Error getting voice processing stats', { shopId, errorCode: safeErrorCode(error) });
     throw error;
   }
 }

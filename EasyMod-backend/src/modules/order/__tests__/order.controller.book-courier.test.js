@@ -64,4 +64,82 @@ describe('orderController.bookCourier', () => {
             success: true
         }));
     });
+
+    it('returns the provider resolved by booking instead of the caller-selected provider', async () => {
+        req.body.provider = 'steadfast';
+        orderService.bookForOrder.mockResolvedValue({
+            provider: 'pathao',
+            consignment_id: 'CN-1',
+            tracking_code: 'TRK-1',
+        });
+
+        await orderController.bookCourier(req, res, next);
+
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            data: expect.objectContaining({ provider: 'pathao' }),
+        }));
+    });
+
+    it('maps a blocked committed-dispatch replay with no tracking identity to a 409 failure', async () => {
+        orderService.bookForOrder.mockResolvedValue({
+            blocked: true,
+            status: 'tracking_unavailable',
+            code: 'COURIER_TRACKING_UNAVAILABLE',
+            provider: 'pathao',
+        });
+
+        await orderController.bookCourier(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(409);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            success: false,
+            error: expect.objectContaining({
+                code: 'COURIER_TRACKING_UNAVAILABLE',
+                message: expect.stringContaining('Do not book again'),
+                provider: 'pathao',
+            }),
+        }));
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('maps a blocked committed-dispatch replay with no persisted provider to 409 without echoing a provider', async () => {
+        orderService.bookForOrder.mockResolvedValue({
+            blocked: true,
+            status: 'tracking_unavailable',
+            code: 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
+            provider: null,
+        });
+
+        await orderController.bookCourier(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(409);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            success: false,
+            error: expect.objectContaining({
+                code: 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
+                provider: null,
+            }),
+        }));
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('does not report success when the booking result has no tracking identity', async () => {
+        orderService.bookForOrder.mockResolvedValue({
+            provider: 'pathao',
+            consignment_id: '  ',
+            tracking_code: null,
+        });
+
+        await orderController.bookCourier(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(409);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            success: false,
+            error: expect.objectContaining({
+                code: 'COURIER_TRACKING_UNAVAILABLE',
+                message: expect.stringContaining('Do not book again'),
+            }),
+        }));
+        expect(next).not.toHaveBeenCalled();
+    });
 });

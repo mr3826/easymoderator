@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle, Clock, Loader2, Package as PackageIcon, XCircle, Plus, Search, Download, ChevronDown, X, AlertTriangle } from "lucide-react";
+import { Loader2, Package as PackageIcon, XCircle, Plus, Search, Download, ChevronDown, X, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/api";
 import { getErrorMessage } from "@shared/lib/http/errors";
@@ -11,10 +10,11 @@ import type { Product } from "@/api/types/product";
 import bdGeography from '../../data/bd-geography.json';
 import CourierBookingModal from './CourierBookingModal';
 import { BDPhoneInput } from '@/shared/components/BDPhoneInput';
-import { OrderRow } from './orders/OrderRow';
+import { OrderRow, OrderTableRow } from './orders/OrderRow';
 import OrderConfidencePanel from './orders/OrderConfidencePanel';
 import ContextualEntityLink from './merchant-workspace/ContextualEntityLink';
-import { fadeUp, staggerChildren } from "@/lib/motion";
+import { ShopRole, UserRole } from '@/shared/lib/rbac/types';
+import { useUserPermissions } from '@/shared/lib/rbac/useUserPermissions';
 
 const statusColors = {
   draft: 'bg-gray-100 text-gray-700',
@@ -48,6 +48,7 @@ interface ManualOrder {
   tax: number;
   delivery: number;
   payment: string;
+  paymentMethod: string;
   notes: string;
   source: 'manual';
   createdBy: 'user';
@@ -61,20 +62,32 @@ const deriveZone = (divisionId: string, districtId: string): DeliveryAddress['zo
 
 export default function Orders() {
   const { t, i18n } = useTranslation();
+  const { hasShopRole, hasRole } = useUserPermissions();
+  const canCorrectPaymentMethod = hasShopRole(ShopRole.OWNER) || hasRole(UserRole.ADMIN);
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [isCreating, setIsCreating] = useState(false);
   const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<string>('last7days');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
+  const [fulfillmentStatusFilter, setFulfillmentStatusFilter] = useState<string>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const createOrderRetryKeysRef = useRef(new Map<string, string>());
   const [showCreateOrder, setShowCreateOrder] = useState(false);
+  const [paymentMethodChoices, setPaymentMethodChoices] = useState<string[]>(['cod']);
+  const [paymentMethodsLoadFailed, setPaymentMethodsLoadFailed] = useState(false);
+  const [paymentMethodsRetry, setPaymentMethodsRetry] = useState(0);
+  const [paymentMethodCorrection, setPaymentMethodCorrection] = useState('');
+  const [paymentMethodCorrectionUnavailable, setPaymentMethodCorrectionUnavailable] = useState(false);
+  const [isUpdatingPaymentMethod, setIsUpdatingPaymentMethod] = useState(false);
   const [showProductSelector, setShowProductSelector] = useState(false);
   const [detailNote, setDetailNote] = useState('');
   const [conversationSnippets, setConversationSnippets] = useState<string[]>([]);
@@ -84,27 +97,79 @@ export default function Orders() {
   // Bug #14: inline product search — no separate modal needed
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [showCourierModal, setShowCourierModal] = useState(false);
-  // Bumped after a courier attempt so the Order Confidence panel re-reads its decision.
+  // Refresh confidence after order/payment changes and courier attempts.
   const [confidenceRefresh, setConfidenceRefresh] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [deepLinkError, setDeepLinkError] = useState(false);
+  const [deepLinkRetry, setDeepLinkRetry] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPaymentMethodsLoadFailed(false);
+    apiClient.getPaymentConfig()
+      .then((response) => {
+        if (cancelled) return;
+        if (!response.success || !Array.isArray(response.data)) throw new Error('Payment methods unavailable');
+        const enabledMethods = response.data
+          .filter((config) => config.is_enabled && typeof config.gateway === 'string' && config.gateway.trim())
+          .map((config) => config.gateway.trim().toLowerCase());
+        setPaymentMethodChoices([...new Set(['cod', ...enabledMethods])]);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPaymentMethodChoices(['cod']);
+        setPaymentMethodsLoadFailed(true);
+      });
+    return () => { cancelled = true; };
+  }, [paymentMethodsRetry]);
+
+  useEffect(() => {
+    setPaymentMethodCorrection('');
+    setPaymentMethodCorrectionUnavailable(false);
+  }, [selectedOrder?.id]);
 
   // Deep link (/orders?orderId=…) from notifications and Customer 360: open that order.
   useEffect(() => {
     const orderId = searchParams.get('orderId');
-    if (!orderId) return;
+    if (!orderId) {
+      setDeepLinkError(false);
+      return;
+    }
     let cancelled = false;
+    setDeepLinkError(false);
     apiClient.getOrder(orderId)
-      .then((order) => { if (!cancelled && order?.id) setSelectedOrder(order); })
-      .catch(() => { /* not found or not this shop's order: stay on the list */ })
-      .finally(() => {
+      .then((order) => {
         if (cancelled) return;
+        if (!order?.id) {
+          setDeepLinkError(true);
+          return;
+        }
+        setSelectedOrder(order);
         const next = new URLSearchParams(searchParams);
         next.delete('orderId');
         setSearchParams(next, { replace: true });
-      });
+      })
+      .catch(() => { if (!cancelled) setDeepLinkError(true); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.get('orderId')]);
+  }, [searchParams.get('orderId'), deepLinkRetry]);
+
+  // Deep link (/orders?search=…) from a customer profile: the server-backed
+  // search covers order number, customer name, and phone.
+  useEffect(() => {
+    const q = searchParams.get('search');
+    if (q) setSearchQuery(q);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the URL shareable/back-navigable with the applied query.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (appliedSearchQuery) next.set('search', appliedSearchQuery);
+    else next.delete('search');
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedSearchQuery]);
 
   const currencyFormatter = useMemo(
     () =>
@@ -118,6 +183,32 @@ export default function Orders() {
 
   const formatCurrency = (value: number) => currencyFormatter.format(Number(value || 0));
   const formatDate = (value: string) => new Date(value).toLocaleString(i18n.language === 'bn' ? 'bn-BD' : 'en-US');
+  const paymentMethodLabel = (gateway: string) => {
+    const labels: Record<string, string> = {
+      cod: t('orders.paymentMethod.cod'),
+      'self-mfs': t('orders.paymentMethod.selfMfs'),
+      bkash: t('orders.paymentMethod.bkash'),
+      nagad: t('orders.paymentMethod.nagad'),
+      rocket: t('orders.paymentMethod.rocket'),
+    };
+    return labels[gateway.toLowerCase()] || gateway;
+  };
+  const selectedDeliveryStatus = selectedOrder?.delivery_status?.trim().toLowerCase();
+  const paymentReconciliation = selectedOrder?.metadata?.payment_reconciliation;
+  const showPaymentReconciliation = paymentReconciliation?.required === true;
+  const reconciliationWarningKey = paymentReconciliation?.code === 'COD_COURIER_COLLECTION_REVIEW_REQUIRED'
+    ? 'cod'
+    : paymentReconciliation?.code === 'PAYMENT_VERIFIED_AFTER_COURIER_CLAIM'
+      ? 'verifiedPayment'
+      : paymentReconciliation?.code === 'PAYMENT_VERIFIED_AFTER_TERMINAL_ORDER_STATE'
+        ? 'terminalOrder'
+        : 'unknown';
+  const selectedOrderHasCourierRecord = Boolean(
+    selectedOrder?.delivery_tracking_code
+    || selectedOrder?.delivery_consignment_id
+    || selectedOrder?.delivery_dispatched_at
+    || (selectedDeliveryStatus && !['unfulfilled', 'not_booked'].includes(selectedDeliveryStatus))
+  );
 
   const resolveDateRange = (value: string): { start_date?: string; end_date?: string } => {
     const now = new Date();
@@ -155,6 +246,7 @@ export default function Orders() {
     tax: 0,
     delivery: 0,
     payment: 'pending',
+    paymentMethod: '',
     notes: '',
     source: 'manual',
     createdBy: 'user',
@@ -169,6 +261,7 @@ export default function Orders() {
 
   // Debounce search input so we don't fire an API call on every keystroke
   useEffect(() => {
+    setIsLoading(true);
     const timer = setTimeout(() => setAppliedSearchQuery(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -179,21 +272,23 @@ export default function Orders() {
     const fetchOrders = async () => {
       try {
         setIsLoading(true);
+        setLoadError(false);
+        setOrders([]);
         const dateRange = resolveDateRange(dateFilter);
-        const paymentStatus = filterStatus === 'completed' ? 'paid' : undefined;
-        const fulfillmentStatus = filterStatus === 'cancelled' ? 'cancelled' : undefined;
         const fetchedOrders = await apiClient.getOrders({
           search: appliedSearchQuery || undefined,
           ...dateRange,
-          order_status: filterStatus === 'all' ? undefined : filterStatus,
-          payment_status: paymentStatus,
-          fulfillment_status: fulfillmentStatus,
+          order_status: orderStatusFilter === 'all' ? undefined : orderStatusFilter,
+          payment_status: paymentStatusFilter === 'all' ? undefined : paymentStatusFilter,
+          fulfillment_status: fulfillmentStatusFilter === 'all' ? undefined : fulfillmentStatusFilter,
           page: 1,
           limit: 100,
         });
         if (!controller.signal.aborted) setOrders(fetchedOrders);
       } catch (err: unknown) {
         if (controller.signal.aborted) return;
+        setOrders([]);
+        setLoadError(true);
         toast.error(getErrorMessage(err, t('orders.errors.loadFailed')));
       } finally {
         if (!controller.signal.aborted) setIsLoading(false);
@@ -201,7 +296,7 @@ export default function Orders() {
     };
     fetchOrders();
     return () => controller.abort();
-  }, [dateFilter, appliedSearchQuery, filterStatus]);
+  }, [dateFilter, appliedSearchQuery, orderStatusFilter, fulfillmentStatusFilter, paymentStatusFilter, retryCount]);
 
   // FE-08: resolve the chat snippet ONLY through the verified shop-scoped
   // customer id (backend GET /api/conversation already filters customer_id
@@ -242,21 +337,8 @@ export default function Orders() {
     return () => controller.abort();
   }, [selectedOrder?.id, selectedOrder?.customerId]);
 
-  const filteredOrders = orders.filter(order => {
-    if (filterStatus === 'all') {
-      return true;
-    }
-
-    return order.status === filterStatus;
-  });
-
   const handleUpdateStatus = async (orderId: string, newStatus: Order['status']) => {
     try {
-      const order = orders.find(o => o.id === orderId);
-      if (newStatus === 'confirmed' && order?.rto_risk === 'high') {
-        toast.warning(t('orders.errors.highRTO'));
-        return;
-      }
       let updatedOrder: Order;
       if (newStatus === 'confirmed') {
         updatedOrder = await apiClient.confirmOrder(orderId);
@@ -264,14 +346,40 @@ export default function Orders() {
         updatedOrder = await apiClient.updateOrder(orderId, { status: newStatus });
       }
 
-      setOrders(orders.map(o => 
+      setOrders(current => current.map(o =>
         o.id === orderId ? updatedOrder : o
       ));
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(updatedOrder);
       }
+      setConfidenceRefresh((count) => count + 1);
+      setIsLoading(true);
+      setRetryCount((count) => count + 1);
     } catch (err: unknown) {
       toast.error(getErrorMessage(err, t('orders.errors.updateStatus')));
+    }
+  };
+
+  const handleCorrectPaymentMethod = async () => {
+    if (!canCorrectPaymentMethod || !selectedOrder || !paymentMethodCorrection) return;
+    try {
+      setIsUpdatingPaymentMethod(true);
+      const updatedOrder = await apiClient.updateOrder(selectedOrder.id, {
+        payment_method: paymentMethodCorrection,
+      });
+      setSelectedOrder(updatedOrder);
+      setOrders((current) => current.map((order) => order.id === updatedOrder.id ? updatedOrder : order));
+      setConfidenceRefresh((count) => count + 1);
+      setIsLoading(true);
+      setRetryCount((count) => count + 1);
+      toast.success(t('orders.paymentMethodUpdated'));
+    } catch (err: unknown) {
+      const status = (err as { statusCode?: number; response?: { status?: number } })?.statusCode
+        ?? (err as { response?: { status?: number } })?.response?.status;
+      if (status === 409) setPaymentMethodCorrectionUnavailable(true);
+      toast.error(getErrorMessage(err, t('orders.errors.updateStatus')));
+    } finally {
+      setIsUpdatingPaymentMethod(false);
     }
   };
 
@@ -403,6 +511,7 @@ export default function Orders() {
   const handleCreateOrder = async () => {
     if (!manualOrder.customerName.trim()) { toast.error(t('orders.errors.nameRequired')); return; }
     if (!manualOrder.customerPhone.trim()) { toast.error(t('orders.errors.phoneRequired')); return; }
+    if (!manualOrder.paymentMethod) { toast.error(t('orders.errors.paymentMethodRequired')); return; }
     if (!manualOrder.division || !manualOrder.district || !manualOrder.upazila || !manualOrder.streetAddress.trim()) {
       toast.error(t('orders.errors.addressRequired')); return;
     }
@@ -435,6 +544,7 @@ export default function Orders() {
         tax: manualOrder.tax,
         delivery_fee: manualOrder.delivery,
         payment_status: manualOrder.payment,
+        payment_method: manualOrder.paymentMethod,
         note: manualOrder.notes
       };
 
@@ -453,9 +563,11 @@ export default function Orders() {
 
       const newOrder = await apiClient.createOrder(orderData, idempotencyKey);
       createOrderRetryKeysRef.current.delete(requestFingerprint);
-      setOrders([newOrder, ...orders]);
+      setSelectedOrder(newOrder);
+      setIsLoading(true);
+      setRetryCount((count) => count + 1);
       setShowCreateOrder(false);
-      toast.success(t('orders.createModal.createButton'));
+      toast.success(t('orders.createModal.createSuccess', { orderId: newOrder.orderNumber || newOrder.id }));
       setManualOrder({
         customerName: '',
         customerPhone: '',
@@ -470,6 +582,7 @@ export default function Orders() {
         tax: 0,
         delivery: 0,
         payment: 'pending',
+        paymentMethod: '',
         notes: '',
         source: 'manual',
         createdBy: 'user',
@@ -482,184 +595,207 @@ export default function Orders() {
   };
 
   return (
-    <div className="p-4 md:p-8">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">{t('orders.title')}</h1>
-          <p className="text-muted-foreground mt-1">{t('orders.subtitle')}</p>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-card rounded-lg p-4 border border-border">
-          <div className="flex items-center gap-2 text-muted-foreground mb-2">
-            <Clock className="w-4 h-4" />
-            <span className="text-sm">{t('orders.statusDraft')}</span>
+    <div className={`p-4 md:p-8 ${selectedOrder ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] lg:items-start lg:gap-4' : ''}`}>
+      <div className="min-w-0">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{t('orders.title')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('orders.subtitle')}</p>
           </div>
-          <p className="text-2xl font-bold text-foreground">{orders.filter(o => o.status === 'draft').length}</p>
-        </div>
-        <div className="bg-card rounded-lg p-4 border border-border">
-          <div className="flex items-center gap-2 text-blue-600 mb-2">
-            <CheckCircle className="w-4 h-4" />
-            <span className="text-sm">{t('orders.statusConfirmed')}</span>
-          </div>
-          <p className="text-2xl font-bold text-foreground">{orders.filter(o => o.status === 'confirmed').length}</p>
-        </div>
-        <div className="bg-card rounded-lg p-4 border border-border">
-          <div className="flex items-center gap-2 text-yellow-600 mb-2">
-            <PackageIcon className="w-4 h-4" />
-            <span className="text-sm">{t('orders.statusProcessing')}</span>
-          </div>
-          <p className="text-2xl font-bold text-foreground">{orders.filter(o => o.status === 'processing').length}</p>
-        </div>
-        <div className="bg-card rounded-lg p-4 border border-border">
-          <div className="flex items-center gap-2 text-green-600 mb-2">
-            <CheckCircle className="w-4 h-4" />
-            <span className="text-sm">{t('orders.statusCompleted')}</span>
-          </div>
-          <p className="text-2xl font-bold text-foreground">{orders.filter(o => o.status === 'completed').length}</p>
-        </div>
-      </div>
-
-      {/* Order Control Section */}
-      <div className="bg-card rounded-lg border border-border p-4 mb-6">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Date Filter */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-foreground">{t('orders.filterDate')}</label>
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            >
-              <option value="today">{t('orders.dateToday')}</option>
-              <option value="last7days">{t('orders.dateLast7')}</option>
-              <option value="last30days">{t('orders.dateLast30')}</option>
-              <option value="custom">{t('orders.dateCustom')}</option>
-            </select>
-          </div>
-
-          {/* Search */}
-          <div className="flex-1 min-w-[200px]">
+          <div className="flex shrink-0 gap-2">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <button
+                type="button"
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                disabled={isLoading || loadError || orders.length === 0}
+                className="flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" />
+                {t('orders.export')}
+                <ChevronDown className="h-4 w-4" />
+              </button>
+              {showExportMenu && (
+                <>
+                  <div className="fixed inset-0 z-[9]" onClick={() => setShowExportMenu(false)} />
+                  <div ref={exportMenuRef} className="absolute right-0 z-10 mt-2 w-40 rounded-lg border border-border bg-card shadow-lg">
+                    <button onClick={() => handleExport('csv')} className="w-full px-4 py-2 text-left text-sm hover:bg-muted">
+                      {t('orders.exportCSV')}
+                    </button>
+                    <button onClick={() => handleExport('excel')} className="w-full border-t border-border px-4 py-2 text-left text-sm hover:bg-muted">
+                      {t('orders.exportExcel')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateOrder(true)}
+              className="flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" />
+              {t('orders.createOrder')}
+            </button>
+          </div>
+        </div>
+
+        <section aria-label={t('orders.toolbarLabel')} className="mb-4 rounded-xl border border-border bg-card p-3">
+          <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_repeat(2,minmax(145px,190px))] xl:grid-cols-[minmax(260px,1fr)_repeat(4,minmax(140px,180px))]">
+            <label className="relative block min-w-0">
+              <span className="sr-only">{t('orders.searchLabel')}</span>
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
-                type="text"
+                type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('orders.searchPlaceholder')}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                aria-label={t('orders.searchLabel')}
+                className="min-h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
-            </div>
+            </label>
+            <label>
+              <span className="sr-only">{t('orders.filterDate')}</span>
+              <select aria-label={t('orders.filterDate')} value={dateFilter} onChange={(e) => { setIsLoading(true); setDateFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+                <option value="all">{t('orders.dateAll')}</option>
+                <option value="today">{t('orders.dateToday')}</option>
+                <option value="last7days">{t('orders.dateLast7')}</option>
+                <option value="last30days">{t('orders.dateLast30')}</option>
+              </select>
+            </label>
+            <label>
+              <span className="sr-only">{t('orders.filterOrderStatus')}</span>
+              <select aria-label={t('orders.filterOrderStatus')} value={orderStatusFilter} onChange={(e) => { setIsLoading(true); setOrderStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+                <option value="all">{t('orders.orderStatusAll')}</option>
+                <option value="draft">{t('orders.statusDraft')}</option>
+                <option value="confirmed">{t('orders.statusConfirmed')}</option>
+                <option value="processing">{t('orders.statusProcessing')}</option>
+                <option value="completed">{t('orders.statusCompleted')}</option>
+                <option value="delivered">{t('orders.statusDelivered')}</option>
+                <option value="cancelled">{t('orders.statusCancelled')}</option>
+              </select>
+            </label>
+            <label>
+              <span className="sr-only">{t('orders.filterFulfillmentStatus')}</span>
+              <select aria-label={t('orders.filterFulfillmentStatus')} value={fulfillmentStatusFilter} onChange={(e) => { setIsLoading(true); setFulfillmentStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+                <option value="all">{t('orders.fulfillmentStatusAll')}</option>
+                <option value="unfulfilled">{t('orders.fulfillmentStatus.unfulfilled')}</option>
+                <option value="fulfilled">{t('orders.fulfillmentStatus.fulfilled')}</option>
+                <option value="partially_fulfilled">{t('orders.fulfillmentStatus.partially_fulfilled')}</option>
+                <option value="cancelled">{t('orders.fulfillmentStatus.cancelled')}</option>
+              </select>
+            </label>
+            <label>
+              <span className="sr-only">{t('orders.filterPaymentStatus')}</span>
+              <select aria-label={t('orders.filterPaymentStatus')} value={paymentStatusFilter} onChange={(e) => { setIsLoading(true); setPaymentStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+                <option value="all">{t('orders.paymentStatusAll')}</option>
+                <option value="pending">{t('orders.paymentStatus.pending')}</option>
+                <option value="paid">{t('orders.paymentStatus.paid')}</option>
+                <option value="unpaid">{t('orders.paymentStatus.unpaid')}</option>
+                <option value="partially_paid">{t('orders.paymentStatus.partially_paid')}</option>
+                <option value="refunded">{t('orders.paymentStatus.refunded')}</option>
+              </select>
+            </label>
           </div>
-
-          {/* Export */}
-          <div className="relative">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">{t('orders.listScope')}</p>
             <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
+              type="button"
+              onClick={() => {
+                setIsLoading(true);
+                setSearchQuery('');
+                setOrderStatusFilter('all');
+                setFulfillmentStatusFilter('all');
+                setPaymentStatusFilter('all');
+                setDateFilter('all');
+              }}
+              className="text-xs font-semibold text-primary hover:underline"
             >
-              <Download className="w-4 h-4" />
-              {t('orders.export')}
-              <ChevronDown className="w-4 h-4" />
+              {t('orders.clearFilters')}
             </button>
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-[9]" onClick={() => setShowExportMenu(false)} />
-                <div ref={exportMenuRef} className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                <button
-                  onClick={() => handleExport('csv')}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm"
-                >
-                  {t('orders.exportCSV')}
-                </button>
-                <button
-                  onClick={() => handleExport('excel')}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm border-t border-gray-200"
-                >
-                  {t('orders.exportExcel')}
-                </button>
-              </div>
-              </>
-            )}
           </div>
+        </section>
 
-          {/* Create Order */}
-          <button
-            onClick={() => setShowCreateOrder(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            {t('orders.createOrder')}
-          </button>
-        </div>
-      </div>
+        {deepLinkError && (
+          <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+            <span>{t('orders.deepLinkFailed')}</span>
+            <button type="button" onClick={() => setDeepLinkRetry((retry) => retry + 1)} className="font-semibold text-primary hover:underline">
+              {t('orders.retry')}
+            </button>
+          </div>
+        )}
 
-      {/* Filters — sticky bar with animated chips */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm py-2 mb-4">
-        <div className="bg-card rounded-lg border border-border p-3">
-          <motion.div
-            className="flex gap-2 flex-wrap"
-            variants={staggerChildren}
-            initial="hidden"
-            animate="visible"
-          >
-            {[
-              { value: 'all', label: t('orders.statusAll') },
-              { value: 'draft', label: t('orders.statusDraft') },
-              { value: 'confirmed', label: t('orders.statusConfirmed') },
-              { value: 'processing', label: t('orders.statusProcessing') },
-              { value: 'completed', label: t('orders.statusCompleted') },
-              { value: 'delivered', label: t('orders.statusDelivered') },
-              { value: 'cancelled', label: t('orders.statusCancelled') },
-            ].map(({ value, label }) => (
-              <motion.button
-                key={value}
-                variants={fadeUp}
-                onClick={() => setFilterStatus(value)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors font-bn ${
-                  filterStatus === value
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                }`}
-              >
-                {label}
-              </motion.button>
-            ))}
-          </motion.div>
-        </div>
-      </div>
-
-      {/* Orders Cards */}
-      <div className="space-y-3">
-        {filteredOrders.length === 0 ? (
+        {isLoading || searchQuery !== appliedSearchQuery ? (
+          <div role="status" className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
+            {t('orders.loading')}
+          </div>
+        ) : loadError ? (
+          <div role="alert" className="rounded-xl border border-destructive/30 bg-card p-8 text-center">
+            <p className="text-sm text-foreground">{t('orders.loadError')}</p>
+            <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
+              {t('orders.retry')}
+            </button>
+          </div>
+        ) : orders.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-10 text-center">
             <PackageIcon className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-            <p className="mt-2 text-sm font-medium text-muted-foreground">{t('orders.emptyState')}</p>
+            <p className="text-sm font-medium text-muted-foreground">
+              {appliedSearchQuery || orderStatusFilter !== 'all' || fulfillmentStatusFilter !== 'all' || paymentStatusFilter !== 'all' || dateFilter !== 'all'
+                ? t('orders.noMatches')
+                : t('orders.emptyShop')}
+            </p>
           </div>
         ) : (
-          <AnimatePresence>
-            {filteredOrders.map((order) => (
-              <motion.div
-                key={order.id}
-                variants={fadeUp}
-                initial="hidden"
-                animate="visible"
-                exit={{ opacity: 0, y: -8 }}
-              >
+          <>
+            <div className="space-y-3 md:hidden">
+              {orders.map((order) => (
                 <OrderRow
+                  key={order.id}
                   order={order}
                   formatCurrency={formatCurrency}
                   formatDate={formatDate}
-                  onViewDetail={(o) => setSelectedOrder(o)}
-                  onDispatch={(o) => { setSelectedOrder(o); setShowCourierModal(true); }}
+                  onViewDetail={setSelectedOrder}
+                  onDispatch={(selected) => { setSelectedOrder(selected); setShowCourierModal(true); }}
                 />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+              ))}
+            </div>
+            <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
+              <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">{t('orders.desktopTableScrollHint')}</p>
+              <div className="overflow-x-auto">
+                <table className="min-w-[1240px] w-full border-collapse text-left text-sm">
+                  <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.orderId')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.customer')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.items')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.channel')}</th>
+                      <th className="px-3 py-3 text-right font-semibold">{t('orders.columns.total')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.status')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.payment')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.delivery')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.expectedCollection')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.created')}</th>
+                      <th className="px-3 py-3 font-semibold">{t('orders.columns.actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {orders.map((order) => (
+                      <OrderTableRow
+                        key={order.id}
+                        order={order}
+                        selected={selectedOrder?.id === order.id}
+                        formatCurrency={formatCurrency}
+                        formatDate={formatDate}
+                        onViewDetail={setSelectedOrder}
+                        onDispatch={(selected) => { setSelectedOrder(selected); setShowCourierModal(true); }}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         )}
-      </div>
 
       {/* Create Order Modal */}
       {showCreateOrder && (
@@ -668,7 +804,7 @@ export default function Orders() {
           onKeyDown={(e) => { if (e.key === 'Escape') setShowCreateOrder(false); }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowCreateOrder(false); }}
         >
-          <div className="bg-card rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+          <div data-testid="create-order-modal" className="bg-card rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between z-10">
               <h2 className="text-2xl font-bold text-card-foreground">{t('orders.createModal.title')}</h2>
               <button
@@ -696,7 +832,7 @@ export default function Orders() {
                       value={manualOrder.customerName}
                       onChange={(e) => setManualOrder({ ...manualOrder, customerName: e.target.value })}
                       placeholder={t('orders.createModal.customerNamePlaceholder')}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
                     />
                   </div>
                   <div>
@@ -713,7 +849,7 @@ export default function Orders() {
                     <select
                       value={manualOrder.channel}
                       onChange={(e) => setManualOrder({ ...manualOrder, channel: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
                     >
                       <option value="manual">{t('orders.createModal.channelManual')}</option>
                       <option value="facebook">{t('orders.createModal.channelFacebook')}</option>
@@ -732,7 +868,7 @@ export default function Orders() {
                     <select
                       value={manualOrder.division}
                       onChange={(e) => setManualOrder({ ...manualOrder, division: e.target.value, district: '', upazila: '' })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm"
                     >
                       <option value="">{t('orders.form.division')}</option>
                       {bdGeography.divisions.map((div) => (
@@ -743,7 +879,7 @@ export default function Orders() {
                       value={manualOrder.district}
                       onChange={(e) => setManualOrder({ ...manualOrder, district: e.target.value, upazila: '' })}
                       disabled={!manualOrder.division}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm disabled:bg-gray-100"
                     >
                       <option value="">{t('orders.form.district')}</option>
                       {bdGeography.divisions
@@ -756,7 +892,7 @@ export default function Orders() {
                       value={manualOrder.upazila}
                       onChange={(e) => setManualOrder({ ...manualOrder, upazila: e.target.value })}
                       disabled={!manualOrder.district}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm disabled:bg-gray-100"
                     >
                       <option value="">{t('orders.form.upazila')}</option>
                       {bdGeography.divisions
@@ -772,11 +908,11 @@ export default function Orders() {
                     value={manualOrder.streetAddress}
                     onChange={(e) => setManualOrder({ ...manualOrder, streetAddress: e.target.value })}
                     placeholder={t('orders.form.streetAddress')}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm"
                   />
                   {manualOrder.division && manualOrder.district && (
                     <p className="text-xs text-gray-500 mt-1">
-                      {t('orders.createModal.zone')}: <span className="font-medium text-blue-600">{deriveZone(manualOrder.division, manualOrder.district)?.replace(/_/g, ' ')}</span>
+                      {t('orders.createModal.zone')}: <span className="font-medium text-brand-hover">{deriveZone(manualOrder.division, manualOrder.district)?.replace(/_/g, ' ')}</span>
                     </p>
                   )}
                 </div>
@@ -794,7 +930,7 @@ export default function Orders() {
                     placeholder={t('orders.createModal.searchProducts')}
                     value={productSearchQuery}
                     onChange={(e) => setProductSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm"
                   />
                   {/* Dropdown results */}
                   {productSearchQuery.trim().length >= 1 && (
@@ -813,10 +949,10 @@ export default function Orders() {
                               addProductToOrder(product);
                               setProductSearchQuery('');
                             }}
-                            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-blue-50 text-left text-sm border-b border-gray-100 last:border-0"
+                            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-emerald-50 text-left text-sm border-b border-gray-100 last:border-0"
                           >
                             <span className="font-medium text-gray-900 truncate">{product.name}</span>
-                            <span className="ml-2 text-blue-700 font-semibold whitespace-nowrap">{formatCurrency(product.price)}</span>
+                            <span className="ml-2 text-brand-hover font-semibold whitespace-nowrap">{formatCurrency(product.price)}</span>
                           </button>
                         ))
                       }
@@ -931,19 +1067,44 @@ export default function Orders() {
                   </div>
                   <div className="border-t border-gray-300 pt-3 flex justify-between font-bold">
                     <span className="text-gray-900">{t('orders.createModal.total')}:</span>
-                    <span className="text-blue-600 text-lg">{formatCurrency(calculateTotal())}</span>
+                    <span className="text-brand-hover text-lg">{formatCurrency(calculateTotal())}</span>
                   </div>
                 </div>
               </div>
 
               {/* Payment & Notes */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('orders.createModal.paymentMethod')} <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    aria-label={t('orders.createModal.paymentMethod')}
+                    required
+                    value={manualOrder.paymentMethod}
+                    onChange={(e) => setManualOrder({ ...manualOrder, paymentMethod: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <option value="">{t('orders.createModal.selectPaymentMethod')}</option>
+                    {paymentMethodChoices.map((gateway) => (
+                      <option key={gateway} value={gateway}>{paymentMethodLabel(gateway)}</option>
+                    ))}
+                  </select>
+                  {paymentMethodsLoadFailed && (
+                    <p className="mt-1 text-xs text-amber-800">
+                      {t('orders.paymentConfigUnavailable')} {' '}
+                      <button type="button" onClick={() => setPaymentMethodsRetry((retry) => retry + 1)} className="font-semibold underline">
+                        {t('orders.retry')}
+                      </button>
+                    </p>
+                  )}
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">{t('orders.createModal.paymentStatus')}</label>
                   <select
                     value={manualOrder.payment}
                     onChange={(e) => setManualOrder({ ...manualOrder, payment: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
                   >
                     <option value="pending">{t('orders.createModal.payPending')}</option>
                     <option value="paid">{t('orders.createModal.payPaid')}</option>
@@ -958,14 +1119,14 @@ export default function Orders() {
                     </p>
                   )}
                 </div>
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">{t('orders.createModal.notes')}</label>
                   <input
                     type="text"
                     value={manualOrder.notes}
                     onChange={(e) => setManualOrder({ ...manualOrder, notes: e.target.value })}
                     placeholder={t('orders.createModal.notesPlaceholder')}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
                   />
                 </div>
               </div>
@@ -984,10 +1145,11 @@ export default function Orders() {
                   isCreating ||
                   !manualOrder.customerName ||
                   !manualOrder.customerPhone ||
+                  !manualOrder.paymentMethod ||
                   (!manualOrder.division || !manualOrder.district || !manualOrder.upazila || !manualOrder.streetAddress.trim()) ||
                   manualOrder.items.length === 0
                 }
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isCreating && <Loader2 className="w-4 h-4 animate-spin" />}
                 {t('orders.createModal.createButton')}
@@ -1021,7 +1183,7 @@ export default function Orders() {
                   <button
                     key={product.id}
                     onClick={() => addProductToOrder(product)}
-                    className="w-full flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
+                    className="w-full flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:border-brand hover:bg-emerald-50 transition-colors text-left"
                   >
                     <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
                       <PackageIcon className="w-6 h-6 text-gray-600" />
@@ -1058,19 +1220,23 @@ export default function Orders() {
           </div>
         </div>
       )}
+      </div>
 
-      {/* Order Details Modal */}
+      {/* Selected order context; full-screen on mobile, docked beside the table on desktop. */}
       {selectedOrder && (
         <div
-          className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-3 lg:static lg:col-start-2 lg:row-start-1 lg:block lg:bg-transparent lg:p-0"
+          role="region"
+          aria-label={t('orders.detailModal.title')}
+          data-testid="order-detail-panel"
           onKeyDown={(e) => { if (e.key === 'Escape') setSelectedOrder(null); }}
           onClick={(e) => { if (e.target === e.currentTarget) setSelectedOrder(null); }}
         >
-          <div className="bg-white rounded-xl p-4 md:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="max-h-[96vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-card p-4 md:p-6 lg:max-h-[calc(100vh-4rem)] lg:max-w-none lg:border lg:border-border">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">{t('orders.detailModal.title')}</h2>
-                <p className="text-gray-600 mt-1">{selectedOrder.id}</p>
+                <p className="text-gray-600 mt-1">{selectedOrder.orderNumber || selectedOrder.id}</p>
               </div>
               <button
                 onClick={() => setSelectedOrder(null)}
@@ -1142,7 +1308,7 @@ export default function Orders() {
                   href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedOrder.deliveryAddress)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="block rounded-lg border border-gray-200 bg-white p-3 text-sm font-semibold text-blue-700"
+                  className="block rounded-lg border border-gray-200 bg-white p-3 text-sm font-semibold text-brand-hover"
                 >
                   {t('orders.detailModal.viewOnMap')}
                 </a>
@@ -1151,7 +1317,75 @@ export default function Orders() {
 
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
               <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.paymentStatusLabel')}</h3>
-              <p className="text-sm font-medium text-gray-700">{selectedOrder.payment_status || t('orders.detailModal.codPending')}</p>
+              <p className="text-sm font-medium text-gray-700">
+                {selectedOrder.payment_status
+                  ? t(`orders.paymentStatus.${selectedOrder.payment_status.toLowerCase()}`, { defaultValue: selectedOrder.payment_status })
+                  : t('orders.paymentStatus.unknown')}
+              </p>
+              <p className="mt-1 text-xs text-gray-600">
+                {selectedOrder.payment_method || t('orders.paymentMethod.unknown')}
+              </p>
+              {showPaymentReconciliation && (
+                <div role="alert" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                  <p className="font-semibold">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.title`)}</p>
+                  <p className="mt-1">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.body`)}</p>
+                  <p className="mt-1 text-xs">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.nextStep`)}</p>
+                </div>
+              )}
+              {!selectedOrder.payment_method && selectedOrder.payment_status?.toLowerCase() !== 'paid' && (
+                canCorrectPaymentMethod
+                  && !paymentMethodCorrectionUnavailable
+                  && !selectedOrderHasCourierRecord
+                  && ['draft', 'pending', 'confirmed', 'processing'].includes(selectedOrder.status) ? (
+                  <div className="mt-3 border-t border-gray-200 pt-3">
+                    <label className="block text-xs font-semibold text-gray-700" htmlFor="order-payment-method-correction">
+                      {t('orders.detailModal.paymentMethodCorrection')}
+                    </label>
+                    <p className="mt-1 text-xs text-gray-600">{t('orders.paymentMethodCorrectionOwnerOnly')}</p>
+                    <select
+                      id="order-payment-method-correction"
+                      value={paymentMethodCorrection}
+                      onChange={(event) => setPaymentMethodCorrection(event.target.value)}
+                      className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">{t('orders.createModal.selectPaymentMethod')}</option>
+                      {paymentMethodChoices.map((gateway) => (
+                        <option key={gateway} value={gateway}>{paymentMethodLabel(gateway)}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleCorrectPaymentMethod()}
+                      disabled={!paymentMethodCorrection || isUpdatingPaymentMethod}
+                      className="mt-2 min-h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isUpdatingPaymentMethod ? t('orders.loading') : t('orders.detailModal.savePaymentMethod')}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-800">
+                    {selectedOrderHasCourierRecord || paymentMethodCorrectionUnavailable
+                      ? t('orders.paymentMethodCorrectionLockedByCourier')
+                      : canCorrectPaymentMethod
+                        ? t('orders.bookingMethodCorrectionUnavailable')
+                        : t('orders.paymentMethodCorrectionOwnerOnly')}
+                  </p>
+                )
+              )}
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.deliveryStatusLabel')}</h3>
+              <p className="text-sm font-medium text-gray-700">
+                {selectedOrder.delivery_status
+                  ? t(`orders.deliveryStatus.${selectedOrder.delivery_status.toLowerCase()}`, { defaultValue: selectedOrder.delivery_status })
+                  : selectedOrder.fulfillment_status
+                    ? t(`orders.fulfillmentStatus.${selectedOrder.fulfillment_status.toLowerCase()}`, { defaultValue: selectedOrder.fulfillment_status })
+                    : t('orders.deliveryStatus.unknown')}
+              </p>
+              <p className="mt-1 text-xs text-gray-600">
+                {[selectedOrder.delivery_provider, selectedOrder.delivery_tracking_code].filter(Boolean).join(' · ') || t('orders.deliveryStatus.noTracking')}
+              </p>
             </div>
 
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
@@ -1177,7 +1411,7 @@ export default function Orders() {
                 <button
                   type="button"
                   onClick={() => navigate(`/inbox?conversation=${encodeURIComponent(linkedConversationId)}`)}
-                  className="mt-3 text-sm font-semibold text-blue-700 hover:underline font-bn"
+                  className="mt-3 text-sm font-semibold text-brand-hover hover:underline font-bn"
                 >
                   {t('orders.detailModal.openConversation')}
                 </button>
@@ -1185,7 +1419,7 @@ export default function Orders() {
             </div>
 
             {/* Order Meta Information */}
-            <div className="bg-blue-50 rounded-lg p-4 mb-6 border border-blue-200">
+            <div className="bg-emerald-50 rounded-lg p-4 mb-6 border border-emerald-200">
               <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.metaSection')}</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
@@ -1226,7 +1460,7 @@ export default function Orders() {
               
               <div className="mt-4 flex justify-between items-center text-lg font-bold">
                 <span>{t('orders.detailModal.total')}:</span>
-                <span className="text-blue-600">{formatCurrency(selectedOrder.total)}</span>
+                <span className="text-brand-hover">{formatCurrency(selectedOrder.total)}</span>
               </div>
             </div>
 
@@ -1287,7 +1521,7 @@ export default function Orders() {
               {selectedOrder.status === 'draft' && (
                 <button
                   onClick={() => handleUpdateStatus(selectedOrder.id, 'confirmed')}
-                  className="flex-1 min-w-[120px] px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                  className="flex-1 min-w-[120px] px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 text-sm"
                 >
                   {t('orders.detailModal.confirmOrder')}
                 </button>
@@ -1313,6 +1547,7 @@ export default function Orders() {
       {showCourierModal && selectedOrder && (
         <CourierBookingModal
           order={selectedOrder}
+          paymentMethodCorrectionUnavailable={paymentMethodCorrectionUnavailable}
           onClose={() => setShowCourierModal(false)}
           onHeld={() => setConfidenceRefresh((n) => n + 1)}
           onBooked={(trackingId, provider) => {

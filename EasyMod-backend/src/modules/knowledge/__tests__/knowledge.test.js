@@ -128,6 +128,7 @@ jest.mock('src/modules/shop/shop.service', () => ({
         handoff_settings: { trigger_keywords: ['complain'], notification_channel: 'in_app', cooldown_minutes: 30 }
     })),
     updateShopAiSettings: jest.fn(() => Promise.resolve({})),
+    updateShopSettingsPreservingRtoConsent: jest.fn(),
     getShopById:          jest.fn(),
     getShopsByUserId:     jest.fn(),
     createShop:           jest.fn(),
@@ -187,6 +188,16 @@ describe('Knowledge API', () => {
             max_auto_order_value: 5000, ask_email: false, primary_language: 'mixed',
             required_fields: { customer_name: true, mobile_number: true, delivery_address: true, payment_method: true, email_address: false, special_instructions: false },
             handoff_settings: { trigger_keywords: ['complain'], notification_channel: 'in_app', cooldown_minutes: 30 }
+        });
+        shopService.updateShopSettingsPreservingRtoConsent.mockImplementation(async (_shopId, patchBuilder, updateFields = {}) => {
+            const currentSettings = mockShop.settings || {};
+            const patch = typeof patchBuilder === 'function' ? patchBuilder(currentSettings, mockShop) : patchBuilder;
+            const { mergeSettingsPreservingRtoConsent } = require('src/modules/shop/shop-settings.validator');
+            const settings = mergeSettingsPreservingRtoConsent(currentSettings, patch || {});
+            await mockShop.update({ ...updateFields, settings });
+            mockShop.settings = settings;
+            await require('src/utils/shop-settings-cache').invalidateShopSettingsCaches(_shopId);
+            return settings;
         });
     });
 
@@ -602,6 +613,29 @@ describe('Knowledge API', () => {
             const saved = mockShop.update.mock.calls[0][0].settings.businessInfo;
             expect(saved.socialLinks).toEqual({ facebook: 'https://fb.com/rina', whatsapp: '01711111111' });
             expect(saved.shopName).toBe('Existing Shop'); // untouched
+        });
+
+        it('preserves the current RTO opt-out in business-info and branding writes', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            const { UserShop } = require('src/modules/entities');
+            const shopService = require('src/modules/shop/shop.service');
+            mockShop.settings = {
+                ...mockShopSettings,
+                rto_network: { contribute: false, enforce: true },
+            };
+            UserShop.findOne.mockResolvedValue({ user_id: 'user-1', shop_id: 'shop-1', is_active: true });
+
+            await knowledgeService.updateBusinessInfo('user-1', 'shop-1', { phone: '01800' });
+            expect(mockShop.update.mock.calls.at(-1)[0].settings.rto_network)
+                .toEqual({ contribute: false, enforce: true });
+
+            await knowledgeService.updateBrandingRules('user-1', 'shop-1', { tone: 'formal' });
+
+            expect(shopService.updateShopSettingsPreservingRtoConsent).toHaveBeenCalledTimes(2);
+            expect(mockShop.update.mock.calls.at(-1)[0].settings).toMatchObject({
+                rto_network: { contribute: false, enforce: true },
+                brandingRules: { tone: 'formal' },
+            });
         });
 
         it('replaces the business_info vector and invalidates prompt caches after save', async () => {

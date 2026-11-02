@@ -84,6 +84,9 @@ jest.mock('../shop-settings.validator', () => ({
     mergeAndSanitizeSettings: jest.fn((current, patch) => (
         jest.requireActual('../shop-settings.validator').mergeAndSanitizeSettings(current, patch)
     )),
+    mergeSettingsPreservingRtoConsent: jest.fn((current, patch) => (
+        jest.requireActual('../shop-settings.validator').mergeSettingsPreservingRtoConsent(current, patch)
+    )),
     stripAutomationModeFromShopUpdate: jest.fn((updateData) => (
         jest.requireActual('../shop-settings.validator').stripAutomationModeFromShopUpdate(updateData)
     )),
@@ -375,9 +378,94 @@ describe('Shop Service', () => {
                     paymentMethods: ['bkash'],
                     delivery: { default_delivery_charge: 80 },
                 })
-            })
+            }),
+            { transaction: mockTransaction }
         );
         expect(shopWithSettings.update.mock.calls[0][0].settings).not.toHaveProperty('newSetting');
+    });
+
+    it('updateShopById — preserves the locked RTO consent over a stale full-settings snapshot', async () => {
+        const shopWithSettings = {
+            ...mockShop,
+            settings: { rto_network: { contribute: false, enforce: true }, aiEnabled: true },
+            update: jest.fn().mockResolvedValue(true),
+        };
+        Shop.findByPk.mockResolvedValueOnce(shopWithSettings);
+
+        await shopService.updateShopById('shop-1', 'user-1', {
+            settings: { rto_network: { contribute: true, enforce: true }, delivery: { default_delivery_charge: 80 } },
+        });
+
+        expect(Shop.findByPk).toHaveBeenCalledWith('shop-1', expect.objectContaining({
+            transaction: mockTransaction,
+            lock: 'UPDATE',
+        }));
+        expect(shopWithSettings.update).toHaveBeenCalledWith(expect.objectContaining({
+            settings: expect.objectContaining({
+                rto_network: { contribute: false, enforce: true },
+                delivery: { default_delivery_charge: 80 },
+            }),
+        }), { transaction: mockTransaction });
+    });
+
+    it('updateShopById — concurrent stale settings payloads cannot restore opted-out RTO consent', async () => {
+        const shops = [1, 2].map(() => ({
+            ...mockShop,
+            settings: { rto_network: { contribute: false, enforce: true }, aiEnabled: true },
+            update: jest.fn().mockResolvedValue(true),
+        }));
+        Shop.findByPk.mockImplementation(async () => shops.shift());
+
+        await Promise.all([
+            shopService.updateShopById('shop-1', 'user-1', { settings: { rto_network: { contribute: true }, locale: 'en' } }),
+            shopService.updateShopById('shop-1', 'user-1', { settings: { rto_network: { contribute: true }, timezone: 'Asia/Dhaka' } }),
+        ]);
+
+        const updatedShops = Shop.findByPk.mock.results.map((result) => result.value);
+        expect(updatedShops).toHaveLength(2);
+        for (const pending of updatedShops) {
+            const shop = await pending;
+            expect(shop.update.mock.calls[0][0].settings.rto_network)
+                .toEqual({ contribute: false, enforce: true });
+            expect(shop.update.mock.calls[0][1]).toEqual({ transaction: mockTransaction });
+        }
+        expect(Shop.findByPk.mock.calls.every(([, options]) => options.lock === 'UPDATE')).toBe(true);
+    });
+
+    it('updateShopSettingsPreservingRtoConsent uses the locked fresh row for a full-settings merge', async () => {
+        const shopWithSettings = {
+            ...mockShop,
+            settings: {
+                rto_network: { contribute: false, enforce: true },
+                businessInfo: { address: 'Old address' },
+                ai: { confidence_threshold: 70 },
+            },
+            update: jest.fn().mockResolvedValue(true),
+        };
+        Shop.findByPk.mockResolvedValueOnce(shopWithSettings);
+        let consentSeenByBuilder;
+
+        const settings = await shopService.updateShopSettingsPreservingRtoConsent('shop-1', (current) => {
+            consentSeenByBuilder = current.rto_network.contribute;
+            return {
+                rto_network: { contribute: true },
+                businessInfo: { address: 'New address' },
+            };
+        });
+
+        expect(consentSeenByBuilder).toBe(false);
+        expect(Shop.findByPk).toHaveBeenCalledWith('shop-1', expect.objectContaining({
+            transaction: mockTransaction,
+            lock: 'UPDATE',
+        }));
+        expect(shopWithSettings.update).toHaveBeenCalledWith({
+            settings: expect.objectContaining({
+                rto_network: { contribute: false, enforce: true },
+                businessInfo: { address: 'New address' },
+                ai: { confidence_threshold: 70 },
+            }),
+        }, { transaction: mockTransaction });
+        expect(settings.rto_network).toEqual({ contribute: false, enforce: true });
     });
 
     it('updateShopById — syncs settings.businessInfo.shopName when shop_name changes', async () => {
@@ -395,7 +483,8 @@ describe('Shop Service', () => {
                 settings: expect.objectContaining({
                     businessInfo: expect.objectContaining({ shopName: 'New Name' })
                 })
-            })
+            }),
+            { transaction: mockTransaction }
         );
     });
 
@@ -409,7 +498,8 @@ describe('Shop Service', () => {
         await shopService.updateShopById('shop-1', 'user-1', { id: 'hacked-id', shop_name: 'Valid' });
 
         expect(shopInstance.update).toHaveBeenCalledWith(
-            expect.not.objectContaining({ id: 'hacked-id' })
+            expect.not.objectContaining({ id: 'hacked-id' }),
+            { transaction: mockTransaction }
         );
     });
 
@@ -429,7 +519,7 @@ describe('Shop Service', () => {
             settings: expect.objectContaining({
                 ai: { automation_mode: 'DRAFT' },
             }),
-        }));
+        }), { transaction: mockTransaction });
     });
 
     it('getShopAiSettings — normalizes legacy aliases on read', async () => {
@@ -447,7 +537,7 @@ describe('Shop Service', () => {
     it('updateShopAiSettings — persists canonical mode and emits audit plus SSE', async () => {
         const shopWithSettings = {
             ...mockShop,
-            settings: { ai: { automation_mode: 'DRAFT' } },
+            settings: { rto_network: { contribute: false, enforce: true }, ai: { automation_mode: 'DRAFT' } },
             update: jest.fn().mockResolvedValue(true),
         };
         Shop.findByPk.mockResolvedValueOnce(shopWithSettings);
@@ -459,8 +549,13 @@ describe('Shop Service', () => {
         expect(result.automation_mode).toBe('AUTO');
         expect(shopWithSettings.update).toHaveBeenCalledWith(expect.objectContaining({
             settings: expect.objectContaining({
+                rto_network: { contribute: false, enforce: true },
                 ai: expect.objectContaining({ automation_mode: 'AUTO', auto_reply_enabled: true }),
             }),
+        }), { transaction: mockTransaction });
+        expect(Shop.findByPk).toHaveBeenCalledWith('shop-1', expect.objectContaining({
+            transaction: mockTransaction,
+            lock: 'UPDATE',
         }));
         expect(auditService.logOperation).toHaveBeenCalledWith(expect.objectContaining({
             action: 'AI_REPLY_MODE_CHANGED',
@@ -474,7 +569,7 @@ describe('Shop Service', () => {
                 new_mode: 'AUTO',
                 actor_id: 'user-1',
             },
-        }));
+        }), { transaction: mockTransaction });
         expect(sseManager.emit).toHaveBeenCalledWith('shop-1', 'ai_reply_mode_changed', { mode: 'AUTO' });
     });
 
@@ -512,6 +607,25 @@ describe('Shop Service', () => {
             settings: expect.objectContaining({
                 ai: expect.objectContaining({ automation_mode: 'MANUAL', auto_reply_enabled: false }),
             }),
+        }), { transaction: mockTransaction });
+    });
+
+    it('applyBrandingPreset — preserves the locked RTO consent settings', async () => {
+        const shopWithSettings = {
+            ...mockShop,
+            settings: { rto_network: { contribute: false, enforce: true }, ai: { branding: {} } },
+            update: jest.fn().mockResolvedValue(true),
+        };
+        Shop.findByPk.mockResolvedValueOnce(shopWithSettings);
+
+        await shopService.applyBrandingPreset('shop-1', 'FRIENDLY');
+
+        expect(shopWithSettings.update).toHaveBeenCalledWith(expect.objectContaining({
+            settings: expect.objectContaining({ rto_network: { contribute: false, enforce: true } }),
+        }), { transaction: mockTransaction });
+        expect(Shop.findByPk).toHaveBeenCalledWith('shop-1', expect.objectContaining({
+            transaction: mockTransaction,
+            lock: 'UPDATE',
         }));
     });
 

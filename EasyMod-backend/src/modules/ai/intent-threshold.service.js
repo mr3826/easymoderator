@@ -1,7 +1,5 @@
 const { AppError } = require('../../utils/AppError');
 const shopService = require('../shop/shop.service');
-const { mergeAndSanitizeSettings } = require('../shop/shop-settings.validator');
-const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
 
 /**
  * Get the effective confidence threshold for a specific intent in a shop.
@@ -52,25 +50,17 @@ const updateIntentThresholds = async (shopId, thresholdMap) => {
         }
     }
 
-    const { Shop } = require('../entities');
-    const shop = await Shop.findByPk(shopId);
-    if (!shop) throw new AppError('Shop not found', 404);
-
-    const currentSettings = shop.settings || {};
-    const currentAI = currentSettings.ai || {};
-    const existingThresholds = currentAI.intentThresholds || {};
-
-    const newThresholds = { ...existingThresholds, ...thresholdMap };
-
-    await shop.update({
-        settings: mergeAndSanitizeSettings(currentSettings, {
+    let newThresholds;
+    await shopService.updateShopSettingsPreservingRtoConsent(shopId, (currentSettings) => {
+        const currentAI = currentSettings.ai || {};
+        newThresholds = { ...(currentAI.intentThresholds || {}), ...thresholdMap };
+        return {
             ai: {
                 ...currentAI,
-                intentThresholds: newThresholds
-            }
-        })
+                intentThresholds: newThresholds,
+            },
+        };
     });
-    await invalidateShopSettingsCaches(shopId);
 
     return newThresholds;
 };

@@ -1,6 +1,8 @@
-const { Order, PaymentConfig } = require('../entities');
+const { Order, PaymentConfig, DeliveryTracking, CourierDispatch } = require('../entities');
 const { AppError } = require('../../utils/AppError');
 const { UserShop } = require('../entities');
+const { sequelize } = require('../../utils/database/database-setup');
+const { Op } = require('sequelize');
 const crypto = require('crypto');
 
 const GATEWAY_ALIAS_TO_CANONICAL = {
@@ -10,6 +12,7 @@ const GATEWAY_ALIAS_TO_CANONICAL = {
 const VALID_MFS_TYPES = ['bkash', 'nagad', 'rocket'];
 const VALID_MFS_MODES = ['self', 'business'];
 const SENSITIVE_PAYMENT_KEY = /(?:credential|secret|token|password|api[_-]?key|private[_-]?key)/i;
+const COD_PAYMENT_METHODS = new Set(['cod', 'cash', 'cash_on_delivery']);
 
 const normalizeGateway = (gateway) => {
     if (typeof gateway !== 'string') return gateway;
@@ -137,29 +140,84 @@ const verifyShopAccess = async (userId, shopId) => {
  * Confirm COD payment for an order
  */
 const confirmCodPayment = async (orderId, userId, shopId) => {
-    await verifyShopAccess(userId, shopId);
+    const membership = await verifyShopAccess(userId, shopId);
+    if (!['owner', 'admin'].includes(String(membership.role || '').toLowerCase())) {
+        throw new AppError('Only shop owners or admins can confirm COD settlement', 403, 'COD_SETTLEMENT_FORBIDDEN');
+    }
 
-    const order = await Order.findOne({
-        where: { id: orderId, shop_id: shopId }
+    return sequelize.transaction(async (transaction) => {
+        const query = { where: { id: orderId, shop_id: shopId }, transaction };
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+        const order = await Order.findOne(query);
+        if (!order) throw new AppError('Order not found', 404);
+
+        const paymentMethod = String(order.payment_method || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+        if (!COD_PAYMENT_METHODS.has(paymentMethod)) {
+            throw new AppError('Only COD orders can be settled through this action', 409, 'COD_PAYMENT_METHOD_REQUIRED');
+        }
+        const paymentStatus = String(order.payment_status || '').trim().toLowerCase();
+        if (!['pending', 'unpaid'].includes(paymentStatus)) {
+            throw new AppError(`Payment status is already ${order.payment_status}`, 409, 'COD_PAYMENT_NOT_PENDING');
+        }
+        if (order.metadata?.payment_reconciliation?.required === true) {
+            throw new AppError(
+                'COD settlement is blocked until the existing courier/payment reconciliation is resolved.',
+                409,
+                'COD_SETTLEMENT_REQUIRES_RECONCILIATION',
+            );
+        }
+
+        if (!CourierDispatch || typeof CourierDispatch.findOne !== 'function') {
+            throw new AppError('Courier dispatch state is unavailable', 503, 'COURIER_DISPATCH_CHECK_UNAVAILABLE');
+        }
+        const dispatchQuery = {
+            where: {
+                order_id: orderId,
+                shop_id: shopId,
+                status: { [Op.in]: ['PENDING', 'INDETERMINATE'] },
+            },
+            transaction,
+        };
+        if (transaction?.LOCK?.UPDATE) dispatchQuery.lock = transaction.LOCK.UPDATE;
+        if (await CourierDispatch.findOne(dispatchQuery)) {
+            throw new AppError(
+                'COD settlement is blocked while courier dispatch is unresolved.',
+                409,
+                'COD_SETTLEMENT_REQUIRES_RECONCILIATION',
+            );
+        }
+
+        if (!DeliveryTracking || typeof DeliveryTracking.findOne !== 'function') {
+            throw new AppError('Courier tracking state is unavailable', 503, 'COURIER_TRACKING_CHECK_UNAVAILABLE');
+        }
+        const trackingQuery = { where: { order_id: orderId }, transaction };
+        if (transaction?.LOCK?.UPDATE) trackingQuery.lock = transaction.LOCK.UPDATE;
+        const tracking = await DeliveryTracking.findOne(trackingQuery);
+        const deliveryStatuses = [order.delivery_status, tracking?.current_status]
+            .map((status) => String(status || '').trim().toLowerCase())
+            .filter(Boolean);
+        const delivered = deliveryStatuses.length > 0
+            ? deliveryStatuses.every((status) => status === 'delivered')
+            : Boolean(order.delivered_at);
+        const orderStatus = String(order.order_status || '').trim().toLowerCase();
+        if (['cancelled', 'returned', 'refunded'].includes(orderStatus)) {
+            throw new AppError(
+                'COD settlement requires an eligible, fully delivered order.',
+                409,
+                'COD_SETTLEMENT_REQUIRES_DELIVERY',
+            );
+        }
+        if (!delivered) {
+            throw new AppError(
+                'COD can only be settled after a fully delivered outcome is recorded. Reconcile delivery before confirming collection.',
+                409,
+                'COD_SETTLEMENT_REQUIRES_DELIVERY',
+            );
+        }
+
+        await order.update({ payment_status: 'paid', paid_at: new Date() }, { transaction });
+        return order;
     });
-
-    if (!order) {
-        throw new AppError('Order not found', 404);
-    }
-
-    if (order.order_status !== 'confirmed') {
-        throw new AppError('Order must be confirmed before payment can be processed', 400);
-    }
-
-    if (order.payment_status !== 'pending') {
-        throw new AppError(`Payment status is already ${order.payment_status}`, 400);
-    }
-
-    // Bug #12: COD "confirm" means delivery collected — status → 'paid'.
-    // 'unpaid' was wrong and inconsistent with gateway payments; removing it.
-    await order.update({ payment_status: 'paid', paid_at: new Date() });
-
-    return order;
 };
 
 module.exports = {

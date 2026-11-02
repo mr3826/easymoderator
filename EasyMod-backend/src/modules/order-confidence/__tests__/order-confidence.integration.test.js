@@ -31,6 +31,7 @@ const merchantNotificationService = require('../../notification/merchant-notific
 const orderService = require('../../order/order.service');
 const orderConfidenceService = require('../order-confidence.service');
 const deliveryTrackingService = require('../../delivery/delivery-tracking.service');
+const RtoShieldService = require('../../rto-shield/rto-shield.service');
 const { OrderConfidence, CourierDispatch, Order, AuditLog } = require('../../entities');
 
 const app = require('../../../app');
@@ -306,11 +307,24 @@ describe('MANUAL_REVIEW orders', () => {
             .expect(200);
         await orderService.cancelOrder(owner.id, shop.id, order.id, 'customer changed mind');
 
-        expect(await bookForTest(await reload(order)))
-            .toMatchObject({ status: 'confidence_hold', reasons: expect.arrayContaining(['ORDER_CANCELLED']) });
+        // A cancelled order is not bookable: assertCourierOrderBookable throws
+        // ORDER_NOT_BOOKABLE (the same code this test asserts for re-approval
+        // below). It is not a structured confidence hold — the gate produces no
+        // ORDER_CANCELLED reason.
+        await expect(bookForTest(await reload(order)))
+            .rejects.toMatchObject({ status: 409, code: 'ORDER_NOT_BOOKABLE' });
         expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+        // Re-review through the API first (exactly what the client must do):
+        // cancellation changes the order fingerprint, so the persisted decision
+        // is re-evaluated and now carries the ORDER_CANCELLED block.
+        const refreshed = await request(app).get(`/api/order-confidence/orders/${order.id}`).set(auth(owner, shop));
+        expect(refreshed.status).toBe(200);
+        expect(refreshed.body.data.reasons.map((reason) => reason.code)).toContain('ORDER_CANCELLED');
+        expect(refreshed.body.data.bookable).toBe(false);
+        // With the current decision version in hand, the approve endpoint still
+        // refuses — the lifecycle block, not just a stale-version conflict.
         const again = await request(app).post(`/api/order-confidence/orders/${order.id}/approve`).set(auth(owner, shop))
-            .send({ decision_version: (await confidenceRow(order)).version, note: 'try again' });
+            .send({ decision_version: refreshed.body.data.decision_version, note: 'try again' });
         expect(again.status).toBe(409);
         expect(again.body.error.code).toBe('ORDER_NOT_BOOKABLE');
     });
@@ -337,7 +351,11 @@ describe('provider failure and retries', () => {
         const owner = await fx.makeMember(shop, 'owner');
         const order = await fx.makeOrder(shop, { customer_phone: '01710000010' });
         const first = await bookForTest(order);
-        await orderService.updateOrder(order.id, owner.id, shop.id, { note: 'late note after booking' });
+        // The note ships in the courier payload, so it is a courier-relevant
+        // field: post-dispatch edits are refused fail-closed, never applied
+        // silently, and never trigger a second booking.
+        await expect(orderService.updateOrder(order.id, owner.id, shop.id, { note: 'late note after booking' }))
+            .rejects.toMatchObject({ status: 409, code: 'COURIER_DISPATCH_ACTIVE' });
         const again = await bookForTest(await reload(order));
         expect(again.tracking_code).toBe(first.tracking_code);
         expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
@@ -378,6 +396,78 @@ describe('modes and tenancy', () => {
         const order = await fx.makeOrder(shop, { customer_phone: '01710000013', delivery_address: 'Mirpur' });
         expect((await bookForTest(order)).tracking_code).toBeTruthy();
         expect(await confidenceRow(order)).toBeNull();
+    });
+
+    test('mode off still holds a BLOCK COD phone signal for owner/admin review before courier mutation', async () => {
+        const shop = await fx.makeShop({ orderConfidenceMode: 'off' });
+        const owner = await fx.makeMember(shop, 'owner');
+        const phone = '01710000018';
+        await RtoShieldService.addToBlacklist({
+            phone, shop_id: shop.id, risk_score: 90, reason: 'test fixture high-risk signal',
+        });
+        const order = await fx.makeOrder(shop, {
+            customer_phone: phone,
+            order_status: 'confirmed',
+            payment_method: 'COD',
+            payment_status: 'unpaid',
+            delivery_address: 'House 10, Road 4, Mirpur, Dhaka',
+        });
+
+        const held = await bookForTest(order);
+        expect(held).toMatchObject({
+            blocked: true,
+            status: 'confidence_hold',
+            decision: 'MANUAL_REVIEW',
+            reasons: expect.arrayContaining(['RTO_SHIELD_BLOCK']),
+        });
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+        expect((await reload(order)).order_status).toBe('confirmed');
+        const row = await confidenceRow(order);
+        expect(row.mode).toBe('enforce');
+
+        const viewed = await request(app).get(`/api/order-confidence/orders/${order.id}`).set(auth(owner, shop));
+        expect(viewed.status).toBe(200);
+        expect(viewed.body.data).toMatchObject({ decision: 'MANUAL_REVIEW', required_action: 'APPROVE', mode: 'enforce' });
+        const approved = await request(app).post(`/api/order-confidence/orders/${order.id}/approve`)
+            .set(auth(owner, shop))
+            .send({ decision_version: viewed.body.data.decision_version, note: 'Reviewed source history' });
+        expect(approved.status).toBe(200);
+        expect((await bookForTest(await reload(order))).tracking_code).toBeTruthy();
+        expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
+    });
+
+    test('shadow mode still requires human verification for a VERIFY COD phone signal', async () => {
+        const shop = await fx.makeShop({ orderConfidenceMode: 'shadow' });
+        const staff = await fx.makeMember(shop, 'staff');
+        const phone = '01710000019';
+        await RtoShieldService.addToBlacklist({
+            phone, shop_id: shop.id, risk_score: 55, reason: 'test fixture verification signal',
+        });
+        const order = await fx.makeOrder(shop, {
+            customer_phone: phone,
+            order_status: 'confirmed',
+            payment_method: 'COD',
+            payment_status: 'unpaid',
+            delivery_address: 'House 10, Road 4, Mirpur, Dhaka',
+        });
+
+        const held = await bookForTest(order);
+        expect(held).toMatchObject({
+            blocked: true,
+            status: 'confidence_hold',
+            decision: 'VERIFY',
+            reasons: expect.arrayContaining(['RTO_SHIELD_VERIFY']),
+        });
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+        const viewed = await request(app).get(`/api/order-confidence/orders/${order.id}`).set(auth(staff, shop));
+        expect(viewed.status).toBe(200);
+        expect(viewed.body.data.mode).toBe('enforce');
+        const verified = await request(app).post(`/api/order-confidence/orders/${order.id}/verify`)
+            .set(auth(staff, shop))
+            .send({ decision_version: viewed.body.data.decision_version, method: 'PHONE_CALL' });
+        expect(verified.status).toBe(200);
+        expect((await bookForTest(await reload(order))).tracking_code).toBeTruthy();
+        expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
     });
 
     test('another shop cannot read, verify or approve an order', async () => {

@@ -344,7 +344,7 @@ jobs:
         working-directory: ./EasyMod-frontend
         env:
           PLAYWRIGHT_PORT: '4273'
-        run: npm run test:e2e -- tests/e2e/ai-reply-mode.spec.ts tests/e2e/shared-inbox.spec.ts tests/e2e/signup-terms.spec.ts tests/e2e/meta-oauth-contract.spec.ts tests/e2e/customer-intelligence.spec.ts --workers=1
+        run: npm run test:e2e -- tests/e2e/ai-reply-mode.spec.ts tests/e2e/shared-inbox.spec.ts tests/e2e/signup-terms.spec.ts tests/e2e/meta-oauth-contract.spec.ts tests/e2e/customer-intelligence.spec.ts tests/e2e/order-management.spec.ts --workers=1
 
       - name: Run V7 public funnel browser proof (synthetic API only)
         working-directory: ./EasyMod-frontend

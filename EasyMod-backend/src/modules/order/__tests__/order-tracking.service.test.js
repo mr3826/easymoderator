@@ -47,6 +47,10 @@ beforeEach(() => {
     webhookService.sendToCustomer.mockResolvedValue({ sent: true, channelType: 'messenger' });
 });
 
+afterEach(() => {
+    jest.restoreAllMocks();
+});
+
 describe('formatTrackingMessage', () => {
     it('includes the order number and tracking code', () => {
         const msg = trackingService.formatTrackingMessage(makeOrder(), { trackingNumber: 'SF-99' });
@@ -140,11 +144,13 @@ describe('sendTrackingNotification', () => {
     });
 
     it('does not throw when the send fails — a shipped order still ships', async () => {
+        const consoleLog = jest.spyOn(console, 'log').mockImplementation(() => {});
         webhookService.sendToCustomer.mockRejectedValue(new Error('Meta returned 500'));
 
         const result = await trackingService.sendTrackingNotification(makeOrder(), 'shop-1', {});
 
         expect(result).toMatchObject({ sent: false, reason: 'send_error' });
         expect(result.message).toContain('ORD-001');
+        expect(consoleLog).not.toHaveBeenCalled();
     });
 });

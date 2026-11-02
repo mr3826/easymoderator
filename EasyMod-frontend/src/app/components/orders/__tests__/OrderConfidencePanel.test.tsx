@@ -59,6 +59,20 @@ describe('OrderConfidencePanel', () => {
     await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
+  it('keeps confidence unavailable after a lookup error and retries explicitly', async () => {
+    api.getOrderConfidence
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockResolvedValueOnce(decision({ decision: 'READY', effective_state: 'READY', required_action: 'NONE' }));
+    render(<OrderConfidencePanel orderId="o-1" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not check this order/i);
+    expect(screen.queryByTestId('order-confidence-decision')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByTestId('order-confidence-decision')).toHaveTextContent('Ready to ship');
+    expect(api.getOrderConfidence).toHaveBeenCalledTimes(2);
+  });
+
   it('explains a VERIFY decision with its evidence and separates context', async () => {
     api.getOrderConfidence.mockResolvedValue(decision());
     render(<OrderConfidencePanel orderId="o-1" />);

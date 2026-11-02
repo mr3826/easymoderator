@@ -1,12 +1,8 @@
 /**
  * buildCourierOrderData — COD/collection amount tests
  *
- * Production defect: buildCourierOrderData always set cod_amount (and left
- * `total` as the sole fallback every provider adapter reads for cash to
- * collect) to the full order total, regardless of order.payment_status.
- * A customer who already paid online (bKash/Nagad/card -> payment_status
- * 'paid') was therefore still invoiced the full order total as
- * cash-on-delivery by every courier.
+ * Courier collection must be based on an explicit payment method, and an
+ * unknown partial COD balance must not fall back to the order face value.
  */
 
 // Mock entities before requiring service (mirrors order.service.test.js).
@@ -87,6 +83,7 @@ jest.mock('../../delivery/delivery.service', () => ({
 }));
 
 const { buildCourierOrderData } = require('../order.service');
+const { AppError } = require('../../../utils/AppError');
 
 const baseOrder = (overrides = {}) => ({
     id: 'order-1',
@@ -99,11 +96,20 @@ const baseOrder = (overrides = {}) => ({
         district: 'Dhaka',
     },
     total: 1500,
+    payment_method: 'COD',
     items: [{ name: 'Red Saree', quantity: 1 }],
     ...overrides,
 });
+const captureBuildError = (order) => {
+    try {
+        buildCourierOrderData(order);
+        return null;
+    } catch (error) {
+        return error;
+    }
+};
 
-describe('buildCourierOrderData — COD collection amount by payment status', () => {
+describe('buildCourierOrderData — safe courier collection amount', () => {
     test('prepaid order (payment_status: "paid") must not be re-collected as COD', () => {
         const order = baseOrder({ payment_status: 'paid' });
 
@@ -115,7 +121,7 @@ describe('buildCourierOrderData — COD collection amount by payment status', ()
         expect(orderData.total).toBe(1500);
     });
 
-    test('unpaid order still collects the full total as COD (no regression)', () => {
+    test('explicitly recorded unpaid COD collects the order total', () => {
         const order = baseOrder({ payment_status: 'unpaid' });
 
         const orderData = buildCourierOrderData(order);
@@ -125,22 +131,62 @@ describe('buildCourierOrderData — COD collection amount by payment status', ()
         expect(orderData.total).toBe(1500);
     });
 
-    test('order with no payment_status set defaults to full COD collection (legacy/manual orders)', () => {
+    test('ignores client-supplied collection amounts and derives COD from the order total', () => {
+        const orderData = buildCourierOrderData(baseOrder({ payment_status: 'unpaid' }), {
+            overrides: { cod_amount: 1, amount_to_collect: 2, total: 3 },
+        });
+
+        expect(orderData.cod_amount).toBe(1500);
+        expect(orderData.amount_to_collect).toBe(1500);
+        expect(orderData.total).toBe(1500);
+    });
+
+    test('explicit COD with no payment status is blocked instead of inferring the order total', () => {
         const order = baseOrder();
         delete order.payment_status;
 
-        const orderData = buildCourierOrderData(order);
-
-        expect(orderData.cod_amount).toBe(1500);
-        expect(orderData.amount_to_collect).toBe(1500);
+        const error = captureBuildError(order);
+        expect(error).toMatchObject({ status: 409, code: 'PAYMENT_STATUS_REQUIRED' });
+        expect(error.message).toContain('payment status is verified');
     });
 
-    test('partially_paid order collects the full total (no due-balance field exists on the Order model)', () => {
+    test('partial COD without an authoritative due amount is blocked with a recoverable error', () => {
         const order = baseOrder({ payment_status: 'partially_paid' });
+
+        const error = captureBuildError(order);
+        expect(error).toMatchObject({
+            status: 409,
+            code: 'COD_DUE_AMOUNT_UNKNOWN',
+        });
+        expect(error.message).toContain('COD balance is unavailable');
+    });
+
+    test('COD with an unknown payment status does not infer the full order total', () => {
+        const order = baseOrder({ payment_status: undefined });
+        const error = captureBuildError(order);
+
+        expect(error).toMatchObject({ status: 409, code: 'PAYMENT_STATUS_REQUIRED' });
+        expect(error.message).toContain('payment status is verified');
+    });
+
+    test('an explicit non-COD method is never recast as COD', () => {
+        const order = baseOrder({ payment_method: 'bKash', payment_status: 'unpaid' });
 
         const orderData = buildCourierOrderData(order);
 
-        expect(orderData.cod_amount).toBe(1500);
-        expect(orderData.amount_to_collect).toBe(1500);
+        expect(orderData.cod_amount).toBe(0);
+        expect(orderData.amount_to_collect).toBe(0);
+    });
+
+    test('missing payment method blocks unpaid courier booking instead of assuming COD', () => {
+        const order = baseOrder({ payment_status: 'unpaid' });
+        delete order.payment_method;
+
+        const error = captureBuildError(order);
+        expect(error).toMatchObject({
+            status: 409,
+            code: 'PAYMENT_METHOD_REQUIRED',
+        });
+        expect(error.message).toContain('Payment method is not recorded');
     });
 });

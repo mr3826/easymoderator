@@ -2,6 +2,12 @@ const orderService = require('./order.service');
 const returnService = require('./return.service');
 const { validationResult } = require('express-validator');
 const { AppError } = require('../../utils/AppError');
+const {
+    normalizeCourierProvider,
+    normalizeTrackingId,
+    resolveCourierTrackingIdentity,
+    trackingUnavailableMessage,
+} = require('../delivery/tracking-identity');
 
 const getIdempotencyKey = (req) => {
     const value = req.get?.('Idempotency-Key') ?? req.headers?.['idempotency-key'];
@@ -726,7 +732,7 @@ const bookCourier = async (req, res, next) => {
                     code: 'COURIER_SETUP_REQUIRED',
                     message: 'Courier setup is required before booking this order',
                     missing: result.missing || [],
-                    provider: result.provider || provider || null,
+                    provider: result.provider || null,
                 },
             });
         }
@@ -749,13 +755,27 @@ const bookCourier = async (req, res, next) => {
             });
         }
 
+        if (result?.blocked && result.status === 'tracking_unavailable') {
+            const code = result.code === 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE'
+                ? result.code
+                : 'COURIER_TRACKING_UNAVAILABLE';
+            return res.status(409).json({
+                success: false,
+                error: {
+                    code,
+                    message: trackingUnavailableMessage(code),
+                    provider: normalizeCourierProvider(result.provider),
+                },
+            });
+        }
+
         if (result?.blocked) {
             return res.status(409).json({
                 success: false,
                 error: {
                     code: 'COURIER_DISPATCH_INDETERMINATE',
-                    message: 'Courier booking needs reconciliation before it can be retried',
-                    provider: result.provider || provider || null,
+                    message: 'Do not book again until the existing courier dispatch has been reconciled.',
+                    provider: normalizeCourierProvider(result.provider),
                 },
             });
         }
@@ -770,12 +790,27 @@ const bookCourier = async (req, res, next) => {
             });
         }
 
+        const trackingIdentity = resolveCourierTrackingIdentity(
+            result?.provider,
+            result?.tracking_code,
+            result?.consignment_id,
+        );
+        if (!trackingIdentity) {
+            const code = normalizeCourierProvider(result?.provider)
+                ? 'COURIER_TRACKING_UNAVAILABLE'
+                : 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE';
+            return res.status(409).json({
+                success: false,
+                error: { code, message: trackingUnavailableMessage(code) },
+            });
+        }
+
         res.json({
             success: true,
             data: {
-                tracking_id: result.tracking_code || result.consignment_id,
-                consignment_id: result.consignment_id,
-                provider: result.provider || provider,
+                tracking_id: trackingIdentity.trackingNumber,
+                consignment_id: normalizeTrackingId(result.consignment_id),
+                provider: trackingIdentity.provider,
                 booked_at: new Date().toISOString(),
             }
         });

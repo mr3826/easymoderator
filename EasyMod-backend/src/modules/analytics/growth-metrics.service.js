@@ -23,7 +23,7 @@ const { cacheRedis } = require('../../config/redis');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVATION_CLAIM_TTL_SECONDS = 5 * 60;
 
-const writeFirstAiReply = async (shop, shopId, conversationId, actorUserId = null, transaction = null) => {
+const writeFirstAiReply = async (_shop, shopId, conversationId, actorUserId = null, transaction = null) => {
     const sequelize = Shop.sequelize;
     const activatedAt = new Date().toISOString();
 
@@ -57,11 +57,21 @@ const writeFirstAiReply = async (shop, shopId, conversationId, actorUserId = nul
     }
 
     // SQLite-backed development/tests do not have the production JSON
-    // operators. Keep the local fallback for those environments; production
-    // uses the atomic branch above.
+    // operators. Re-read under the caller's row lock before merging so local
+    // writes preserve settings committed since the initial activation check.
+    const query = {};
+    if (transaction) {
+        query.transaction = transaction;
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+    }
+    const currentShop = await Shop.findByPk(shopId, query);
+    if (!currentShop) return false;
+    const currentSettings = normalizeSettings(currentShop.settings);
+    if (currentSettings.first_ai_reply?.occurred_at) return false;
+
     const update = {
         settings: {
-            ...normalizeSettings(shop.settings),
+            ...currentSettings,
             first_ai_reply: {
                 occurred_at: activatedAt,
                 first_conversation_id: conversationId || null,
@@ -69,8 +79,8 @@ const writeFirstAiReply = async (shop, shopId, conversationId, actorUserId = nul
             },
         },
     };
-    if (transaction) await shop.update(update, { transaction });
-    else await shop.update(update);
+    if (transaction) await currentShop.update(update, { transaction });
+    else await currentShop.update(update);
     return true;
 };
 
@@ -114,9 +124,14 @@ const recordActivation = async (shopId, conversationId = null, actorUserId = nul
         if (!claimed) return;
 
         const recordWithinTransaction = async (transaction = null) => {
-            const shop = transaction
-                ? await Shop.findByPk(shopId, { transaction })
-                : await Shop.findByPk(shopId);
+            let shop;
+            if (transaction) {
+                const query = { transaction };
+                if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+                shop = await Shop.findByPk(shopId, query);
+            } else {
+                shop = await Shop.findByPk(shopId);
+            }
             if (!shop) return false;
 
             const settings = normalizeSettings(shop.settings);

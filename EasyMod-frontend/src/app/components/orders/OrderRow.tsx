@@ -1,16 +1,8 @@
-/**
- * OrderRow — Single order card row.
- * Extracted from Orders.tsx (D3 split).
- *
- * Dispatch button uses cardHover lift.
- * Status pills use semantic design tokens where possible.
- */
-import { motion } from "motion/react";
+/** Mobile task card and desktop worklist row for an order. */
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Order } from "@/api/types/order";
-import { cardHover } from "@/lib/motion";
-import { canBookCourierForOrder } from "./orderRules";
+import { canBookCourierForOrder, getExpectedCourierCollection } from "./orderRules";
 
 // Semantic token-aligned status pill classes
 const STATUS_CLASSES: Record<string, string> = {
@@ -32,90 +24,181 @@ interface OrderRowProps {
 
 export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDispatch }: OrderRowProps) {
   const { t } = useTranslation();
-
   const canDispatch = canBookCourierForOrder(order);
   const paymentLabel = order.payment_status
     ? t(`orders.paymentStatus.${order.payment_status.toLowerCase()}`, { defaultValue: order.payment_status })
-    : t("orders.paymentStatus.unknown", { defaultValue: "—" });
+    : t("orders.paymentStatus.unknown");
+  const deliveryStatus = order.delivery_status || order.fulfillment_status;
+  const deliveryLabel = deliveryStatus
+    ? t(`orders.deliveryStatus.${deliveryStatus.toLowerCase()}`, {
+      defaultValue: order.fulfillment_status
+        ? t(`orders.fulfillmentStatus.${deliveryStatus.toLowerCase()}`, { defaultValue: deliveryStatus })
+        : deliveryStatus,
+    })
+    : t("orders.deliveryStatus.unknown");
   const provider = order.delivery_provider?.trim().toLowerCase();
   const providerLabel = order.delivery_provider
     ? t(`orders.provider.${provider}`, { defaultValue: order.delivery_provider })
-    : t("orders.fulfillment.providerUnavailable", { defaultValue: "—" });
+    : t("orders.fulfillment.providerUnavailable");
+  const paymentMethod = order.payment_method || t("orders.paymentMethod.unknown");
+  const itemSummary = order.items.length > 0
+    ? order.items.slice(0, 2).map((item) => `${item.productName} × ${item.quantity}`).join(", ")
+      + (order.items.length > 2 ? ` ${t("orders.additionalItems", { count: order.items.length - 2 })}` : "")
+    : t("orders.row.noProduct");
+  const expectedCollection = getExpectedCourierCollection(order);
 
   return (
-    <article className="rounded-2xl border border-border bg-card p-4">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-base font-bold text-card-foreground font-bn">
-            {order.customerName}
-          </p>
-          <p className="text-xs text-muted-foreground">#{order.orderNumber || order.id}</p>
+    <article className="rounded-xl border border-border bg-card p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-card-foreground">{order.customerName}</p>
+          <p className="truncate text-xs text-muted-foreground">#{order.orderNumber || order.id}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</p>
         </div>
         <span
-          className={`rounded-full px-3 py-1 text-xs font-bold ${
+          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${
             STATUS_CLASSES[order.status] ?? "bg-muted text-muted-foreground"
           }`}
         >
-          {t(`orders.status.${order.status}`)}
+          {t(`orders.status.${order.status}`, { defaultValue: order.status })}
         </span>
       </div>
 
-      <p className="text-sm text-foreground">
-        {order.items[0]?.productName || t("orders.row.noProduct")} ×{" "}
-        {order.items[0]?.quantity || 1} ·{" "}
-        <span className="font-bold">{formatCurrency(order.total)}</span>
-      </p>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <p className="truncate text-xs text-muted-foreground">{itemSummary}</p>
+        <p className="shrink-0 text-sm font-bold text-foreground">{formatCurrency(order.total)}</p>
+      </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span className="rounded-md bg-muted px-2 py-1">📍 {order.channel}</span>
-        <span className="rounded-md bg-muted px-2 py-1">{t("orders.columns.payment")}: {paymentLabel}</span>
-        {order.payment_method && <span className="rounded-md bg-muted px-2 py-1">{order.payment_method}</span>}
-        <span className="rounded-md bg-muted px-2 py-1">{t("orders.columns.courier")}: {providerLabel}</span>
-        {order.delivery_tracking_code
-          ? <span className="max-w-full break-all rounded-md bg-muted px-2 py-1">{order.delivery_tracking_code}</span>
-          : <span className="rounded-md bg-muted px-2 py-1">{t("orders.fulfillment.trackingUnavailable")}</span>}
-        <span className="rounded-md bg-muted px-2 py-1">🕐 {formatDate(order.createdAt)}</span>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+        <p className="col-span-2 truncate text-muted-foreground">
+          <span className="font-semibold text-foreground">{t("orders.columns.channel")}:</span> {order.channel || t("orders.channelUnknown")}
+        </p>
+        <p className="rounded-md bg-muted px-2 py-1.5 text-muted-foreground">
+          <span className="font-semibold text-foreground">{t("orders.columns.payment")}:</span> {paymentLabel} · {paymentMethod}
+        </p>
+        <p className="rounded-md bg-muted px-2 py-1.5 text-muted-foreground">
+          <span className="font-semibold text-foreground">{t("orders.columns.delivery")}:</span> {deliveryLabel}
+        </p>
+        <p className="col-span-2 rounded-md bg-muted px-2 py-1.5 text-muted-foreground">
+          <span className="font-semibold text-foreground">{t("orders.columns.expectedCollection")}:</span>{" "}
+          {expectedCollection === null ? t("orders.expectedCollectionUnknown") : formatCurrency(expectedCollection)}
+        </p>
+        <p className="col-span-2 truncate text-muted-foreground">
+          {providerLabel}{order.delivery_tracking_code ? ` · ${order.delivery_tracking_code}` : ` · ${t("orders.fulfillment.trackingUnavailable")}`}
+        </p>
+        <p className="col-span-2 text-muted-foreground">{formatDate(order.createdAt)}</p>
         {order.rto_risk === "high" && (
-          <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-1 font-semibold text-red-700 font-bn">
-            <AlertTriangle className="h-3 w-3" /> {t("customers.highRTO")}
-          </span>
+          <p className="col-span-2 inline-flex items-center gap-1 font-semibold text-amber-800">
+            <AlertTriangle className="h-3 w-3" /> {t("orders.rtoSignal")}
+          </p>
         )}
       </div>
 
-      <div className={`mt-3 grid gap-2 ${canDispatch || order.delivery_tracking_code ? "grid-cols-2" : "grid-cols-1"}`}>
+      <div className={`mt-3 grid gap-2 ${canDispatch ? "grid-cols-2" : "grid-cols-1"}`}>
         <button
+          type="button"
           onClick={() => onViewDetail(order)}
-          className="min-h-12 rounded-xl border border-border bg-white px-3 text-sm font-semibold text-foreground hover:bg-muted transition-colors font-bn"
+          className="min-h-10 rounded-lg border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted"
         >
           {order.status === "draft" ? t("orders.row.reviewDraft") : t("orders.row.viewDetail")}
         </button>
-        {order.delivery_tracking_code ? (
+        {canDispatch && (
+          <button
+            type="button"
+            onClick={() => onDispatch(order)}
+            className="min-h-10 rounded-lg bg-primary px-3 text-sm font-bold text-primary-foreground"
+          >
+            {t("orders.row.dispatch")}
+          </button>
+        )}
+        {order.delivery_tracking_code && provider === "steadfast" && (
           <a
-            href={`https://steadfast.com.bd/track?trackingCode=${order.delivery_tracking_code}`}
+            href={`https://steadfast.com.bd/track?trackingCode=${encodeURIComponent(order.delivery_tracking_code)}`}
             target="_blank"
             rel="noreferrer"
-            className="min-h-12 rounded-xl bg-green-600 px-3 text-sm font-semibold text-white flex items-center justify-center hover:bg-green-700 transition-colors font-bn"
+            className="col-span-2 min-h-10 rounded-lg border border-border px-3 py-2 text-center text-sm font-semibold text-primary"
           >
             {t("orders.row.track")}
           </a>
-        ) : canDispatch ? (
-          <motion.button
-            onClick={() => onDispatch(order)}
-            whileHover={cardHover}
-            whileTap={{ scale: 0.96 }}
-            className="min-h-12 rounded-xl bg-primary px-3 text-sm font-bold text-primary-foreground shadow-sm font-bn"
-          >
-            {t("orders.row.dispatch")}
-          </motion.button>
-        ) : (
-          <button
-            onClick={() => onViewDetail(order)}
-            className="min-h-12 rounded-xl bg-muted px-3 text-sm font-semibold text-muted-foreground font-bn"
-          >
-            {t("orders.row.viewStatus")}
-          </button>
         )}
       </div>
     </article>
+  );
+}
+
+interface OrderTableRowProps extends OrderRowProps {
+  selected: boolean;
+}
+
+export function OrderTableRow({ order, selected, formatCurrency, formatDate, onViewDetail, onDispatch }: OrderTableRowProps) {
+  const { t } = useTranslation();
+  const canDispatch = canBookCourierForOrder(order);
+  const paymentLabel = order.payment_status
+    ? t(`orders.paymentStatus.${order.payment_status.toLowerCase()}`, { defaultValue: order.payment_status })
+    : t("orders.paymentStatus.unknown");
+  const deliveryStatus = order.delivery_status || order.fulfillment_status;
+  const deliveryLabel = deliveryStatus
+    ? t(`orders.deliveryStatus.${deliveryStatus.toLowerCase()}`, {
+      defaultValue: order.fulfillment_status
+        ? t(`orders.fulfillmentStatus.${deliveryStatus.toLowerCase()}`, { defaultValue: deliveryStatus })
+        : deliveryStatus,
+    })
+    : t("orders.deliveryStatus.unknown");
+  const provider = order.delivery_provider?.trim().toLowerCase();
+  const providerLabel = order.delivery_provider
+    ? t(`orders.provider.${provider}`, { defaultValue: order.delivery_provider })
+    : t("orders.fulfillment.providerUnavailable");
+  const itemSummary = order.items.length > 0
+    ? order.items.slice(0, 2).map((item) => `${item.productName} × ${item.quantity}`).join(", ")
+      + (order.items.length > 2 ? ` ${t("orders.additionalItems", { count: order.items.length - 2 })}` : "")
+    : t("orders.row.noProduct");
+  const expectedCollection = getExpectedCourierCollection(order);
+
+  return (
+    <tr className={selected ? "bg-primary/5" : "hover:bg-muted/30"}>
+      <td className="whitespace-nowrap px-3 py-3 align-top">
+        <button type="button" onClick={() => onViewDetail(order)} className="font-semibold text-primary hover:underline">
+          {order.orderNumber || order.id}
+        </button>
+        {order.rto_risk === "high" && <p className="mt-1 flex items-center gap-1 text-xs text-amber-800"><AlertTriangle className="h-3 w-3" />{t("orders.rtoSignal")}</p>}
+      </td>
+      <td className="max-w-[180px] px-3 py-3 align-top">
+        <p className="truncate font-medium text-foreground">{order.customerName}</p>
+        <p className="truncate text-xs text-muted-foreground">{order.customerPhone || "—"}</p>
+      </td>
+      <td className="max-w-[220px] px-3 py-3 align-top text-muted-foreground"><p className="truncate">{itemSummary}</p></td>
+      <td className="max-w-[110px] px-3 py-3 align-top text-muted-foreground">{order.channel || t("orders.channelUnknown")}</td>
+      <td className="whitespace-nowrap px-3 py-3 text-right align-top font-semibold">{formatCurrency(order.total)}</td>
+      <td className="px-3 py-3 align-top">
+        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${STATUS_CLASSES[order.status] ?? "bg-muted text-muted-foreground"}`}>
+          {t(`orders.status.${order.status}`, { defaultValue: order.status })}
+        </span>
+      </td>
+      <td className="max-w-[170px] px-3 py-3 align-top">
+        <p>{paymentLabel}</p>
+        <p className="truncate text-xs text-muted-foreground">{order.payment_method || t("orders.paymentMethod.unknown")}</p>
+      </td>
+      <td className="max-w-[200px] px-3 py-3 align-top">
+        <p>{deliveryLabel}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {order.delivery_tracking_code ? `${providerLabel} · ${order.delivery_tracking_code}` : providerLabel}
+        </p>
+      </td>
+      <td className="whitespace-nowrap px-3 py-3 align-top font-medium">
+        {expectedCollection === null ? t("orders.expectedCollectionUnknown") : formatCurrency(expectedCollection)}
+      </td>
+      <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-muted-foreground">{formatDate(order.createdAt)}</td>
+      <td className="whitespace-nowrap px-3 py-3 align-top">
+        <div className="flex gap-2">
+          <button type="button" onClick={() => onViewDetail(order)} className="rounded-md border border-border px-2 py-1.5 text-xs font-semibold hover:bg-muted">
+            {t("orders.row.viewDetail")}
+          </button>
+          {canDispatch && (
+            <button type="button" onClick={() => onDispatch(order)} className="rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground">
+              {t("orders.row.dispatch")}
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }

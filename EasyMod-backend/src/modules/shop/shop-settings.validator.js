@@ -286,6 +286,23 @@ const mergeAndSanitizeSettings = (currentSettings, patch) => {
 };
 
 /**
+ * General shop-settings writers may merge unrelated domains, but RTO network
+ * consent is owned exclusively by its audited owner/admin endpoint.
+ */
+const mergeSettingsPreservingRtoConsent = (currentSettings, patch) => {
+  const current = isPlainObject(currentSettings) ? currentSettings : {};
+  const safePatch = isPlainObject(patch) ? cloneSettingValue(patch) : {};
+  delete safePatch.rto_network;
+  const merged = mergeAndSanitizeSettings(current, safePatch);
+  if (Object.prototype.hasOwnProperty.call(current, 'rto_network')) {
+    merged.rto_network = cloneSettingValue(current.rto_network);
+  } else {
+    delete merged.rto_network;
+  }
+  return merged;
+};
+
+/**
  * Remove the reply-mode field from the general shop update surface. Reply mode
  * has its own audited API contract and must not be changed as a side effect of
  * updating unrelated shop settings.
@@ -314,6 +331,7 @@ module.exports = {
   validateSettings,
   sanitizeSettings,
   mergeAndSanitizeSettings,
+  mergeSettingsPreservingRtoConsent,
   stripAutomationModeFromShopUpdate,
   AI_SETTINGS_SCHEMA,
   BD_SETTINGS_SCHEMA,

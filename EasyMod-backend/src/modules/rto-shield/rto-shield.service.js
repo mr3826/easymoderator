@@ -1,7 +1,8 @@
 const { v4: uuidv4 } = require('uuid');
-const { Op, fn, col } = require('sequelize');
+const { Op } = require('sequelize');
 const RtoBlacklist = require('./rto-blacklist.entity');
 const CustomerDeliveryStats = require('./customer-delivery-stats.entity');
+const Shop = require('../shop/shop.entity');
 const { normalizePhone, validatePhone } = require('../../utils/validators/phone.validator');
 
 // Per-shop auto-flag threshold: ≥3 attempts AND ≥40% RTO rate (single shop's own list)
@@ -15,9 +16,10 @@ const AUTO_FLAG_RTO_RATE = 0.4;
 const NETWORK_MIN_SHOPS = 3;       // reported by at least this many distinct shops
 const NETWORK_MIN_ATTEMPTS = 5;    // across at least this many total delivery attempts
 const NETWORK_RTO_RATE = 0.5;      // and at least this aggregate RTO rate
+const AUTO_NETWORK_NOTE = 'Auto-promoted by cross-shop network aggregation';
 
 // Risk tiers surfaced to the order flow / inbox.
-const TIER_BLOCK = 'block';    // risk_score ≥ 70 → COD blocked at the order gate
+const TIER_BLOCK = 'block';    // risk_score ≥ 70 → high-risk manual review before booking
 const TIER_VERIFY = 'verify';  // 50–69, or a strong network signal → allow but verify manually
 const TIER_CLEAR = 'clear';    // safe
 const BLOCK_SCORE = 70;
@@ -47,43 +49,53 @@ class RtoShieldService {
   /**
    * Cross-shop ("network") delivery signal for a phone, aggregated over every shop's
    * per-shop CustomerDeliveryStats. This is the network moat: a phone that burns many
-   * shops carries a signal none of them could see alone. No PII beyond the phone is shared.
+   * shops carries a signal none of them could see alone. Requires trustedContext from
+   * a server-verified order/customer flow; raw phone endpoints cannot enumerate it.
+   * No PII beyond the phone is shared.
+   * @param {object} [options]
+   * @param {boolean} [options.trustedContext=false]
    * @returns {{ shops_reported:number, total_attempts:number, total_rtos:number, rto_rate:number }}
    */
-  static async getNetworkStats(phone, requestingShopId = null) {
+  static async getNetworkStats(phone, _requestingShopId = null, { transaction = null, trustedContext = false } = {}) {
     const normalized = normalizePhone(phone);
     if (!normalized || !isValidBdPhone(normalized)) {
       return { shops_reported: 0, total_attempts: 0, total_rtos: 0, rto_rate: 0 };
     }
 
-    // A tenant may only ask for a network signal for a phone already present
-    // in that tenant's own delivery history. This keeps the cross-shop
-    // aggregate useful for an active order while preventing arbitrary phone
-    // number probing through the authenticated endpoint.
-    if (requestingShopId) {
-      const localRecord = await CustomerDeliveryStats.findOne({
-        where: { phone: normalized, shop_id: requestingShopId },
-        attributes: ['id'],
-        raw: true,
-      });
-      if (!localRecord) {
-        return { shops_reported: 0, total_attempts: 0, total_rtos: 0, rto_rate: 0 };
-      }
+    // Only an order/customer context verified by the server may read the
+    // cross-shop aggregate. Local history is not sufficient authorization to
+    // turn this endpoint into a phone-enumeration oracle.
+    if (!trustedContext) return { shops_reported: 0, total_attempts: 0, total_rtos: 0, rto_rate: 0 };
+
+    const stats = await CustomerDeliveryStats.findAll({
+      where: { phone: normalized },
+      attributes: ['shop_id', 'delivery_attempts', 'rto_count'],
+      raw: true,
+      ...(transaction ? { transaction } : {}),
+    });
+    const shopIds = [...new Set(stats.map((row) => row.shop_id).filter(Boolean))];
+    if (!shopIds.length) {
+      return { shops_reported: 0, total_attempts: 0, total_rtos: 0, rto_rate: 0 };
     }
 
-    const row = await CustomerDeliveryStats.findOne({
-      where: { phone: normalized },
-      attributes: [
-        [fn('COUNT', fn('DISTINCT', col('shop_id'))), 'shops_reported'],
-        [fn('COALESCE', fn('SUM', col('delivery_attempts')), 0), 'total_attempts'],
-        [fn('COALESCE', fn('SUM', col('rto_count')), 0), 'total_rtos']
-      ],
-      raw: true
+    const shopRows = await Shop.findAll({
+      where: { id: { [Op.in]: shopIds } },
+      attributes: ['id', 'settings'],
+      raw: true,
+      ...(transaction ? { transaction } : {}),
     });
+    const contributingShopIds = new Set(shopRows.filter((shop) => {
+      let settings = shop.settings;
+      if (typeof settings === 'string') {
+        try { settings = JSON.parse(settings); } catch (_) { return false; }
+      }
+      return settings?.rto_network?.contribute !== false;
+    }).map((shop) => shop.id));
 
-    const shops = parseInt(row?.shops_reported, 10) || 0;
-    const attempts = parseInt(row?.total_attempts, 10) || 0;
-    const rtos = parseInt(row?.total_rtos, 10) || 0;
+    const contributingStats = stats.filter((row) => contributingShopIds.has(row.shop_id));
+    const shops = new Set(contributingStats.map((row) => row.shop_id)).size;
+    const attempts = contributingStats.reduce((sum, row) => sum + (parseInt(row.delivery_attempts, 10) || 0), 0);
+    const rtos = contributingStats.reduce((sum, row) => sum + (parseInt(row.rto_count, 10) || 0), 0);
     return {
       shops_reported: shops,
       total_attempts: attempts,
@@ -100,11 +112,13 @@ class RtoShieldService {
    * @param {string} phone
    * @param {string} shopId
    * @param {object} [opts]
+   * @param {boolean} [opts.trustedContext=false] - server-verified order/customer context
    * @param {boolean} [opts.enforceNetwork=true] - when false, ignore global/network signals
    *        (the shop has opted out of the shared network and relies only on its own list).
-   */
+  */
   static async checkPhone(phone, shopId, opts = {}) {
-    const enforceNetwork = opts.enforceNetwork !== false;
+    const trustedContext = opts.trustedContext === true;
+    const enforceNetwork = trustedContext && opts.enforceNetwork !== false;
     const normalized = normalizePhone(phone);
     const empty = { flagged: false, reason: null, risk_score: 0, tier: TIER_CLEAR, entry: null, network: null };
     if (!normalized || !isValidBdPhone(normalized)) {
@@ -116,7 +130,12 @@ class RtoShieldService {
       where: { phone: normalized, shop_id: shopId, reason: WHITELIST_REASON }
     });
     if (whitelisted) {
-      return { ...empty, network: enforceNetwork ? await RtoShieldService.getNetworkStats(normalized, shopId) : null };
+      return {
+        ...empty,
+        network: enforceNetwork
+          ? await RtoShieldService.getNetworkStats(normalized, shopId, { trustedContext: true })
+          : null,
+      };
     }
 
     // Blacklist entries: always the shop's own; global only when the shop enforces the network.
@@ -129,16 +148,34 @@ class RtoShieldService {
       order: [['risk_score', 'DESC']] // Return highest risk entry
     });
 
-    const network = enforceNetwork ? await RtoShieldService.getNetworkStats(normalized, shopId) : null;
-    const riskScore = entry ? entry.risk_score : 0;
+    const network = enforceNetwork
+      ? await RtoShieldService.getNetworkStats(normalized, shopId, { trustedContext: true })
+      : null;
+    const networkPromoted = network
+      && network.shops_reported >= NETWORK_MIN_SHOPS
+      && network.total_attempts >= NETWORK_MIN_ATTEMPTS
+      && network.rto_rate >= NETWORK_RTO_RATE;
+    if (entry?.is_global && entry.notes === AUTO_NETWORK_NOTE && networkPromoted) {
+      const liveRate = Math.min(1, Math.max(0, network.rto_rate));
+      entry.risk_score = Math.round(liveRate * 100);
+      entry.reason = `Cross-shop return history: ${network.shops_reported} contributing shops, ${Math.round(liveRate * 100)}% of ${network.total_attempts} deliveries`;
+    }
+    let activeEntry = entry?.is_global && entry.notes === AUTO_NETWORK_NOTE && !networkPromoted ? null : entry;
+    if (!activeEntry && entry?.is_global && entry.notes === AUTO_NETWORK_NOTE) {
+      activeEntry = await RtoBlacklist.findOne({
+        where: { phone: normalized, shop_id: shopId, reason: { [Op.ne]: WHITELIST_REASON } },
+        order: [['risk_score', 'DESC']],
+      });
+    }
+    const riskScore = activeEntry ? activeEntry.risk_score : 0;
     const tier = classifyTier(riskScore, network);
 
     return {
       flagged: riskScore >= BLOCK_SCORE,
-      reason: entry ? entry.reason : (tier === TIER_VERIFY ? 'Elevated cross-shop return history' : null),
+      reason: activeEntry ? activeEntry.reason : (tier === TIER_VERIFY ? 'Elevated cross-shop return history' : null),
       risk_score: riskScore,
       tier,
-      entry: entry ? entry.toJSON() : null,
+      entry: activeEntry ? activeEntry.toJSON() : null,
       network
     };
   }
@@ -201,13 +238,15 @@ class RtoShieldService {
   }
 
   /**
-   * List blacklist entries for a shop (own + global).
+   * List only this shop's entries. Shared global signals are for contextual
+   * order checks, not a tenant-enumerable list of other customers' phones.
    */
   static async listBlacklist({ shopId, page = 1, limit = 20, search }) {
     const offset = (page - 1) * limit;
     const where = {
       reason: { [Op.ne]: WHITELIST_REASON }, // hide appeal/whitelist sentinels from the blacklist view
-      [Op.or]: [{ is_global: true }, { shop_id: shopId }]
+      shop_id: shopId,
+      is_global: false,
     };
 
     if (search) {
@@ -232,48 +271,74 @@ class RtoShieldService {
     };
   }
 
-  /**
-   * Record a delivery outcome and auto-update risk score when RTO rate crosses threshold.
-   * Called by the delivery webhook handler for delivered / returned / failed_delivery statuses.
-   * @param {string} phone - Customer phone (any BD format)
-   * @param {string} shopId - Shop UUID
-   * @param {boolean} isRto - true = failed/returned; false = successful delivery
-   */
-  static async trackDeliveryOutcome(phone, shopId, isRto) {
+  /** Persist local outcome counters under the shop lock and caller transaction. */
+  static async recordLocalDeliveryOutcome(phone, shopId, isRto, { transaction } = {}) {
     const normalized = normalizePhone(phone);
     if (!normalized || !isValidBdPhone(normalized)) return;
+    if (!transaction) throw new Error('A transaction is required to record a delivery outcome');
+
+    // The shop row serializes first-row creation for this tenant. The active
+    // schema has no unique (phone, shop_id) index, so findOrCreate alone is not
+    // sufficient when separate orders finish concurrently.
+    const shop = await Shop.findByPk(shopId, {
+      attributes: ['id', 'settings'],
+      transaction,
+      lock: transaction.LOCK?.UPDATE,
+    });
+    if (!shop) throw new AppError('Shop not found', 404);
+    let settings = shop.settings;
+    if (typeof settings === 'string') {
+      try { settings = JSON.parse(settings); } catch (_) { settings = null; }
+    }
+    const contributesToNetwork = settings?.rto_network?.contribute !== false;
 
     const [stats] = await CustomerDeliveryStats.findOrCreate({
       where: { phone: normalized, shop_id: shopId },
-      defaults: { id: uuidv4(), phone: normalized, shop_id: shopId }
+      defaults: { id: uuidv4(), phone: normalized, shop_id: shopId },
+      transaction,
     });
 
-    const updates = { delivery_attempts: stats.delivery_attempts + 1 };
-    if (isRto) {
-      updates.rto_count = stats.rto_count + 1;
-      updates.last_rto_at = new Date();
-    } else {
-      updates.last_delivered_at = new Date();
-    }
-    await stats.update(updates);
+    const increments = { delivery_attempts: 1 };
+    if (isRto) increments.rto_count = 1;
+    await stats.increment(increments, { transaction });
+    await stats.update(isRto ? { last_rto_at: new Date() } : { last_delivered_at: new Date() }, { transaction });
+    await stats.reload({ transaction });
 
-    const newAttempts = updates.delivery_attempts;
-    const newRtoCount = isRto ? updates.rto_count : stats.rto_count;
-    const rtoRate = newRtoCount / newAttempts;
+    const localRows = await CustomerDeliveryStats.findAll({
+      where: { phone: normalized, shop_id: shopId },
+      attributes: ['delivery_attempts', 'rto_count'],
+      raw: true,
+      transaction,
+    });
+    const newAttempts = localRows.reduce((sum, row) => sum + (parseInt(row.delivery_attempts, 10) || 0), 0);
+    const newRtoCount = localRows.reduce((sum, row) => sum + (parseInt(row.rto_count, 10) || 0), 0);
 
-    if (newAttempts >= AUTO_FLAG_MIN_ATTEMPTS && rtoRate >= AUTO_FLAG_RTO_RATE) {
-      const riskScore = Math.min(100, Math.round(rtoRate * 100));
-      await RtoShieldService.addToBlacklist({
-        phone: normalized,
-        reason: `Auto-flagged: ${newRtoCount} RTOs out of ${newAttempts} deliveries`,
-        risk_score: riskScore,
-        is_global: false,
-        shop_id: shopId
-      });
-    }
+    return {
+      phone: normalized,
+      shopId,
+      isRto,
+      contributesToNetwork,
+      attempts: newAttempts,
+      rtoCount: newRtoCount,
+      rtoRate: newAttempts > 0 ? newRtoCount / newAttempts : 0,
+    };
+  }
 
-    // Cross-shop network promotion — only RTO outcomes can strengthen the shared signal.
-    if (isRto) {
+  static async processDeliveryOutcomeSignals(result) {
+    if (!result) return;
+    const { phone, shopId, isRto, contributesToNetwork, attempts, rtoCount, rtoRate } = result;
+    try {
+      if (attempts >= AUTO_FLAG_MIN_ATTEMPTS && rtoRate >= AUTO_FLAG_RTO_RATE) {
+        await RtoShieldService.addToBlacklist({
+          phone,
+          reason: `Auto-flagged: ${rtoCount} RTOs out of ${attempts} deliveries`,
+          risk_score: Math.min(100, Math.round(rtoRate * 100)),
+          shop_id: shopId,
+        });
+      }
+
+      // Keep the shop's own history, but only opted-in shops feed network signals.
+      if (isRto && contributesToNetwork) {
       try {
         require('../analytics/funnel-events.service')
           .recordInternalFunnelEvent({
@@ -282,15 +347,43 @@ class RtoShieldService {
             onceKey: shopId,
             oncePerEntity: true,
             metadata: {
-              delivery_attempts: newAttempts,
-              rto_count: newRtoCount,
+              delivery_attempts: attempts,
+              rto_count: rtoCount,
               risk_score: Math.min(100, Math.round(rtoRate * 100)),
             },
           })
           .catch(() => {});
-      } catch (_) { /* funnel logging must never block RTO tracking */ }
-      await RtoShieldService.evaluateNetworkPromotion(normalized).catch(() => {});
+        } catch (_) { /* funnel logging must never block RTO tracking */ }
+      }
+      if (contributesToNetwork) await RtoShieldService.evaluateNetworkPromotion(phone);
+    } catch (_) {
+      // Local counters are already committed atomically with the delivery
+      // transition. A signal refresh failure cannot lose or duplicate outcome data.
     }
+  }
+
+  /**
+   * Record a final delivery outcome. When called by the delivery transition,
+   * local stats share its transaction; duplicate terminal webhooks cannot retry
+   * or double-apply the same outcome. Failed delivery attempts never call this.
+   */
+  static async trackDeliveryOutcome(phone, shopId, isRto, { transaction = null } = {}) {
+    const database = Shop.sequelize || CustomerDeliveryStats.sequelize;
+    if (!transaction && (!database || typeof database.transaction !== 'function')) {
+      throw new Error('A database transaction is required to record a delivery outcome');
+    }
+    const result = transaction
+      ? await RtoShieldService.recordLocalDeliveryOutcome(phone, shopId, isRto, { transaction })
+      : await database.transaction((ownedTransaction) => (
+        RtoShieldService.recordLocalDeliveryOutcome(phone, shopId, isRto, { transaction: ownedTransaction })
+      ));
+
+    if (transaction?.afterCommit) {
+      transaction.afterCommit(() => RtoShieldService.processDeliveryOutcomeSignals(result));
+    } else if (!transaction) {
+      await RtoShieldService.processDeliveryOutcomeSignals(result);
+    }
+    return result;
   }
 
   /**
@@ -298,30 +391,39 @@ class RtoShieldService {
    * thresholds (≥N distinct shops, ≥M attempts, ≥rate), promote it to a GLOBAL fraud
    * signal visible to every shop. Idempotent: re-runs only refresh the existing global entry.
    */
-  static async evaluateNetworkPromotion(phone) {
+  static async evaluateNetworkPromotion(phone, { transaction = null } = {}) {
     const normalized = normalizePhone(phone);
     if (!normalized || !isValidBdPhone(normalized)) return null;
 
-    const network = await RtoShieldService.getNetworkStats(normalized);
-    if (network.shops_reported < NETWORK_MIN_SHOPS
-        || network.total_attempts < NETWORK_MIN_ATTEMPTS
-        || network.rto_rate < NETWORK_RTO_RATE) {
+    const network = await RtoShieldService.getNetworkStats(normalized, null, { transaction, trustedContext: true });
+    const existingGlobal = await RtoBlacklist.findOne({
+      where: { phone: normalized, is_global: true },
+      ...(transaction ? { transaction } : {}),
+    });
+    const qualifies = network.shops_reported >= NETWORK_MIN_SHOPS
+      && network.total_attempts >= NETWORK_MIN_ATTEMPTS
+      && network.rto_rate >= NETWORK_RTO_RATE;
+    if (!qualifies) {
+      if (existingGlobal?.notes === AUTO_NETWORK_NOTE) {
+        if (transaction) await existingGlobal.destroy({ transaction });
+        else await existingGlobal.destroy();
+      }
       return null;
     }
 
     const riskScore = Math.min(100, Math.round(network.rto_rate * 100));
     const reason = `Network fraud signal: ${network.total_rtos} RTOs / ${network.total_attempts} deliveries across ${network.shops_reported} shops`;
 
-    const existingGlobal = await RtoBlacklist.findOne({
-      where: { phone: normalized, is_global: true }
-    });
     if (existingGlobal) {
-      // Never downgrade a manually-set high score; keep the higher of the two.
-      await existingGlobal.update({ reason, risk_score: Math.max(existingGlobal.risk_score, riskScore) });
+      const nextRiskScore = existingGlobal.notes === AUTO_NETWORK_NOTE
+        ? riskScore
+        : Math.max(existingGlobal.risk_score, riskScore);
+      if (transaction) await existingGlobal.update({ reason, risk_score: nextRiskScore }, { transaction });
+      else await existingGlobal.update({ reason, risk_score: nextRiskScore });
       return existingGlobal;
     }
 
-    return RtoBlacklist.create({
+    const values = {
       id: uuidv4(),
       phone: normalized,
       reason,
@@ -329,8 +431,29 @@ class RtoShieldService {
       is_global: true,
       shop_id: null,
       added_by: null,
-      notes: 'Auto-promoted by cross-shop network aggregation'
+      notes: AUTO_NETWORK_NOTE
+    };
+    return transaction ? RtoBlacklist.create(values, { transaction }) : RtoBlacklist.create(values);
+  }
+
+  static async refreshNetworkSignalsForShop(shopId, { transaction = null } = {}) {
+    const rows = await CustomerDeliveryStats.findAll({
+      where: { shop_id: shopId },
+      attributes: ['phone'],
+      raw: true,
+      ...(transaction ? { transaction } : {}),
     });
+    const phones = [...new Set(rows.map((row) => normalizePhone(row.phone)).filter(Boolean))];
+    const failures = [];
+    for (const phone of phones) {
+      try {
+        await RtoShieldService.evaluateNetworkPromotion(phone, { transaction });
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length) throw failures[0];
+    return { evaluated: phones.length };
   }
 
   /**

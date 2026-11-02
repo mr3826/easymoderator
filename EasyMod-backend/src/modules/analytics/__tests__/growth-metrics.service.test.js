@@ -18,6 +18,7 @@ const mockShop = {
 const mockOrder = { count: jest.fn() };
 const mockCache = { set: jest.fn(), persist: jest.fn(), del: jest.fn() };
 const mockProspectService = { markLinkedShopsActivated: jest.fn() };
+const mockTransaction = { LOCK: { UPDATE: 'UPDATE' } };
 const { Op } = require('sequelize');
 
 jest.mock('src/modules/shop/shop.entity', () => mockShop);
@@ -30,6 +31,7 @@ const { recordActivation, getGrowthMetrics } = require('src/modules/analytics/gr
 describe('growth-metrics.service', () => {
     beforeEach(() => {
         jest.resetAllMocks();
+        delete mockShop.sequelize.transaction;
         mockShop.sequelize.getDialect.mockReturnValue('sqlite');
         mockProspectService.markLinkedShopsActivated.mockResolvedValue({ activated: 0 });
     });
@@ -56,6 +58,50 @@ describe('growth-metrics.service', () => {
             expect(arg.settings.businessInfo).toEqual({ x: 1 }); // not clobbered
             expect(mockCache.persist).toHaveBeenCalledWith('shop:first-ai-reply:shop-1');
             expect(mockCache.del).not.toHaveBeenCalled();
+        });
+
+        it('re-reads settings under the row lock before the non-Postgres merge', async () => {
+            mockCache.set.mockResolvedValue('OK');
+            mockCache.persist.mockResolvedValue(1);
+            const staleShop = {
+                settings: {
+                    rto_network: { contribute: true, enforce: false },
+                    merchant_preferences: { locale: 'en' },
+                },
+                update: jest.fn(),
+            };
+            const freshShop = {
+                settings: {
+                    rto_network: { contribute: false, enforce: true, version: 3 },
+                    merchant_preferences: { locale: 'bn', currency: 'BDT' },
+                    ai: { automation_mode: 'AUTO', llm_model: 'latest-model' },
+                },
+                update: jest.fn().mockResolvedValue(undefined),
+            };
+            mockShop.sequelize.transaction = jest.fn(async (callback) => callback(mockTransaction));
+            mockShop.findByPk
+                .mockResolvedValueOnce(staleShop)
+                .mockResolvedValueOnce(freshShop);
+
+            await recordActivation('shop-1', 'conv-merge', 'actor-1');
+
+            expect(mockShop.findByPk).toHaveBeenCalledTimes(2);
+            expect(mockShop.findByPk.mock.calls[1][1]).toEqual({
+                transaction: mockTransaction,
+                lock: 'UPDATE',
+            });
+            expect(staleShop.update).not.toHaveBeenCalled();
+            const saved = freshShop.update.mock.calls[0][0].settings;
+            expect(saved).toEqual(expect.objectContaining({
+                rto_network: freshShop.settings.rto_network,
+                merchant_preferences: freshShop.settings.merchant_preferences,
+                ai: freshShop.settings.ai,
+                first_ai_reply: expect.objectContaining({
+                    first_conversation_id: 'conv-merge',
+                    actor_user_id: 'actor-1',
+                }),
+            }));
+            expect(freshShop.update.mock.calls[0][1]).toEqual({ transaction: mockTransaction });
         });
 
         it('patches only the activation path with a conditional JSON update on Postgres', async () => {

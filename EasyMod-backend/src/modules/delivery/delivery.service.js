@@ -7,6 +7,11 @@ const { AppError } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
 const EventEmitter = require('events');
 
+const safeProviderErrorCode = (error) => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : 'COURIER_PROVIDER_ERROR';
+};
+
 const isPlainObject = (value) => (
     value !== null && typeof value === 'object' && !Array.isArray(value)
 );
@@ -757,7 +762,7 @@ class DeliveryService extends EventEmitter {
                 shop_id: shopId,
                 order_number: orderData.order_number,
                 provider: preferredProvider,
-                error: error.message,
+                error: safeProviderErrorCode(error),
                 timestamp: new Date()
             });
 
@@ -771,7 +776,7 @@ class DeliveryService extends EventEmitter {
                         orderId: orderData.id,
                         orderNumber: orderData.order_number,
                         provider: preferredProvider,
-                        error: error.message
+                        error: safeProviderErrorCode(error)
                     },
                     { dedupeKey: `${orderData.id || orderData.order_number || Date.now()}:${preferredProvider || 'active'}` }
                 ).catch(() => {});

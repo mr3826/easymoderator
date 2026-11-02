@@ -71,7 +71,7 @@ const customerDetail = {
 
 const heldOrder = (id: string, number: string) => ({
   id, order_number: number, customer_name: 'Salma', customer_phone: '01799999999', order_status: 'confirmed',
-  payment_status: 'pending', delivery_address: 'Mirpur 10', channel: 'messenger', total: 1500,
+  payment_status: 'pending', payment_method: 'cod', delivery_address: 'Mirpur 10', channel: 'messenger', total: 1500,
   items: [{ product_id: 'p-1', product_name: 'Black Panjabi', quantity: 1, price: 1500 }],
   createdAt: iso(-3600000), updatedAt: iso(-3600000),
 });
@@ -191,6 +191,12 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
     }
 
     // Orders page
+    if (path === '/api/payment/config' && method === 'GET') {
+      return route.fulfill(json([
+        { id: 'cod-config', gateway: 'cod', is_enabled: true },
+        { id: 'mfs-config', gateway: 'self-mfs', is_enabled: true },
+      ]));
+    }
     if (path === '/api/order' && method === 'GET') {
       return route.fulfill(json([heldOrder('ord-verify', 'ORD-200'), heldOrder('ord-review', 'ORD-201')]));
     }
@@ -232,8 +238,8 @@ async function signInAndOpen(page: Page, path: string) {
 }
 
 async function openOrder(page: Page, orderNumber: string) {
-  const card = page.locator('article').filter({ hasText: `#${orderNumber}` });
-  await card.getByRole('button', { name: 'View Details' }).click();
+  const row = page.getByRole('row').filter({ hasText: orderNumber });
+  await row.getByRole('button', { name: 'View Details' }).click();
   await expect(page.getByTestId('order-confidence-panel')).toBeVisible();
 }
 
@@ -284,6 +290,65 @@ test.describe('Customer 360 and Sales Opportunities', () => {
     await signInAndOpen(page, '/customers');
     await expect(page.getByRole('heading', { name: 'Customer Management' })).toBeVisible();
     await expect(page.getByTestId('customers-tab-opportunities')).toHaveCount(0);
+  });
+
+  test.describe('legacy worklist redesign', () => {
+    const legacyCustomers = [
+      { id: 'cust-1', name: 'Rahim Uddin', phone: '01711111111', email: null, channel_type: 'messenger', created_at: iso(-20 * 86400000), updated_at: iso(-3 * 86400000) },
+      { id: 'cust-2', name: 'Karim Hasan', phone: '01799999999', email: null, channel_type: 'manual', created_at: iso(-10 * 86400000), updated_at: iso(-2 * 86400000) },
+    ];
+
+    test.beforeEach(async ({ page }) => {
+      await setup(page, { pilot: false });
+      // Newest route wins: override the generic catch-all with the real
+      // legacy list contract (server-side search=NAME, separate phone filter).
+      await page.route(/\/api\/customer(\?.*)?$/, async (route) => {
+        const url = new URL(route.request().url());
+        const search = (url.searchParams.get('search') || '').toLowerCase();
+        const phone = url.searchParams.get('phone') || '';
+        let rows = legacyCustomers;
+        if (search) rows = rows.filter((c) => c.name.toLowerCase().includes(search));
+        if (phone) rows = rows.filter((c) => c.phone.includes(phone));
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: rows, total: rows.length, page: 1, pageSize: 20 }),
+        });
+      });
+    });
+
+    test('removes the summary cards and keeps search honest per supported field', async ({ page }) => {
+      await signInAndOpen(page, '/customers');
+      await expect(page.getByRole('heading', { name: 'Customer Management' })).toBeVisible();
+      await expect(page.getByText('Total Customers')).toHaveCount(0);
+      await expect(page.getByText('Channel Customers')).toHaveCount(0);
+      await expect(page.getByText('Manual Customers')).toHaveCount(0);
+      await expect(page.getByLabel('Search by name')).toBeVisible();
+      await expect(page.getByLabel('Search by phone')).toBeVisible();
+      // Network participation stays a secondary disclosure, not a hero panel.
+      await expect(page.getByRole('button', { name: /Fake-Order Shield Network/ })).toBeVisible();
+      const row = page.getByTestId('customer-table').locator('tr').filter({ hasText: 'Rahim Uddin' });
+      await expect(row).toContainText('01711111111');
+      await expect(row).not.toContainText('RTO');
+    });
+
+    test('phone search goes through the dedicated server parameter, not the name search', async ({ page }) => {
+      const request = page.waitForRequest((req) => /\/api\/customer\?[^]*phone=0179999/.test(req.url()));
+      await signInAndOpen(page, '/customers');
+      await page.getByLabel('Search by phone').fill('0179999');
+      await request;
+      await expect(page.getByTestId('customer-table').locator('tr').filter({ hasText: 'Karim Hasan' })).toBeVisible();
+      await expect(page.getByTestId('customer-table').locator('tr').filter({ hasText: 'Rahim Uddin' })).toHaveCount(0);
+    });
+
+    test('a profile links to the Orders worklist by that phone', async ({ page }) => {
+      await signInAndOpen(page, '/customers');
+      await page.getByTestId('customer-table').locator('tr').filter({ hasText: 'Rahim Uddin' })
+        .getByRole('button', { name: 'View' }).click();
+      await page.getByTestId('customer-view-orders').click();
+      await expect(page).toHaveURL(/\/orders\?search=01711111111/);
+      await expect(page.getByPlaceholder('Order number, customer name, or phone')).toHaveValue('01711111111');
+    });
   });
 });
 

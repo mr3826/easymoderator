@@ -42,6 +42,9 @@ jest.mock('../../notification/notification-events', () => ({
         COURIER_BOOKING_FAILED: 'courier_booking_failed',
     },
 }));
+jest.mock('../../order-confidence/order-confidence.service', () => ({
+    checkBookingGate: jest.fn().mockResolvedValue({ allowed: true, mode: 'off' }),
+}));
 
 const orderService = require('../order.service');
 const deliveryService = require('../../delivery/delivery.service');
@@ -56,6 +59,8 @@ const makeOrder = () => {
         order_number: 'ORD-REAL-0007',
         order_status: 'confirmed',
         fulfillment_status: 'unfulfilled',
+        payment_method: 'COD',
+        payment_status: 'unpaid',
         customer_name: 'Rahim',
         customer_phone: '01711111111',
         delivery_address: {
@@ -156,6 +161,67 @@ describe('canonical courier booking', () => {
         expect(order.fulfillment_status).toBe('unfulfilled');
     });
 
+    it('replays the persisted order provider when a tracking ID exists despite a different requested provider', async () => {
+        const order = makeOrder();
+        Object.assign(order, {
+            delivery_provider: 'pathao',
+            delivery_consignment_id: 'CN-EXISTING',
+            delivery_tracking_code: 'TRK-EXISTING',
+        });
+        mockCourierDispatch.findOne.mockResolvedValueOnce({
+            status: 'COMMITTED',
+            provider: null,
+            consignment_id: 'CN-EXISTING',
+            tracking_code: 'TRK-EXISTING',
+        });
+
+        const result = await orderService.bookForOrder(order, {
+            shopId: 'shop-1',
+            provider: 'steadfast',
+        });
+
+        expect(result).toMatchObject({
+            provider: 'pathao',
+            consignment_id: 'CN-EXISTING',
+            tracking_code: 'TRK-EXISTING',
+        });
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+    });
+
+    it('blocks a tracked replay without a persisted provider instead of echoing the requested provider', async () => {
+        const order = makeOrder();
+        Object.assign(order, {
+            delivery_provider: null,
+            delivery_consignment_id: 'CN-UNKNOWN-PROVIDER',
+            delivery_tracking_code: 'TRK-UNKNOWN-PROVIDER',
+        });
+        mockCourierDispatch.findOne.mockResolvedValueOnce({
+            status: 'COMMITTED',
+            provider: null,
+            consignment_id: 'CN-UNKNOWN-PROVIDER',
+            tracking_code: 'TRK-UNKNOWN-PROVIDER',
+        });
+
+        const result = await orderService.bookForOrder(order, {
+            shopId: 'shop-1',
+            provider: 'steadfast',
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            blocked: true,
+            status: 'tracking_unavailable',
+            code: 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
+            provider: null,
+        }));
+        expect(result).not.toMatchObject({ provider: 'steadfast' });
+        expect(result).not.toMatchObject({ provider: 'pathao' });
+
+        expect(deliveryService.resolveAiDefaultProvider).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+    });
+
     it('rejects an untrusted production courier mutation without provider or dispatch side effects', async () => {
         const previousNodeEnv = process.env.NODE_ENV;
         process.env.NODE_ENV = 'production';
@@ -198,17 +264,20 @@ describe('canonical courier booking', () => {
         mockCourierDispatch.findOrCreate.mockResolvedValueOnce([{
             id: 'dispatch-existing',
             status: 'PENDING',
+            provider: 'pathao',
             dispatch_owner_token: 'other-owner',
         }, false]);
 
         const result = await orderService.bookForOrder(order, {
             shopId: 'shop-1',
+            provider: 'steadfast',
             skipClaim: true,
             mutationAuthority: { kind: 'test' },
         });
 
         expect(result).toMatchObject({
             blocked: true,
+            provider: 'pathao',
             reason: 'existing_courier_dispatch_claim',
         });
         expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();

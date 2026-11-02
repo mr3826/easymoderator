@@ -56,6 +56,15 @@ jest.mock('../../entities', () => ({
         create: jest.fn(),
         destroy: jest.fn(),
         findAll: jest.fn(),
+        // Locked settings writes run through Shop.sequelize.transaction so the
+        // consent-preserving merge re-reads the row under the same lock.
+        sequelize: {
+            transaction: jest.fn(async (cb) => {
+                const t = { commit: jest.fn(), rollback: jest.fn() };
+                if (typeof cb === 'function') return cb(t);
+                return t;
+            }),
+        },
     },
     UserShop: {
         findAll: jest.fn(),
@@ -120,6 +129,9 @@ jest.mock('../shop-settings.validator', () => ({
     sanitizeSettings: jest.fn((s) => s),
     mergeAndSanitizeSettings: jest.fn((current, patch) => (
         jest.requireActual('../shop-settings.validator').mergeAndSanitizeSettings(current, patch)
+    )),
+    mergeSettingsPreservingRtoConsent: jest.fn((current, patch) => (
+        jest.requireActual('../shop-settings.validator').mergeSettingsPreservingRtoConsent(current, patch)
     )),
     stripAutomationModeFromShopUpdate: jest.fn((updateData) => (
         jest.requireActual('../shop-settings.validator').stripAutomationModeFromShopUpdate(updateData)
@@ -327,7 +339,7 @@ describe('POST /shop/update', () => {
             settings: expect.objectContaining({
                 ai: { automation_mode: 'DRAFT' },
             }),
-        }));
+        }), expect.anything());
     });
 });
 
@@ -397,7 +409,8 @@ describe('PUT /shop/platform-priority', () => {
                 is_active: true,
                 is_connected: true
             },
-            attributes: ['provider']
+            attributes: ['provider'],
+            transaction: expect.anything()
         });
     });
 

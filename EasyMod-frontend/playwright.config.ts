@@ -10,9 +10,11 @@ export default defineConfig({
   // (it needs the seeded lab servers): set PW_WALKTHROUGH=1 to include it.
   testIgnore: process.env.PW_WALKTHROUGH ? [] : /walkthrough/,
   fullyParallel: true,
-  timeout: 30_000,
+  // 30s left no headroom for shared-dev-server transform latency on slower
+  // local machines (journey 9 measured ~27s cold). Assertions unchanged.
+  timeout: 60_000,
   expect: {
-    timeout: 15_000,
+    timeout: 20_000,
   },
   retries: process.env.CI ? 2 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],

@@ -20,6 +20,11 @@ const { Op, Sequelize } = require('sequelize');
 const { safeFetchMedia } = require('../../utils/safe-media-fetch');
 const { normalizePhone } = require('../../utils/validators/phone.validator');
 
+const safeErrorCode = (error, fallback) => {
+    const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(code) ? code : fallback;
+};
+
 // ---------------------------------------------------------------------------
 // Sprint 4: Advanced fraud scoring
 // ---------------------------------------------------------------------------
@@ -119,7 +124,9 @@ const preprocessImage = async (imageUrl) => {
         });
         return `data:${mimeType};base64,${buffer.toString('base64')}`;
     } catch (err) {
-        console.warn('[SelfMfsHandler] Image download for preprocessing failed; rejecting screenshot:', err.message);
+        console.warn('[SelfMfsHandler] Image download for preprocessing failed; rejecting screenshot', {
+            errorCode: safeErrorCode(err, 'PAYMENT_SCREEN_DOWNLOAD_FAILED'),
+        });
         return null;
     }
 };
@@ -154,7 +161,9 @@ const ocrScreenshot = async (imageUrl) => {
         const json = rawJson.replace(/```(?:json)?/g, '').trim();
         return JSON.parse(json);
     } catch (err) {
-        console.error('[SelfMfsHandler] OCR failed:', err.message);
+        console.error('[SelfMfsHandler] OCR failed', {
+            errorCode: safeErrorCode(err, 'PAYMENT_SCREEN_OCR_FAILED'),
+        });
         return null;
     }
 };

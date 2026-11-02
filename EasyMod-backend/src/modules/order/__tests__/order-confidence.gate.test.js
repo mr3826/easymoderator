@@ -49,6 +49,8 @@ const makeOrder = (overrides = {}) => ({
     customer_phone: '01711111111',
     delivery_address: 'House 12, Road 5, Dhanmondi, Dhaka',
     total: '1250.00',
+    payment_method: 'COD',
+    payment_status: 'unpaid',
     items: [{ name: 'Red Saree', quantity: 1 }],
     update: jest.fn(async function update(values) { Object.assign(this, values); }),
     ...overrides,
@@ -84,6 +86,37 @@ beforeEach(() => {
 });
 
 describe('bookForOrder × Order Confidence gate', () => {
+    test.each([
+        ['completed order', { order_status: 'completed' }],
+        ['delivered order', { order_status: 'delivered' }],
+        ['shipped order', { order_status: 'shipped' }],
+        ['cancelled order', { order_status: 'cancelled' }],
+        ['fully fulfilled order', { fulfillment_status: 'fulfilled' }],
+        ['delivered courier state', { delivery_status: 'delivered' }],
+    ])('rejects a direct booking attempt for a %s before confidence or provider mutation', async (_label, state) => {
+        const terminal = makeOrder(state);
+
+        await expect(orderService.bookForOrder(terminal, {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        })).rejects.toMatchObject({ status: 409, code: 'ORDER_NOT_BOOKABLE' });
+
+        expect(orderConfidence.checkBookingGate).not.toHaveBeenCalled();
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test('rejects a terminal persisted order after loading the locked snapshot', async () => {
+        mockOrder.findOne.mockResolvedValue(makeOrder({ order_status: 'completed' }));
+
+        await expect(orderService.bookForOrder(makeOrder(), {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        })).rejects.toMatchObject({ status: 409, code: 'ORDER_NOT_BOOKABLE' });
+
+        expect(orderConfidence.checkBookingGate).not.toHaveBeenCalled();
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
     test('a held order never creates a dispatch claim and never reaches the provider', async () => {
         orderConfidence.checkBookingGate.mockResolvedValue(HELD);
 
@@ -131,6 +164,44 @@ describe('bookForOrder × Order Confidence gate', () => {
         expect(gateOrder).toBeLessThan(claimOrder);
     });
 
+    test('keeps processing orders eligible for courier booking', async () => {
+        orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'off' });
+        const processingOrder = makeOrder({ order_status: 'processing' });
+        mockOrder.findOne.mockResolvedValue(processingOrder);
+
+        await orderService.bookForOrder(processingOrder, {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        });
+
+        expect(orderConfidence.checkBookingGate).toHaveBeenCalledWith(
+            expect.objectContaining({ order_status: 'processing' }),
+            'shop-1',
+            { trigger: 'AUTO' },
+        );
+        expect(mockCourierDispatch.findOrCreate).toHaveBeenCalledTimes(1);
+        expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
+    });
+
+    test('provider payload is built from the locked order snapshot', async () => {
+        orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'enforce' });
+        mockOrder.findOne.mockResolvedValue(makeOrder({ customer_name: 'Locked snapshot name' }));
+
+        await orderService.bookForOrder(makeOrder({ customer_name: 'Initial name' }), {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        });
+
+        expect(orderConfidence.checkBookingGate).toHaveBeenCalledWith(
+            expect.objectContaining({ customer_name: 'Locked snapshot name' }),
+            'shop-1',
+            { trigger: 'AUTO' },
+        );
+        expect(deliveryService.createDeliveryOrder).toHaveBeenCalledWith('shop-1', expect.objectContaining({
+            customer_name: 'Locked snapshot name',
+            cod_amount: 1250,
+            amount_to_collect: 1250,
+        }), 'pathao');
+    });
+
     test('automatic callers default to trigger AUTO', async () => {
         orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'off' });
         await orderService.bookForOrder(makeOrder(), {
@@ -153,11 +224,138 @@ describe('bookForOrder × Order Confidence gate', () => {
     });
 
     test.each([
+        ['missing tracking reference', { consignment_id: null, tracking_code: null }, {}],
+        ['blank tracking reference', { consignment_id: '  ', tracking_code: '\t ' }, {
+            delivery_consignment_id: ' ', delivery_tracking_code: '\t ',
+        }],
+    ])('does not replay a committed dispatch with a %s', async (_label, claimIdentity, orderIdentity) => {
+        mockCourierDispatch.findOne.mockResolvedValue({
+            id: 'd-missing-tracking',
+            status: 'COMMITTED',
+            provider: 'pathao',
+            ...claimIdentity,
+        });
+
+        const result = await orderService.bookForOrder(makeOrder(orderIdentity), {
+            shopId: 'shop-1',
+            provider: 'steadfast',
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            blocked: true,
+            status: 'tracking_unavailable',
+            code: 'COURIER_TRACKING_UNAVAILABLE',
+            provider: 'pathao',
+        }));
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test('does not replace an invalid committed provider with the order or request provider', async () => {
+        mockCourierDispatch.findOne.mockResolvedValue({
+            id: 'd-invalid-provider',
+            status: 'COMMITTED',
+            provider: 'unregistered-courier',
+            consignment_id: 'CN-9',
+            tracking_code: 'TRK-9',
+        });
+
+        const result = await orderService.bookForOrder(makeOrder({ delivery_provider: 'pathao' }), {
+            shopId: 'shop-1',
+            provider: 'steadfast',
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            blocked: true,
+            status: 'tracking_unavailable',
+            code: 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
+            provider: null,
+        }));
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test('does not call a provider or create another claim when an existing claim is unresolved', async () => {
+        orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'off' });
+        mockCourierDispatch.findOrCreate.mockResolvedValue([{
+            id: 'd-existing',
+            status: 'PENDING',
+            provider: 'pathao',
+        }, false]);
+
+        const result = await orderService.bookForOrder(makeOrder(), {
+            shopId: 'shop-1',
+            provider: 'steadfast',
+            mutationAuthority: { kind: 'test' },
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            blocked: true,
+            status: 'dispatch_indeterminate',
+            reason: 'existing_courier_dispatch_claim',
+        }));
+        expect(mockCourierDispatch.findOrCreate).toHaveBeenCalledTimes(1);
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test.each(['completed', 'delivered'])(
+        'a committed dispatch remains recoverable after the order becomes %s',
+        async (order_status) => {
+            orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'off' });
+
+            await orderService.bookForOrder(makeOrder(), {
+                shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+            });
+            expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
+
+            const committed = {
+                id: 'd-1',
+                status: 'COMMITTED',
+                provider: 'pathao',
+                consignment_id: 'CN-9',
+                tracking_code: 'TRK-9',
+            };
+            mockCourierDispatch.findOne.mockResolvedValue(committed);
+
+            const result = await orderService.bookForOrder(makeOrder({
+                order_status,
+                fulfillment_status: 'fulfilled',
+                delivery_status: 'delivered',
+            }), { shopId: 'shop-1', mutationAuthority: { kind: 'test' } });
+
+            expect(result).toEqual(expect.objectContaining({
+                tracking_code: 'TRK-9',
+                consignment_id: 'CN-9',
+                provider: 'pathao',
+            }));
+            expect(mockCourierDispatch.findOrCreate).toHaveBeenCalledTimes(1);
+            expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    test('a terminal order without a committed claim returns 409 before provider mutation', async () => {
+        mockCourierDispatch.findOne.mockResolvedValue(null);
+        const terminal = makeOrder({ order_status: 'completed' });
+
+        await expect(orderService.bookForOrder(terminal, {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        })).rejects.toMatchObject({ status: 409, code: 'ORDER_NOT_BOOKABLE' });
+
+        expect(mockCourierDispatch.findOne).toHaveBeenCalledWith({
+            where: { shop_id: 'shop-1', order_id: 'order-1' },
+        });
+        expect(deliveryService.resolveAiDefaultProvider).not.toHaveBeenCalled();
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test.each([
         ['confidence mode off', { allowed: true, mode: 'off' }],
         ['verified in enforce mode', { allowed: true, mode: 'enforce', decision: 'READY' }],
     ])('a Draft order cannot reach courier booking with %s', async (_label, decision) => {
         orderConfidence.checkBookingGate.mockResolvedValue(decision);
         const draft = makeOrder({ order_status: 'draft' });
+        mockOrder.findOne.mockResolvedValueOnce(draft);
 
         await expect(orderService.bookForOrder(draft, {
             shopId: 'shop-1', mutationAuthority: { kind: 'test' },
@@ -179,17 +377,60 @@ describe('bookForOrder × Order Confidence gate', () => {
 
     test('rechecks persisted order status under a row lock before courier claim', async () => {
         orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'off' });
-        mockOrder.findOne.mockResolvedValue(makeOrder({ order_status: 'draft' }));
+        mockOrder.findOne
+            .mockResolvedValueOnce(makeOrder())
+            .mockResolvedValueOnce(makeOrder({ order_status: 'draft' }));
 
         await expect(orderService.bookForOrder(makeOrder({ order_status: 'confirmed' }), {
             shopId: 'shop-1', mutationAuthority: { kind: 'test' },
         }))
-            .rejects.toMatchObject({ status: 409, code: 'DRAFT_ORDER_NOT_BOOKABLE' });
+            .rejects.toMatchObject({ status: 409, code: 'ORDER_CHANGED_BEFORE_COURIER_CLAIM' });
 
         expect(mockOrder.findOne).toHaveBeenCalledWith(expect.objectContaining({
             where: { id: 'order-1', shop_id: 'shop-1' },
             lock: 'UPDATE',
         }));
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        ['payment method', { payment_method: 'bkash' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
+        ['payment status', { payment_status: 'paid' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
+        ['total', { total: '1500.00' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
+        ['processing status', { order_status: 'processing' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
+        ['draft status', { order_status: 'draft' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
+        ['cancelled status', { order_status: 'cancelled' }, 'ORDER_NOT_BOOKABLE'],
+        ['refunded status', { order_status: 'refunded' }, 'ORDER_NOT_BOOKABLE'],
+    ])('returns a conflict when the %s changes after review and before claim', async (_label, changes, code) => {
+        orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'enforce' });
+        mockOrder.findOne
+            .mockResolvedValueOnce(makeOrder())
+            .mockResolvedValueOnce(makeOrder(changes));
+
+        await expect(orderService.bookForOrder(makeOrder(), {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' }, throwOnError: false,
+        })).rejects.toMatchObject({
+            status: 409,
+            code,
+        });
+
+        expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test('returns a conflict when the confidence gate reports a stale snapshot', async () => {
+        orderConfidence.checkBookingGate.mockResolvedValue({
+            allowed: false,
+            mode: 'enforce',
+            snapshotStale: true,
+            reasons: [{ code: 'ORDER_CHANGED', severity: 'VERIFY' }],
+        });
+
+        await expect(orderService.bookForOrder(makeOrder(), {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        })).rejects.toMatchObject({ status: 409, code: 'ORDER_CHANGED_BEFORE_COURIER_CLAIM' });
+
         expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
         expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
     });
