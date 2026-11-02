@@ -7,8 +7,11 @@
 
 const {
     AuditLog,
+    CourierDispatch,
+    DeliveryTracking,
     Order,
     OwnerNotification,
+    PaymentConfig,
     PaymentTransaction,
     Shop,
     User,
@@ -18,6 +21,71 @@ const { sequelize } = require('../../utils/database/database-setup');
 const { AppError } = require('../../utils/AppError');
 const { sendEmail } = require('../../utils/email.service');
 const { createLogger } = require('../../utils/structured-logger');
+const { _private: { normalizeGateway } } = require('../payment/payment.service');
+
+const TERMINAL_ORDER_STATUSES = new Set([
+    'completed', 'delivered', 'shipped', 'fulfilled', 'cancelled', 'refunded', 'returned', 'partial_returned',
+]);
+const COD_PAYMENT_METHODS = new Set(['cod', 'cash', 'cash_on_delivery']);
+
+const isCodPaymentMethod = (paymentMethod) => COD_PAYMENT_METHODS.has(
+    String(paymentMethod || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+);
+
+const canonicalPaymentGateway = (gateway) => {
+    if (typeof gateway !== 'string' || !gateway.trim()) return null;
+    const normalized = normalizeGateway(gateway.trim());
+    if (typeof normalized !== 'string' || !normalized.trim()) return null;
+    const canonical = normalized.trim().toLowerCase();
+    return isCodPaymentMethod(canonical) ? 'cod' : canonical;
+};
+
+const resolveApprovalPaymentGateway = async (order, shopId, transaction) => {
+    const paymentMethodAlias = String(order.payment_method || '').trim();
+    const aliasGateway = paymentMethodAlias ? canonicalPaymentGateway(paymentMethodAlias) : null;
+    if (!order.payment_method_id) return aliasGateway;
+    if (!PaymentConfig || typeof PaymentConfig.findOne !== 'function') {
+        throw new AppError(
+            'The order payment method cannot be verified for this shop.',
+            503,
+            'PAYMENT_METHOD_CONFIGURATION_UNAVAILABLE',
+        );
+    }
+
+    let paymentConfig;
+    try {
+        const query = {
+            where: { id: order.payment_method_id, shop_id: shopId, is_enabled: true },
+            attributes: ['id', 'gateway', 'is_enabled'],
+            transaction,
+        };
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+        paymentConfig = await PaymentConfig.findOne(query);
+    } catch (_) {
+        throw new AppError(
+            'The order payment method cannot be verified for this shop.',
+            503,
+            'PAYMENT_METHOD_CONFIGURATION_UNAVAILABLE',
+        );
+    }
+
+    const configuredGateway = canonicalPaymentGateway(paymentConfig?.gateway);
+    if (!paymentConfig || paymentConfig.is_enabled !== true || !configuredGateway) {
+        throw new AppError(
+            'The order payment method is not available for this shop.',
+            409,
+            'PAYMENT_METHOD_NOT_AVAILABLE',
+        );
+    }
+    if (paymentMethodAlias && (!aliasGateway || aliasGateway !== configuredGateway)) {
+        throw new AppError(
+            'The order payment method does not match its shop configuration.',
+            409,
+            'PAYMENT_METHOD_CONFIGURATION_MISMATCH',
+        );
+    }
+    return configuredGateway;
+};
 
 class OwnerNotificationService {
     constructor() {
@@ -133,6 +201,55 @@ class OwnerNotificationService {
                     lock: transaction.LOCK.UPDATE,
                 });
                 if (!order) throw new AppError('Order not found for this shop', 404);
+                const orderStatus = String(order.order_status || '').trim().toLowerCase();
+                const fulfillmentStatus = String(order.fulfillment_status || '').trim().toLowerCase();
+                const deliveryStatus = String(order.delivery_status || '').trim().toLowerCase();
+                if (TERMINAL_ORDER_STATUSES.has(orderStatus)
+                    || TERMINAL_ORDER_STATUSES.has(fulfillmentStatus)
+                    || TERMINAL_ORDER_STATUSES.has(deliveryStatus)
+                    || order.delivered_at) {
+                    throw new AppError(
+                        'Payment confirmation cannot change an order that is already terminal.',
+                        409,
+                        'ORDER_LIFECYCLE_TERMINAL',
+                    );
+                }
+                if (response === 'approve') {
+                    const paymentGateway = await resolveApprovalPaymentGateway(
+                        order,
+                        notification.shop_id,
+                        transaction,
+                    );
+                    if (isCodPaymentMethod(paymentGateway)) {
+                        throw new AppError(
+                            'COD settlement must use the owner-confirmed COD payment action after full delivery.',
+                            409,
+                            'COD_SETTLEMENT_PATH_REQUIRED',
+                        );
+                    }
+                }
+                const courierDispatch = CourierDispatch && typeof CourierDispatch.findOne === 'function'
+                    ? await CourierDispatch.findOne({
+                        where: { order_id: order.id, shop_id: notification.shop_id },
+                        transaction,
+                        lock: transaction.LOCK.UPDATE,
+                    })
+                    : null;
+                const deliveryTracking = DeliveryTracking && typeof DeliveryTracking.findOne === 'function'
+                    ? await DeliveryTracking.findOne({
+                        where: { order_id: order.id },
+                        transaction,
+                        lock: transaction.LOCK.UPDATE,
+                    })
+                    : null;
+                if (courierDispatch || deliveryTracking || order.delivery_consignment_id
+                    || order.delivery_tracking_code || order.delivery_dispatched_at) {
+                    throw new AppError(
+                        'Payment confirmation cannot change order lifecycle after a courier claim. Reconcile payment and courier state through merchant recovery.',
+                        409,
+                        'COURIER_DISPATCH_RECONCILIATION_REQUIRED',
+                    );
+                }
                 const paymentTransaction = await PaymentTransaction.findOne({
                     where: {
                         order_id: order.id,
@@ -158,10 +275,15 @@ class OwnerNotificationService {
                         verified_at: new Date(),
                     }, { transaction });
                 } else {
-                    await order.update({
-                        payment_status: 'failed',
-                        order_status: 'cancelled',
-                    }, { transaction });
+                    const { cancelOrderInTransaction } = require('../order/order.service');
+                    const cancelledOrder = await cancelOrderInTransaction(
+                        ownerInfo.userId,
+                        notification.shop_id,
+                        order.id,
+                        'Payment confirmation rejected',
+                        transaction,
+                    );
+                    await cancelledOrder.update({ payment_status: 'failed' }, { transaction });
                     await paymentTransaction.update({ status: 'rejected' }, { transaction });
                 }
                 await notification.update({
