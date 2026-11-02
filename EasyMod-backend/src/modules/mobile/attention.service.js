@@ -23,6 +23,7 @@ const { Order, Product, CourierDispatch, Message } = require('../entities');
 const conversationService = require('../conversation/conversation.service');
 const courierReadinessService = require('../delivery/courier-readiness.service');
 const RtoShieldService = require('../rto-shield/rto-shield.service');
+const { getNetworkSettings } = require('../rto-shield/rto-network-settings');
 const { hoursSince, readTimestamp } = require('./mobile-day-window.util');
 
 // D6: getConversations has no server-side "needs reply / open" filter, so
@@ -311,9 +312,19 @@ async function collectRtoVerifyOrders(shopId, now) {
     });
     if (!pendingOrders.length) return [];
 
+    let enforceNetwork = false;
+    try {
+        enforceNetwork = (await getNetworkSettings(shopId)).enforce === true;
+    } catch (_) {
+        // Shared signals are not consumed when this shop's enforcement setting is unavailable.
+    }
+
     const uniquePhones = [...new Set(pendingOrders.map((order) => order.customer_phone).filter(Boolean))];
     const checks = await Promise.all(
-        uniquePhones.map((phone) => RtoShieldService.checkPhone(phone, shopId)),
+        uniquePhones.map((phone) => RtoShieldService.checkPhone(phone, shopId, {
+            trustedContext: true,
+            enforceNetwork,
+        })),
     );
     const resultByPhone = new Map(uniquePhones.map((phone, index) => [phone, checks[index]]));
 

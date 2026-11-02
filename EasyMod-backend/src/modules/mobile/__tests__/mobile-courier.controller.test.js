@@ -4,6 +4,11 @@ jest.mock('../../order/order.service', () => ({
     bookForOrder: jest.fn(),
 }));
 
+const mockRedisClient = {
+    set: jest.fn().mockResolvedValue('OK'),
+    get: jest.fn().mockResolvedValue(null),
+};
+
 jest.mock('../../entities', () => ({
     AuditLog: {
         create: jest.fn().mockResolvedValue({ id: 'audit-courier-1' }),
@@ -18,10 +23,7 @@ jest.mock('../../entities', () => ({
 }));
 
 jest.mock('../../../utils/redis-client', () => ({
-    getRedisClient: jest.fn(() => ({
-        set: jest.fn().mockResolvedValue('OK'),
-        get: jest.fn().mockResolvedValue(null),
-    })),
+    getRedisClient: jest.fn(() => mockRedisClient),
 }));
 
 const orderService = require('../../order/order.service');
@@ -38,6 +40,7 @@ function response() {
 describe('mobile Courier & Problem Center controller', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        mockRedisClient.set.mockResolvedValue('OK');
     });
 
     describe('bookCourier', () => {
@@ -115,6 +118,46 @@ describe('mobile Courier & Problem Center controller', () => {
                     tracking_id: 'SF-TRK-999',
                 }),
             }));
+        });
+
+        test('routes an idempotent tracking replay through canonical booking without relabeling its provider', async () => {
+            const res = response();
+            const mockOrder = {
+                id: 'ord-101',
+                shop_id: 'shop-1',
+                order_number: 'ORD-101',
+                delivery_provider: 'pathao',
+                delivery_consignment_id: 'CN-101',
+                delivery_tracking_code: 'TRK-101',
+            };
+            Order.findOne.mockResolvedValue(mockOrder);
+            mockRedisClient.set.mockResolvedValue(null);
+            orderService.bookForOrder.mockResolvedValue({
+                provider: 'pathao',
+                consignment_id: 'CN-101',
+                tracking_code: 'TRK-101',
+                status: 'booked',
+            });
+
+            await controller.bookCourier({
+                params: { orderId: 'ord-101' },
+                shop: { id: 'shop-1' },
+                user: { userId: 'user-1' },
+                body: { provider: 'steadfast' },
+                headers: { 'x-idempotency-key': 'idem-replay-101' },
+            }, res, jest.fn());
+
+            expect(orderService.bookForOrder).toHaveBeenCalledWith(mockOrder, expect.objectContaining({
+                provider: 'steadfast',
+            }));
+            expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({
+                    provider: 'pathao',
+                    tracking_id: 'TRK-101',
+                    idempotencyReplay: true,
+                }),
+            }));
+            expect(AuditLog.create).not.toHaveBeenCalled();
         });
 
         test('returns 409 COURIER_SETUP_REQUIRED when provider setup is missing', async () => {
@@ -196,6 +239,33 @@ describe('mobile Courier & Problem Center controller', () => {
                     message: 'Invalid delivery address postal code',
                 }),
             }));
+        });
+
+        test('does not report a successful booking when tracking identity is blank', async () => {
+            const res = response();
+            Order.findOne.mockResolvedValue({ id: 'ord-blank-tracking', shop_id: 'shop-1' });
+            orderService.bookForOrder.mockResolvedValue({
+                provider: 'pathao',
+                tracking_code: '  ',
+                consignment_id: null,
+            });
+
+            await controller.bookCourier({
+                params: { orderId: 'ord-blank-tracking' },
+                shop: { id: 'shop-1' },
+                user: { userId: 'user-1' },
+                body: { provider: 'steadfast' },
+            }, res, jest.fn());
+
+            expect(res.status).toHaveBeenCalledWith(409);
+            expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+                success: false,
+                error: expect.objectContaining({
+                    code: 'COURIER_TRACKING_UNAVAILABLE',
+                    message: expect.stringContaining('Do not book again'),
+                }),
+            }));
+            expect(AuditLog.create).not.toHaveBeenCalled();
         });
     });
 
@@ -362,6 +432,8 @@ describe('mobile Courier & Problem Center controller', () => {
                 delivery_status: 'booked',
             });
             DeliveryTracking.findOne.mockResolvedValue({
+                provider: 'pathao',
+                tracking_number: 'PT-UNKNOWN-PAYMENT',
                 current_status: 'booked',
                 status_history: [{ status: 'booked', timestamp: new Date().toISOString() }],
             });
@@ -392,6 +464,100 @@ describe('mobile Courier & Problem Center controller', () => {
 
             expect(thrownError).toBeTruthy();
             expect(thrownError.status).toBe(404);
+        });
+
+        test('returns a safe unavailable error when the tracking-store read fails', async () => {
+            const res = response();
+            Order.findOne.mockResolvedValue({
+                id: 'ord-tracking-read-error',
+                shop_id: 'shop-1',
+                order_number: 'ORD-READ-ERROR',
+                delivery_provider: 'pathao',
+                delivery_tracking_code: 'PERSISTED-TRACKING',
+                delivery_status: 'in_transit',
+            });
+            DeliveryTracking.findOne.mockRejectedValue(new Error('database connection details'));
+            let thrownError = null;
+
+            await controller.getDeliveryTracking({
+                params: { orderId: 'ord-tracking-read-error' },
+                shop: { id: 'shop-1' },
+            }, res, (error) => { thrownError = error; });
+
+            expect(thrownError).toMatchObject({
+                status: 503,
+                code: 'COURIER_TRACKING_READ_UNAVAILABLE',
+                message: expect.not.stringContaining('database connection details'),
+            });
+            expect(res.json).not.toHaveBeenCalled();
+        });
+
+        test('uses only complete persisted order identity when the tracking row is absent', async () => {
+            const res = response();
+            Order.findOne.mockResolvedValue({
+                id: 'ord-persisted-fallback',
+                shop_id: 'shop-1',
+                order_number: 'ORD-FALLBACK',
+                delivery_provider: ' PATHAO ',
+                delivery_consignment_id: ' CN-FALLBACK ',
+                delivery_tracking_code: ' PT-FALLBACK ',
+                delivery_status: 'in_transit',
+            });
+            DeliveryTracking.findOne.mockResolvedValue(null);
+
+            await controller.getDeliveryTracking({
+                params: { orderId: 'ord-persisted-fallback' },
+                shop: { id: 'shop-1' },
+                query: { provider: 'steadfast', tracking_number: 'STALE-CALLER-VALUE' },
+            }, res, jest.fn());
+
+            expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+                success: true,
+                data: expect.objectContaining({
+                    provider: 'pathao',
+                    tracking_number: 'PT-FALLBACK',
+                    consignment_id: 'CN-FALLBACK',
+                    current_status: 'in_transit',
+                    status_history: [],
+                }),
+            }));
+            expect(JSON.stringify(res.json.mock.calls)).not.toContain('STALE-CALLER-VALUE');
+        });
+
+        test.each([
+            ['invalid provider', {
+                delivery_provider: 'unregistered-courier',
+                delivery_tracking_code: 'TRK-INVALID-PROVIDER',
+                delivery_status: 'in_transit',
+            }],
+            ['missing tracking reference', {
+                delivery_provider: 'pathao',
+                delivery_tracking_code: '  ',
+                delivery_consignment_id: null,
+                delivery_status: 'booked',
+            }],
+        ])('rejects %s in denormalized fallback instead of returning stale identity', async (_label, fields) => {
+            const res = response();
+            Order.findOne.mockResolvedValue({
+                id: 'ord-invalid-fallback',
+                shop_id: 'shop-1',
+                order_number: 'ORD-INVALID-FALLBACK',
+                ...fields,
+            });
+            DeliveryTracking.findOne.mockResolvedValue(null);
+            let thrownError = null;
+
+            await controller.getDeliveryTracking({
+                params: { orderId: 'ord-invalid-fallback' },
+                shop: { id: 'shop-1' },
+                query: { provider: 'steadfast', tracking_number: 'CALLER-TRACKING' },
+            }, res, (error) => { thrownError = error; });
+
+            expect(thrownError).toMatchObject({
+                status: 503,
+                code: 'COURIER_TRACKING_UNAVAILABLE',
+            });
+            expect(res.json).not.toHaveBeenCalled();
         });
     });
 });
