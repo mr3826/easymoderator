@@ -678,6 +678,38 @@ const getReturnRequests = async (req, res, next) => {
     }
 };
 
+/**
+ * Read-only pre-flight for the booking modal.
+ *
+ * Answers "can this courier reach this order's address?" without booking
+ * anything. UNCERTAIN and CHECK_UNAVAILABLE are valid answers: the UI shows
+ * them honestly instead of pretending the destination is verified.
+ */
+const getCourierEligibility = async (req, res, next) => {
+    try {
+        const { orderId } = req.params;
+        const shopId = req.user?.shopId;
+        if (!shopId) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Shop ID required' } });
+        }
+
+        const { Order } = require('../entities');
+        const order = await Order.findOne({ where: { id: orderId, shop_id: shopId } });
+        if (!order) {
+            return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
+        }
+
+        const eligibility = await orderService.getCourierDestinationEligibility(order, {
+            shopId,
+            provider: req.query.provider || null,
+        });
+
+        res.status(200).json({ success: true, data: eligibility });
+    } catch (error) {
+        next(error);
+    }
+};
+
 const bookCourier = async (req, res, next) => {
     try {
         const { orderId } = req.params;
@@ -861,5 +893,6 @@ module.exports = {
     deleteOrder,
     createDraftOrder,
     confirmOrder,
+    getCourierEligibility,
     bookCourier
 };

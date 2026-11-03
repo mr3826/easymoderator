@@ -267,6 +267,41 @@ describe('Order Domain API', () => {
     });
   });
 
+  describe('getCourierEligibility', () => {
+    it('passes the requested provider and returns the server verdict unchanged', async () => {
+      const verdict = {
+        provider: 'redx',
+        decision: 'NOT_SERVICEABLE',
+        reason_code: 'NO_AREA_MATCH',
+        source: 'order_destination',
+        checked_at: '2026-11-03T00:00:00.000Z',
+        ttl_seconds: 300,
+      };
+      (httpClient.get as any).mockResolvedValue({ data: { data: verdict } });
+
+      const result = await order.getCourierEligibility('1', 'redx');
+
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/api/order/1/courier/eligibility',
+        { params: { provider: 'redx' } },
+      );
+      expect(result).toEqual(verdict);
+    });
+
+    it('omits the provider param so the server uses the shop default', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { data: { decision: 'UNCERTAIN', provider: 'steadfast' } },
+      });
+
+      await order.getCourierEligibility('1');
+
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/api/order/1/courier/eligibility',
+        { params: undefined },
+      );
+    });
+  });
+
   describe('getDeliverySettings', () => {
     it('should return delivery settings', async () => {
       const mockResponse = {

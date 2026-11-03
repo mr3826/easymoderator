@@ -202,6 +202,20 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
     }
     const orderMatch = path.match(/^\/api\/order\/([^/]+)$/);
     if (orderMatch && method === 'GET') return route.fulfill(json(heldOrder(orderMatch[1], 'ORD-200')));
+    // The booking modal pre-checks destination coverage before it lets a
+    // merchant book. Mock-only suites must answer it or the fixture treats the
+    // request as unexpected; coverage is not what these journeys test.
+    const eligibilityMatch = path.match(/^\/api\/order\/([^/]+)\/courier\/eligibility$/);
+    if (eligibilityMatch && method === 'GET') {
+      return route.fulfill(json({
+        provider: 'steadfast',
+        decision: 'SERVICEABLE',
+        reason_code: 'AREA_MATCHED',
+        source: 'order_destination',
+        checked_at: iso(0),
+        ttl_seconds: 300,
+      }));
+    }
     const courierMatch = path.match(/^\/api\/order\/([^/]+)\/(courier|book-courier)$/);
     if (courierMatch && method === 'POST') {
       const orderId = courierMatch[1];

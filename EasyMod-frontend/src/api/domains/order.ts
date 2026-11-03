@@ -11,6 +11,7 @@ import type {
   DeliverySettings,
   CourierBookingPayload,
   CourierBookingResult,
+  CourierEligibility,
   ConnectDeliveryProviderRequest,
   DeliveryProvider,
   DeliveryLocationOption,
@@ -241,6 +242,23 @@ export async function bookCourier(
   const response: AxiosResponse<ApiResponse<CourierBookingResult>> = await httpClient.post(
     `/api/order/${orderId}/courier`,
     payload
+  );
+  return response.data.data;
+}
+
+/**
+ * Pre-check whether a courier can deliver to this order's destination.
+ * Read-only: nothing is booked, and the server never guesses a verdict.
+ * @param orderId - ID of the order to check
+ * @param provider - Optional courier to check; defaults to the shop's AI default
+ */
+export async function getCourierEligibility(
+  orderId: string,
+  provider?: string
+): Promise<CourierEligibility> {
+  const response: AxiosResponse<ApiResponse<CourierEligibility>> = await httpClient.get(
+    `/api/order/${orderId}/courier/eligibility`,
+    { params: provider ? { provider } : undefined }
   );
   return response.data.data;
 }

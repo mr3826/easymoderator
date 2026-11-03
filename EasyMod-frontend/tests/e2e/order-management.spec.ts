@@ -115,6 +115,7 @@ let listQueries: ListQuery[] = [];
 let actionRequests: string[] = [];
 let createPayloads: Array<Record<string, unknown>> = [];
 let courierPayloads: Array<Record<string, unknown>> = [];
+let eligibilityChecks: string[] = [];
 
 const fulfillJson = (route: Route, data: unknown, status = 200) => route.fulfill({
   status,
@@ -230,6 +231,23 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
         message: 'Payment method cannot be changed after a courier claim or tracking record exists.',
       }, 409);
     }
+    // Read-only destination pre-check fired by the booking modal. RedX is the
+    // "no coverage" case so the UI can be tested for blocking.
+    if (/^\/api\/order\/[^/]+\/courier\/eligibility$/.test(path) && method === 'GET') {
+      const provider = url.searchParams.get('provider');
+      eligibilityChecks.push(`${path}:${provider || 'default'}`);
+      return fulfillJson(route, {
+        success: true,
+        data: {
+          provider: provider || 'steadfast',
+          decision: provider === 'redx' ? 'NOT_SERVICEABLE' : 'SERVICEABLE',
+          reason_code: provider === 'redx' ? 'NO_AREA_MATCH' : 'AREA_MATCHED',
+          source: 'order_destination',
+          checked_at: new Date().toISOString(),
+          ttl_seconds: 300,
+        },
+      });
+    }
     if (path === '/api/order/order-4/courier' && method === 'POST') {
       actionRequests.push(`${method} ${path}`);
       return fulfillJson(route, {
@@ -281,6 +299,7 @@ test.beforeEach(() => {
   actionRequests = [];
   createPayloads = [];
   courierPayloads = [];
+  eligibilityChecks = [];
 });
 
 test.afterEach(() => {
@@ -399,6 +418,8 @@ test('confirms a draft and sends courier booking through the supported endpoints
   await page.getByRole('button', { name: 'Book Courier' }).last().click();
   await expect(page.getByRole('heading', { name: /book courier/i })).toBeVisible();
   await expect(page.getByText(/server calculates courier collection/i)).toBeVisible();
+  // Coverage verdict arrives before the merchant commits to a courier.
+  await expect(page.getByText(/matched a Steadfast service area/i)).toBeVisible();
   await page.getByRole('button', { name: 'Book Courier' }).last().click();
 
   await expect.poll(() => actionRequests).toContain('POST /api/order/order-1/courier');
@@ -406,6 +427,24 @@ test('confirms a draft and sends courier booking through the supported endpoints
   expect(courierPayloads[0]).not.toHaveProperty('cod_amount');
   expect(courierPayloads[0]).not.toHaveProperty('amount_to_collect');
   await expect(page.getByTestId('order-detail-panel').getByRole('button', { name: 'ID: TRK-001' })).toBeVisible();
+  // The modal checks coverage before submitting, and the verdict is shown.
+  expect(eligibilityChecks).toContain('/api/order/order-1/courier/eligibility:steadfast');
+});
+
+test('blocks a courier the server reports as not covering the destination', async ({ page }) => {
+  await setupRoutes(page);
+  await loginAndGo(page);
+  await page.getByRole('button', { name: 'ORD-001' }).click();
+  await page.getByRole('button', { name: 'Confirm Order' }).click();
+  await expect.poll(() => actionRequests).toContain('POST /api/order/order-1/confirm');
+
+  await page.getByRole('button', { name: 'Book Courier' }).last().click();
+  await expect(page.getByRole('heading', { name: /book courier/i })).toBeVisible();
+  await page.getByRole('button', { name: 'redx', exact: true }).last().click();
+
+  await expect(page.getByRole('alert').filter({ hasText: /does not list this delivery area/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Book Courier' }).last()).toBeDisabled();
+  expect(actionRequests).not.toContain('POST /api/order/order-1/courier');
 });
 
 test('blocks an unknown partial COD balance before courier submission', async ({ page }) => {

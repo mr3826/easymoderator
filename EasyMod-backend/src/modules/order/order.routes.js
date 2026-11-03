@@ -50,6 +50,7 @@ router.post('/:orderId/cancel', orderController.cancelOrder);
 router.patch('/:orderId/cancel', orderController.cancelOrder);
 router.post('/:orderId/return-request', orderController.createReturnRequest);
 // Courier booking
+router.get('/:orderId/courier/eligibility', orderController.getCourierEligibility);
 router.post('/:orderId/courier', orderController.bookCourier);
 router.post('/:orderId/book-courier', orderController.bookCourier);
 // D3: Return automation endpoints
