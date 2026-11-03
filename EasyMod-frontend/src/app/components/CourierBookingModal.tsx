@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { Loader2, Truck, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, Truck, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/api";
-import type { Order, CourierBookingPayload } from "@/api/types/order";
+import type { Order, CourierBookingPayload, CourierEligibility } from "@/api/types/order";
 import { useTranslation } from "react-i18next";
 import { BDPhoneInput } from '@/shared/components/BDPhoneInput';
 import { getErrorMessage } from "@shared/lib/http/errors";
@@ -53,9 +53,57 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
     order.items.map((i) => `${i.productName} x${i.quantity}`).join(', ')
   );
   const [booking, setBooking] = useState(false);
+  const [eligibility, setEligibility] = useState<CourierEligibility | null>(null);
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
+  const destinationNotServiceable = eligibility?.decision === 'NOT_SERVICEABLE';
+
+  // Pre-flight only: the server decides again during booking, so a stale or
+  // missing answer here can never let an unsupported parcel through.
+  useEffect(() => {
+    let cancelled = false;
+    setCheckingEligibility(true);
+    setEligibility(null);
+    apiClient.getCourierEligibility(order.id, provider)
+      .then((result) => {
+        if (!cancelled) setEligibility(result);
+      })
+      .catch(() => {
+        // A failed pre-check is "could not check", never "serviceable".
+        if (!cancelled) {
+          setEligibility({
+            provider,
+            decision: 'CHECK_UNAVAILABLE',
+            reason_code: 'REQUEST_FAILED',
+            source: 'order_destination',
+            checked_at: new Date().toISOString(),
+            ttl_seconds: 0,
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingEligibility(false);
+      });
+    return () => { cancelled = true; };
+  }, [order.id, provider]);
+
+  const eligibilityMessage = (() => {
+    if (checkingEligibility) return t('courier.eligibility.checking', { provider });
+    switch (eligibility?.decision) {
+      case 'SERVICEABLE':
+        return t('courier.eligibility.serviceable', { provider });
+      case 'NOT_SERVICEABLE':
+        return t('courier.eligibility.notServiceable', { provider });
+      case 'UNCERTAIN':
+        return t('courier.eligibility.uncertain', { provider });
+      case 'CHECK_UNAVAILABLE':
+        return t('courier.eligibility.unavailable');
+      default:
+        return null;
+    }
+  })();
 
   const handleBook = async () => {
-    if (bookingBlocked) return;
+    if (bookingBlocked || destinationNotServiceable) return;
     if (!recipientName.trim() || !recipientPhone.trim() || !recipientAddress.trim()) {
       toast.error(t('courier.errors.fieldsRequired'));
       return;
@@ -117,6 +165,29 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
               </button>
             ))}
           </div>
+          {eligibilityMessage && (
+            <div
+              role={destinationNotServiceable ? 'alert' : 'status'}
+              className={`mt-2 flex items-start gap-2 rounded-lg border p-2 text-xs ${
+                destinationNotServiceable
+                  ? 'border-red-200 bg-red-50 text-red-800'
+                  : eligibility?.decision === 'SERVICEABLE'
+                    ? 'border-green-200 bg-green-50 text-green-800'
+                    : 'border-amber-200 bg-amber-50 text-amber-900'
+              }`}
+            >
+              {checkingEligibility ? (
+                <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+              ) : destinationNotServiceable ? (
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              ) : eligibility?.decision === 'SERVICEABLE' ? (
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              )}
+              <span>{eligibilityMessage}</span>
+            </div>
+          )}
         </div>
 
         {/* Recipient Info */}
@@ -170,7 +241,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
           </button>
           <button
             onClick={handleBook}
-            disabled={booking || bookingBlocked}
+            disabled={booking || bookingBlocked || destinationNotServiceable}
             className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {booking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}

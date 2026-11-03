@@ -2865,6 +2865,13 @@
         "syncFailed": "Could not validate pickup details"
       }
     },
+    "eligibility": {
+      "checking": "Checking {{provider}} coverage…",
+      "serviceable": "This address matched a {{provider}} service area.",
+      "notServiceable": "{{provider}} does not list this delivery area. Choose another courier.",
+      "uncertain": "{{provider}} coverage could not be confirmed for this address. You can still book.",
+      "unavailable": "Coverage check is unavailable right now. You can still book."
+    },
     "errors": {
       "fieldsRequired": "Please fill in all required fields",
       "bookingFailed": "Failed to book courier. Check your courier credentials in Settings."

@@ -45,6 +45,9 @@ const KNOWN = new Set([
     'gap_suggestion.generated',
     'gap_suggestion.published',
     'gap_suggestion.dismissed',
+    // Shadow-mode count of bookings whose destination the provider directory
+    // could not serve. Counter names never carry shop/provider data.
+    'courier.serviceability.not_serviceable_shadow',
 ]);
 
 function increment(name, by = 1) {

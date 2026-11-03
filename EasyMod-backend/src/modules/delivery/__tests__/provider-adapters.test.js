@@ -127,7 +127,7 @@ describe('courier provider adapters', () => {
         expect(COURIER_REGISTRY.redx.statusMap['unmapped-status']).toBeUndefined();
     });
 
-    test('registry emits canonical RedX fields and maps pickup metadata', () => {
+    test('registry takes the RedX destination from order data and the store from metadata', () => {
         const payload = COURIER_REGISTRY.redx.normalizePayload({
             order_number: 'ORD-1',
             customer_name: 'Customer',
@@ -135,9 +135,13 @@ describe('courier provider adapters', () => {
             delivery_address: 'House 1',
             total: 100,
             item_weight: 1,
-        }, {
+            // The destination comes from the ORDER (resolved by
+            // courier-destination.service), never from pickup metadata.
             delivery_area: 'Dhanmondi',
             delivery_area_id: 7,
+        }, {
+            delivery_area: 'Uttara',
+            delivery_area_id: 99,
             pickup_store_id: 'store-1',
         });
 
@@ -150,6 +154,73 @@ describe('courier provider adapters', () => {
             instruction: '',
         }));
         expect(payload).not.toHaveProperty('special_instruction');
+    });
+
+    test('registry never invents a RedX destination from pickup metadata (P0 regression)', () => {
+        // Before the launch fix this produced delivery_area_id = pickup area id,
+        // so every parcel silently targeted the merchant's own pickup area.
+        const payload = COURIER_REGISTRY.redx.normalizePayload({
+            order_number: 'ORD-2',
+            customer_name: 'Customer',
+            customer_phone: '01700000000',
+            delivery_address: 'House 2',
+            total: 100,
+            item_weight: 1,
+        }, {
+            delivery_area: 'Uttara',
+            delivery_area_id: 99,
+            area_id: 99,
+            pickup_store_id: 'store-1',
+            provider_pickup_meta: { area_id: 99, delivery_area_id: 99 },
+        });
+
+        expect(payload).not.toHaveProperty('delivery_area');
+        expect(payload).not.toHaveProperty('delivery_area_id');
+        expect(payload.pickup_store_id).toBe('store-1');
+    });
+
+    test('registry never invents Pathao location ids from metadata', () => {
+        const payload = COURIER_REGISTRY.pathao.normalizePayload({
+            order_number: 'ORD-3',
+            customer_name: 'Customer',
+            customer_phone: '01700000000',
+            delivery_address: 'House 3',
+            total: 100,
+            item_weight: 1,
+        }, {
+            recipient_city: 1,
+            recipient_zone: 10,
+            recipient_area: 100,
+            city_id: 1,
+            zone_id: 10,
+            area_id: 100,
+            pickup_store_id: 'store-1',
+        });
+
+        expect(payload).not.toHaveProperty('recipient_city');
+        expect(payload).not.toHaveProperty('recipient_zone');
+        expect(payload).not.toHaveProperty('recipient_area');
+        expect(payload.store_id).toBe('store-1');
+    });
+
+    test('registry emits Pathao location ids supplied by the order', () => {
+        const payload = COURIER_REGISTRY.pathao.normalizePayload({
+            order_number: 'ORD-4',
+            customer_name: 'Customer',
+            customer_phone: '01700000000',
+            delivery_address: 'House 4',
+            total: 100,
+            item_weight: 1,
+            recipient_city: 1,
+            recipient_zone: 10,
+            recipient_area: 100,
+        });
+
+        expect(payload).toMatchObject({
+            recipient_city: 1,
+            recipient_zone: 10,
+            recipient_area: 100,
+        });
     });
 
     test('all providers preserve an explicit zero collection amount ahead of order total fallbacks', () => {

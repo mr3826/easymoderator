@@ -84,6 +84,11 @@ const COURIER_REGISTRY = {
                 || orderData.destination
                 || {};
             const location = {
+                // Destination ids may originate only from the order payload.
+                // Integration metadata describes the merchant's PICKUP setup,
+                // so using it here sends the parcel to the wrong area (launch
+                // audit 2026-11-03). Resolution happens in
+                // courier-destination.service before this adapter runs.
                 recipient_city: firstPresent(
                     orderData.recipient_city,
                     orderData.recipient_city_id,
@@ -91,9 +96,6 @@ const COURIER_REGISTRY = {
                     orderData.city_id,
                     locationData.recipient_city,
                     locationData.city_id,
-                    metadata.recipient_city,
-                    metadata.recipient_city_id,
-                    metadata.city_id,
                 ),
                 recipient_zone: firstPresent(
                     orderData.recipient_zone,
@@ -102,9 +104,6 @@ const COURIER_REGISTRY = {
                     orderData.zone_id,
                     locationData.recipient_zone,
                     locationData.zone_id,
-                    metadata.recipient_zone,
-                    metadata.recipient_zone_id,
-                    metadata.zone_id,
                 ),
                 recipient_area: firstPresent(
                     orderData.recipient_area,
@@ -113,9 +112,6 @@ const COURIER_REGISTRY = {
                     orderData.area_id,
                     locationData.recipient_area,
                     locationData.area_id,
-                    metadata.recipient_area,
-                    metadata.recipient_area_id,
-                    metadata.area_id,
                 ),
             };
 
@@ -231,22 +227,19 @@ const COURIER_REGISTRY = {
             listStoresHook: 'listPickupStores',
         },
         normalizePayload: (orderData = {}, metadata = {}) => {
-            const pickup = metadata.pickup || metadata.pickup_mapping || metadata.provider_pickup_meta || {};
+            // Destination comes from the ORDER only. `metadata` here is the
+            // integration's pickup configuration; falling back to it sent
+            // parcels to the merchant's own pickup area (launch audit
+            // 2026-11-03). courier-destination.service resolves the order's
+            // area before this adapter is reached.
             const deliveryArea = firstPresent(
                 orderData.delivery_area,
                 orderData.delivery_area_name,
                 orderData.area_name,
-                metadata.delivery_area,
-                pickup.delivery_area,
-                pickup.area_name,
             );
             const deliveryAreaId = firstPresent(
                 orderData.delivery_area_id,
                 orderData.area_id,
-                metadata.delivery_area_id,
-                metadata.area_id,
-                pickup.delivery_area_id,
-                pickup.area_id,
             );
             const explicitGrams = firstDefined(
                 orderData.parcel_weight,
@@ -270,8 +263,6 @@ const COURIER_REGISTRY = {
             const payload = {
                 customer_name: firstPresent(orderData.customer_name, orderData.recipient_name),
                 customer_phone: firstPresent(orderData.customer_phone, orderData.recipient_phone),
-                delivery_area: deliveryArea,
-                delivery_area_id: deliveryAreaId ?? null,
                 customer_address: firstPresent(
                     orderData.customer_address,
                     orderData.recipient_address,
@@ -289,6 +280,13 @@ const COURIER_REGISTRY = {
                 instruction: firstDefined(orderData.instruction, orderData.special_instruction, orderData.note, ''),
                 value: firstPresent(orderData.value, orderData.item_value, orderData.total, 0),
             };
+
+            // Omit unresolvable destination keys rather than sending null: a
+            // null area is still a (wrong) claim that the destination is known.
+            if (deliveryArea !== undefined) payload.delivery_area = deliveryArea;
+            if (deliveryAreaId !== undefined && deliveryAreaId !== null) {
+                payload.delivery_area_id = deliveryAreaId;
+            }
 
             const pickupStoreId = pickProviderStore(orderData, metadata);
             if (pickupStoreId !== undefined) payload.pickup_store_id = pickupStoreId;

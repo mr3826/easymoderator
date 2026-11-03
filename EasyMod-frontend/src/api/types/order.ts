@@ -223,6 +223,26 @@ export interface CourierBookingResult {
   booked_at: string;
 }
 
+/**
+ * Server verdict on whether a courier can reach an order's destination.
+ * UNCERTAIN and CHECK_UNAVAILABLE are honest answers, not failures — the UI
+ * must show them rather than implying the destination was verified.
+ */
+export type CourierDestinationDecision =
+  | 'SERVICEABLE'
+  | 'NOT_SERVICEABLE'
+  | 'UNCERTAIN'
+  | 'CHECK_UNAVAILABLE';
+
+export interface CourierEligibility {
+  provider: string | null;
+  decision: CourierDestinationDecision;
+  reason_code: string;
+  source: 'order_destination';
+  checked_at: string;
+  ttl_seconds: number;
+}
+
 export interface PathaoCredentials {
   client_id: string;
   client_secret: string;

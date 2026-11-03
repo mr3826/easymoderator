@@ -116,6 +116,7 @@ export const apiClient = {
   confirmOrder: orderDomain.confirmOrder,
   cancelOrder: orderDomain.cancelOrder,
   bookCourier: orderDomain.bookCourier,
+  getCourierEligibility: orderDomain.getCourierEligibility,
   getDeliverySettings: orderDomain.getDeliverySettings,
   connectDeliveryProvider: orderDomain.connectDeliveryProvider,
   disconnectDeliveryProvider: orderDomain.disconnectDeliveryProvider,

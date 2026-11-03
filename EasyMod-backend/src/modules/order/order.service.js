@@ -1818,6 +1818,105 @@ const resolveCourierProvider = async (shopId, { provider = null, requireAiDefaul
     }
 };
 
+const getCourierDestinationService = () => tryRequire('../delivery/courier-destination.service');
+
+/**
+ * Kill switch for destination resolution, NOT a rollout gate.
+ *
+ * Resolution is the P0 fix for mis-addressed RedX parcels: the registry no
+ * longer falls back to pickup metadata, so an order's destination ids can only
+ * come from here. Defaulting it off in production would reintroduce "no
+ * destination at all", so it stays on unless an operator explicitly sets
+ * `COURIER_DESTINATION_RESOLUTION_ENABLED=false`.
+ */
+const destinationResolutionEnabled = () => process.env.COURIER_DESTINATION_RESOLUTION_ENABLED !== 'false';
+
+/**
+ * Blocking on a provider rejection is opt-in, and only `'true'` opts in.
+ * Deliberately NOT isRuntimeFlagEnabled(): that helper treats "unset" as
+ * enabled outside production, which would silently turn enforcement on in
+ * every dev and test environment. Shadow mode is the default everywhere.
+ */
+const serviceabilityEnforced = () => process.env.COURIER_SERVICEABILITY_ENFORCE === 'true';
+
+/**
+ * Resolve the ORDER's destination against the provider directory.
+ *
+ * Runs after the PENDING dispatch claim (so a failed booking still goes through
+ * the claim's FAILED/reopen recovery) and before the provider call. Nothing
+ * here can throw: a lookup problem degrades to CHECK_UNAVAILABLE and the
+ * booking continues exactly as it did before this feature existed.
+ */
+const resolveBookingDestination = async ({ shopId, provider, order, providerInstance }) => {
+    const destinationService = getCourierDestinationService();
+    if (!destinationService || !destinationResolutionEnabled()) return null;
+    try {
+        return await destinationService.resolveDestination({
+            shopId,
+            provider,
+            order,
+            providerInstance: providerInstance || null,
+        });
+    } catch (_) {
+        return null;
+    }
+};
+
+/**
+ * Attach destination ids only on a directory-confirmed match. Any other
+ * verdict leaves the keys absent — a guessed or pickup-derived area is the
+ * defect this fix removes.
+ */
+const applyBookingDestination = (orderData, provider, resolution) => {
+    if (!orderData || !resolution || resolution.decision !== 'SERVICEABLE') return orderData;
+    const destinationService = getCourierDestinationService();
+    if (typeof destinationService?.applyDestinationToOrderData !== 'function') return orderData;
+    return destinationService.applyDestinationToOrderData(orderData, provider, resolution);
+};
+
+const ELIGIBILITY_TTL_SECONDS = 300;
+
+/**
+ * Read-only destination eligibility for one order and courier.
+ *
+ * Returns the same decision vocabulary the booking path acts on, so the
+ * merchant UI can warn before a booking is attempted. It never throws for a
+ * provider problem: "we could not check" is its own honest answer
+ * (CHECK_UNAVAILABLE), never a silent SERVICEABLE.
+ */
+const getCourierDestinationEligibility = async (order, { shopId, provider = null } = {}) => {
+    const requestedProvider = provider ? String(provider) : null;
+    const unavailable = (reasonCode, resolvedProvider = requestedProvider) => ({
+        provider: resolvedProvider,
+        decision: 'CHECK_UNAVAILABLE',
+        reason_code: reasonCode,
+        source: 'order_destination',
+        checked_at: new Date().toISOString(),
+        ttl_seconds: ELIGIBILITY_TTL_SECONDS,
+    });
+
+    const destinationService = getCourierDestinationService();
+    if (!destinationService || !destinationResolutionEnabled()) {
+        return unavailable('DESTINATION_RESOLUTION_DISABLED');
+    }
+
+    const resolution = await resolveCourierProvider(shopId, { provider: requestedProvider });
+    if (resolution.blocked) {
+        return unavailable(resolution.reason || 'COURIER_SETUP_REQUIRED', resolution.provider || requestedProvider);
+    }
+
+    try {
+        return await destinationService.resolveDestination({
+            shopId,
+            provider: resolution.provider,
+            order,
+            providerInstance: resolution.instance || null,
+        });
+    } catch (_) {
+        return unavailable('LOOKUP_FAILED', resolution.provider);
+    }
+};
+
 const normalizeCourierAddress = (value) => {
     if (value === null || value === undefined) return '';
     if (typeof value === 'string') {
@@ -2664,6 +2763,33 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
             throw claimError;
         }
 
+        const destination = await resolveBookingDestination({
+            shopId,
+            provider: resolution.provider,
+            order: bookingOrder,
+            providerInstance: resolution.instance || null,
+        });
+        applyBookingDestination(orderData, resolution.provider, destination);
+        if (destination?.decision === 'NOT_SERVICEABLE') {
+            try {
+                require('../pilot-features/pilot-metrics')
+                    .increment('courier.serviceability.not_serviceable_shadow');
+            } catch (_) { /* metrics are best effort */ }
+
+            if (serviceabilityEnforced()) {
+                await markCourierDispatchFailed(
+                    dispatchRecord,
+                    'Destination is not serviceable by the selected courier',
+                    dispatchOwnerToken,
+                );
+                throw new AppError(
+                    'The selected courier cannot deliver to this order\'s destination. Choose another courier.',
+                    409,
+                    'COURIER_DESTINATION_NOT_SERVICEABLE',
+                );
+            }
+        }
+
         if (typeof deliveryService.createDeliveryOrder !== 'function') {
             throw new Error('Courier booking service is unavailable');
         }
@@ -2759,6 +2885,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
                 'PAYMENT_METHOD_REQUIRED',
                 'PAYMENT_STATUS_REQUIRED',
                 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
+                'COURIER_DESTINATION_NOT_SERVICEABLE',
             ].includes(error.code)) {
             throw error;
         }
@@ -2795,6 +2922,7 @@ module.exports = {
     transitionCourierDispatchRecord,
     markCourierDispatchIndeterminate,
     resolveCourierProvider,
+    getCourierDestinationEligibility,
     markCourierSetupRequired,
     buildCourierOrderData
 };
