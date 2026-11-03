@@ -54,6 +54,7 @@ describe('QueueManager startup boundary', () => {
                 InboxDeliveryReconcilerJob: NoopJob,
                 OpportunityDetectorJob: NoopJob,
                 GapSuggesterJob: NoopJob,
+                CourierReconciliationJob: NoopJob,
             };
         });
         startMessageWorker = jest.fn(() => ({

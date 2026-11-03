@@ -2,6 +2,7 @@
 
 const { Queue, Worker } = require('bullmq');
 const config = require('../config/config');
+const { isRuntimeFlagEnabled } = require('../config/ai-runtime-flags');
 const { connection, messageQueue } = require('./message-queue');
 
 const {
@@ -16,6 +17,7 @@ const {
     InboxDeliveryReconcilerJob,
     OpportunityDetectorJob,
     GapSuggesterJob,
+    CourierReconciliationJob,
 } = require('./index');
 
 class QueueManager {
@@ -57,6 +59,9 @@ class QueueManager {
             ['opportunity-detector', 'opportunityDetector', OpportunityDetectorJob],
             // Pilot+ P+05 — knowledge-gap suggestion sweep; no-op without the flag
             ['gap-suggester', 'gapSuggester', GapSuggesterJob],
+            // COD reconciliation — scheduled only when COURIER_RECON_JOBS_ENABLED
+            // is set (see scheduleJobs); manual trigger always available.
+            ['courier-reconciliation', 'courierReconciliation', CourierReconciliationJob],
         ];
 
         this.workerDefinitions = billingQueues;
@@ -238,6 +243,21 @@ class QueueManager {
             { name: 'run', data: { dryRun: false } }
         );
 
+        // COD reconciliation — weekly Steadfast payout pull. The payments API's
+        // account semantics are not live-verified yet (see
+        // docs/mobile/COD_CAPABILITY_AUDIT.md), so the schedule stays OFF until
+        // an operator sets COURIER_RECON_JOBS_ENABLED=true. Manual trigger via
+        // triggerJob('courier_reconciliation') is unaffected by this gate.
+        if (isRuntimeFlagEnabled('COURIER_RECON_JOBS_ENABLED')) {
+            await this.queues.courierReconciliation.upsertJobScheduler(
+                'courier-reconciliation',
+                { pattern: '0 3 * * 0', tz: 'UTC' },
+                { name: 'run', data: { dryRun: false } }
+            );
+        } else {
+            console.log('ℹ️  Courier reconciliation schedule skipped (COURIER_RECON_JOBS_ENABLED off)');
+        }
+
         console.log('✅ Scheduled jobs configured');
     }
 
@@ -253,6 +273,7 @@ class QueueManager {
             'webhook_receipt_reconciler': 'webhookReceiptReconciler',
             'inbox_delivery_reconciler': 'inboxDeliveryReconciler',
             'opportunity_detector': 'opportunityDetector',
+            'courier_reconciliation': 'courierReconciliation',
         };
 
         const queueKey = queueMap[jobName];
