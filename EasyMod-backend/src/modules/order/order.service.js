@@ -2,7 +2,7 @@ const { Order, OrderItem, Product, ProductVariant, Customer, UserShop, OrderRetu
 const courierDispatchClaims = require('../delivery/courier-dispatch-claim.service');
 const { AppError, sanitizeErrorMessage } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
-const { Op } = require('sequelize');
+const { Op, literal } = require('sequelize');
 const deliveryService = require('../delivery/delivery.service');
 const subscriptionService = require('../subscription/subscription.service');
 const { createLogger } = require('../../utils/structured-logger');
@@ -10,6 +10,7 @@ const { invalidate: invalidateStock } = require('../product/stock-status-guard.s
 const { findOrderByIdempotencyKey } = require('./order-idempotency.service');
 const { isRuntimeFlagEnabled } = require('../../config/ai-runtime-flags');
 const { normalizeCourierProvider, normalizeTrackingId, trackingUnavailableMessage } = require('../delivery/tracking-identity');
+const { BUCKET_KEYS, buildBucketWhere, buildBucketSql } = require('./order-worklist.buckets');
 
 /**
  * Constants for order processing
@@ -1164,6 +1165,14 @@ const listOrders = async (userId, shopId, filters = {}) => {
     if (filters.order_status) {
         whereClause.order_status = filters.order_status;
     }
+    // Worklist bucket. AND-ed rather than merged so it can never overwrite the
+    // search filter's Op.or below, and so the shop scope always survives.
+    if (filters.delivery_bucket) {
+        whereClause[Op.and] = [
+            ...(whereClause[Op.and] || []),
+            buildBucketWhere(filters.delivery_bucket),
+        ];
+    }
 
     // Search Filter (Order Number OR Customer Name OR Customer Phone)
     const includeOptions = [
@@ -1204,6 +1213,37 @@ const listOrders = async (userId, shopId, filters = {}) => {
     });
 
     return orders;
+};
+
+/**
+ * Worklist chip counts: one tenant-scoped aggregate.
+ *
+ * The predicates come from order-worklist.buckets.js — the same module the
+ * list filter uses — so a chip can never count rows the filtered list cannot
+ * return. `total` is every order in the shop, matching the unfiltered list;
+ * bucket values are the same status vocabulary, and anything outside it is
+ * counted only in `total`.
+ */
+const getOrderWorklistCounts = async (userId, shopId) => {
+    await verifyShopAccess(userId, shopId);
+
+    const attributes = [
+        [literal('COUNT(*)'), 'total'],
+        ...BUCKET_KEYS.map((key) => [
+            literal(`SUM(CASE WHEN ${buildBucketSql(key)} THEN 1 ELSE 0 END)`),
+            key,
+        ]),
+    ];
+
+    const row = await Order.findOne({
+        where: { shop_id: shopId },
+        attributes,
+        raw: true,
+    });
+
+    const counts = { total: Number(row?.total || 0) };
+    for (const key of BUCKET_KEYS) counts[key] = Number(row?.[key] || 0);
+    return counts;
 };
 
 /**
@@ -2910,6 +2950,7 @@ module.exports = {
     updateOrder,
     getOrderById,
     listOrders,
+    getOrderWorklistCounts,
     deleteOrder,
     confirmOrder,
     finalizeOrder,

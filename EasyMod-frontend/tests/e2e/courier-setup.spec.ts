@@ -50,6 +50,51 @@ type CapturedRequest = {
     body: Record<string, unknown>;
 };
 
+// Mirrors EasyMod-backend/src/modules/delivery/provider-capabilities.js for the
+// operations these tests assert. The backend module is the source of truth; the
+// ceiling here is deliberately the same so the UI can never be shown a claim
+// the server would refuse to make.
+function capabilitiesFor(provider: string) {
+    const implemented = { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED' };
+    const unsupportedInPortal = {
+        level: 'UNSUPPORTED',
+        reason_code: 'NO_PROVIDER_API',
+        manual_step_code: 'CANCEL_IN_PROVIDER_PORTAL',
+    };
+    const capabilities: Record<string, unknown> = {
+        version: 1,
+        ceiling: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+        last_verified_at: null,
+        coverage: implemented,
+        rate_quote: implemented,
+        create_parcel: implemented,
+        tracking: implemented,
+        cancel: implemented,
+        edit: implemented,
+    };
+    if (provider === 'steadfast') {
+        return {
+            ...capabilities,
+            coverage: { level: 'UNKNOWN', reason_code: 'TEXT_ONLY_COVERAGE', manual_step_code: null },
+            rate_quote: {
+                level: 'UNSUPPORTED',
+                reason_code: 'NO_PROVIDER_API',
+                manual_step_code: 'RATE_SHOWN_AFTER_BOOKING',
+            },
+            cancel: unsupportedInPortal,
+            edit: { ...unsupportedInPortal, manual_step_code: 'EDIT_IN_PROVIDER_PORTAL' },
+        };
+    }
+    if (provider === 'pathao') {
+        return {
+            ...capabilities,
+            cancel: unsupportedInPortal,
+            edit: { ...unsupportedInPortal, manual_step_code: 'EDIT_IN_PROVIDER_PORTAL' },
+        };
+    }
+    return capabilities;
+}
+
 function jsonResponse(data: unknown, status = 200) {
     return {
         status,
@@ -143,6 +188,7 @@ async function setupRoutes(
                 providers: providers.map((provider) => ({
                     ...provider,
                     metadata: { ...provider.metadata },
+                    capabilities: capabilitiesFor(provider.provider),
                 })),
                 settings: deliverySettings,
                 pickup_locations: pickupLocation ? [pickupLocation] : [],
@@ -512,4 +558,29 @@ test('switches the AI default between two active courier providers', async ({ pa
     expect(requestsFor(fixture.requests, 'POST', '/api/shop/delivery/ai-default')[1].body).toEqual({ provider: 'pathao' });
     await expect(pathaoHeading.locator('..').getByText('AI Default', { exact: true })).toBeVisible();
     await expect(page.getByText('AI Default', { exact: true })).toHaveCount(1);
+});
+
+test('states what each courier can do without claiming live verification', async ({ page }) => {
+    await setupRoutes(page, {
+        providers: [providerStatus('steadfast'), providerStatus('pathao')],
+    });
+    await loginAndGoToDelivery(page);
+
+    const steadfast = page.getByTestId('provider-capabilities-steadfast');
+    await expect(steadfast).toBeVisible();
+    await expect(steadfast).toContainText('Never verified with a live account.');
+    await steadfast.locator('summary').click();
+    await expect(page.getByTestId('capability-steadfast-rate_quote')).toHaveText('Not supported');
+    await expect(page.getByTestId('capability-steadfast-coverage')).toHaveText('Cannot be checked');
+    await expect(page.getByTestId('capability-steadfast-create_parcel')).toHaveText('Implemented, not live-verified');
+    await expect(steadfast).toContainText('The charge is shown after the parcel is created.');
+    await expect(steadfast).toContainText('Cancel it in the courier');
+
+    const pathao = page.getByTestId('provider-capabilities-pathao');
+    await pathao.locator('summary').click();
+    await expect(page.getByTestId('capability-pathao-cancel')).toHaveText('Not supported');
+    await expect(page.getByTestId('capability-pathao-create_parcel')).toHaveText('Implemented, not live-verified');
+
+    // Nothing above the ceiling may ever reach the merchant's screen.
+    await expect(page.getByText('Live-verified', { exact: true })).toHaveCount(0);
 });

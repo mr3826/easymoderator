@@ -110,6 +110,7 @@ export const apiClient = {
 
   // Order methods
   getOrders: orderDomain.getOrders,
+  getOrderCounts: orderDomain.getOrderCounts,
   getOrder: orderDomain.getOrder,
   createOrder: orderDomain.createOrder,
   updateOrder: orderDomain.updateOrder,

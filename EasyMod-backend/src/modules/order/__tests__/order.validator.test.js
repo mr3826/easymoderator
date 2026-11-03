@@ -2,6 +2,18 @@ const orderValidator = require('../order.validator');
 
 describe('order.validator', () => {
   describe('getOrders', () => {
+    it('accepts every worklist bucket the UI can send', () => {
+      for (const bucket of ['to_confirm', 'to_pack', 'booked', 'in_transit', 'needs_action', 'returned', 'delivered']) {
+        const { error } = orderValidator.getOrders.query.validate({ delivery_bucket: bucket });
+        expect(error).toBeUndefined();
+      }
+    });
+
+    it('rejects an invented worklist bucket instead of silently ignoring it', () => {
+      const { error } = orderValidator.getOrders.query.validate({ delivery_bucket: 'everything' });
+      expect(error).toBeDefined();
+    });
+
     // MW-V1: verified customer association.
     it('accepts a uuid customer_id filter', () => {
       const { error } = orderValidator.getOrders.query.validate({

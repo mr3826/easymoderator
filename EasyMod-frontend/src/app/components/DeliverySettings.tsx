@@ -105,6 +105,18 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
   }
 ];
 
+// Capability display order. The server owns the values; the client only
+// chooses how to present them, so an unsupported action is never hidden
+// silently — it is listed with its reason and the manual alternative.
+const CAPABILITY_OPERATIONS = ['coverage', 'rate_quote', 'create_parcel', 'tracking', 'cancel', 'edit'] as const;
+
+const CAPABILITY_LEVEL_KEYS: Record<string, string> = {
+  UNSUPPORTED: 'unsupported',
+  UNKNOWN: 'unknown',
+  IMPLEMENTED_NOT_LIVE_VERIFIED: 'implementedNotLiveVerified',
+  LIVE_VERIFIED: 'liveVerified',
+};
+
 const DEFAULT_DELIVERY_SETTINGS: DeliveryShopSettings = {
   default_delivery_charge: 60,
   cod_enabled: false,
@@ -878,6 +890,59 @@ export default function DeliverySettings() {
                       )}
                     </div>
                   </div>
+                )}
+
+                {/* Capability truth */}
+                {providerStatus?.capabilities && (
+                  <details
+                    data-testid={`provider-capabilities-${config.provider}`}
+                    className="mt-4 rounded-lg border border-gray-100 bg-white px-4 py-3"
+                  >
+                    <summary className="cursor-pointer text-sm font-semibold text-gray-800">
+                      {t('manageShop.deliverySettings.capabilities.title')}
+                      <span className="ml-2 text-xs font-normal font-medium text-amber-700">
+                        {t(`manageShop.deliverySettings.capabilities.level.${CAPABILITY_LEVEL_KEYS[providerStatus.capabilities.ceiling] || 'unknown'}`)}
+                      </span>
+                    </summary>
+                    <dl className="mt-3 space-y-2">
+                      {CAPABILITY_OPERATIONS.map((operation) => {
+                        const entry = providerStatus.capabilities?.[operation];
+                        if (!entry) return null;
+                        const tone = entry.level === 'UNSUPPORTED'
+                          ? 'text-red-700'
+                          : entry.level === 'UNKNOWN'
+                            ? 'text-amber-700'
+                            : 'text-gray-800';
+                        return (
+                          <div key={operation} className="flex flex-col gap-1 border-t border-gray-50 pt-2 first:border-t-0 first:pt-0 sm:flex-row sm:items-start sm:justify-between">
+                            <dt className="text-xs font-medium text-gray-600">
+                              {t(`manageShop.deliverySettings.capabilities.operation.${operation}`)}
+                            </dt>
+                            <dd className="text-xs sm:max-w-[60%] sm:text-right">
+                              <span className={`font-semibold ${tone}`} data-testid={`capability-${config.provider}-${operation}`}>
+                                {t(`manageShop.deliverySettings.capabilities.level.${CAPABILITY_LEVEL_KEYS[entry.level] || 'unknown'}`)}
+                              </span>
+                              {entry.reason_code && (
+                                <p className="mt-0.5 text-gray-500">
+                                  {t(`manageShop.deliverySettings.capabilities.reason.${entry.reason_code}`, { defaultValue: '' })}
+                                </p>
+                              )}
+                              {entry.manual_step_code && (
+                                <p className="mt-0.5 text-gray-500">
+                                  {t(`manageShop.deliverySettings.capabilities.manualStep.${entry.manual_step_code}`, { defaultValue: '' })}
+                                </p>
+                              )}
+                            </dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
+                    <p className="mt-3 text-xs text-gray-500">
+                      {providerStatus.capabilities.last_verified_at
+                        ? t('manageShop.deliverySettings.capabilities.lastVerified', { date: new Date(providerStatus.capabilities.last_verified_at).toLocaleDateString() })
+                        : t('manageShop.deliverySettings.capabilities.neverVerified')}
+                    </p>
+                  </details>
                 )}
 
                 {/* Actions */}

@@ -197,6 +197,11 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
         { id: 'mfs-config', gateway: 'self-mfs', is_enabled: true },
       ]));
     }
+    if (path === '/api/order/counts' && method === 'GET') {
+      return route.fulfill(json({
+        total: 2, to_confirm: 0, to_pack: 0, booked: 0, in_transit: 0, needs_action: 2, returned: 0, delivered: 0,
+      }));
+    }
     if (path === '/api/order' && method === 'GET') {
       return route.fulfill(json([heldOrder('ord-verify', 'ORD-200'), heldOrder('ord-review', 'ORD-201')]));
     }

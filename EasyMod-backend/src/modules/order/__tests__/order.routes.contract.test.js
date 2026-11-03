@@ -32,6 +32,7 @@ jest.mock('../order.controller', () => {
         bulkCreateOrders: handler('bulkCreateOrders'),
         getReturnRequests: handler('getReturnRequests'),
         getOrders: handler('getOrders'),
+        getOrderCounts: handler('getOrderCounts'),
         getOrdersByCustomer: handler('getOrdersByCustomer'),
         getOrderById: handler('getOrderById'),
         createOrderRest: handler('createOrderRest'),
@@ -71,6 +72,15 @@ describe('order route contracts', () => {
             .expect(200);
 
         expect(orderController.confirmOrder).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes the worklist counts to their own handler before the id route', async () => {
+        await request(app)
+            .get('/api/order/counts')
+            .expect(200);
+
+        expect(orderController.getOrderCounts).toHaveBeenCalledTimes(1);
+        expect(orderController.getOrderById).not.toHaveBeenCalled();
     });
 
     it('routes frontend RESTful order confirmation to the confirm handler', async () => {

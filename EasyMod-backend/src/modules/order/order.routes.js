@@ -42,6 +42,9 @@ router.get('/returns', orderController.getReturnRequests);
 // RESTful routes
 router.get('/', validate(orderValidator.getOrders), orderController.getOrders);
 router.get('/by-customer/:customerId', orderController.getOrdersByCustomer);
+// Worklist chip counts. Declared before '/:id' so the literal path never falls
+// through to the UUID-validated detail route.
+router.get('/counts', orderController.getOrderCounts);
 router.get('/:id', validate(orderValidator.getOrderById), orderController.getOrderById);
 router.post('/', validate(orderValidator.createOrder), orderController.createOrderRest);
 router.post('/:orderId/confirm', orderController.confirmOrder);

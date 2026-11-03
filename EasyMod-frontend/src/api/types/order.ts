@@ -158,6 +158,52 @@ export interface DeliveryLocationOption {
   [key: string]: unknown;
 }
 
+export type OrderWorklistBucket =
+  | 'to_confirm'
+  | 'to_pack'
+  | 'booked'
+  | 'in_transit'
+  | 'needs_action'
+  | 'returned'
+  | 'delivered';
+
+/** Chip counts from GET /api/order/counts. `total` is every order in the shop. */
+export type OrderWorklistCounts = Record<OrderWorklistBucket, number> & { total: number };
+
+export type CourierCapabilityLevel =
+  | 'UNSUPPORTED'
+  | 'UNKNOWN'
+  | 'IMPLEMENTED_NOT_LIVE_VERIFIED'
+  | 'LIVE_VERIFIED';
+
+export type CourierCapabilityOperation =
+  | 'coverage'
+  | 'rate_quote'
+  | 'create_parcel'
+  | 'tracking'
+  | 'cancel'
+  | 'edit';
+
+export interface CourierCapabilityEntry {
+  level: CourierCapabilityLevel;
+  /** Why an action is unavailable; a code the UI translates, not free text. */
+  reason_code?: string;
+  /** What the merchant should do instead, as a translatable code. */
+  manual_step_code?: string | null;
+}
+
+export interface DeliveryProviderCapabilities {
+  version: number;
+  ceiling: CourierCapabilityLevel;
+  last_verified_at: string | null;
+  coverage: CourierCapabilityEntry;
+  rate_quote: CourierCapabilityEntry;
+  create_parcel: CourierCapabilityEntry;
+  tracking: CourierCapabilityEntry;
+  cancel: CourierCapabilityEntry;
+  edit: CourierCapabilityEntry;
+}
+
 export interface DeliveryProviderStatus {
   provider: DeliveryProvider;
   display_name: string;
@@ -176,6 +222,7 @@ export interface DeliveryProviderStatus {
   pickup_store_id?: string | null;
   setup_complete?: boolean;
   metadata?: Record<string, unknown>;
+  capabilities?: DeliveryProviderCapabilities | null;
   last_validated_at: string | null;
   connected_at: string | null;
 }

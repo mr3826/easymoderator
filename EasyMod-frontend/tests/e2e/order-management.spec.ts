@@ -108,7 +108,47 @@ type ListQuery = {
   fulfillmentStatus: string | null;
   startDate: string | null;
   endDate: string | null;
+  deliveryBucket: string | null;
 };
+
+const WORKLIST_BUCKETS = ['to_confirm', 'to_pack', 'booked', 'in_transit', 'needs_action', 'returned', 'delivered'] as const;
+type WorklistBucket = (typeof WORKLIST_BUCKETS)[number];
+
+// Mirrors EasyMod-backend/src/modules/order/order-worklist.buckets.js. Kept
+// local because the mock suite has no backend to import from; if the server
+// definitions change, this must change with them.
+const UNSTARTED_DELIVERY_STATUSES = [null, '', 'unfulfilled', 'not_booked'];
+
+function matchesBucket(order: MockOrder, bucket: WorklistBucket): boolean {
+  const delivery = order.delivery_status ?? null;
+  switch (bucket) {
+    case 'to_confirm':
+      return ['draft', 'pending'].includes(order.order_status);
+    case 'to_pack':
+      return ['confirmed', 'processing'].includes(order.order_status)
+        && UNSTARTED_DELIVERY_STATUSES.includes(delivery as string | null);
+    case 'booked':
+      return delivery === 'booked';
+    case 'in_transit':
+      return ['picked_up', 'in_transit', 'out_for_delivery'].includes(delivery as string);
+    case 'needs_action':
+      return ['failed_delivery', 'dispatch_indeterminate', 'courier_setup_required', 'confidence_hold'].includes(delivery as string);
+    case 'returned':
+      return ['returned', 'partial_returned'].includes(delivery as string);
+    case 'delivered':
+      return ['delivered', 'partial_delivered'].includes(delivery as string);
+    default:
+      return true;
+  }
+}
+
+function countOrders(orders: MockOrder[]) {
+  const counts: Record<string, number> = { total: orders.length };
+  for (const bucket of WORKLIST_BUCKETS) {
+    counts[bucket] = orders.filter((order) => matchesBucket(order, bucket)).length;
+  }
+  return counts;
+}
 
 let unexpectedApiRequests: string[] = [];
 let listQueries: ListQuery[] = [];
@@ -170,6 +210,9 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
         },
       });
     }
+    if (path === '/api/order/counts' && method === 'GET') {
+      return fulfillJson(route, { success: true, data: countOrders(orders) });
+    }
     if (path === '/api/order' && method === 'GET') {
       const query: ListQuery = {
         search: url.searchParams.get('search'),
@@ -178,6 +221,7 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
         fulfillmentStatus: url.searchParams.get('fulfillment_status'),
         startDate: url.searchParams.get('start_date'),
         endDate: url.searchParams.get('end_date'),
+        deliveryBucket: url.searchParams.get('delivery_bucket'),
       };
       listQueries.push(query);
       if (failOrderListUntilRetry) {
@@ -187,7 +231,11 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
       const matchingOrders = orders.filter((order) => {
         const matchesSearch = !search || [order.order_number, order.customer_name, order.customer_phone]
           .some((field) => field.toLowerCase().includes(search));
+        const matchesDeliveryBucket = !query.deliveryBucket
+          || (WORKLIST_BUCKETS.includes(query.deliveryBucket as WorklistBucket)
+            && matchesBucket(order, query.deliveryBucket as WorklistBucket));
         return matchesSearch
+          && matchesDeliveryBucket
           && (!query.orderStatus || order.status === query.orderStatus)
           && (!query.paymentStatus || order.payment_status === query.paymentStatus)
           && (!query.fulfillmentStatus || order.fulfillment_status === query.fulfillmentStatus);
@@ -346,6 +394,33 @@ test('sends independent lifecycle, payment, fulfillment, and supported search fi
   await page.getByRole('searchbox', { name: 'Search order number, customer name, or phone' }).fill('Fatima');
   await expect.poll(() => listQueries.at(-1)?.search).toBe('Fatima');
   await expect(page.getByRole('table').getByRole('button', { name: 'ORD-002' })).toBeVisible();
+});
+
+test('worklist chips show server counts and filter the list by bucket', async ({ page }) => {
+  await setupRoutes(page);
+  await loginAndGo(page);
+
+  // Counts come from the aggregate endpoint, not from the loaded page slice.
+  await expect(page.getByTestId('orders-bucket-count-all')).toHaveText('7');
+  await expect(page.getByTestId('orders-bucket-count-to_confirm')).toHaveText('1');
+  await expect(page.getByTestId('orders-bucket-count-to_pack')).toHaveText('3');
+  await expect(page.getByTestId('orders-bucket-count-booked')).toHaveText('1');
+  await expect(page.getByTestId('orders-bucket-count-in_transit')).toHaveText('1');
+  await expect(page.getByTestId('orders-bucket-count-needs_action')).toHaveText('0');
+  await expect(page.getByTestId('orders-bucket-count-returned')).toHaveText('0');
+  await expect(page.getByTestId('orders-bucket-count-delivered')).toHaveText('1');
+
+  await page.getByTestId('orders-bucket-booked').click();
+  await expect.poll(() => listQueries.at(-1)?.deliveryBucket).toBe('booked');
+  await expect(page.getByTestId('orders-bucket-booked')).toHaveAttribute('aria-pressed', 'true');
+  const table = page.getByRole('table');
+  await expect(table.getByRole('button', { name: 'ORD-002' })).toBeVisible();
+  await expect(table.getByText('ORD-001')).toHaveCount(0);
+
+  // Clearing back to "all" must drop the parameter rather than keep it stale.
+  await page.getByTestId('orders-bucket-all').click();
+  await expect.poll(() => listQueries.at(-1)?.deliveryBucket).toBeNull();
+  await expect(table.getByText('ORD-001')).toBeVisible();
 });
 
 test('date presets send explicit bounds to the server', async ({ page }) => {

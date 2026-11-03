@@ -5,7 +5,7 @@ import { Loader2, Package as PackageIcon, XCircle, Plus, Search, Download, Chevr
 import { toast } from "sonner";
 import { apiClient } from "@/api";
 import { getErrorMessage } from "@shared/lib/http/errors";
-import type { Order, DeliveryAddress } from "@/api/types/order";
+import type { Order, DeliveryAddress, OrderWorklistBucket, OrderWorklistCounts } from "@/api/types/order";
 import type { Product } from "@/api/types/product";
 import bdGeography from '../../data/bd-geography.json';
 import CourierBookingModal from './CourierBookingModal';
@@ -15,6 +15,19 @@ import OrderConfidencePanel from './orders/OrderConfidencePanel';
 import ContextualEntityLink from './merchant-workspace/ContextualEntityLink';
 import { ShopRole, UserRole } from '@/shared/lib/rbac/types';
 import { useUserPermissions } from '@/shared/lib/rbac/useUserPermissions';
+
+// Worklist chips. The keys mirror the backend bucket module — the server owns
+// the predicates, so a chip click sends the same key the counters were built
+// from and the two can never disagree.
+const WORKLIST_BUCKETS: Array<{ key: OrderWorklistBucket; labelKey: string }> = [
+  { key: 'to_confirm', labelKey: 'orders.buckets.toConfirm' },
+  { key: 'to_pack', labelKey: 'orders.buckets.toPack' },
+  { key: 'booked', labelKey: 'orders.buckets.booked' },
+  { key: 'in_transit', labelKey: 'orders.buckets.inTransit' },
+  { key: 'needs_action', labelKey: 'orders.buckets.needsAction' },
+  { key: 'returned', labelKey: 'orders.buckets.returned' },
+  { key: 'delivered', labelKey: 'orders.buckets.delivered' },
+];
 
 const statusColors = {
   draft: 'bg-gray-100 text-gray-700',
@@ -77,6 +90,10 @@ export default function Orders() {
   const [fulfillmentStatusFilter, setFulfillmentStatusFilter] = useState<string>('all');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
+  const [deliveryBucket, setDeliveryBucket] = useState<'all' | OrderWorklistBucket>('all');
+  // Shop-wide chip counts. Null until the first response; a failed fetch leaves
+  // them as dashes rather than inventing zeros.
+  const [worklistCounts, setWorklistCounts] = useState<OrderWorklistCounts | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
@@ -281,6 +298,7 @@ export default function Orders() {
           order_status: orderStatusFilter === 'all' ? undefined : orderStatusFilter,
           payment_status: paymentStatusFilter === 'all' ? undefined : paymentStatusFilter,
           fulfillment_status: fulfillmentStatusFilter === 'all' ? undefined : fulfillmentStatusFilter,
+          delivery_bucket: deliveryBucket === 'all' ? undefined : deliveryBucket,
           page: 1,
           limit: 100,
         });
@@ -296,7 +314,17 @@ export default function Orders() {
     };
     fetchOrders();
     return () => controller.abort();
-  }, [dateFilter, appliedSearchQuery, orderStatusFilter, fulfillmentStatusFilter, paymentStatusFilter, retryCount]);
+  }, [dateFilter, appliedSearchQuery, orderStatusFilter, fulfillmentStatusFilter, paymentStatusFilter, deliveryBucket, retryCount]);
+
+  // Chip counts are shop-wide, so they do not depend on the active filters —
+  // they refresh when the underlying data changes, not when a chip is clicked.
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.getOrderCounts()
+      .then((counts) => { if (!cancelled) setWorklistCounts(counts); })
+      .catch(() => { if (!cancelled) setWorklistCounts(null); });
+    return () => { cancelled = true; };
+  }, [retryCount, confidenceRefresh]);
 
   // FE-08: resolve the chat snippet ONLY through the verified shop-scoped
   // customer id (backend GET /api/conversation already filters customer_id
@@ -640,6 +668,38 @@ export default function Orders() {
         </div>
 
         <section aria-label={t('orders.toolbarLabel')} className="mb-4 rounded-xl border border-border bg-card p-3">
+          <div role="group" aria-label={t('orders.buckets.label')} className="mb-3 flex flex-wrap gap-2">
+            {[{ key: 'all' as const, labelKey: 'orders.buckets.all', count: worklistCounts?.total }, ...WORKLIST_BUCKETS.map((bucket) => ({
+              ...bucket,
+              count: worklistCounts ? worklistCounts[bucket.key] : undefined,
+            }))].map((bucket) => {
+              const active = deliveryBucket === bucket.key;
+              return (
+                <button
+                  key={bucket.key}
+                  type="button"
+                  aria-pressed={active}
+                  data-testid={`orders-bucket-${bucket.key}`}
+                  onClick={() => { setIsLoading(true); setDeliveryBucket(bucket.key); }}
+                  className={`flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                    active
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-background text-foreground hover:border-primary'
+                  }`}
+                >
+                  <span>{t(bucket.labelKey)}</span>
+                  <span
+                    data-testid={`orders-bucket-count-${bucket.key}`}
+                    className={`rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
+                      active ? 'bg-primary-foreground/20' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {bucket.count === undefined ? '—' : bucket.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_repeat(2,minmax(145px,190px))] xl:grid-cols-[minmax(260px,1fr)_repeat(4,minmax(140px,180px))]">
             <label className="relative block min-w-0">
               <span className="sr-only">{t('orders.searchLabel')}</span>
@@ -707,6 +767,7 @@ export default function Orders() {
                 setFulfillmentStatusFilter('all');
                 setPaymentStatusFilter('all');
                 setDateFilter('all');
+                setDeliveryBucket('all');
               }}
               className="text-xs font-semibold text-primary hover:underline"
             >
@@ -740,7 +801,7 @@ export default function Orders() {
           <div className="rounded-xl border border-border bg-card p-10 text-center">
             <PackageIcon className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
             <p className="text-sm font-medium text-muted-foreground">
-              {appliedSearchQuery || orderStatusFilter !== 'all' || fulfillmentStatusFilter !== 'all' || paymentStatusFilter !== 'all' || dateFilter !== 'all'
+              {appliedSearchQuery || orderStatusFilter !== 'all' || fulfillmentStatusFilter !== 'all' || paymentStatusFilter !== 'all' || dateFilter !== 'all' || deliveryBucket !== 'all'
                 ? t('orders.noMatches')
                 : t('orders.emptyShop')}
             </p>
