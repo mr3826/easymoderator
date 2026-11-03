@@ -302,6 +302,33 @@ describe('Order Domain API', () => {
     });
   });
 
+  describe('getOrderCounts', () => {
+    it('reads the shop-wide worklist counts and zero-fills missing buckets', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { success: true, data: { total: 9, to_confirm: 4, booked: 5 } },
+      });
+
+      const counts = await order.getOrderCounts();
+
+      expect(httpClient.get).toHaveBeenCalledWith('/api/order/counts');
+      expect(counts.total).toBe(9);
+      expect(counts.to_confirm).toBe(4);
+      expect(counts.booked).toBe(5);
+      // An omitted bucket must read as zero, never undefined — the chip would
+      // otherwise render a blank where the server meant "none".
+      expect(counts.in_transit).toBe(0);
+      expect(counts.needs_action).toBe(0);
+    });
+
+    it('survives an empty payload without producing NaN', async () => {
+      (httpClient.get as any).mockResolvedValue({ data: {} });
+
+      const counts = await order.getOrderCounts();
+
+      expect(Object.values(counts).every((value) => value === 0)).toBe(true);
+    });
+  });
+
   describe('getDeliverySettings', () => {
     it('should return delivery settings', async () => {
       const mockResponse = {

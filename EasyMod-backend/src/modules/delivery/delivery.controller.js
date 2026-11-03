@@ -7,6 +7,7 @@ const { mergeSettingsPreservingRtoConsent } = require('../shop/shop-settings.val
 const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
 const pickupLocationService = require('./pickup-location.service');
 const courierReadinessService = require('./courier-readiness.service');
+const { getProviderCapabilities } = require('./provider-capabilities');
 
 const DELIVERY_ZONES = ['inside_dhaka', 'sub_dhaka', 'outside_dhaka'];
 
@@ -330,6 +331,10 @@ class DeliveryController {
                     setup_complete: Boolean(integration?.is_connected && readiness && readinessMissing
                         && readinessMissing.length === 0),
                     pickup_summary: pickupSummary,
+                    // What this integration can actually do, capped at
+                    // IMPLEMENTED_NOT_LIVE_VERIFIED. Served from one source so
+                    // the settings screen cannot overstate a provider.
+                    capabilities: getProviderCapabilities(providerName),
                     last_validated_at: integration ? integration.last_validated_at : null,
                     connected_at: integration ? integration.created_at : null
                 };

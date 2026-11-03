@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const { BUCKET_KEYS } = require('./order-worklist.buckets');
 
 class OrderValidator {
     createOrder = {
@@ -124,6 +125,11 @@ class OrderValidator {
             }),
             payment_status: Joi.string().valid('pending', 'paid', 'unpaid', 'refunded', 'partially_paid').optional(),
             fulfillment_status: Joi.string().valid('unfulfilled', 'fulfilled', 'cancelled', 'partially_fulfilled').optional(),
+            // Worklist chip filter; the bucket set is owned by
+            // order-worklist.buckets.js so the API and the counters cannot drift.
+            delivery_bucket: Joi.string().valid(...BUCKET_KEYS).optional().messages({
+                'any.only': 'Invalid worklist bucket'
+            }),
             page: Joi.number().integer().min(1).default(1),
             limit: Joi.number().integer().min(1).max(100).default(20)
         })

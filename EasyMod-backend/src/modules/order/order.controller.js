@@ -235,6 +235,33 @@ const confirmOrder = async (req, res, next) => {
 };
 
 /**
+ * Worklist chip counts for the Orders page.
+ */
+const getOrderCounts = async (req, res, next) => {
+    try {
+        const { shopId } = req.user;
+        if (!shopId) {
+            return res.status(400).json({
+                success: false,
+                error: {
+                    code: 'VALIDATION_ERROR',
+                    message: 'No shop selected. Please login again.'
+                }
+            });
+        }
+
+        const counts = await orderService.getOrderWorklistCounts(req.user.userId, shopId);
+
+        res.status(200).json({
+            success: true,
+            data: counts
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * RESTful: Get orders with pagination and filters
  */
 const getOrders = async (req, res, next) => {
@@ -873,6 +900,7 @@ const bookCourier = async (req, res, next) => {
 module.exports = {
     // RESTful methods
     getOrders,
+    getOrderCounts,
     getOrderById,
     getOrdersByCustomer,
     cancelOrder,

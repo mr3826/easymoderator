@@ -15,6 +15,9 @@ vi.mock('react-router-dom', async (importOriginal) => {
 vi.mock('@/api', () => ({
   apiClient: {
     getOrders: vi.fn().mockResolvedValue([]),
+    getOrderCounts: vi.fn().mockResolvedValue({
+      total: 0, to_confirm: 0, to_pack: 0, booked: 0, in_transit: 0, needs_action: 0, returned: 0, delivered: 0,
+    }),
     getProducts: vi.fn().mockResolvedValue([]),
     getPaymentConfig: vi.fn().mockResolvedValue({ success: true, data: [{ gateway: 'cod', is_enabled: true }] }),
     getOrder: vi.fn(),
@@ -54,6 +57,9 @@ beforeEach(async () => {
   mockedAuth.role = 'owner'
   const { apiClient } = await import('@/api')
   vi.mocked(apiClient.getOrders).mockReset().mockResolvedValue([])
+  vi.mocked(apiClient.getOrderCounts).mockReset().mockResolvedValue({
+    total: 0, to_confirm: 0, to_pack: 0, booked: 0, in_transit: 0, needs_action: 0, returned: 0, delivered: 0,
+  })
   vi.mocked(apiClient.getProducts).mockReset().mockResolvedValue([])
   vi.mocked(apiClient.getPaymentConfig).mockReset().mockResolvedValue({
     success: true,

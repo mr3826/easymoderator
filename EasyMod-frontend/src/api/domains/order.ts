@@ -12,6 +12,7 @@ import type {
   CourierBookingPayload,
   CourierBookingResult,
   CourierEligibility,
+  OrderWorklistCounts,
   ConnectDeliveryProviderRequest,
   DeliveryProvider,
   DeliveryLocationOption,
@@ -106,6 +107,28 @@ function normalizeOrder(raw: any): Order {
 export async function getOrders(params?: Record<string, unknown>): Promise<Order[]> {
   const response: AxiosResponse<ApiResponse<Order[]>> = await httpClient.get('/api/order', { params });
   return Array.isArray(response.data.data) ? response.data.data.map(normalizeOrder) : [];
+}
+
+/**
+ * Get worklist chip counts for the shop.
+ *
+ * The counts come from the same server-side bucket definitions the list
+ * filter uses, so a chip can never advertise rows the filtered list cannot
+ * return. Zero-fills every bucket if the server omits one.
+ */
+export async function getOrderCounts(): Promise<OrderWorklistCounts> {
+  const response: AxiosResponse<ApiResponse<Partial<OrderWorklistCounts>>> = await httpClient.get('/api/order/counts');
+  const data = response.data?.data ?? {};
+  return {
+    total: Number(data.total ?? 0),
+    to_confirm: Number(data.to_confirm ?? 0),
+    to_pack: Number(data.to_pack ?? 0),
+    booked: Number(data.booked ?? 0),
+    in_transit: Number(data.in_transit ?? 0),
+    needs_action: Number(data.needs_action ?? 0),
+    returned: Number(data.returned ?? 0),
+    delivered: Number(data.delivered ?? 0),
+  };
 }
 
 /**

@@ -1361,6 +1361,17 @@
     "dateLast30": "Last 30 days",
     "searchLabel": "Search order number, customer name, or phone",
     "searchPlaceholder": "Order number, customer name, or phone",
+    "buckets": {
+      "label": "Order worklist buckets",
+      "all": "All",
+      "toConfirm": "To confirm",
+      "toPack": "To pack",
+      "booked": "Booked",
+      "inTransit": "In transit",
+      "needsAction": "Needs action",
+      "returned": "Returned",
+      "delivered": "Delivered"
+    },
     "filterOrderStatus": "Order status",
     "orderStatusAll": "All order statuses",
     "filterFulfillmentStatus": "Fulfillment status",
@@ -2326,6 +2337,34 @@
       "pickupMissing": "Pickup details are required before activation",
       "completePickupDetails": "Complete pickup details",
       "pickupSaved": "{{provider}} pickup details saved and validated",
+      "capabilities": {
+        "title": "What this courier can do",
+        "lastVerified": "Last verified with a live account: {{date}}",
+        "neverVerified": "Never verified with a live account. Actions marked as implemented are tested against mocks only.",
+        "level": {
+          "unsupported": "Not supported",
+          "unknown": "Cannot be checked",
+          "implementedNotLiveVerified": "Implemented, not live-verified",
+          "liveVerified": "Live-verified"
+        },
+        "operation": {
+          "coverage": "Destination coverage check",
+          "rate_quote": "Delivery charge quote",
+          "create_parcel": "Create parcel",
+          "tracking": "Tracking updates",
+          "cancel": "Cancel parcel",
+          "edit": "Edit parcel"
+        },
+        "reason": {
+          "NO_PROVIDER_API": "The courier has no API for this.",
+          "TEXT_ONLY_COVERAGE": "This courier books by text address and publishes no area list to check against."
+        },
+        "manualStep": {
+          "CANCEL_IN_PROVIDER_PORTAL": "Cancel it in the courier's own merchant portal.",
+          "EDIT_IN_PROVIDER_PORTAL": "Edit it in the courier's own merchant portal.",
+          "RATE_SHOWN_AFTER_BOOKING": "The charge is shown after the parcel is created."
+        }
+      },
       "removeArea": "Remove area",
       "removeTier": "Remove tier",
       "weightTierTooltip": "Weight tier guide: Add extra charges by weight range. Example: 0-1 kg = 0, 1-3 kg = 20. Extra charge adds to base delivery charge.",

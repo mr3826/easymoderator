@@ -271,6 +271,39 @@ describe('Order Controller', () => {
         });
     });
 
+    describe('getOrderCounts', () => {
+        it('returns the shop-scoped worklist counts', async () => {
+            orderService.getOrderWorklistCounts.mockResolvedValue({ total: 4, to_confirm: 1, booked: 3 });
+
+            await orderController.getOrderCounts(mockReq, mockRes, mockNext);
+
+            expect(orderService.getOrderWorklistCounts).toHaveBeenCalledWith('user-1', 'shop-1');
+            expect(mockRes.status).toHaveBeenCalledWith(200);
+            expect(mockRes.json).toHaveBeenCalledWith({
+                success: true,
+                data: { total: 4, to_confirm: 1, booked: 3 }
+            });
+        });
+
+        it('rejects a request with no selected shop', async () => {
+            mockReq.user = { userId: 'user-1' };
+
+            await orderController.getOrderCounts(mockReq, mockRes, mockNext);
+
+            expect(orderService.getOrderWorklistCounts).not.toHaveBeenCalled();
+            expect(mockRes.status).toHaveBeenCalledWith(400);
+        });
+
+        it('forwards a service failure to the error handler', async () => {
+            const error = new Error('boom');
+            orderService.getOrderWorklistCounts.mockRejectedValue(error);
+
+            await orderController.getOrderCounts(mockReq, mockRes, mockNext);
+
+            expect(mockNext).toHaveBeenCalledWith(error);
+        });
+    });
+
     describe('listOrders', () => {
         it('should return paginated orders', async () => {
             mockReq.query = { page: '1', limit: '10' };
