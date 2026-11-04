@@ -619,12 +619,13 @@
       "liveUpdate": "Live update every 60 seconds",
       "lastUpdated": "· Last updated {{time}}",
       "cashPosition": {
-        "title": "Cash Position",
-        "subtitle": "Cash Position",
-        "inTransit": "Stuck with courier",
-        "inTransitSub": "Cash in Transit",
-        "atRisk": "Coming back",
-        "atRiskSub": "At Risk · {{days}} days",
+        "title": "Delivery value",
+        "subtitle": "Delivery value",
+        "inTransit": "Active deliveries",
+        "inTransitSub": "Order value associated with active deliveries",
+        "atRisk": "Returned or failed",
+        "atRiskSub": "Order value · last {{days}} days",
+        "derivationNote": "Both figures come from order status and order totals — not from courier statements. They are neither courier-collected COD nor settled funds.",
         "ordersUnit": "{{count}} orders",
         "unavailable": "Unavailable"
       },
@@ -2908,6 +2909,7 @@
       "checking": "Checking {{provider}} coverage…",
       "serviceable": "This address matched a {{provider}} service area.",
       "notServiceable": "{{provider}} does not list this delivery area. Choose another courier.",
+      "notServiceableAdvisory": "{{provider}} does not list this address. Coverage is advisory while enforcement is off, so you can still try — the server refuses the booking if the order has no delivery area {{provider}} can use.",
       "uncertain": "{{provider}} coverage could not be confirmed for this address. You can still book.",
       "unavailable": "Coverage check is unavailable right now. You can still book."
     },

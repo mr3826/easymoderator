@@ -288,6 +288,12 @@ export interface CourierEligibility {
   source: 'order_destination';
   checked_at: string;
   ttl_seconds: number;
+  /**
+   * Whether the server treats NOT_SERVICEABLE as blocking. When false the
+   * verdict is advisory and the booking is still allowed to be attempted
+   * (malformed payloads are refused by the server either way).
+   */
+  enforced?: boolean;
 }
 
 export interface PathaoCredentials {

@@ -588,6 +588,9 @@ export default function Dashboard() {
             t={t}
           />
         </div>
+        <p role="note" className="mt-3 text-xs text-muted-foreground">
+          {t("dashboard.pulse.cashPosition.derivationNote")}
+        </p>
       </section>
 
       <section className="rounded-2xl border border-border bg-card p-4">

@@ -99,6 +99,15 @@ describe('real bKash webhook courier claim boundary', () => {
                 upazila: 'Dhanmondi',
                 district: 'Dhaka',
             },
+            // Pathao cannot address a parcel without city/zone/area ids, and
+            // booking refuses a payload that has none (D5-1).
+            // delivery_location is TEXT, so it is stored serialized.
+            delivery_location: JSON.stringify({
+                area_id: 11, area_name: 'Dhanmondi',
+                zone_id: 22, zone_name: 'Dhanmondi',
+                city_id: 33, city_name: 'Dhaka',
+                district: 'Dhaka',
+            }),
             total: 1250,
             items: [{ name: 'bKash Race Item', quantity: 1 }],
             order_status: 'placed',

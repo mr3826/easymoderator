@@ -82,6 +82,16 @@ function createFixtures(label) {
             customer_name: 'Pilot Customer',
             customer_phone: '01711111111',
             delivery_address: 'House 12, Road 5, Dhanmondi, Dhaka',
+            // The courier adapters address a parcel from the order's own
+            // directory ids, and booking refuses a payload that carries none.
+            // delivery_location is TEXT holding JSON, so the fixture stores a
+            // serialized object rather than a JS object.
+            delivery_location: JSON.stringify({
+                area_id: 11, area_name: 'Dhanmondi',
+                zone_id: 22, zone_name: 'Dhanmondi',
+                city_id: 33, city_name: 'Dhaka',
+                district: 'Dhaka',
+            }),
             total: 1250,
             order_status: 'confirmed',
             // Booking requires a recorded payment method (or a paid order);

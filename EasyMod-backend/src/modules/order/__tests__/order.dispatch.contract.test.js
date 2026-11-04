@@ -68,6 +68,18 @@ const makeOrder = () => {
             upazila: 'Dhanmondi',
             district: 'Dhaka',
         },
+        // Structured destination ids on the order itself. Pathao and RedX cannot
+        // address a parcel without them, and the booking path refuses to send
+        // an unaddressable payload (D5-1).
+        delivery_location: {
+            area_id: 11,
+            area_name: 'Dhanmondi',
+            zone_id: 22,
+            zone_name: 'Dhanmondi',
+            city_id: 33,
+            city_name: 'Dhaka',
+            district: 'Dhaka',
+        },
         total: '1250.00',
         items: [{ name: 'Red Saree', quantity: 2 }],
         update: jest.fn(async function update(values) {
