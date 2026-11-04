@@ -1876,8 +1876,35 @@ const destinationResolutionEnabled = () => process.env.COURIER_DESTINATION_RESOL
  * Deliberately NOT isRuntimeFlagEnabled(): that helper treats "unset" as
  * enabled outside production, which would silently turn enforcement on in
  * every dev and test environment. Shadow mode is the default everywhere.
+ *
+ * This is the POLICY switch — "do we refuse to ship to an area the provider
+ * does not list?". It is NOT a validity switch, and it must never be read as
+ * one: a payload that cannot be addressed is malformed and is blocked by
+ * missingBookableDestination() regardless of this flag.
  */
 const serviceabilityEnforced = () => process.env.COURIER_SERVICEABILITY_ENFORCE === 'true';
+
+/**
+ * Destination keys each provider's adapter needs before a parcel can be
+ * addressed. Derived from the registry normalizers (provider.registry.js):
+ * RedX sends `delivery_area_id`, Pathao sends city/zone/area ids, Steadfast
+ * books by text address and needs none.
+ *
+ * Absence of one of these is a MALFORMED payload, not an unverified one.
+ * Sending it can only end in a provider rejection (or, for Pathao, a parcel
+ * filed against an arbitrary default area), so the booking is stopped before
+ * the network call — see the D5-1 decision of 2026-11-04.
+ */
+const REQUIRED_DESTINATION_FIELDS = Object.freeze({
+    redx: Object.freeze(['delivery_area_id']),
+    pathao: Object.freeze(['recipient_city', 'recipient_zone', 'recipient_area']),
+});
+
+const missingBookableDestination = (provider, orderData) => {
+    const required = REQUIRED_DESTINATION_FIELDS[normalizeCourierProvider(provider)];
+    if (!required) return [];
+    return required.filter((key) => !String(orderData?.[key] ?? '').trim());
+};
 
 /**
  * Resolve the ORDER's destination against the provider directory.
@@ -1903,12 +1930,22 @@ const resolveBookingDestination = async ({ shopId, provider, order, providerInst
 };
 
 /**
- * Attach destination ids only on a directory-confirmed match. Any other
- * verdict leaves the keys absent — a guessed or pickup-derived area is the
- * defect this fix removes.
+ * Attach the ORDER's destination ids to the booking payload.
+ *
+ * The ids copied here come from `resolution.destination`, which is extracted
+ * from the order itself — never from integration or pickup metadata. That is
+ * the defect #238 removed and this function must not reintroduce it.
+ *
+ * A directory-confirmed match wins. A definitive NOT_SERVICEABLE means the
+ * directory was readable and did not contain the order's address, so the
+ * order's own ids are contradicted and are left off (the booking then fails
+ * the payload-validity check, which is the honest outcome). An unverified
+ * verdict (UNCERTAIN / CHECK_UNAVAILABLE) does not contradict anything, so the
+ * order's own ids are kept: refusing them would turn a temporary directory
+ * outage into an unrelated booking outage.
  */
 const applyBookingDestination = (orderData, provider, resolution) => {
-    if (!orderData || !resolution || resolution.decision !== 'SERVICEABLE') return orderData;
+    if (!orderData || !resolution || resolution.decision === 'NOT_SERVICEABLE') return orderData;
     const destinationService = getCourierDestinationService();
     if (typeof destinationService?.applyDestinationToOrderData !== 'function') return orderData;
     return destinationService.applyDestinationToOrderData(orderData, provider, resolution);
@@ -1926,6 +1963,10 @@ const ELIGIBILITY_TTL_SECONDS = 300;
  */
 const getCourierDestinationEligibility = async (order, { shopId, provider = null } = {}) => {
     const requestedProvider = provider ? String(provider) : null;
+    // `enforced` is what lets a caller tell an advisory verdict from a blocking
+    // one without re-implementing the server's policy. A NOT_SERVICEABLE answer
+    // is a refusal only when this is true; with it false the server still
+    // refuses malformed payloads, which is a different question.
     const unavailable = (reasonCode, resolvedProvider = requestedProvider) => ({
         provider: resolvedProvider,
         decision: 'CHECK_UNAVAILABLE',
@@ -1933,6 +1974,7 @@ const getCourierDestinationEligibility = async (order, { shopId, provider = null
         source: 'order_destination',
         checked_at: new Date().toISOString(),
         ttl_seconds: ELIGIBILITY_TTL_SECONDS,
+        enforced: serviceabilityEnforced(),
     });
 
     const destinationService = getCourierDestinationService();
@@ -1946,12 +1988,13 @@ const getCourierDestinationEligibility = async (order, { shopId, provider = null
     }
 
     try {
-        return await destinationService.resolveDestination({
+        const verdict = await destinationService.resolveDestination({
             shopId,
             provider: resolution.provider,
             order,
             providerInstance: resolution.instance || null,
         });
+        return { ...verdict, enforced: serviceabilityEnforced() };
     } catch (_) {
         return unavailable('LOOKUP_FAILED', resolution.provider);
     }
@@ -2810,24 +2853,55 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
             providerInstance: resolution.instance || null,
         });
         applyBookingDestination(orderData, resolution.provider, destination);
+        if (destination?.decision === 'NOT_SERVICEABLE' && serviceabilityEnforced()) {
+            try {
+                require('../pilot-features/pilot-metrics')
+                    .increment('courier.serviceability.not_serviceable_blocked');
+            } catch (_) { /* metrics are best effort */ }
+
+            await markCourierDispatchFailed(
+                dispatchRecord,
+                'Destination is not serviceable by the selected courier',
+                dispatchOwnerToken,
+            );
+            throw new AppError(
+                'The selected courier cannot deliver to this order\'s destination. Choose another courier.',
+                409,
+                'COURIER_DESTINATION_NOT_SERVICEABLE',
+            );
+        }
         if (destination?.decision === 'NOT_SERVICEABLE') {
+            // Shadow mode records the policy verdict and lets the booking go on
+            // — but only if the payload itself is still addressable, which the
+            // validity check below decides.
             try {
                 require('../pilot-features/pilot-metrics')
                     .increment('courier.serviceability.not_serviceable_shadow');
             } catch (_) { /* metrics are best effort */ }
+        }
 
-            if (serviceabilityEnforced()) {
-                await markCourierDispatchFailed(
-                    dispatchRecord,
-                    'Destination is not serviceable by the selected courier',
-                    dispatchOwnerToken,
-                );
-                throw new AppError(
-                    'The selected courier cannot deliver to this order\'s destination. Choose another courier.',
-                    409,
-                    'COURIER_DESTINATION_NOT_SERVICEABLE',
-                );
-            }
+        const missingDestination = missingBookableDestination(resolution.provider, orderData);
+        if (missingDestination.length) {
+            // Payload validity is never shadowed. Without these ids the parcel
+            // cannot be addressed, so the provider call could not succeed;
+            // failing here keeps the merchant's error honest and the PENDING
+            // claim recoverable, and it does not reintroduce the pickup-area
+            // fallback that #238 removed.
+            try {
+                require('../pilot-features/pilot-metrics')
+                    .increment('courier.serviceability.destination_payload_invalid');
+            } catch (_) { /* metrics are best effort */ }
+
+            await markCourierDispatchFailed(
+                dispatchRecord,
+                'Courier payload has no deliverable destination',
+                dispatchOwnerToken,
+            );
+            throw new AppError(
+                'This order has no delivery area that the selected courier can use. Record the delivery area on the order, or choose another courier.',
+                409,
+                'COURIER_DESTINATION_PAYLOAD_INVALID',
+            );
         }
 
         if (typeof deliveryService.createDeliveryOrder !== 'function') {
@@ -2926,6 +3000,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
                 'PAYMENT_STATUS_REQUIRED',
                 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
                 'COURIER_DESTINATION_NOT_SERVICEABLE',
+                'COURIER_DESTINATION_PAYLOAD_INVALID',
             ].includes(error.code)) {
             throw error;
         }

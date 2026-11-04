@@ -127,6 +127,10 @@ describe('Dashboard — cash position section', () => {
     // Count values are scoped to their respective cash-position cards.
     expect(screen.getByText('dashboard.pulse.cashPosition.inTransit').closest('section')).toHaveTextContent(/\b7\b/);
     expect(screen.getByText('dashboard.pulse.cashPosition.atRisk').closest('section')).toHaveTextContent(/\b2\b/);
+
+    // D5-2: the figures are order-status derived, and the card says so next to
+    // them instead of implying settled cash.
+    expect(screen.getByText('dashboard.pulse.cashPosition.derivationNote')).toBeInTheDocument();
   });
 
   it('renders first-time setup instead of loading pulse data while setup is incomplete', async () => {

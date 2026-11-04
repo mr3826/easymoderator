@@ -48,6 +48,11 @@ const KNOWN = new Set([
     // Shadow-mode count of bookings whose destination the provider directory
     // could not serve. Counter names never carry shop/provider data.
     'courier.serviceability.not_serviceable_shadow',
+    // Enforcement-mode count of the same verdict when policy blocking is on.
+    'courier.serviceability.not_serviceable_blocked',
+    // Payload-validity count: bookings stopped before the provider call because
+    // the destination was not addressable at all (never shadowed — D5-1).
+    'courier.serviceability.destination_payload_invalid',
 ]);
 
 function increment(name, by = 1) {

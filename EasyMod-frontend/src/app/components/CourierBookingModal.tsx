@@ -56,6 +56,10 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
   const [eligibility, setEligibility] = useState<CourierEligibility | null>(null);
   const [checkingEligibility, setCheckingEligibility] = useState(false);
   const destinationNotServiceable = eligibility?.decision === 'NOT_SERVICEABLE';
+  // The server owns the policy. NOT_SERVICEABLE blocks the button only when the
+  // response says enforcement is on; an older payload without the field fails
+  // closed rather than silently unlocking a booking the server would refuse.
+  const destinationBlocksBooking = destinationNotServiceable && eligibility?.enforced !== false;
 
   // Pre-flight only: the server decides again during booking, so a stale or
   // missing answer here can never let an unsupported parcel through.
@@ -92,7 +96,9 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
       case 'SERVICEABLE':
         return t('courier.eligibility.serviceable', { provider });
       case 'NOT_SERVICEABLE':
-        return t('courier.eligibility.notServiceable', { provider });
+        return destinationBlocksBooking
+          ? t('courier.eligibility.notServiceable', { provider })
+          : t('courier.eligibility.notServiceableAdvisory', { provider });
       case 'UNCERTAIN':
         return t('courier.eligibility.uncertain', { provider });
       case 'CHECK_UNAVAILABLE':
@@ -103,7 +109,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
   })();
 
   const handleBook = async () => {
-    if (bookingBlocked || destinationNotServiceable) return;
+    if (bookingBlocked || destinationBlocksBooking) return;
     if (!recipientName.trim() || !recipientPhone.trim() || !recipientAddress.trim()) {
       toast.error(t('courier.errors.fieldsRequired'));
       return;
@@ -167,9 +173,9 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
           </div>
           {eligibilityMessage && (
             <div
-              role={destinationNotServiceable ? 'alert' : 'status'}
+              role={destinationBlocksBooking ? 'alert' : 'status'}
               className={`mt-2 flex items-start gap-2 rounded-lg border p-2 text-xs ${
-                destinationNotServiceable
+                destinationBlocksBooking
                   ? 'border-red-200 bg-red-50 text-red-800'
                   : eligibility?.decision === 'SERVICEABLE'
                     ? 'border-green-200 bg-green-50 text-green-800'
@@ -178,7 +184,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
             >
               {checkingEligibility ? (
                 <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
-              ) : destinationNotServiceable ? (
+              ) : destinationBlocksBooking ? (
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               ) : eligibility?.decision === 'SERVICEABLE' ? (
                 <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -241,7 +247,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
           </button>
           <button
             onClick={handleBook}
-            disabled={booking || bookingBlocked || destinationNotServiceable}
+            disabled={booking || bookingBlocked || destinationBlocksBooking}
             className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {booking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}

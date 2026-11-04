@@ -139,15 +139,21 @@ describe('booking destination resolution', () => {
         expect(result).toMatchObject({ tracking_code: 'TRK-1' });
     });
 
-    test('a NOT_SERVICEABLE destination is counted but still books in shadow mode', async () => {
+    test('a NOT_SERVICEABLE destination leaves the payload unaddressable and is refused in shadow mode', async () => {
         getAreas.mockResolvedValue([{ id: 9, name: 'Atlantis', district_name: 'Dhaka' }]);
 
-        const result = await book();
+        await expect(book()).rejects.toMatchObject({
+            status: 409,
+            code: 'COURIER_DESTINATION_PAYLOAD_INVALID',
+        });
 
-        expect(deliveryService.createDeliveryOrder).toHaveBeenCalled();
-        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).not.toHaveProperty('delivery_area_id');
+        // Payload validity is not shadowed: no unaddressable parcel is sent.
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
         expect(pilotMetrics.snapshot().counters['courier.serviceability.not_serviceable_shadow']).toBe(1);
-        expect(result).toMatchObject({ tracking_code: 'TRK-1' });
+        expect(pilotMetrics.snapshot().counters['courier.serviceability.destination_payload_invalid']).toBe(1);
+        expect(dispatchRecord.update).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'FAILED' }),
+        );
     });
 
     test('COURIER_SERVICEABILITY_ENFORCE turns NOT_SERVICEABLE into a 409 without a provider call', async () => {
@@ -164,24 +170,48 @@ describe('booking destination resolution', () => {
         );
     });
 
-    test('a directory lookup failure never blocks the booking', async () => {
+    test('an order that carries its own area ids still books when the directory is unavailable', async () => {
+        // The ids are the order's own; an unreachable directory neither
+        // confirms nor contradicts them, so a temporary lookup outage must not
+        // become a booking outage.
         getAreas.mockRejectedValue(new Error('timeout'));
 
-        const result = await book();
-        const payload = deliveryService.createDeliveryOrder.mock.calls[0][1];
+        const order = makeOrder({
+            delivery_location: { area_id: 77, area_name: 'Mirpur', district: 'Dhaka' },
+        });
+        // bookForOrder re-reads the order under the claim lock, so the fixture
+        // has to be the one the lookup returns.
+        mockOrder.findOne.mockResolvedValue(order);
 
-        expect(payload).not.toHaveProperty('delivery_area_id');
-        expect(pilotMetrics.snapshot().counters['courier.serviceability.not_serviceable_shadow']).toBe(0);
+        const result = await book(order);
+
+        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).toMatchObject({ delivery_area_id: 77 });
         expect(result).toMatchObject({ tracking_code: 'TRK-1' });
     });
 
-    test('the resolution kill switch skips the directory entirely', async () => {
+    test('a directory lookup failure cannot produce an addressable payload, so it refuses instead of sending one', async () => {
+        getAreas.mockRejectedValue(new Error('timeout'));
+
+        await expect(book()).rejects.toMatchObject({
+            status: 409,
+            code: 'COURIER_DESTINATION_PAYLOAD_INVALID',
+        });
+
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+        expect(pilotMetrics.snapshot().counters['courier.serviceability.not_serviceable_shadow']).toBe(0);
+        expect(pilotMetrics.snapshot().counters['courier.serviceability.destination_payload_invalid']).toBe(1);
+    });
+
+    test('the resolution kill switch skips the directory and the unaddressable payload is refused', async () => {
         process.env.COURIER_DESTINATION_RESOLUTION_ENABLED = 'false';
 
-        await book();
+        await expect(book()).rejects.toMatchObject({
+            status: 409,
+            code: 'COURIER_DESTINATION_PAYLOAD_INVALID',
+        });
 
         expect(getAreas).not.toHaveBeenCalled();
-        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).not.toHaveProperty('delivery_area_id');
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
     });
 
     test('a provider without a destination directory is honest, not blocking', async () => {
@@ -197,6 +227,44 @@ describe('booking destination resolution', () => {
         expect(getAreas).not.toHaveBeenCalled();
         expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).not.toHaveProperty('delivery_area');
     });
+
+    test('a Pathao match carries city, zone and area ids', async () => {
+        const pathaoInstance = {
+            getCities: jest.fn().mockResolvedValue([{ city_id: 11, city_name: 'Dhaka' }]),
+            getZones: jest.fn().mockResolvedValue([{ zone_id: 22, zone_name: 'Mirpur' }]),
+            getAreas: jest.fn().mockResolvedValue([{ area_id: 33, area_name: 'Mirpur' }]),
+        };
+        deliveryService.resolveAiDefaultProvider.mockResolvedValue({
+            blocked: false,
+            provider: 'pathao',
+            pickup: { provider_store_id: 'store-1' },
+            instance: pathaoInstance,
+        });
+
+        await book(makeOrder({ delivery_address: { area: 'Mirpur', upazila: 'Mirpur', district: 'Dhaka' } }));
+
+        const payload = deliveryService.createDeliveryOrder.mock.calls[0][1];
+        expect(payload).toMatchObject({ recipient_city: 11, recipient_zone: 22, recipient_area: 33 });
+    });
+
+    test('a Pathao city miss is an unaddressable payload, refused before the provider call', async () => {
+        const pathaoInstance = {
+            getCities: jest.fn().mockResolvedValue([{ city_id: 11, city_name: 'Dhaka' }]),
+            getZones: jest.fn().mockResolvedValue([]),
+            getAreas: jest.fn().mockResolvedValue([]),
+        };
+        deliveryService.resolveAiDefaultProvider.mockResolvedValue({
+            blocked: false,
+            provider: 'pathao',
+            pickup: { provider_store_id: 'store-1' },
+            instance: pathaoInstance,
+        });
+
+        await expect(book(makeOrder({ delivery_address: { area: 'Atlantis', upazila: 'Mirpur', district: 'Dhaka' } })))
+            .rejects.toMatchObject({ status: 409, code: 'COURIER_DESTINATION_PAYLOAD_INVALID' });
+
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
 });
 
 describe('courier destination eligibility', () => {
@@ -206,6 +274,7 @@ describe('courier destination eligibility', () => {
         jest.clearAllMocks();
         destinationService.clearCache();
         delete process.env.COURIER_DESTINATION_RESOLUTION_ENABLED;
+        delete process.env.COURIER_SERVICEABILITY_ENFORCE;
         getAreas = jest.fn().mockResolvedValue(AREAS);
         deliveryService.resolveAiDefaultProvider.mockResolvedValue({
             blocked: false,
@@ -213,6 +282,27 @@ describe('courier destination eligibility', () => {
             pickup: { provider_store_id: 'store-1' },
             instance: { getAreas },
         });
+    });
+
+    test('every verdict carries the enforcement policy so the UI can tell advisory from blocking', async () => {
+        const shadow = await orderService.getCourierDestinationEligibility(makeOrder(), { shopId: 'shop-1' });
+        expect(shadow).toMatchObject({ decision: 'SERVICEABLE', enforced: false });
+
+        process.env.COURIER_SERVICEABILITY_ENFORCE = 'true';
+        const enforced = await orderService.getCourierDestinationEligibility(makeOrder(), { shopId: 'shop-1' });
+        expect(enforced).toMatchObject({ decision: 'SERVICEABLE', enforced: true });
+    });
+
+    test('an unavailable answer still reports the enforcement policy', async () => {
+        deliveryService.resolveAiDefaultProvider.mockResolvedValue({
+            blocked: true,
+            reason: 'AI_DEFAULT_NOT_CONFIGURED',
+            provider: null,
+        });
+
+        const result = await orderService.getCourierDestinationEligibility(makeOrder(), { shopId: 'shop-1' });
+
+        expect(result).toMatchObject({ decision: 'CHECK_UNAVAILABLE', enforced: false });
     });
 
     test('reports a directory-confirmed destination without booking anything', async () => {
