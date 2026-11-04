@@ -158,6 +158,51 @@ describe('order.validator', () => {
     });
   });
 
+  describe('confirmCourierDestination', () => {
+    const params = { orderId: '550e8400-e29b-41d4-a716-446655440000' };
+
+    it('accepts a directory entry for a courier that has one', () => {
+      const result = orderValidator.confirmCourierDestination.body.validate({
+        provider: 'redx',
+        area_id: 7,
+        area_name: 'Mirpur',
+        district: 'Dhaka',
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.value).toMatchObject({ provider: 'redx', area_id: 7 });
+    });
+
+    it('requires the courier, because ids from one courier are meaningless to another', () => {
+      const result = orderValidator.confirmCourierDestination.body.validate({ area_id: 7 });
+      expect(result.error).toBeDefined();
+    });
+
+    it('requires the area id itself', () => {
+      const result = orderValidator.confirmCourierDestination.body.validate({ provider: 'pathao' });
+      expect(result.error).toBeDefined();
+    });
+
+    it('rejects a courier the product does not support', () => {
+      const result = orderValidator.confirmCourierDestination.body.validate({ provider: 'steadfast', area_id: 7 });
+      expect(result.error).toBeDefined();
+    });
+
+    it('rejects unknown fields instead of storing them', () => {
+      const result = orderValidator.confirmCourierDestination.body.validate({
+        provider: 'redx',
+        area_id: 7,
+        provider_destination: { redx: { area_id: 999 } },
+      });
+      expect(result.error).toBeDefined();
+    });
+
+    it('requires a uuid order id in the path', () => {
+      expect(orderValidator.confirmCourierDestination.params.validate(params).error).toBeUndefined();
+      expect(orderValidator.confirmCourierDestination.params.validate({ orderId: 'order-1' }).error).toBeDefined();
+    });
+  });
+
   describe('legacyGet', () => {
     it('accepts id aliases', () => {
       const byOrderId = orderValidator.legacyGet.query.validate({

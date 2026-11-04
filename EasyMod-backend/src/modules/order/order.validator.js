@@ -153,6 +153,30 @@ class OrderValidator {
         })
     };
 
+    // The merchant names the courier and the directory entry it confirmed.
+    // Ids are re-read from the courier's own directory before anything is
+    // stored, so these are lookups, not trusted values.
+    confirmCourierDestination = {
+        params: Joi.object({
+            orderId: Joi.string().uuid().required().messages({
+                'string.uuid': 'Order ID must be a valid UUID',
+                'any.required': 'Order ID is required'
+            })
+        }),
+        body: Joi.object({
+            provider: Joi.string().trim().lowercase()
+                .valid('redx', 'pathao').required(),
+            area_id: Joi.alternatives().try(Joi.string().trim(), Joi.number().integer()).required(),
+            area_name: Joi.string().trim().max(160).allow('', null).optional(),
+            zone_id: Joi.alternatives().try(Joi.string().trim(), Joi.number().integer()).allow(null).optional(),
+            zone_name: Joi.string().trim().max(160).allow('', null).optional(),
+            city_id: Joi.alternatives().try(Joi.string().trim(), Joi.number().integer()).allow(null).optional(),
+            city_name: Joi.string().trim().max(160).allow('', null).optional(),
+            district: Joi.string().trim().max(160).allow('', null).optional(),
+            postcode: Joi.string().trim().max(20).allow('', null).optional(),
+        }).unknown(false),
+    };
+
     deleteOrder = {
         params: Joi.object({
             id: Joi.string().uuid().required().messages({

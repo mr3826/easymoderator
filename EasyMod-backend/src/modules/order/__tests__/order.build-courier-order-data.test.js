@@ -190,3 +190,37 @@ describe('buildCourierOrderData — safe courier collection amount', () => {
         expect(error.message).toContain('Payment method is not recorded');
     });
 });
+
+describe('buildCourierOrderData — the order\'s own confirmed destination', () => {
+    const withConfirmation = (overrides = {}) => baseOrder({
+        payment_status: 'unpaid',
+        delivery_location: JSON.stringify({
+            provider_destination: {
+                redx: { area_id: 77, area_name: 'Dhanmondi', district: 'Dhaka' },
+            },
+        }),
+        ...overrides,
+    });
+
+    test('carries the ids the merchant confirmed for that courier', () => {
+        const orderData = buildCourierOrderData(withConfirmation(), { provider: 'redx' });
+
+        expect(orderData).toMatchObject({
+            delivery_area_id: 77,
+            delivery_area: 'Dhanmondi',
+        });
+    });
+
+    test('never sends one courier\'s ids to another', () => {
+        const orderData = buildCourierOrderData(withConfirmation(), { provider: 'pathao' });
+
+        expect(orderData).not.toHaveProperty('delivery_area_id');
+        expect(orderData).not.toHaveProperty('recipient_area', 77);
+    });
+
+    test('leaves the payload untouched when no courier is named', () => {
+        const orderData = buildCourierOrderData(withConfirmation());
+
+        expect(orderData).not.toHaveProperty('delivery_area_id');
+    });
+});

@@ -257,6 +257,23 @@ describe('Storefront checkout validation', () => {
         }).error).toBeDefined();
     });
 
+    test('accepts the thana/area a courier directory is keyed by', () => {
+        // District alone is not enough to pick a courier area; the buyer's
+        // thana is what lets checkout create a bookable order.
+        const { error, value } = checkoutSchema.validate({
+            ...base,
+            delivery_address: {
+                district: 'Dhaka',
+                upazila: 'Mirpur',
+                area: 'Mirpur 10',
+                street_address: 'House 7, Road 2, Mirpur 10',
+            },
+        });
+
+        expect(error).toBeUndefined();
+        expect(value.delivery_address.area).toBe('Mirpur 10');
+    });
+
     test('requires affirmative buyer consent and rejects client customer/shop authority', () => {
         expect(checkoutSchema.validate({ ...base, consent: false }).error).toBeDefined();
         expect(checkoutSchema.validate({ ...base, customer_id: 'not-authoritative' }).error).toBeDefined();

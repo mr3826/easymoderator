@@ -1841,6 +1841,14 @@ class OrderSessionService {
             customer_name: stepData.name,
             customer_phone: stepData.phone,
             delivery_address: stepData.address,
+            // The conversation collects one free-text address line, which no
+            // courier directory can be matched against without a guess. Keep
+            // it verbatim in the canonical destination carrier so the merchant
+            // has the exact text to confirm a directory area against later.
+            delivery_location: {
+                full_address: stepData.address,
+                source: 'chat',
+            },
             delivery_zone: stepData.delivery_zone || null,
             channel: session.channel || 'chatbot',
             order_status: 'confirmed',

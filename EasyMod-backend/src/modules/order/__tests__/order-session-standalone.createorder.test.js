@@ -74,6 +74,38 @@ describe('createOrderFromSession', () => {
         expect(order.order_number).toBe('1001');
     });
 
+    test('keeps the buyer\'s own words in the canonical destination carrier', async () => {
+        // A chat address is one free-text line. No directory can be matched
+        // against it without a guess, so it is preserved verbatim: the merchant
+        // confirms a directory area against exactly this text.
+        const session = {
+            id: 'sess-3',
+            shop_id: 'shop-1',
+            customer_id: 'cust-1',
+            customer_channel_id: 'customer-1',
+            meta_channel_id: 'channel-1',
+            channel: 'messenger',
+            product_info: { id: 'prod-1', name: 'Red Saree', price: 1200, quantity: 1 },
+        };
+
+        await OrderSessionService.createOrderFromSession(session, {
+            name: 'Rahim',
+            phone: '01711111111',
+            address: 'House 4, Road 12, Mirpur 10, Dhaka',
+            delivery_charge: 60,
+            payment_method: 'cod',
+        }, {
+            authorization: { actionType: 'CREATE_ORDER', shopId: 'shop-1', idempotencyKey: 'test' },
+            conversationId: 'conv-3',
+        });
+
+        const [, orderData] = createOrderInternal.mock.calls[0];
+        expect(orderData.delivery_location).toEqual({
+            full_address: 'House 4, Road 12, Mirpur 10, Dhaka',
+            source: 'chat',
+        });
+    });
+
     test('converts a multi-item cart into one order with all line items', async () => {
         const session = {
             id: 'sess-2',

@@ -669,6 +669,42 @@ describe('Order Service', () => {
             expect(JSON.stringify(reviewLog)).not.toContain('Elevated cross-shop return history');
         });
 
+        it('persists a structured destination as the canonical carrier the courier reads', async () => {
+            const mockProduct = {
+                id: 'prod-1',
+                name: 'Test Product',
+                price: 100,
+                quantity: 10,
+                track_quantity: true,
+                allow_backorder: false,
+                decrement: jest.fn().mockResolvedValue(true),
+            };
+            const mockOrder = createMockOrder();
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+            Product.findAll = jest.fn().mockResolvedValue([mockProduct]);
+            Order.create = jest.fn().mockImplementation((data) => Promise.resolve({ ...mockOrder, ...data }));
+            OrderItem.create = jest.fn().mockResolvedValue({ id: 'item-1' });
+            PaymentConfig.findOne.mockResolvedValue({ gateway: 'cod' });
+            rtoShieldService.checkPhone = jest.fn().mockResolvedValue({ flagged: false, risk_score: 0 });
+
+            const location = { full_address: 'Road 1, Mirpur', source: 'manual' };
+
+            await orderService.createOrder('user-1', 'shop-1', {
+                ...validOrderData,
+                payment_status: 'unpaid',
+                delivery_area: 'Mirpur',
+                delivery_location: location,
+                delivery_address: { street_address: 'Road 1', upazila: 'Mirpur', district: 'Dhaka' },
+            });
+
+            // delivery_location is a TEXT column: an object must be serialized
+            // here or the destination is lost before a courier ever sees it.
+            expect(Order.create).toHaveBeenCalledWith(expect.objectContaining({
+                delivery_location: JSON.stringify(location),
+                delivery_area: 'Mirpur',
+            }), { transaction: expect.any(Object) });
+        });
+
         it('should reject order with insufficient stock', async () => {
             const mockProduct = {
                 id: 'prod-1',
@@ -1451,6 +1487,33 @@ describe('Order Service', () => {
 
             expect(mockOrder.update).toHaveBeenCalledWith(
                 expect.objectContaining({ fulfillment_status: 'fulfilled' }),
+                { transaction: expect.any(Object) },
+            );
+        });
+
+        it('does not let a generic update write a courier destination', async () => {
+            // Courier ids are only trusted after the courier's directory has
+            // confirmed them; a generic write would store an unvalidated area.
+            const mockOrder = createMockOrder({ order_status: 'confirmed', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+                delivery_location: { provider_destination: { redx: { area_id: 999 } } },
+            })).rejects.toMatchObject({ status: 400, code: 'COURIER_DESTINATION_CONFIRM_REQUIRED' });
+
+            expect(mockOrder.update).not.toHaveBeenCalled();
+        });
+
+        it('records the delivery area text so booking can match it against the courier', async () => {
+            const mockOrder = createMockOrder({ order_status: 'confirmed', metadata: {} });
+            Order.findOne = jest.fn().mockResolvedValue(mockOrder);
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await orderService.updateOrder('order-1', 'user-1', 'shop-1', { delivery_area: 'Mirpur' });
+
+            expect(mockOrder.update).toHaveBeenCalledWith(
+                expect.objectContaining({ delivery_area: 'Mirpur' }),
                 { transaction: expect.any(Object) },
             );
         });

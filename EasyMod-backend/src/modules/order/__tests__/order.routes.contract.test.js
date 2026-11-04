@@ -40,6 +40,7 @@ jest.mock('../order.controller', () => {
         cancelOrder: handler('cancelOrder'),
         createReturnRequest: handler('createReturnRequest'),
         getCourierEligibility: handler('getCourierEligibility'),
+        confirmCourierDestination: handler('confirmCourierDestination'),
         bookCourier: handler('bookCourier'),
         initiateReturn: handler('initiateReturn'),
         updateReturnStatus: handler('updateReturnStatus'),
@@ -122,5 +123,17 @@ describe('order route contracts', () => {
         expect(orderController.getCourierEligibility.mock.calls[0][0].params).toEqual({ orderId: 'order-1' });
         // The pre-check must never be answered by the booking handler.
         expect(orderController.bookCourier).not.toHaveBeenCalled();
+    });
+
+    it('routes the destination confirmation to its own handler, never the booking one', async () => {
+        await request(app)
+            .put('/api/order/order-1/courier/destination')
+            .send({ provider: 'redx', area_id: 7 })
+            .expect(200);
+
+        expect(orderController.confirmCourierDestination).toHaveBeenCalledTimes(1);
+        expect(orderController.confirmCourierDestination.mock.calls[0][0].params).toEqual({ orderId: 'order-1' });
+        expect(orderController.bookCourier).not.toHaveBeenCalled();
+        expect(orderController.getCourierEligibility).not.toHaveBeenCalled();
     });
 });

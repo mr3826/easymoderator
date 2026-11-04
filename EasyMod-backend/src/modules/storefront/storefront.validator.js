@@ -58,6 +58,10 @@ module.exports = {
                 division: Joi.string().trim().max(100).allow('').optional(),
                 district: Joi.string().trim().min(1).max(100).required(),
                 upazila: Joi.string().trim().max(100).allow('').optional(),
+                // The thana/area is what a courier's destination directory is
+                // keyed by; without it a checkout order can be created but not
+                // booked without a merchant correction.
+                area: Joi.string().trim().max(100).allow('').optional(),
                 street_address: Joi.string().trim().min(5).max(500).required(),
                 zone: Joi.string().trim().max(50).allow('').optional(),
             }).unknown(false).required(),

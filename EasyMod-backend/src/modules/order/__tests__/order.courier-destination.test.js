@@ -30,6 +30,7 @@ jest.mock('../../../utils/database/database-setup', () => ({
 jest.mock('../../delivery/delivery.service', () => ({
     resolveAiDefaultProvider: jest.fn(),
     createDeliveryOrder: jest.fn(),
+    getProviderInstance: jest.fn(),
 }));
 jest.mock('../order-session-standalone.service', () => ({
     persistDeliveryResult: jest.fn(),
@@ -45,6 +46,9 @@ jest.mock('../../notification/notification-events', () => ({
 }));
 jest.mock('../../order-confidence/order-confidence.service', () => ({
     checkBookingGate: jest.fn().mockResolvedValue({ allowed: true, mode: 'off' }),
+}));
+jest.mock('../../delivery/courier-readiness.service', () => ({
+    evaluateReadiness: jest.fn().mockResolvedValue({ ready: true, status: 'ACTIVE' }),
 }));
 
 const orderService = require('../order.service');
@@ -122,6 +126,7 @@ describe('booking destination resolution', () => {
             tracking_code: 'TRK-1',
             status: 'pending',
         });
+        deliveryService.getProviderInstance.mockResolvedValue({ getAreas });
         sessionService.persistDeliveryResult.mockResolvedValue(undefined);
         mockCourierDispatch.findOrCreate.mockResolvedValue([dispatchRecord, true]);
     });
@@ -139,18 +144,22 @@ describe('booking destination resolution', () => {
         expect(result).toMatchObject({ tracking_code: 'TRK-1' });
     });
 
-    test('a NOT_SERVICEABLE destination leaves the payload unaddressable and is refused in shadow mode', async () => {
+    test('a NOT_SERVICEABLE destination is refused in shadow mode with the contradiction as its reason', async () => {
         getAreas.mockResolvedValue([{ id: 9, name: 'Atlantis', district_name: 'Dhaka' }]);
 
+        // Review R-1: the area WAS recorded and the directory contradicted it.
+        // Saying "no delivery area recorded" would send the merchant looking
+        // for a field they already filled in.
         await expect(book()).rejects.toMatchObject({
             status: 409,
-            code: 'COURIER_DESTINATION_PAYLOAD_INVALID',
+            code: 'COURIER_DESTINATION_CONTRADICTED',
         });
 
         // Payload validity is not shadowed: no unaddressable parcel is sent.
         expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
         expect(pilotMetrics.snapshot().counters['courier.serviceability.not_serviceable_shadow']).toBe(1);
-        expect(pilotMetrics.snapshot().counters['courier.serviceability.destination_payload_invalid']).toBe(1);
+        expect(pilotMetrics.snapshot().counters['courier.serviceability.not_serviceable_contradicted']).toBe(1);
+        expect(pilotMetrics.snapshot().counters['courier.serviceability.destination_payload_invalid']).toBe(0);
         expect(dispatchRecord.update).toHaveBeenCalledWith(
             expect.objectContaining({ status: 'FAILED' }),
         );
@@ -226,6 +235,80 @@ describe('booking destination resolution', () => {
 
         expect(getAreas).not.toHaveBeenCalled();
         expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).not.toHaveProperty('delivery_area');
+    });
+
+    test('an order that records only its upazila is bookable through the directory', async () => {
+        // Every first-party intake form (manual, storefront) records district
+        // + upazila. The BD administrative list calls a Dhaka thana an
+        // "upazila"; the courier directories call the same place an area.
+        // Without this mapping a merchant could create an order and never be
+        // able to book it (review R-2).
+        const order = makeOrder({
+            delivery_address: {
+                street_address: 'Road 1',
+                upazila: 'Mirpur',
+                district: 'Dhaka',
+            },
+        });
+        mockOrder.findOne.mockResolvedValue(order);
+
+        await book(order);
+
+        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).toMatchObject({
+            delivery_area: 'Mirpur',
+            delivery_area_id: 1,
+        });
+    });
+
+    test('a merchant-confirmed area still books when destination resolution is switched off', async () => {
+        // The kill switch disables directory interrogation, not the order's
+        // own recorded and confirmed destination (review R-3).
+        process.env.COURIER_DESTINATION_RESOLUTION_ENABLED = 'false';
+        const order = makeOrder({
+            delivery_location: JSON.stringify({
+                provider_destination: {
+                    redx: { area_id: 77, area_name: 'Mirpur', district: 'Dhaka' },
+                },
+            }),
+        });
+        mockOrder.findOne.mockResolvedValue(order);
+
+        await book(order);
+
+        expect(getAreas).not.toHaveBeenCalled();
+        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).toMatchObject({
+            delivery_area_id: 77,
+        });
+    });
+
+    test('a selection confirmed for one courier is never reused for another', async () => {
+        const pathaoInstance = {
+            getCities: jest.fn().mockResolvedValue([{ city_id: 11, city_name: 'Dhaka' }]),
+            getZones: jest.fn().mockResolvedValue([{ zone_id: 22, zone_name: 'Mirpur' }]),
+            getAreas: jest.fn().mockResolvedValue([{ area_id: 33, area_name: 'Mirpur' }]),
+        };
+        deliveryService.resolveAiDefaultProvider.mockResolvedValue({
+            blocked: false,
+            provider: 'pathao',
+            pickup: { provider_store_id: 'store-1' },
+            instance: pathaoInstance,
+        });
+        const order = makeOrder({
+            delivery_location: JSON.stringify({
+                provider_destination: {
+                    redx: { area_id: 77, area_name: 'Atlantis' },
+                },
+            }),
+        });
+        mockOrder.findOne.mockResolvedValue(order);
+
+        // Pathao resolves from the order's own text (Mirpur), not from the
+        // RedX area id, and never sends a RedX id in a Pathao field.
+        await book(order);
+
+        const payload = deliveryService.createDeliveryOrder.mock.calls[0][1];
+        expect(payload).toMatchObject({ recipient_city: 11, recipient_zone: 22, recipient_area: 33 });
+        expect(payload).not.toHaveProperty('delivery_area_id');
     });
 
     test('a Pathao match carries city, zone and area ids', async () => {
@@ -348,5 +431,124 @@ describe('courier destination eligibility', () => {
             decision: 'UNCERTAIN',
             reason_code: 'PROVIDER_HAS_NO_DIRECTORY',
         });
+    });
+});
+
+describe('confirming a courier destination', () => {
+    let getAreas;
+    let order;
+
+    const confirm = (selection = { provider: 'redx', area_id: 1, area_name: 'Mirpur' }) =>
+        orderService.confirmCourierDestination('order-1', 'user-1', 'shop-1', selection);
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        destinationService.clearCache();
+        pilotMetrics.reset();
+        delete process.env.COURIER_SERVICEABILITY_ENFORCE;
+
+        getAreas = jest.fn().mockResolvedValue(AREAS);
+        order = makeOrder({ delivery_location: null, metadata: {} });
+
+        mockOrder.findOne.mockResolvedValue(order);
+        mockUserShop.findOne.mockResolvedValue({ user_id: 'user-1', shop_id: 'shop-1', is_active: true, role: 'staff' });
+        mockCourierDispatch.findOne.mockResolvedValue(null);
+        mockAuditLog.create.mockResolvedValue({ id: 'audit-1' });
+        sequelize.transaction.mockImplementation(async (callback) => {
+            const transaction = { LOCK: { UPDATE: 'UPDATE' }, rollback: jest.fn(), commit: jest.fn() };
+            return callback(transaction);
+        });
+        deliveryService.getProviderInstance.mockResolvedValue({ getAreas });
+    });
+
+    test('stores a directory-confirmed selection against the courier that will carry it', async () => {
+        const result = await confirm();
+
+        expect(result.destination).toMatchObject({ provider: 'redx', decision: 'SERVICEABLE' });
+
+        const update = order.update.mock.calls[0][0];
+        const stored = JSON.parse(update.delivery_location);
+        expect(stored.provider_destination.redx).toMatchObject({
+            area_id: 1,
+            area_name: 'Mirpur',
+            source: 'merchant_confirmed',
+            confirmed_by: 'user-1',
+        });
+        expect(update.delivery_area).toBe('Mirpur');
+        expect(update.metadata.audit_log).toHaveLength(1);
+        expect(update.metadata.audit_log[0]).toMatchObject({
+            changed_by: 'user-1',
+            changes: { delivery_destination: { from: null } },
+        });
+        expect(pilotMetrics.snapshot().counters['courier.destination.confirmed']).toBe(1);
+    });
+
+    test('keeps the address text and any other courier\'s selection intact', async () => {
+        order.delivery_location = JSON.stringify({
+            full_address: 'Road 1, Mirpur, Dhaka',
+            provider_destination: { pathao: { area_id: 33, area_name: 'Mirpur' } },
+        });
+
+        await confirm();
+
+        const stored = JSON.parse(order.update.mock.calls[0][0].delivery_location);
+        expect(stored.full_address).toBe('Road 1, Mirpur, Dhaka');
+        expect(stored.provider_destination.pathao).toMatchObject({ area_id: 33 });
+        expect(stored.provider_destination.redx).toMatchObject({ area_id: 1 });
+    });
+
+    test('refuses an area that is not in that courier\'s directory', async () => {
+        // Confirming an id the courier does not publish would move the defect
+        // downstream: the parcel would be refused by the provider instead of
+        // by us, with a worse message.
+        await expect(confirm({ provider: 'redx', area_id: 999, area_name: 'Atlantis' }))
+            .rejects.toMatchObject({ status: 409, code: 'COURIER_DESTINATION_INVALID_SELECTION' });
+
+        expect(order.update).not.toHaveBeenCalled();
+        expect(pilotMetrics.snapshot().counters['courier.destination.confirmation_rejected']).toBe(1);
+        expect(pilotMetrics.snapshot().counters['courier.destination.confirmed']).toBe(0);
+    });
+
+    test('refuses while a dispatch is active so the stored destination cannot diverge from the parcel', async () => {
+        mockCourierDispatch.findOne.mockResolvedValue({ id: 'dispatch-1', status: 'COMMITTED' });
+
+        await expect(confirm()).rejects.toMatchObject({ status: 409, code: 'COURIER_DISPATCH_ACTIVE' });
+
+        expect(deliveryService.getProviderInstance).not.toHaveBeenCalled();
+        expect(order.update).not.toHaveBeenCalled();
+    });
+
+    test('reports a courier that is not connected instead of storing a selection', async () => {
+        require('../../delivery/courier-readiness.service').evaluateReadiness.mockResolvedValueOnce({
+            ready: false,
+            status: 'NOT_CONNECTED',
+        });
+
+        await expect(confirm()).rejects.toMatchObject({ status: 409, code: 'NOT_CONNECTED' });
+
+        expect(order.update).not.toHaveBeenCalled();
+    });
+
+    test('reports an unreachable directory as temporarily unavailable, not as a bad selection', async () => {
+        getAreas.mockRejectedValue(new Error('timeout'));
+
+        await expect(confirm()).rejects.toMatchObject({ status: 503, code: 'COURIER_DIRECTORY_UNAVAILABLE' });
+
+        expect(order.update).not.toHaveBeenCalled();
+    });
+
+    test('requires the courier directory keys before it looks anything up', async () => {
+        await expect(confirm({ provider: 'pathao', area_name: 'Mirpur' }))
+            .rejects.toMatchObject({ status: 400, code: 'COURIER_DESTINATION_SELECTION_INCOMPLETE' });
+
+        expect(sequelize.transaction).not.toHaveBeenCalled();
+    });
+
+    test('refuses a caller who does not belong to the shop', async () => {
+        mockUserShop.findOne.mockResolvedValue(null);
+
+        await expect(confirm()).rejects.toMatchObject({ status: 403 });
+
+        expect(mockOrder.findOne).not.toHaveBeenCalled();
     });
 });

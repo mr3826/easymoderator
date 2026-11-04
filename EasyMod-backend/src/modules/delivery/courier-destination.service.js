@@ -86,43 +86,62 @@ const addressTextFrom = (address, fallback = null) => {
  * pickup metadata: a destination that did not come from the order does not
  * belong in a delivery payload.
  */
-const extractDestinationFromOrder = (order = {}) => {
+const extractDestinationFromOrder = (order = {}, { provider = null } = {}) => {
     const location = parseObject(order?.delivery_location) || {};
     const address = parseObject(order?.delivery_address) || {};
     const plainAddress = typeof order?.delivery_address === 'string' ? order.delivery_address : null;
+    // A merchant-confirmed selection is stored under the courier's OWN key.
+    // It wins over the unconfirmed text fields, and it is never read for a
+    // different courier: a RedX area id means nothing to Pathao.
+    const providerKey = provider ? normalizeProvider(provider) : null;
+    const confirmed = providerKey
+        ? parseObject(parseObject(location.provider_destination)?.[providerKey])
+        : null;
 
     const areaName = firstText(
+        confirmed?.area_name,
         location.area_name, location.area, address.area, address.area_name,
+        // The BD administrative list behind the intake forms calls a city
+        // thana an "upazila"; the courier directories call the same place an
+        // area. Without this fallback every first-party order would be
+        // unaddressable for RedX even though its thana was recorded.
+        address.upazila,
         order?.delivery_area,
     );
     const zoneName = firstText(
+        confirmed?.zone_name,
         location.zone_name, location.zone,
         address.zone, address.upazila, address.thana,
         order?.delivery_zone,
     );
     const cityName = firstText(
+        confirmed?.city_name,
         location.city_name, location.city,
         address.city, address.district,
     );
     const district = firstText(
+        confirmed?.district,
         location.district, location.district_name,
         address.district, address.city,
     );
     const postcode = firstText(
+        confirmed?.postcode,
         location.postcode, location.postal_code,
         address.postal_code, address.postcode,
     );
 
     return {
-        area_id: firstValue(location.area_id, location.areaId, address.area_id, address.areaId),
+        area_id: firstValue(confirmed?.area_id, location.area_id, location.areaId, address.area_id, address.areaId),
         area_name: areaName,
-        zone_id: firstValue(location.zone_id, location.zoneId, address.zone_id, address.zoneId),
+        zone_id: firstValue(confirmed?.zone_id, location.zone_id, location.zoneId, address.zone_id, address.zoneId),
         zone_name: zoneName,
-        city_id: firstValue(location.city_id, location.cityId, address.city_id, address.cityId),
+        city_id: firstValue(confirmed?.city_id, location.city_id, location.cityId, address.city_id, address.cityId),
         city_name: cityName,
         district,
         postcode,
         text: addressTextFrom(address, firstText(location.full_address, plainAddress)),
+        provider_confirmed: Boolean(confirmed),
+        confirmed_at: confirmed?.confirmed_at || null,
     };
 };
 
@@ -243,7 +262,10 @@ const resolveRedX = async (providerInstance, destination, timeoutMs) => {
 
 const resolvePathao = async (providerInstance, destination, timeoutMs) => {
     const cityName = destination.city_name || destination.district;
-    if (!cityName || !destination.area_name) {
+    // A merchant-confirmed selection supplies ids instead of names; either is
+    // enough to ask the directory, and asking is what turns it into a verdict.
+    if ((!cityName && !isPresent(destination.city_id))
+        || (!destination.area_name && !isPresent(destination.area_id))) {
         return decide(baseResult('pathao', destination), DECISIONS.UNCERTAIN, 'INSUFFICIENT_DESTINATION');
     }
 
@@ -259,7 +281,9 @@ const resolvePathao = async (providerInstance, destination, timeoutMs) => {
         return decide(baseResult('pathao', destination), DECISIONS.UNCERTAIN, 'DIRECTORY_EMPTY');
     }
 
-    const city = cities.find((entry) => normalizeName(pickName(entry)) === normalizeName(cityName));
+    const city = isPresent(destination.city_id)
+        ? cities.find((entry) => String(pickId(entry)) === String(destination.city_id))
+        : cities.find((entry) => normalizeName(pickName(entry)) === normalizeName(cityName));
     if (!city) {
         return decide(baseResult('pathao', destination), DECISIONS.NOT_SERVICEABLE, 'CITY_NOT_FOUND');
     }
@@ -268,7 +292,7 @@ const resolvePathao = async (providerInstance, destination, timeoutMs) => {
         return decide(baseResult('pathao', destination), DECISIONS.UNCERTAIN, 'DIRECTORY_INCOMPLETE');
     }
 
-    if (!destination.zone_name) {
+    if (!destination.zone_name && !isPresent(destination.zone_id)) {
         return decide(baseResult('pathao', destination), DECISIONS.UNCERTAIN, 'INSUFFICIENT_DESTINATION');
     }
 
@@ -281,7 +305,9 @@ const resolvePathao = async (providerInstance, destination, timeoutMs) => {
         return decide(baseResult('pathao', destination), DECISIONS.UNCERTAIN, 'DIRECTORY_EMPTY');
     }
 
-    const zone = zones.find((entry) => normalizeName(pickName(entry)) === normalizeName(destination.zone_name));
+    const zone = isPresent(destination.zone_id)
+        ? zones.find((entry) => String(pickId(entry)) === String(destination.zone_id))
+        : zones.find((entry) => normalizeName(pickName(entry)) === normalizeName(destination.zone_name));
     if (!zone) {
         return decide(baseResult('pathao', destination), DECISIONS.NOT_SERVICEABLE, 'ZONE_NOT_FOUND');
     }
@@ -299,7 +325,9 @@ const resolvePathao = async (providerInstance, destination, timeoutMs) => {
         return decide(baseResult('pathao', destination), DECISIONS.UNCERTAIN, 'DIRECTORY_EMPTY');
     }
 
-    const area = areas.find((entry) => normalizeName(pickName(entry)) === normalizeName(destination.area_name));
+    const area = isPresent(destination.area_id)
+        ? areas.find((entry) => String(pickId(entry)) === String(destination.area_id))
+        : areas.find((entry) => normalizeName(pickName(entry)) === normalizeName(destination.area_name));
     if (!area) {
         return decide(baseResult('pathao', destination), DECISIONS.NOT_SERVICEABLE, 'AREA_NOT_FOUND');
     }
@@ -328,12 +356,18 @@ const resolveDestination = async ({
     shopId,
     provider,
     order,
+    // A merchant-confirmed selection is passed in as an explicit destination:
+    // it replaces extraction so the verdict answers "is THIS selection in the
+    // directory?", not "does the order's text match something?".
+    destination: providedDestination = null,
     providerInstance = null,
     timeoutMs = LOOKUP_TIMEOUT_MS,
     useCache = true,
 } = {}) => {
     const name = normalizeProvider(provider);
-    const destination = extractDestinationFromOrder(order);
+    const destination = providedDestination
+        ? { ...providedDestination }
+        : extractDestinationFromOrder(order, { provider: name });
     const base = baseResult(name, destination);
 
     if (name === 'steadfast') {
@@ -390,11 +424,75 @@ const applyDestinationToOrderData = (orderData, provider, resolution) => {
     return orderData;
 };
 
+/**
+ * The ids a merchant must name to confirm a destination for one courier.
+ * Confirmation is per provider because the ids are: a RedX area id is not a
+ * Pathao area id, and storing one as the other is the defect this guards.
+ */
+const REQUIRED_SELECTION_FIELDS = Object.freeze({
+    redx: Object.freeze(['area_id']),
+    pathao: Object.freeze(['city_id', 'zone_id', 'area_id']),
+});
+
+const buildDestinationSelection = (provider, input = {}) => {
+    const name = normalizeProvider(provider);
+    const required = REQUIRED_SELECTION_FIELDS[name];
+    if (!required) {
+        return { ok: false, code: 'PROVIDER_HAS_NO_DIRECTORY' };
+    }
+    const source = input && typeof input === 'object' ? input : {};
+    const destination = {
+        area_id: firstValue(source.area_id, source.areaId),
+        area_name: firstText(source.area_name, source.areaName),
+        zone_id: firstValue(source.zone_id, source.zoneId),
+        zone_name: firstText(source.zone_name, source.zoneName),
+        city_id: firstValue(source.city_id, source.cityId),
+        city_name: firstText(source.city_name, source.cityName),
+        district: firstText(source.district),
+        postcode: firstText(source.postcode, source.postal_code),
+    };
+    const missing = required.filter((key) => !isPresent(destination[key]));
+    if (missing.length) {
+        return { ok: false, code: 'INSUFFICIENT_DESTINATION', missing, destination };
+    }
+    return { ok: true, destination };
+};
+
+/**
+ * Store one courier's confirmed ids beside the address the customer gave.
+ * Every other courier's entry is left untouched.
+ */
+const mergeProviderDestination = (deliveryLocation, provider, destination, { actor = null, confirmedAt = null } = {}) => {
+    const base = parseObject(deliveryLocation) || {};
+    const confirmed = {
+        area_id: destination.area_id ?? null,
+        area_name: destination.area_name ?? null,
+        zone_id: destination.zone_id ?? null,
+        zone_name: destination.zone_name ?? null,
+        city_id: destination.city_id ?? null,
+        city_name: destination.city_name ?? null,
+        district: destination.district ?? null,
+        postcode: destination.postcode ?? null,
+        confirmed_at: confirmedAt || new Date().toISOString(),
+        confirmed_by: actor || null,
+        source: 'merchant_confirmed',
+    };
+    return {
+        ...base,
+        provider_destination: {
+            ...(parseObject(base.provider_destination) || {}),
+            [normalizeProvider(provider)]: confirmed,
+        },
+    };
+};
+
 module.exports = {
     DECISIONS,
     extractDestinationFromOrder,
     resolveDestination,
     applyDestinationToOrderData,
+    buildDestinationSelection,
+    mergeProviderDestination,
     clearCache,
     CACHE_TTL_MS,
     LOOKUP_TIMEOUT_MS,

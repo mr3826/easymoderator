@@ -40,7 +40,8 @@ const ORDER_STATUS_TRANSITIONS = {
 };
 const COURIER_MUTATION_FIELDS = new Set([
     'order_status', 'fulfillment_status', 'payment_status', 'payment_method',
-    'customer_name', 'customer_phone', 'delivery_address', 'items', 'quantity',
+    'customer_name', 'customer_phone', 'delivery_address', 'delivery_location',
+    'delivery_area', 'items', 'quantity',
     'subtotal', 'discount', 'tax', 'delivery_fee', 'total', 'note', 'notes',
 ]);
 
@@ -504,6 +505,26 @@ const findOrCreateStorefrontCustomer = async (shopId, orderData, transaction) =>
 };
 
 /**
+ * Persist the canonical destination carrier. `delivery_location` is the TEXT
+ * column that already exists; it holds JSON so a structured address and any
+ * courier-confirmed ids travel together. Accepting an object from every intake
+ * path is what lets the same order be booked later without a schema change.
+ */
+const normalizeDeliveryLocation = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        if (trimmed.startsWith('{')) {
+            try { return JSON.stringify(JSON.parse(trimmed)); } catch (_) { return JSON.stringify({ full_address: trimmed }); }
+        }
+        return JSON.stringify({ full_address: trimmed });
+    }
+    if (typeof value !== 'object' || Array.isArray(value)) return null;
+    return JSON.stringify(value);
+};
+
+/**
  * Core order creation logic — shared by createOrder (user-auth) and createOrderInternal (chatbot/automated).
  * Refactored for clarity, testability, and maintainability.
  */
@@ -703,6 +724,8 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null, {
             delivery_fee: totals.deliveryFee,
             total: totals.total,
             delivery_address: orderData.delivery_address || null,
+            delivery_location: normalizeDeliveryLocation(orderData.delivery_location),
+            delivery_area: orderData.delivery_area || null,
             delivery_zone: orderData.delivery_zone || null,
             payment_method: resolvedPaymentMethod,
             payment_method_id: paymentMethodId || null,
@@ -1042,9 +1065,21 @@ const updateOrder = async (orderId, userId, shopId, updateData) => {
             && (typeof updateData.payment_method !== 'string' || !updateData.payment_method.trim())) {
             throw new AppError('A verified payment method is required', 400, 'PAYMENT_METHOD_REQUIRED');
         }
+        // Courier ids are only written after the courier's own directory has
+        // confirmed them (confirmCourierDestination). Letting a generic update
+        // write them would store an unvalidated destination that booking then
+        // trusts — the exact class of defect this release removes.
+        if (updateData.delivery_location !== undefined) {
+            throw new AppError(
+                'Choose the delivery area from the courier\'s list instead of setting the courier destination directly.',
+                400,
+                'COURIER_DESTINATION_CONFIRM_REQUIRED',
+            );
+        }
         const allowedUpdates = [
             'order_status', 'payment_status', 'fulfillment_status', 'note',
-            'quantity', 'notes', 'delivery_address', 'customer_phone', 'customer_name', 'payment_method'
+            'quantity', 'notes', 'delivery_address',
+            'delivery_area', 'customer_phone', 'customer_name', 'payment_method'
         ];
         const updates = {};
         const auditChanges = {};
@@ -1945,8 +1980,22 @@ const resolveBookingDestination = async ({ shopId, provider, order, providerInst
  * outage into an unrelated booking outage.
  */
 const applyBookingDestination = (orderData, provider, resolution) => {
-    if (!orderData || !resolution || resolution.decision === 'NOT_SERVICEABLE') return orderData;
+    if (!orderData || !resolution) return orderData;
     const destinationService = getCourierDestinationService();
+    if (resolution.decision === 'NOT_SERVICEABLE') {
+        // The directory was readable and does not contain this destination, so
+        // the ids carried by the order are contradicted. Sending them would be
+        // the "send it anyway and hope" behaviour #238 removed. The booking
+        // fails the validity check instead, with the contradiction as the
+        // stated reason rather than "no area recorded".
+        const name = normalizeCourierProvider(provider);
+        for (const key of (name === 'pathao'
+            ? ['recipient_city', 'recipient_zone', 'recipient_area']
+            : ['delivery_area_id', 'delivery_area'])) {
+            delete orderData[key];
+        }
+        return orderData;
+    }
     if (typeof destinationService?.applyDestinationToOrderData !== 'function') return orderData;
     return destinationService.applyDestinationToOrderData(orderData, provider, resolution);
 };
@@ -2000,6 +2049,159 @@ const getCourierDestinationEligibility = async (order, { shopId, provider = null
     }
 };
 
+/**
+ * Record the delivery area the merchant picked for one courier.
+ *
+ * The selection is re-validated against that courier's own directory before it
+ * is stored: the client supplies ids to look up, never ids to trust. The result
+ * is namespaced under the provider, so a RedX area id can never be read as a
+ * Pathao one. Nothing here books a parcel — the next booking call uses the
+ * confirmed ids like any other order-owned destination.
+ */
+const confirmCourierDestination = async (orderId, userId, shopId, selection = {}) => {
+    // Best effort: a rejection must always reach the merchant even if metrics
+    // are unavailable.
+    const countRejection = () => {
+        try {
+            require('../pilot-features/pilot-metrics').increment('courier.destination.confirmation_rejected');
+        } catch (_) { /* metrics are best effort */ }
+    };
+
+    await verifyShopAccess(userId, shopId);
+
+    const requestedProvider = selection?.provider ? String(selection.provider) : null;
+    if (!requestedProvider) {
+        countRejection();
+        throw new AppError('Choose the courier this delivery area is for.', 400, 'COURIER_PROVIDER_REQUIRED');
+    }
+    const provider = normalizeCourierProvider(requestedProvider);
+    const destinationService = getCourierDestinationService();
+    if (!destinationService) {
+        throw new AppError('Courier destination checks are unavailable', 503, 'COURIER_DESTINATION_UNAVAILABLE');
+    }
+
+    const built = destinationService.buildDestinationSelection(provider, selection);
+    if (!built.ok) {
+        countRejection();
+        throw new AppError(
+            built.code === 'PROVIDER_HAS_NO_DIRECTORY'
+                ? 'This courier books by text address and does not have a delivery-area directory.'
+                : 'Choose a delivery area from the courier\'s list.',
+            400,
+            built.code === 'PROVIDER_HAS_NO_DIRECTORY'
+                ? 'COURIER_DESTINATION_NOT_REQUIRED'
+                : 'COURIER_DESTINATION_SELECTION_INCOMPLETE',
+        );
+    }
+
+    const result = await sequelize.transaction(async (transaction) => {
+        const query = { where: { id: orderId, shop_id: shopId }, transaction };
+        if (transaction?.LOCK?.UPDATE) query.lock = transaction.LOCK.UPDATE;
+        const order = await Order.findOne(query);
+        if (!order) throw new AppError('Order not found', 404);
+
+        // A parcel already handed to a courier keeps the destination it was
+        // booked with. Correcting it here would silently diverge from the
+        // consignment the provider holds.
+        await ensureNoActiveCourierDispatch(orderId, shopId, transaction);
+
+        const resolution = await resolveCourierProvider(shopId, { provider });
+        if (resolution.blocked) {
+            countRejection();
+            throw new AppError(
+                'This courier is not connected and ready for this shop.',
+                409,
+                resolution.reason || 'COURIER_SETUP_REQUIRED',
+            );
+        }
+
+        let verdict;
+        try {
+            verdict = await destinationService.resolveDestination({
+                shopId,
+                provider,
+                order,
+                destination: built.destination,
+                providerInstance: resolution.instance || null,
+                useCache: false,
+            });
+        } catch (_) {
+            verdict = { decision: 'CHECK_UNAVAILABLE', reason_code: 'LOOKUP_FAILED' };
+        }
+
+        if (verdict.decision === 'CHECK_UNAVAILABLE') {
+            countRejection();
+            throw new AppError(
+                'The courier\'s delivery-area list could not be read right now. Try again.',
+                503,
+                'COURIER_DIRECTORY_UNAVAILABLE',
+            );
+        }
+        if (verdict.decision !== 'SERVICEABLE') {
+            countRejection();
+            throw new AppError(
+                'That delivery area is not in the selected courier\'s list.',
+                409,
+                'COURIER_DESTINATION_INVALID_SELECTION',
+            );
+        }
+
+        const previous = parseDeliveryLocation(order.delivery_location).provider_destination?.[provider] || null;
+        const located = destinationService.mergeProviderDestination(
+            order.delivery_location,
+            provider,
+            verdict.destination,
+            { actor: userId },
+        );
+        const existingMeta = order.metadata || {};
+        const auditLog = Array.isArray(existingMeta.audit_log) ? existingMeta.audit_log : [];
+        await order.update({
+            delivery_location: JSON.stringify(located),
+            // Legacy single-value column: keep the human-readable area in sync
+            // when this courier is the one being confirmed.
+            delivery_area: verdict.destination.area_name || order.delivery_area || null,
+            metadata: {
+                ...existingMeta,
+                audit_log: [...auditLog, {
+                    changed_by: userId,
+                    changed_at: new Date().toISOString(),
+                    changes: {
+                        delivery_destination: {
+                            from: previous,
+                            to: located.provider_destination[provider],
+                        },
+                    },
+                }],
+            },
+        }, { transaction });
+
+        return { order, verdict };
+    });
+
+    try {
+        require('../pilot-features/pilot-metrics').increment('courier.destination.confirmed');
+    } catch (_) { /* metrics are best effort */ }
+
+    return {
+        order: result.order,
+        destination: {
+            ...result.verdict,
+            enforced: serviceabilityEnforced(),
+        },
+    };
+};
+
+const parseDeliveryLocation = (value) => {
+    if (!value) return {};
+    if (typeof value === 'object') return value;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+        return {};
+    }
+};
+
 const normalizeCourierAddress = (value) => {
     if (value === null || value === undefined) return '';
     if (typeof value === 'string') {
@@ -2049,7 +2251,7 @@ const orderItemsForCourier = (order) => {
  * Provider-specific aliases are kept only at this boundary for old callers;
  * the registry consumes the canonical fields.
  */
-const buildCourierOrderData = (order, { stepData = {}, overrides = {}, pickup = null } = {}) => {
+const buildCourierOrderData = (order, { stepData = {}, overrides = {}, pickup = null, provider = null } = {}) => {
     const stepValues = stepData && typeof stepData === 'object' ? stepData : {};
     const overrideValues = overrides && typeof overrides === 'object' ? overrides : {};
     const orderNumber = order?.order_number || String(order?.id || 'ORDER').slice(0, 8).toUpperCase();
@@ -2135,6 +2337,19 @@ const buildCourierOrderData = (order, { stepData = {}, overrides = {}, pickup = 
     if (storeId !== undefined && storeId !== null && String(storeId).trim()) {
         orderData.store_id = storeId;
         orderData.pickup_store_id = storeId;
+    }
+
+    // The order's OWN destination ids travel with the payload even when the
+    // directory cannot be consulted (resolution disabled, provider offline).
+    // They come from the order and, for a merchant-confirmed selection, from
+    // that provider's own key — never from pickup metadata. The booking path
+    // still strips them when the directory contradicts them.
+    if (provider) {
+        const destinationService = getCourierDestinationService();
+        if (typeof destinationService?.extractDestinationFromOrder === 'function') {
+            const orderDestination = destinationService.extractDestinationFromOrder(order, { provider });
+            destinationService.applyDestinationToOrderData?.(orderData, provider, { destination: orderDestination });
+        }
     }
 
     return orderData;
@@ -2750,6 +2965,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
                 stepData: options.stepData,
                 overrides: options.overrides,
                 pickup: resolution.pickup,
+                provider: resolution.provider,
             });
             const missingOrderData = [
                 ['customer_name', latestOrderData.customer_name],
@@ -2887,21 +3103,38 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
             // failing here keeps the merchant's error honest and the PENDING
             // claim recoverable, and it does not reintroduce the pickup-area
             // fallback that #238 removed.
+            //
+            // Two different situations reach this branch, and the merchant is
+            // told which one it is: the destination was never recorded (record
+            // it), or the directory contradicted what was recorded (pick
+            // another area or another courier). D5-1 review R-1.
+            const contradicted = destination?.decision === 'NOT_SERVICEABLE';
             try {
-                require('../pilot-features/pilot-metrics')
-                    .increment('courier.serviceability.destination_payload_invalid');
+                require('../pilot-features/pilot-metrics').increment(
+                    contradicted
+                        ? 'courier.serviceability.not_serviceable_contradicted'
+                        : 'courier.serviceability.destination_payload_invalid',
+                );
             } catch (_) { /* metrics are best effort */ }
 
             await markCourierDispatchFailed(
                 dispatchRecord,
-                'Courier payload has no deliverable destination',
+                contradicted
+                    ? 'Courier directory does not serve this destination'
+                    : 'Courier payload has no deliverable destination',
                 dispatchOwnerToken,
             );
-            throw new AppError(
-                'This order has no delivery area that the selected courier can use. Record the delivery area on the order, or choose another courier.',
-                409,
-                'COURIER_DESTINATION_PAYLOAD_INVALID',
-            );
+            throw contradicted
+                ? new AppError(
+                    'The selected courier does not deliver to this order\'s recorded area. Choose a different delivery area or another courier.',
+                    409,
+                    'COURIER_DESTINATION_CONTRADICTED',
+                )
+                : new AppError(
+                    'This order has no delivery area that the selected courier can use. Record the delivery area on the order, or choose another courier.',
+                    409,
+                    'COURIER_DESTINATION_PAYLOAD_INVALID',
+                );
         }
 
         if (typeof deliveryService.createDeliveryOrder !== 'function') {
@@ -3039,6 +3272,7 @@ module.exports = {
     markCourierDispatchIndeterminate,
     resolveCourierProvider,
     getCourierDestinationEligibility,
+    confirmCourierDestination,
     markCourierSetupRequired,
     buildCourierOrderData
 };
