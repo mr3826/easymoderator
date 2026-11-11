@@ -1,0 +1,49 @@
+# Dependabot configuration for the EasyModerator monorepo.
+#
+# Posture: security-only. Dependabot *security* updates are enabled through the
+# repository setting (see docs/security/public-repo-hardening-2026-11-11.md),
+# not through this file. Scheduled *version* updates are intentionally disabled
+# by setting open-pull-requests-limit to 0: GitHub documents that "you can
+# temporarily disable version updates for a package manager by setting this
+# option to zero", while security updates remain subject to a separate,
+# non-configurable limit. This keeps routine dependency-bump PRs out of the
+# review queue while still surfacing vulnerability fixes.
+#
+# One npm entry is declared for every real lockfile location. The root
+# package-lock.json covers the npm workspaces (EasyMod-backend,
+# EasyMod-frontend, EasyMod-growth); each of those workspaces additionally has
+# its own package-lock.json used by its Docker build context. EasyMod-mobile is
+# not a root workspace and has its own lockfile. EasyMod-extension has no
+# package manifest or lockfile and is therefore not listed.
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "npm"
+    directory: "/EasyMod-backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "npm"
+    directory: "/EasyMod-frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "npm"
+    directory: "/EasyMod-growth"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "npm"
+    directory: "/EasyMod-mobile"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
