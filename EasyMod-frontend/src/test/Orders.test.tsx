@@ -332,6 +332,9 @@ describe('manual order idempotency', () => {
     fireEvent.change(selects[1], { target: { value: 'dhaka' } })
     fireEvent.change(selects[2], { target: { value: 'dhaka_city' } })
     fireEvent.change(selects[3], { target: { value: 'Mirpur' } })
+    const courierArea = modalQueries.getByLabelText('Courier delivery area / thana')
+    expect(courierArea).toHaveValue('Mirpur')
+    fireEvent.change(courierArea, { target: { value: 'Mirpur 10' } })
     fireEvent.change(modalQueries.getByPlaceholderText(/house \/ road \/ area/i), { target: { value: 'Road 1' } })
     fireEvent.change(modalQueries.getByPlaceholderText(/search and add products/i), { target: { value: 'Test Product' } })
     fireEvent.click(await modalQueries.findByRole('button', { name: /Test Product/i }))
@@ -343,7 +346,11 @@ describe('manual order idempotency', () => {
     expect(createButton).toBeEnabled()
     fireEvent.click(createButton)
     await waitFor(() => expect(apiClient.createOrder).toHaveBeenCalledTimes(1))
-    expect(apiClient.createOrder).toHaveBeenCalledWith(expect.objectContaining({ payment_method: 'cod' }), expect.any(String))
+    expect(apiClient.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      payment_method: 'cod',
+      delivery_area: 'Mirpur 10',
+      delivery_address: expect.objectContaining({ area: 'Mirpur 10', upazila: 'Mirpur' }),
+    }), expect.any(String))
     const firstKey = (apiClient.createOrder as any).mock.calls[0][1]
 
     fireEvent.click(createButton)

@@ -13,6 +13,7 @@ const mockOrder = { findOne: jest.fn(), update: jest.fn() };
 const mockCourierDispatch = { findOrCreate: jest.fn(), update: jest.fn(), findOne: jest.fn() };
 const mockUserShop = { findOne: jest.fn() };
 const mockAuditLog = { create: jest.fn() };
+const mockDeliveryTracking = { findOne: jest.fn() };
 
 jest.mock('../../entities', () => ({
     Order: mockOrder,
@@ -23,6 +24,7 @@ jest.mock('../../entities', () => ({
     AuditLog: mockAuditLog,
     OrderReturn: {},
     CourierDispatch: mockCourierDispatch,
+    DeliveryTracking: mockDeliveryTracking,
 }));
 jest.mock('../../../utils/database/database-setup', () => ({
     sequelize: { transaction: jest.fn(), query: jest.fn(), getDialect: jest.fn() },
@@ -165,6 +167,30 @@ describe('booking destination resolution', () => {
         );
     });
 
+    test('shadow mode may use a previously server-confirmed id despite a later directory miss', async () => {
+        getAreas.mockResolvedValue([{ area_id: 9, area_name: 'Atlantis', district_name: 'Dhaka' }]);
+        const order = makeOrder({
+            delivery_location: JSON.stringify({
+                provider_destination: {
+                    redx: {
+                        area_id: 77,
+                        area_name: 'Mirpur',
+                        district: 'Dhaka',
+                        source: 'merchant_confirmed',
+                        confirmed_at: '2026-11-04T00:00:00.000Z',
+                        confirmed_by: 'user-1',
+                    },
+                },
+            }),
+        });
+        mockOrder.findOne.mockResolvedValue(order);
+
+        await expect(book(order)).resolves.toMatchObject({ tracking_code: 'TRK-1' });
+
+        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).toMatchObject({ delivery_area_id: 77 });
+        expect(pilotMetrics.snapshot().counters['courier.serviceability.not_serviceable_shadow']).toBe(1);
+    });
+
     test('COURIER_SERVICEABILITY_ENFORCE turns NOT_SERVICEABLE into a 409 without a provider call', async () => {
         process.env.COURIER_SERVICEABILITY_ENFORCE = 'true';
         getAreas.mockResolvedValue([{ id: 9, name: 'Atlantis', district_name: 'Dhaka' }]);
@@ -179,14 +205,24 @@ describe('booking destination resolution', () => {
         );
     });
 
-    test('an order that carries its own area ids still books when the directory is unavailable', async () => {
-        // The ids are the order's own; an unreachable directory neither
-        // confirms nor contradicts them, so a temporary lookup outage must not
-        // become a booking outage.
+    test('a server-confirmed provider selection still books when the directory is unavailable', async () => {
+        // Confirmation is a server-authored, provider-specific decision. The
+        // stored ID remains usable during a later directory outage.
         getAreas.mockRejectedValue(new Error('timeout'));
 
         const order = makeOrder({
-            delivery_location: { area_id: 77, area_name: 'Mirpur', district: 'Dhaka' },
+            delivery_location: {
+                provider_destination: {
+                    redx: {
+                        area_id: 77,
+                        area_name: 'Mirpur',
+                        district: 'Dhaka',
+                        source: 'merchant_confirmed',
+                        confirmed_at: '2026-11-04T00:00:00.000Z',
+                        confirmed_by: 'user-1',
+                    },
+                },
+            },
         });
         // bookForOrder re-reads the order under the claim lock, so the fixture
         // has to be the one the lookup returns.
@@ -196,6 +232,22 @@ describe('booking destination resolution', () => {
 
         expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).toMatchObject({ delivery_area_id: 77 });
         expect(result).toMatchObject({ tracking_code: 'TRK-1' });
+    });
+
+    test('refuses unnamespaced order ids when the directory is unavailable', async () => {
+        getAreas.mockRejectedValue(new Error('timeout'));
+        const order = makeOrder({
+            delivery_location: { area_id: 77, area_name: 'Mirpur', district: 'Dhaka' },
+        });
+        mockOrder.findOne.mockResolvedValue(order);
+
+        await expect(book(order)).rejects.toMatchObject({
+            status: 409,
+            code: 'COURIER_DESTINATION_PAYLOAD_INVALID',
+        });
+
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+        expect(dispatchRecord.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'FAILED' }));
     });
 
     test('a directory lookup failure cannot produce an addressable payload, so it refuses instead of sending one', async () => {
@@ -213,8 +265,12 @@ describe('booking destination resolution', () => {
 
     test('the resolution kill switch skips the directory and the unaddressable payload is refused', async () => {
         process.env.COURIER_DESTINATION_RESOLUTION_ENABLED = 'false';
+        const order = makeOrder({
+            delivery_location: { area_id: 77, area_name: 'Mirpur', district: 'Dhaka' },
+        });
+        mockOrder.findOne.mockResolvedValue(order);
 
-        await expect(book()).rejects.toMatchObject({
+        await expect(book(order)).rejects.toMatchObject({
             status: 409,
             code: 'COURIER_DESTINATION_PAYLOAD_INVALID',
         });
@@ -267,7 +323,14 @@ describe('booking destination resolution', () => {
         const order = makeOrder({
             delivery_location: JSON.stringify({
                 provider_destination: {
-                    redx: { area_id: 77, area_name: 'Mirpur', district: 'Dhaka' },
+                    redx: {
+                        area_id: 77,
+                        area_name: 'Mirpur',
+                        district: 'Dhaka',
+                        source: 'merchant_confirmed',
+                        confirmed_at: '2026-11-04T00:00:00.000Z',
+                        confirmed_by: 'user-1',
+                    },
                 },
             }),
         });
@@ -296,7 +359,13 @@ describe('booking destination resolution', () => {
         const order = makeOrder({
             delivery_location: JSON.stringify({
                 provider_destination: {
-                    redx: { area_id: 77, area_name: 'Atlantis' },
+                    redx: {
+                        area_id: 77,
+                        area_name: 'Atlantis',
+                        source: 'merchant_confirmed',
+                        confirmed_at: '2026-11-04T00:00:00.000Z',
+                        confirmed_by: 'user-1',
+                    },
                 },
             }),
         });
@@ -437,6 +506,7 @@ describe('courier destination eligibility', () => {
 describe('confirming a courier destination', () => {
     let getAreas;
     let order;
+    let dispatchRecord;
 
     const confirm = (selection = { provider: 'redx', area_id: 1, area_name: 'Mirpur' }) =>
         orderService.confirmCourierDestination('order-1', 'user-1', 'shop-1', selection);
@@ -446,6 +516,7 @@ describe('confirming a courier destination', () => {
         destinationService.clearCache();
         pilotMetrics.reset();
         delete process.env.COURIER_SERVICEABILITY_ENFORCE;
+        delete process.env.COURIER_DESTINATION_RESOLUTION_ENABLED;
 
         getAreas = jest.fn().mockResolvedValue(AREAS);
         order = makeOrder({ delivery_location: null, metadata: {} });
@@ -453,12 +524,29 @@ describe('confirming a courier destination', () => {
         mockOrder.findOne.mockResolvedValue(order);
         mockUserShop.findOne.mockResolvedValue({ user_id: 'user-1', shop_id: 'shop-1', is_active: true, role: 'staff' });
         mockCourierDispatch.findOne.mockResolvedValue(null);
+        dispatchRecord = { id: 'dispatch-confirmation-test', status: 'PENDING', update: jest.fn() };
+        mockCourierDispatch.findOrCreate.mockResolvedValue([dispatchRecord, true]);
+        mockCourierDispatch.update.mockResolvedValue([1]);
+        mockDeliveryTracking.findOne.mockResolvedValue(null);
         mockAuditLog.create.mockResolvedValue({ id: 'audit-1' });
         sequelize.transaction.mockImplementation(async (callback) => {
             const transaction = { LOCK: { UPDATE: 'UPDATE' }, rollback: jest.fn(), commit: jest.fn() };
             return callback(transaction);
         });
         deliveryService.getProviderInstance.mockResolvedValue({ getAreas });
+        deliveryService.resolveAiDefaultProvider.mockResolvedValue({
+            blocked: false,
+            provider: 'redx',
+            pickup: { provider_store_id: 'store-1' },
+            instance: { getAreas },
+        });
+        deliveryService.createDeliveryOrder.mockResolvedValue({
+            provider: 'redx',
+            consignment_id: 'CN-1',
+            tracking_code: 'TRK-1',
+            status: 'pending',
+        });
+        sessionService.persistDeliveryResult.mockResolvedValue(undefined);
     });
 
     test('stores a directory-confirmed selection against the courier that will carry it', async () => {
@@ -481,6 +569,112 @@ describe('confirming a courier destination', () => {
             changes: { delivery_destination: { from: null } },
         });
         expect(pilotMetrics.snapshot().counters['courier.destination.confirmed']).toBe(1);
+    });
+
+    test('a chatbot free-text order becomes bookable after merchant confirmation', async () => {
+        const chatOrder = makeOrder({
+            delivery_address: null,
+            delivery_location: JSON.stringify({
+                full_address: 'House 4, Road 12, Mirpur 10, Dhaka',
+                source: 'chat',
+            }),
+        });
+        mockOrder.findOne.mockResolvedValue(chatOrder);
+        deliveryService.resolveAiDefaultProvider.mockResolvedValue({
+            blocked: false,
+            provider: 'redx',
+            pickup: { provider_store_id: 'store-1' },
+            instance: { getAreas },
+        });
+        await confirm();
+        const result = await book(chatOrder);
+
+        expect(result).toMatchObject({ tracking_code: 'TRK-1' });
+        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).toMatchObject({
+            delivery_area_id: 1,
+            delivery_area: 'Mirpur',
+        });
+        const stored = JSON.parse(chatOrder.delivery_location);
+        expect(stored.full_address).toBe('House 4, Road 12, Mirpur 10, Dhaka');
+        expect(stored.provider_destination.redx).toMatchObject({
+            source: 'merchant_confirmed',
+            confirmed_by: 'user-1',
+        });
+    });
+
+    test('invalidates an old confirmation when the address changes and books against the corrected area', async () => {
+        order.delivery_area = 'Mirpur';
+        order.delivery_address = {
+            street_address: 'House 4, Road 12',
+            area: 'Mirpur',
+            upazila: 'Mirpur',
+            district: 'Dhaka',
+        };
+        order.delivery_location = JSON.stringify({
+            full_address: 'House 4, Road 12, Mirpur, Dhaka',
+            area_id: 1,
+            area_name: 'Mirpur',
+            zone_id: 4,
+            city_id: 3,
+            district: 'Dhaka',
+            provider_destination: {
+                redx: {
+                    area_id: 1,
+                    area_name: 'Mirpur',
+                    district: 'Dhaka',
+                    source: 'merchant_confirmed',
+                    confirmed_at: '2026-11-04T00:00:00.000Z',
+                    confirmed_by: 'user-1',
+                },
+            },
+        });
+        getAreas.mockResolvedValue([
+            { area_id: 1, area_name: 'Mirpur', district_name: 'Dhaka' },
+            { area_id: 9, area_name: 'Dhanmondi', district_name: 'Dhaka' },
+        ]);
+
+        expect(destinationService.extractDestinationFromOrder(order, { provider: 'redx' }))
+            .toMatchObject({ area_id: 1, area_name: 'Mirpur', provider_confirmed: true });
+
+        await orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+            delivery_address: {
+                street_address: 'House 7, Road 2',
+                area: 'Dhanmondi',
+                upazila: 'Dhanmondi',
+                district: 'Dhaka',
+                area_id: 1,
+                zone_id: 4,
+                city_id: 3,
+                provider_destination: { redx: { area_id: 1, area_name: 'Mirpur' } },
+            },
+        });
+
+        const stored = JSON.parse(order.delivery_location);
+        expect(stored.provider_destination).toBeUndefined();
+        expect(stored).not.toHaveProperty('area_id');
+        expect(stored).not.toHaveProperty('area_name');
+        expect(stored).not.toHaveProperty('zone_id');
+        expect(stored).not.toHaveProperty('city_id');
+        expect(stored.full_address).toContain('Dhanmondi');
+        expect(order.delivery_area).toBe('Dhanmondi');
+        expect(order.delivery_address).not.toHaveProperty('area_id');
+        expect(order.delivery_address).not.toHaveProperty('provider_destination');
+        expect(order.metadata.audit_log.at(-1).changes.courier_destinations_invalidated).toMatchObject({
+            providers: ['redx'],
+            legacy_fields: expect.arrayContaining([
+                'area_id', 'area_name', 'zone_id', 'city_id',
+                'delivery_address.area_id', 'delivery_address.zone_id', 'delivery_address.city_id',
+                'delivery_address.provider_destination',
+            ]),
+            reason: 'delivery_destination_changed',
+        });
+
+        await expect(book(order)).resolves.toMatchObject({ tracking_code: 'TRK-1' });
+
+        expect(deliveryService.createDeliveryOrder.mock.calls[0][1]).toMatchObject({
+            delivery_area_id: 9,
+            delivery_area: 'Dhanmondi',
+        });
     });
 
     test('keeps the address text and any other courier\'s selection intact', async () => {
@@ -518,6 +712,67 @@ describe('confirming a courier destination', () => {
         expect(order.update).not.toHaveBeenCalled();
     });
 
+    test('allows correction after courier setup is fixed when no dispatch or tracking exists', async () => {
+        order.delivery_status = 'courier_setup_required';
+
+        await expect(confirm()).resolves.toMatchObject({
+            destination: { provider: 'redx', decision: 'SERVICEABLE' },
+        });
+
+        expect(order.update).toHaveBeenCalled();
+    });
+
+    test('keeps structured area text in sync when only delivery_area is corrected', async () => {
+        order.delivery_area = 'Mirpur';
+        order.delivery_address = {
+            street_address: 'Road 1',
+            area: 'Mirpur',
+            upazila: 'Mirpur',
+            district: 'Dhaka',
+        };
+        order.delivery_location = JSON.stringify({ full_address: 'Road 1, Mirpur, Dhaka', area_id: 1, area_name: 'Mirpur' });
+
+        await orderService.updateOrder('order-1', 'user-1', 'shop-1', { delivery_area: 'Dhanmondi' });
+
+        expect(order.delivery_area).toBe('Dhanmondi');
+        expect(order.delivery_address).toMatchObject({ area: 'Dhanmondi', upazila: 'Mirpur' });
+        expect(JSON.parse(order.delivery_location)).not.toHaveProperty('area_id');
+    });
+
+    test.each([
+        [{ delivery_tracking_code: 'TRK-LEGACY' }],
+        [{ delivery_consignment_id: 'CN-LEGACY' }],
+        [{ delivery_dispatched_at: '2026-11-03T10:00:00.000Z' }],
+        [{ delivery_status: 'in_transit' }],
+    ])('refuses correction when legacy order tracking already exists (%o)', async (legacyTracking) => {
+        Object.assign(order, legacyTracking);
+
+        await expect(confirm()).rejects.toMatchObject({
+            status: 409,
+            code: 'ORDER_LOCKED_AFTER_COURIER_DISPATCH',
+        });
+
+        expect(deliveryService.getProviderInstance).not.toHaveBeenCalled();
+        expect(order.update).not.toHaveBeenCalled();
+    });
+
+    test('refuses correction when a legacy delivery-tracking row exists', async () => {
+        mockDeliveryTracking.findOne.mockResolvedValue({ id: 'tracking-1', order_id: 'order-1' });
+
+        await expect(confirm()).rejects.toMatchObject({
+            status: 409,
+            code: 'ORDER_LOCKED_AFTER_COURIER_DISPATCH',
+        });
+
+        expect(mockDeliveryTracking.findOne).toHaveBeenCalledWith(expect.objectContaining({
+            where: { order_id: 'order-1' },
+            transaction: expect.any(Object),
+            lock: 'UPDATE',
+        }));
+        expect(deliveryService.getProviderInstance).not.toHaveBeenCalled();
+        expect(order.update).not.toHaveBeenCalled();
+    });
+
     test('reports a courier that is not connected instead of storing a selection', async () => {
         require('../../delivery/courier-readiness.service').evaluateReadiness.mockResolvedValueOnce({
             ready: false,
@@ -544,11 +799,36 @@ describe('confirming a courier destination', () => {
         expect(sequelize.transaction).not.toHaveBeenCalled();
     });
 
+    test('does not make confirmation-time directory calls when destination resolution is disabled', async () => {
+        process.env.COURIER_DESTINATION_RESOLUTION_ENABLED = 'false';
+
+        await expect(confirm()).rejects.toMatchObject({
+            status: 503,
+            code: 'COURIER_DESTINATION_RESOLUTION_DISABLED',
+        });
+
+        expect(sequelize.transaction).not.toHaveBeenCalled();
+        expect(deliveryService.getProviderInstance).not.toHaveBeenCalled();
+        expect(getAreas).not.toHaveBeenCalled();
+        expect(mockOrder.findOne).not.toHaveBeenCalled();
+    });
+
     test('refuses a caller who does not belong to the shop', async () => {
         mockUserShop.findOne.mockResolvedValue(null);
 
         await expect(confirm()).rejects.toMatchObject({ status: 403 });
 
         expect(mockOrder.findOne).not.toHaveBeenCalled();
+    });
+
+    test('reports an order outside the shop as not found, and never reads another shop\'s row', async () => {
+        mockOrder.findOne.mockResolvedValue(null);
+
+        await expect(confirm()).rejects.toMatchObject({ status: 404 });
+
+        expect(mockOrder.findOne).toHaveBeenCalledWith(expect.objectContaining({
+            where: { id: 'order-1', shop_id: 'shop-1' },
+        }));
+        expect(order.update).not.toHaveBeenCalled();
     });
 });

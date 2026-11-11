@@ -38,6 +38,12 @@ module.exports = {
         ...quarantined,
     ],
     moduleNameMapper: {
+        // Even with the message-queue singleton stubbed, importing
+        // queue-manager constructs several BullMQ Queue instances. Unit tests
+        // must never open Redis connections; queue-specific tests opt into
+        // their own explicit BullMQ mocks, while Redis-backed behavior belongs
+        // to the integration suite.
+        '^bullmq$': '<rootDir>/tests/__mocks__/bullmq.js',
         '^src/(.*)$': '<rootDir>/src/$1',
         // Redirect all message-queue imports to a stub so BullMQ never opens
         // a real Redis connection during unit tests (path varies: ../../jobs/...,

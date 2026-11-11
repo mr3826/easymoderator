@@ -94,19 +94,27 @@ const extractDestinationFromOrder = (order = {}, { provider = null } = {}) => {
     // It wins over the unconfirmed text fields, and it is never read for a
     // different courier: a RedX area id means nothing to Pathao.
     const providerKey = provider ? normalizeProvider(provider) : null;
-    const confirmed = providerKey
+    const recordedSelection = providerKey
         ? parseObject(parseObject(location.provider_destination)?.[providerKey])
+        : null;
+    // Only the confirmation endpoint writes all three fields. Order intake
+    // text and legacy unnamespaced ids remain candidates for a fresh directory
+    // lookup, never trusted routing ids during an outage or kill-switch mode.
+    const confirmed = recordedSelection?.source === 'merchant_confirmed'
+        && isPresent(recordedSelection.confirmed_at)
+        && isPresent(recordedSelection.confirmed_by)
+        ? recordedSelection
         : null;
 
     const areaName = firstText(
         confirmed?.area_name,
+        order?.delivery_area,
         location.area_name, location.area, address.area, address.area_name,
         // The BD administrative list behind the intake forms calls a city
         // thana an "upazila"; the courier directories call the same place an
         // area. Without this fallback every first-party order would be
         // unaddressable for RedX even though its thana was recorded.
         address.upazila,
-        order?.delivery_area,
     );
     const zoneName = firstText(
         confirmed?.zone_name,

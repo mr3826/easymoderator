@@ -54,6 +54,13 @@ interface ManualOrder {
   division: string;
   district: string;
   upazila: string;
+  /**
+   * Delivery area/thana the courier's destination extraction reads first.
+   * Prefilled from (and kept in sync with) upazila until the merchant types
+   * their own value — `areaTouched` records that manual override.
+   */
+  area: string;
+  areaTouched: boolean;
   streetAddress: string;
   channel: string;
   items: OrderItem[];
@@ -256,6 +263,8 @@ export default function Orders() {
     division: '',
     district: '',
     upazila: '',
+    area: '',
+    areaTouched: false,
     streetAddress: '',
     channel: 'manual',
     items: [],
@@ -555,6 +564,7 @@ export default function Orders() {
         division: selectedDivision?.name || manualOrder.division,
         district: selectedDistrict?.name || manualOrder.district,
         upazila: manualOrder.upazila,
+        area: manualOrder.area.trim() || manualOrder.upazila,
         street_address: manualOrder.streetAddress,
         zone: deriveZone(manualOrder.division, manualOrder.district),
       };
@@ -562,6 +572,7 @@ export default function Orders() {
         customer_name: manualOrder.customerName,
         customer_phone: manualOrder.customerPhone,
         delivery_address: structuredAddress,
+        delivery_area: structuredAddress.area,
         channel: manualOrder.channel,
         items: manualOrder.items.map(item => ({
           product_id: item.productId,
@@ -603,6 +614,8 @@ export default function Orders() {
         division: '',
         district: '',
         upazila: '',
+        area: '',
+        areaTouched: false,
         streetAddress: '',
         channel: 'manual',
         items: [],
@@ -928,7 +941,7 @@ export default function Orders() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
                     <select
                       value={manualOrder.division}
-                      onChange={(e) => setManualOrder({ ...manualOrder, division: e.target.value, district: '', upazila: '' })}
+                      onChange={(e) => setManualOrder({ ...manualOrder, division: e.target.value, district: '', upazila: '', area: '', areaTouched: false })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm"
                     >
                       <option value="">{t('orders.form.division')}</option>
@@ -938,7 +951,7 @@ export default function Orders() {
                     </select>
                     <select
                       value={manualOrder.district}
-                      onChange={(e) => setManualOrder({ ...manualOrder, district: e.target.value, upazila: '' })}
+                      onChange={(e) => setManualOrder({ ...manualOrder, district: e.target.value, upazila: '', area: '', areaTouched: false })}
                       disabled={!manualOrder.division}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm disabled:bg-gray-100"
                     >
@@ -951,7 +964,11 @@ export default function Orders() {
                     </select>
                     <select
                       value={manualOrder.upazila}
-                      onChange={(e) => setManualOrder({ ...manualOrder, upazila: e.target.value })}
+                      onChange={(e) => setManualOrder({
+                        ...manualOrder,
+                        upazila: e.target.value,
+                        area: manualOrder.areaTouched ? manualOrder.area : e.target.value,
+                      })}
                       disabled={!manualOrder.district}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm disabled:bg-gray-100"
                     >
@@ -964,6 +981,18 @@ export default function Orders() {
                         ))}
                     </select>
                   </div>
+                  <label className="mb-2 block">
+                    <span className="mb-1 block text-xs font-medium text-gray-600">{t('orders.form.courierArea')}</span>
+                    <input
+                      type="text"
+                      value={manualOrder.area}
+                      onChange={(e) => setManualOrder({ ...manualOrder, area: e.target.value, areaTouched: true })}
+                      placeholder={t('orders.form.courierAreaPlaceholder')}
+                      aria-label={t('orders.form.courierArea')}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                    />
+                    <span className="mt-1 block text-xs text-gray-500">{t('orders.form.courierAreaHint')}</span>
+                  </label>
                   <input
                     type="text"
                     value={manualOrder.streetAddress}

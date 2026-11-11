@@ -196,7 +196,14 @@ describe('buildCourierOrderData — the order\'s own confirmed destination', () 
         payment_status: 'unpaid',
         delivery_location: JSON.stringify({
             provider_destination: {
-                redx: { area_id: 77, area_name: 'Dhanmondi', district: 'Dhaka' },
+                redx: {
+                    area_id: 77,
+                    area_name: 'Dhanmondi',
+                    district: 'Dhaka',
+                    source: 'merchant_confirmed',
+                    confirmed_at: '2026-11-04T00:00:00.000Z',
+                    confirmed_by: 'user-1',
+                },
             },
         }),
         ...overrides,
@@ -221,6 +228,43 @@ describe('buildCourierOrderData — the order\'s own confirmed destination', () 
     test('leaves the payload untouched when no courier is named', () => {
         const orderData = buildCourierOrderData(withConfirmation());
 
+        expect(orderData).not.toHaveProperty('delivery_area_id');
+    });
+
+    test('does not send unnamespaced or unconfirmed ids without a successful directory lookup', () => {
+        const order = baseOrder({
+            payment_status: 'unpaid',
+            delivery_location: JSON.stringify({
+                area_id: 77,
+                area_name: 'Dhanmondi',
+                provider_destination: {
+                    redx: { area_id: 88, area_name: 'Dhanmondi' },
+                },
+            }),
+        });
+
+        const orderData = buildCourierOrderData(order, { provider: 'redx' });
+
+        expect(orderData).not.toHaveProperty('delivery_area_id');
+        expect(orderData).not.toHaveProperty('delivery_area');
+    });
+
+    test('uses a chatbot full-address carrier when no structured delivery address exists', () => {
+        const order = baseOrder({
+            payment_status: 'unpaid',
+            delivery_address: null,
+            delivery_location: JSON.stringify({
+                full_address: 'House 4, Road 12, Mirpur 10, Dhaka',
+                source: 'chat',
+            }),
+        });
+
+        const orderData = buildCourierOrderData(order, { provider: 'redx' });
+
+        expect(orderData).toMatchObject({
+            delivery_address: 'House 4, Road 12, Mirpur 10, Dhaka',
+            recipient_address: 'House 4, Road 12, Mirpur 10, Dhaka',
+        });
         expect(orderData).not.toHaveProperty('delivery_area_id');
     });
 });

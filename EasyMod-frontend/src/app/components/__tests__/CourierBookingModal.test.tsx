@@ -7,7 +7,7 @@
  * payload without the field fails closed.
  */
 import '@testing-library/jest-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import CourierBookingModal from '../CourierBookingModal';
 import { apiClient } from '@/api';
@@ -17,6 +17,11 @@ vi.mock('@/api', () => ({
   apiClient: {
     getCourierEligibility: vi.fn(),
     bookCourier: vi.fn(),
+    confirmCourierDestination: vi.fn(),
+    getProviderAreas: vi.fn(),
+    getPathaoCities: vi.fn(),
+    getPathaoZones: vi.fn(),
+    getPathaoAreas: vi.fn(),
   },
 }));
 
@@ -77,6 +82,11 @@ describe('CourierBookingModal destination coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (apiClient.getCourierEligibility as any).mockResolvedValue(eligibility({ enforced: false }));
+    (apiClient.confirmCourierDestination as any).mockResolvedValue({});
+    (apiClient.getProviderAreas as any).mockResolvedValue([]);
+    (apiClient.getPathaoCities as any).mockResolvedValue([]);
+    (apiClient.getPathaoZones as any).mockResolvedValue([]);
+    (apiClient.getPathaoAreas as any).mockResolvedValue([]);
   });
 
   it('keeps Book available and shows advisory copy when enforcement is off', async () => {
@@ -110,5 +120,50 @@ describe('CourierBookingModal destination coverage', () => {
 
     await waitFor(() => expect(screen.getByText(/courier\.eligibility\.serviceable/)).toBeInTheDocument());
     expect(bookButton()).toBeEnabled();
+  });
+
+  it('confirms a REDX area using only the selected REDX directory id', async () => {
+    (apiClient.getProviderAreas as any).mockResolvedValue([
+      { area_id: 77, name: 'Mirpur 10', district_name: 'Dhaka', postcode: '1216' },
+    ]);
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'redx' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Mirpur 10/ }));
+    fireEvent.click(screen.getByRole('button', { name: /courier\.deliveryArea\.confirmButton/ }));
+
+    await waitFor(() => expect(apiClient.confirmCourierDestination).toHaveBeenCalledWith('order-1', {
+      provider: 'redx',
+      area_id: 77,
+      area_name: 'Mirpur 10',
+      district: 'Dhaka',
+      postcode: '1216',
+    }));
+    expect(apiClient.getProviderAreas).toHaveBeenCalledWith('redx');
+  });
+
+  it('confirms a Pathao destination with its city, zone, and area ids', async () => {
+    (apiClient.getPathaoCities as any).mockResolvedValue([{ city_id: 11, city_name: 'Dhaka' }]);
+    (apiClient.getPathaoZones as any).mockResolvedValue([{ zone_id: 22, zone_name: 'Mirpur Zone' }]);
+    (apiClient.getPathaoAreas as any).mockResolvedValue([{ area_id: 33, area_name: 'Mirpur 10' }]);
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'pathao' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'courier.pickup.city' }), { target: { value: '11' } });
+    await waitFor(() => expect(apiClient.getPathaoZones).toHaveBeenCalledWith(11));
+    fireEvent.change(screen.getByRole('combobox', { name: 'courier.pickup.zone' }), { target: { value: '22' } });
+    await waitFor(() => expect(apiClient.getPathaoAreas).toHaveBeenCalledWith(22));
+    fireEvent.change(screen.getByRole('combobox', { name: 'courier.pickup.area' }), { target: { value: '33' } });
+    fireEvent.click(screen.getByRole('button', { name: /courier\.deliveryArea\.confirmButton/ }));
+
+    await waitFor(() => expect(apiClient.confirmCourierDestination).toHaveBeenCalledWith('order-1', {
+      provider: 'pathao',
+      area_id: 33,
+      area_name: 'Mirpur 10',
+      zone_id: 22,
+      zone_name: 'Mirpur Zone',
+      city_id: 11,
+      city_name: 'Dhaka',
+    }));
   });
 });

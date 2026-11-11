@@ -73,6 +73,30 @@ describe('order.validator', () => {
       expect(orderValidator.updateOrder.body.validate({ payment_method: ' ' }).error).toBeDefined();
     });
 
+    it('accepts structured address and courier-area corrections', () => {
+      const result = orderValidator.updateOrder.body.validate({
+        delivery_address: {
+          district: 'Dhaka',
+          upazila: 'Dhanmondi',
+          area: 'Dhanmondi',
+          street_address: 'House 4, Road 12',
+        },
+        delivery_area: 'Dhanmondi',
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.value.delivery_address.area).toBe('Dhanmondi');
+      expect(result.value.delivery_area).toBe('Dhanmondi');
+    });
+
+    it('does not let generic updates inject provider-specific destination records', () => {
+      const result = orderValidator.updateOrder.body.validate({
+        delivery_location: { provider_destination: { redx: { area_id: 999 } } },
+      });
+
+      expect(result.error).toBeDefined();
+    });
+
     it('rejects empty update payload', () => {
       const bodyResult = orderValidator.updateOrder.body.validate({});
       expect(bodyResult.error).toBeDefined();

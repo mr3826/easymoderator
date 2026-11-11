@@ -371,6 +371,7 @@ const checkout = async (storefront, payload, idempotencyKey, assertEnabled) => {
         customer_name: payload.customer_name,
         customer_phone: payload.customer_phone,
         delivery_address: payload.delivery_address,
+        delivery_area: payload.delivery_address.area || payload.delivery_address.upazila || null,
         delivery_fee: deliveryFee,
         discount: 0,
         tax: 0,

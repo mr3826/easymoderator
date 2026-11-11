@@ -12,6 +12,8 @@ import type {
   CourierBookingPayload,
   CourierBookingResult,
   CourierEligibility,
+  ConfirmCourierDestinationPayload,
+  CourierDestinationResult,
   OrderWorklistCounts,
   ConnectDeliveryProviderRequest,
   DeliveryProvider,
@@ -264,6 +266,27 @@ export async function bookCourier(
 ): Promise<CourierBookingResult> {
   const response: AxiosResponse<ApiResponse<CourierBookingResult>> = await httpClient.post(
     `/api/order/${orderId}/courier`,
+    payload
+  );
+  return response.data.data;
+}
+
+/**
+ * Record the delivery area the merchant confirmed for one courier.
+ *
+ * This is the ONLY sanctioned way to set a courier destination — the generic
+ * order update now rejects `delivery_location` with a 400. The server re-reads
+ * the courier's own directory, stores the ids it confirms per provider, and
+ * returns both the updated order and a fresh coverage verdict.
+ * @param orderId - ID of the order to set the courier destination for
+ * @param payload - Provider plus the directory ids the merchant selected
+ */
+export async function confirmCourierDestination(
+  orderId: string,
+  payload: ConfirmCourierDestinationPayload
+): Promise<CourierDestinationResult> {
+  const response: AxiosResponse<ApiResponse<CourierDestinationResult>> = await httpClient.put(
+    `/api/order/${orderId}/courier/destination`,
     payload
   );
   return response.data.data;

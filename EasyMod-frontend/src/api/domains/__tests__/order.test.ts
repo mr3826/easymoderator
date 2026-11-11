@@ -267,6 +267,18 @@ describe('Order Domain API', () => {
     });
   });
 
+  describe('confirmCourierDestination', () => {
+    it('sends the provider-specific directory selection to the confirmation endpoint', async () => {
+      const payload = { provider: 'redx', area_id: 77, area_name: 'Mirpur' } as const;
+      const result = { order: { id: '1' }, destination: { provider: 'redx', decision: 'SERVICEABLE' } };
+      (httpClient.put as any).mockResolvedValue({ data: { data: result } });
+
+      await expect(order.confirmCourierDestination('1', payload)).resolves.toEqual(result);
+
+      expect(httpClient.put).toHaveBeenCalledWith('/api/order/1/courier/destination', payload);
+    });
+  });
+
   describe('getCourierEligibility', () => {
     it('passes the requested provider and returns the server verdict unchanged', async () => {
       const verdict = {

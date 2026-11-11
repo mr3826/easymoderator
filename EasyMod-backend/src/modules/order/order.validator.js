@@ -27,6 +27,7 @@ class OrderValidator {
                     division: Joi.string().trim().max(100).allow('').optional(),
                     district: Joi.string().trim().max(100).allow('').optional(),
                     upazila: Joi.string().trim().max(100).allow('').optional(),
+                    area: Joi.string().trim().max(100).allow('').optional(),
                     street_address: Joi.string().trim().max(500).allow('').optional(),
                     zone: Joi.string().trim().max(50).allow('').optional()
                 }).unknown(true)
@@ -103,6 +104,20 @@ class OrderValidator {
                 'any.only': 'Invalid fulfillment status'
             }),
             payment_method: Joi.string().trim().min(1).max(30).optional(),
+            delivery_address: Joi.alternatives().try(
+                Joi.string().trim().min(10).max(500).allow(''),
+                Joi.object({
+                    division: Joi.string().trim().max(100).allow('').optional(),
+                    district: Joi.string().trim().max(100).allow('').optional(),
+                    upazila: Joi.string().trim().max(100).allow('').optional(),
+                    area: Joi.string().trim().max(100).allow('').optional(),
+                    street_address: Joi.string().trim().max(500).allow('').optional(),
+                    zone: Joi.string().trim().max(50).allow('').optional(),
+                }).unknown(true),
+            ).optional().messages({
+                'alternatives.match': 'Delivery address must be a text address or a structured address object',
+            }),
+            delivery_area: Joi.string().trim().max(100).allow('').optional(),
             note: Joi.string().trim().allow('').optional()
         }).min(1).messages({
             'object.min': 'At least one field to update is required'

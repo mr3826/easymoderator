@@ -15,6 +15,8 @@ process.env.META_WEBHOOK_APP_SECRET = 'integration-meta-app-secret';
 // The integration worker must use the production coalescer, not the narrow
 // unit-test mock used by handler tests in the same Jest invocation.
 jest.unmock('src/jobs/burst-coalescer');
+jest.unmock('src/jobs/message-queue');
+jest.unmock('bullmq');
 
 const crypto = require('crypto');
 const request = require('supertest');
@@ -70,6 +72,7 @@ describe('Meta webhook durable replay with real PostgreSQL and Redis', () => {
     let settlementQueue;
 
     beforeAll(async () => {
+        expect(require.resolve('bullmq')).not.toMatch(/[\\/]tests[\\/]__mocks__[\\/]bullmq\.js$/);
         await syncSchema();
         await seed();
 
@@ -106,7 +109,20 @@ describe('Meta webhook durable replay with real PostgreSQL and Redis', () => {
             page_id: IDS.pageA,
         }));
         expect(firstReceipt.payload_encrypted).toMatch(/^v1:/);
-        expect(firstReceipt.queue_job_id).toBeTruthy();
+        const queuedJobs = await messageQueue.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, -1);
+        const queueJob = firstReceipt.queue_job_id
+            ? await messageQueue.getJob(firstReceipt.queue_job_id)
+            : null;
+        expect({
+            queue_job_id: firstReceipt.queue_job_id,
+            last_error_code: firstReceipt.last_error_code,
+            queue_job_present: Boolean(queueJob),
+            queued_job_ids: queuedJobs.map((job) => String(job.id)),
+        }).toMatchObject({
+            queue_job_id: expect.any(String),
+            last_error_code: null,
+            queue_job_present: true,
+        });
 
         const originalJobId = firstReceipt.queue_job_id;
         await queueRedis.flushdb();

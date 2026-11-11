@@ -505,10 +505,9 @@ const findOrCreateStorefrontCustomer = async (shopId, orderData, transaction) =>
 };
 
 /**
- * Persist the canonical destination carrier. `delivery_location` is the TEXT
- * column that already exists; it holds JSON so a structured address and any
- * courier-confirmed ids travel together. Accepting an object from every intake
- * path is what lets the same order be booked later without a schema change.
+ * Persist the address carrier in the existing TEXT column. Intake paths may
+ * store structured or free-text address data here; provider ids are written
+ * later only by the courier-directory confirmation path.
  */
 const normalizeDeliveryLocation = (value) => {
     if (value === undefined || value === null || value === '') return null;
@@ -534,6 +533,14 @@ const _createOrderCore = async (shopId, orderData, logger, requestId = null, {
     createStorefrontCustomer = false,
     strictIdempotencyRead = false,
 } = {}) => {
+    const initialLocation = parseDeliveryLocation(orderData?.delivery_location);
+    if (Object.keys(initialLocation.provider_destination || {}).length > 0) {
+        throw new AppError(
+            'Courier destination ids can only be recorded by confirming an area from that courier\'s directory.',
+            400,
+            'COURIER_DESTINATION_CONFIRM_REQUIRED',
+        );
+    }
     const requestedFulfillmentStatus = orderData?.fulfillment_status;
     if (requestedFulfillmentStatus !== undefined
         && requestedFulfillmentStatus !== null
@@ -1089,6 +1096,98 @@ const updateOrder = async (orderId, userId, shopId, updateData) => {
             const newValue = updateData[key];
             if (oldValue !== newValue) auditChanges[key] = { from: oldValue, to: newValue };
             updates[key] = newValue;
+        }
+
+        const destinationChanged = Boolean(auditChanges.delivery_address || auditChanges.delivery_area);
+        if (destinationChanged) {
+            const removedAddressDestinationFields = [];
+            const sanitizeStructuredAddress = (value) => {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+                const sanitized = { ...value };
+                for (const field of ['area_id', 'areaId', 'zone_id', 'zoneId', 'city_id', 'cityId', 'provider_destination']) {
+                    if (!Object.prototype.hasOwnProperty.call(sanitized, field)) continue;
+                    delete sanitized[field];
+                    removedAddressDestinationFields.push(field);
+                }
+                return sanitized;
+            };
+
+            if (updateData.delivery_address !== undefined) {
+                updates.delivery_address = sanitizeStructuredAddress(updateData.delivery_address);
+                if (auditChanges.delivery_address) {
+                    auditChanges.delivery_address.to = updates.delivery_address;
+                } else if (updates.delivery_address !== order.delivery_address) {
+                    auditChanges.delivery_address = { from: order.delivery_address, to: updates.delivery_address };
+                }
+            }
+
+            if (updateData.delivery_address !== undefined && updateData.delivery_area === undefined) {
+                const correctedAddress = updates.delivery_address;
+                const correctedArea = correctedAddress && typeof correctedAddress === 'object'
+                    ? [correctedAddress.area, correctedAddress.area_name, correctedAddress.upazila, correctedAddress.thana]
+                        .find((value) => typeof value === 'string' && value.trim())?.trim() || null
+                    : null;
+                if (order.delivery_area !== correctedArea) {
+                    updates.delivery_area = correctedArea;
+                    auditChanges.delivery_area = { from: order.delivery_area ?? null, to: correctedArea };
+                }
+            } else if (updateData.delivery_area !== undefined && updateData.delivery_address === undefined
+                && order.delivery_address && typeof order.delivery_address === 'object'
+                && !Array.isArray(order.delivery_address)
+                && order.delivery_address.area !== updateData.delivery_area) {
+                const correctedAddress = sanitizeStructuredAddress({ ...order.delivery_address, area: updateData.delivery_area });
+                updates.delivery_address = correctedAddress;
+                auditChanges.delivery_address = { from: order.delivery_address, to: correctedAddress };
+            }
+
+            const location = { ...parseDeliveryLocation(order.delivery_location) };
+            const selections = location.provider_destination;
+            const confirmedProviders = selections && typeof selections === 'object' && !Array.isArray(selections)
+                ? Object.keys(selections)
+                : [];
+            const hadProviderSelections = Object.prototype.hasOwnProperty.call(location, 'provider_destination');
+            const legacyDestinationFields = [
+                'area_id', 'areaId', 'area_name', 'area', 'delivery_area', 'delivery_area_id',
+                'zone_id', 'zoneId', 'zone_name', 'zone',
+                'city_id', 'cityId', 'city_name', 'city',
+                'district', 'district_name', 'postcode', 'postal_code',
+                'recipient_area', 'recipient_zone', 'recipient_city',
+            ];
+            const clearedLegacyFields = legacyDestinationFields.filter((field) => (
+                Object.prototype.hasOwnProperty.call(location, field)
+            ));
+            for (const field of clearedLegacyFields) delete location[field];
+            if (hadProviderSelections) delete location.provider_destination;
+
+            // Keep the free-text carrier aligned with the corrected address.
+            // If only the area changed on an unstructured/chat order, preserve
+            // the buyer's original full address instead of replacing it.
+            if (updates.delivery_address !== undefined) {
+                const correctedFullAddress = normalizeCourierAddress(updates.delivery_address);
+                if (correctedFullAddress) location.full_address = correctedFullAddress;
+                else delete location.full_address;
+            }
+
+            if (hadProviderSelections || clearedLegacyFields.length
+                || location.full_address !== parseDeliveryLocation(order.delivery_location).full_address) {
+                updates.delivery_location = JSON.stringify(location);
+            }
+            if (hadProviderSelections || clearedLegacyFields.length) {
+                auditChanges.courier_destinations_invalidated = {
+                    providers: confirmedProviders,
+                    legacy_fields: [
+                        ...clearedLegacyFields,
+                        ...removedAddressDestinationFields.map((field) => `delivery_address.${field}`),
+                    ],
+                    reason: 'delivery_destination_changed',
+                };
+            } else if (removedAddressDestinationFields.length) {
+                auditChanges.courier_destinations_invalidated = {
+                    providers: [],
+                    legacy_fields: removedAddressDestinationFields.map((field) => `delivery_address.${field}`),
+                    reason: 'delivery_destination_changed',
+                };
+            }
         }
 
         if (Object.keys(updates).length === 0) return { order, auditChanges };
@@ -1685,7 +1784,12 @@ const ensureCourierFieldsEditable = async (order, orderId, shopId, transaction, 
 
     const deliveryStatus = String(order.delivery_status || '').trim().toLowerCase();
     if (order.delivery_tracking_code || order.delivery_consignment_id || order.delivery_dispatched_at
-        || (deliveryStatus && !['unfulfilled', 'not_booked'].includes(deliveryStatus))) {
+        || (deliveryStatus && ![
+            'unfulfilled',
+            'not_booked',
+            COURIER_SETUP_REQUIRED_STATUS,
+            'dispatch_failed',
+        ].includes(deliveryStatus))) {
         throw new AppError(
             'Courier tracking has started. Refresh the order and reconcile courier state before changing order details.',
             409,
@@ -1697,7 +1801,9 @@ const ensureCourierFieldsEditable = async (order, orderId, shopId, transaction, 
     if (!DeliveryTracking || typeof DeliveryTracking.findOne !== 'function') {
         throw new AppError('Courier tracking state is unavailable', 503, 'COURIER_TRACKING_CHECK_UNAVAILABLE');
     }
-    const tracking = await DeliveryTracking.findOne({ where: { order_id: orderId }, transaction });
+    const trackingQuery = { where: { order_id: orderId }, transaction };
+    if (transaction?.LOCK?.UPDATE) trackingQuery.lock = transaction.LOCK.UPDATE;
+    const tracking = await DeliveryTracking.findOne(trackingQuery);
     if (tracking) {
         throw new AppError(
             'Courier tracking has started. Refresh the order and reconcile courier state before changing order details.',
@@ -1945,9 +2051,9 @@ const missingBookableDestination = (provider, orderData) => {
  * Resolve the ORDER's destination against the provider directory.
  *
  * Runs after the PENDING dispatch claim (so a failed booking still goes through
- * the claim's FAILED/reopen recovery) and before the provider call. Nothing
- * here can throw: a lookup problem degrades to CHECK_UNAVAILABLE and the
- * booking continues exactly as it did before this feature existed.
+ * the claim's FAILED/reopen recovery) and before the provider call. A lookup
+ * problem degrades to CHECK_UNAVAILABLE; unconfirmed ids are not sent on that
+ * path, so payload validation stops the booking before the provider call.
  */
 const resolveBookingDestination = async ({ shopId, provider, order, providerInstance }) => {
     const destinationService = getCourierDestinationService();
@@ -1973,16 +2079,21 @@ const resolveBookingDestination = async ({ shopId, provider, order, providerInst
  *
  * A directory-confirmed match wins. A definitive NOT_SERVICEABLE means the
  * directory was readable and did not contain the order's address, so the
- * order's own ids are contradicted and are left off (the booking then fails
- * the payload-validity check, which is the honest outcome). An unverified
- * verdict (UNCERTAIN / CHECK_UNAVAILABLE) does not contradict anything, so the
- * order's own ids are kept: refusing them would turn a temporary directory
- * outage into an unrelated booking outage.
+ * order's own ids are contradicted and are left off. UNCERTAIN and
+ * CHECK_UNAVAILABLE preserve ids only when the order carries a server-recorded,
+ * provider-specific merchant confirmation. Unnamespaced legacy ids and intake
+ * text must not become routing ids when lookup is unavailable or disabled.
  */
 const applyBookingDestination = (orderData, provider, resolution) => {
     if (!orderData || !resolution) return orderData;
     const destinationService = getCourierDestinationService();
     if (resolution.decision === 'NOT_SERVICEABLE') {
+        if (resolution.destination?.provider_confirmed && !serviceabilityEnforced()) {
+            // Shadow mode may continue with an id the merchant previously
+            // confirmed from this provider's directory. Unconfirmed candidates
+            // never reach this branch with routing ids attached.
+            return orderData;
+        }
         // The directory was readable and does not contain this destination, so
         // the ids carried by the order are contradicted. Sending them would be
         // the "send it anyway and hope" behaviour #238 removed. The booking
@@ -1994,6 +2105,9 @@ const applyBookingDestination = (orderData, provider, resolution) => {
             : ['delivery_area_id', 'delivery_area'])) {
             delete orderData[key];
         }
+        return orderData;
+    }
+    if (resolution.decision !== 'SERVICEABLE' && !resolution.destination?.provider_confirmed) {
         return orderData;
     }
     if (typeof destinationService?.applyDestinationToOrderData !== 'function') return orderData;
@@ -2093,6 +2207,14 @@ const confirmCourierDestination = async (orderId, userId, shopId, selection = {}
                 : 'COURIER_DESTINATION_SELECTION_INCOMPLETE',
         );
     }
+    if (!destinationResolutionEnabled()) {
+        countRejection();
+        throw new AppError(
+            'Courier directory confirmation is temporarily disabled. Previously confirmed destinations can still be booked.',
+            503,
+            'COURIER_DESTINATION_RESOLUTION_DISABLED',
+        );
+    }
 
     const result = await sequelize.transaction(async (transaction) => {
         const query = { where: { id: orderId, shop_id: shopId }, transaction };
@@ -2101,9 +2223,9 @@ const confirmCourierDestination = async (orderId, userId, shopId, selection = {}
         if (!order) throw new AppError('Order not found', 404);
 
         // A parcel already handed to a courier keeps the destination it was
-        // booked with. Correcting it here would silently diverge from the
-        // consignment the provider holds.
-        await ensureNoActiveCourierDispatch(orderId, shopId, transaction);
+        // booked with. Check dispatch claims and legacy tracking records before
+        // directory reads so correction cannot diverge from an existing parcel.
+        await ensureCourierFieldsEditable(order, orderId, shopId, transaction, ['delivery_location']);
 
         const resolution = await resolveCourierProvider(shopId, { provider });
         if (resolution.blocked) {
@@ -2261,8 +2383,13 @@ const buildCourierOrderData = (order, { stepData = {}, overrides = {}, pickup = 
         const formatter = tryRequire('../delivery/bd-phone-validator.service')?.formatForCourier;
         return typeof formatter === 'function' ? formatter(rawPhone) : rawPhone;
     })();
+    const storedLocation = parseDeliveryLocation(order?.delivery_location);
     const address = normalizeCourierAddress(
-        order?.delivery_address || stepValues.address || overrideValues.delivery_address || overrideValues.recipient_address
+        order?.delivery_address
+            || storedLocation.full_address
+            || stepValues.address
+            || overrideValues.delivery_address
+            || overrideValues.recipient_address
     );
     const total = numericOr(order?.total, 0);
     const paymentMethod = String(order?.payment_method || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
@@ -2339,16 +2466,16 @@ const buildCourierOrderData = (order, { stepData = {}, overrides = {}, pickup = 
         orderData.pickup_store_id = storeId;
     }
 
-    // The order's OWN destination ids travel with the payload even when the
-    // directory cannot be consulted (resolution disabled, provider offline).
-    // They come from the order and, for a merchant-confirmed selection, from
-    // that provider's own key — never from pickup metadata. The booking path
-    // still strips them when the directory contradicts them.
+    // Only an explicit, server-recorded selection for this provider can be
+    // used without a fresh directory match. Unconfirmed order fields are
+    // merely lookup candidates and are attached after successful resolution.
     if (provider) {
         const destinationService = getCourierDestinationService();
         if (typeof destinationService?.extractDestinationFromOrder === 'function') {
             const orderDestination = destinationService.extractDestinationFromOrder(order, { provider });
-            destinationService.applyDestinationToOrderData?.(orderData, provider, { destination: orderDestination });
+            if (orderDestination?.provider_confirmed) {
+                destinationService.applyDestinationToOrderData?.(orderData, provider, { destination: orderDestination });
+            }
         }
     }
 

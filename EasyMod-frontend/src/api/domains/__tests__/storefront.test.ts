@@ -63,7 +63,7 @@ describe("storefront API domain", () => {
     const payload = {
       customer_name: "A Buyer",
       customer_phone: "01700000000",
-      delivery_address: { district: "Dhaka", street_address: "Road 1" },
+      delivery_address: { district: "Dhaka", area: "Mirpur", street_address: "Road 1" },
       consent: true as const,
       items: [{ product_id: "p-1", quantity: 2 }],
     };

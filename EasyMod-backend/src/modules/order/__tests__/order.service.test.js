@@ -705,6 +705,31 @@ describe('Order Service', () => {
             }), { transaction: expect.any(Object) });
         });
 
+        it('rejects client-supplied provider confirmations during generic order creation', async () => {
+            UserShop.findOne = jest.fn().mockResolvedValue({ id: 'user-shop-1' });
+
+            await expect(orderService.createOrder('user-1', 'shop-1', {
+                ...validOrderData,
+                delivery_location: {
+                    full_address: 'Road 1, Mirpur, Dhaka',
+                    provider_destination: {
+                        redx: {
+                            area_id: 999,
+                            area_name: 'Atlantis',
+                            source: 'merchant_confirmed',
+                            confirmed_at: '2026-11-04T00:00:00.000Z',
+                            confirmed_by: 'user-1',
+                        },
+                    },
+                },
+            })).rejects.toMatchObject({
+                status: 400,
+                code: 'COURIER_DESTINATION_CONFIRM_REQUIRED',
+            });
+
+            expect(Order.create).not.toHaveBeenCalled();
+        });
+
         it('should reject order with insufficient stock', async () => {
             const mockProduct = {
                 id: 'prod-1',
