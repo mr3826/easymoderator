@@ -61,7 +61,10 @@ const selections = {
 const validCheckout = (overrides = {}) => ({
     customer_name: 'Rina Buyer',
     customer_phone: '01712345678',
-    delivery_address: { district: 'Dhaka', street_address: 'House 7, Road 2, Dhanmondi' },
+    delivery_address: {
+        district: 'Dhaka', upazila: 'Dhanmondi', area: 'Dhanmondi',
+        street_address: 'House 7, Road 2, Dhanmondi',
+    },
     consent: true,
     items: [{ product_id: PRODUCT_A, quantity: 1 }],
     ...overrides,
@@ -170,6 +173,7 @@ describe('Storefront service', () => {
         expect(orderData.items).toEqual([{ product_id: PRODUCT_A, variant_id: null, quantity: 1 }]);
         expect(orderData).toEqual(expect.objectContaining({
             channel: 'storefront', payment_status: 'unpaid', payment_method: 'COD', order_status: 'confirmed',
+            delivery_area: 'Dhanmondi',
         }));
         expect(orderData.metadata.storefront.idempotency_payload_hash).toMatch(/^[a-f0-9]{64}$/);
         expect(orderData.metadata.storefront.buyer_consent).toEqual(expect.objectContaining({
@@ -184,6 +188,23 @@ describe('Storefront service', () => {
             payment_status: 'unpaid', order_status: 'confirmed',
         });
         expect(JSON.stringify(result)).not.toMatch(/Rina Buyer|01712345678|Dhanmondi/);
+    });
+
+    test('derives the legacy courier area from upazila when checkout clients omit area', async () => {
+        const storefront = await service.getPublicStorefrontRecord(storefrontA.slug);
+
+        await service.checkout(storefront, validCheckout({
+            delivery_address: {
+                district: 'Dhaka',
+                upazila: 'Mirpur',
+                street_address: 'House 7, Road 2, Mirpur',
+            },
+        }), 'checkout-key-000008', jest.fn());
+
+        expect(mockCreateStorefrontCodOrder.mock.calls[0][1]).toMatchObject({
+            delivery_address: expect.objectContaining({ upazila: 'Mirpur' }),
+            delivery_area: 'Mirpur',
+        });
     });
 
     test('generates a slug-safe non-guessable default slug and refuses a second storefront per shop', async () => {
@@ -255,6 +276,35 @@ describe('Storefront checkout validation', () => {
             ...base,
             delivery_address: { district: 'Dhaka', street_address: 'Road' },
         }).error).toBeDefined();
+    });
+
+    test('accepts the thana/area a courier directory is keyed by', () => {
+        // District alone is not enough to pick a courier area; the buyer's
+        // thana is what lets checkout create a bookable order.
+        const { error, value } = checkoutSchema.validate({
+            ...base,
+            delivery_address: {
+                district: 'Dhaka',
+                upazila: 'Mirpur',
+                area: 'Mirpur 10',
+                street_address: 'House 7, Road 2, Mirpur 10',
+            },
+        });
+
+        expect(error).toBeUndefined();
+        expect(value.delivery_address.area).toBe('Mirpur 10');
+    });
+
+    test('rejects checkout when neither area nor upazila is provided', () => {
+        const result = checkoutSchema.validate({
+            ...base,
+            delivery_address: {
+                district: 'Dhaka',
+                street_address: 'House 7, Road 2, Mirpur 10',
+            },
+        });
+
+        expect(result.error).toBeDefined();
     });
 
     test('requires affirmative buyer consent and rejects client customer/shop authority', () => {

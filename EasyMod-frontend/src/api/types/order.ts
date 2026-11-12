@@ -14,6 +14,12 @@ export interface DeliveryAddress {
   district: string;
   upazila: string;
   street_address: string;
+  /**
+   * Human-readable delivery area/thana. This is what courier destination
+   * extraction reads first — distinct from `zone`, which stays the Dhaka
+   * pricing band enum and must not be repurposed.
+   */
+  area?: string;
   zone?: 'inside_dhaka' | 'sub_dhaka' | 'outside_dhaka';
 }
 
@@ -35,6 +41,12 @@ export interface CreateOrderPayload {
   payment_status?: string;
   payment_method: string;
   note?: string;
+  /**
+   * Legacy single-value delivery area/thana column. The backend maps either
+   * this or `delivery_address.area`; send both so destination extraction and
+   * the legacy column stay in sync.
+   */
+  delivery_area?: string;
 }
 
 export interface Order {
@@ -294,6 +306,44 @@ export interface CourierEligibility {
    * (malformed payloads are refused by the server either way).
    */
   enforced?: boolean;
+}
+
+/**
+ * Body for PUT /api/order/:orderId/courier/destination — the ONLY sanctioned
+ * way to record a courier delivery area (the generic order update rejects
+ * `delivery_location`). The server validates with `.unknown(false)`, so extra
+ * keys are rejected: keep this shape exact. Ids are directory lookups — the
+ * server re-reads the courier's own directory and stores only what it confirms.
+ */
+export interface ConfirmCourierDestinationPayload {
+  provider: 'redx' | 'pathao';
+  area_id: string | number;
+  area_name?: string;
+  zone_id?: string | number;
+  zone_name?: string;
+  city_id?: string | number;
+  city_name?: string;
+  district?: string;
+  postcode?: string;
+}
+
+/**
+ * Result of the confirm-destination PUT: the updated order plus the server's
+ * fresh verdict for the confirmed selection (same decision vocabulary as the
+ * eligibility pre-check, plus the enforcement flag).
+ */
+export interface CourierDestinationResult {
+  order: Order;
+  destination: {
+    provider: string;
+    decision: CourierDestinationDecision;
+    reason_code: string;
+    enforced?: boolean;
+    source?: string;
+    checked_at?: string;
+    ttl_seconds?: number;
+    [key: string]: unknown;
+  };
 }
 
 export interface PathaoCredentials {

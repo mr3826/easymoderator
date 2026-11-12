@@ -296,6 +296,20 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
         },
       });
     }
+    // Delivery-area directory the booking modal fetches when the RedX picker
+    // opens. The coverage verdict itself comes from the eligibility pre-check
+    // above; this just lets the destination picker render without tripping the
+    // afterEach unmocked-request guard. The mock order's address is a plain
+    // string, so no district prefill is triggered.
+    if (path === '/api/shop/delivery/redx/areas' && method === 'GET') {
+      return fulfillJson(route, {
+        success: true,
+        data: [
+          { area_id: 101, name: 'Mirpur', name_bn: 'মিরপুর', district_name: 'Dhaka', postcode: '1216' },
+          { area_id: 102, name: 'Dhanmondi', name_bn: 'ধানমন্ডি', district_name: 'Dhaka', postcode: '1205' },
+        ],
+      });
+    }
     if (path === '/api/order/order-4/courier' && method === 'POST') {
       actionRequests.push(`${method} ${path}`);
       return fulfillJson(route, {

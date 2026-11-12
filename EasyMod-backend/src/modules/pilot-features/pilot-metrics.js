@@ -53,6 +53,13 @@ const KNOWN = new Set([
     // Payload-validity count: bookings stopped before the provider call because
     // the destination was not addressable at all (never shadowed — D5-1).
     'courier.serviceability.destination_payload_invalid',
+    // Shadow-mode count of the distinct case where the directory CONTRADICTED
+    // a recorded destination. Reported separately so an operator can tell
+    // "never recorded" from "recorded and contradicted" (review R-1).
+    'courier.serviceability.not_serviceable_contradicted',
+    // Merchant-confirmed destination selections, per outcome.
+    'courier.destination.confirmed',
+    'courier.destination.confirmation_rejected',
 ]);
 
 function increment(name, by = 1) {

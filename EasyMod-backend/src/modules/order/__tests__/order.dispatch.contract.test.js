@@ -68,17 +68,22 @@ const makeOrder = () => {
             upazila: 'Dhanmondi',
             district: 'Dhaka',
         },
-        // Structured destination ids on the order itself. Pathao and RedX cannot
-        // address a parcel without them, and the booking path refuses to send
-        // an unaddressable payload (D5-1).
+        // These provider-specific ids were confirmed through the directory.
         delivery_location: {
-            area_id: 11,
-            area_name: 'Dhanmondi',
-            zone_id: 22,
-            zone_name: 'Dhanmondi',
-            city_id: 33,
-            city_name: 'Dhaka',
-            district: 'Dhaka',
+            provider_destination: {
+                pathao: {
+                    area_id: 11,
+                    area_name: 'Dhanmondi',
+                    zone_id: 22,
+                    zone_name: 'Dhanmondi',
+                    city_id: 33,
+                    city_name: 'Dhaka',
+                    district: 'Dhaka',
+                    source: 'merchant_confirmed',
+                    confirmed_at: '2026-11-04T00:00:00.000Z',
+                    confirmed_by: 'user-1',
+                },
+            },
         },
         total: '1250.00',
         items: [{ name: 'Red Saree', quantity: 2 }],
@@ -361,6 +366,80 @@ describe('canonical courier booking', () => {
             error: 'Invalid pickup address',
         });
         expect(order.update).not.toHaveBeenCalledWith({ delivery_status: 'dispatch_indeterminate' });
+    });
+
+    it('reopens a definitively rejected dispatch for one deliberate retry', async () => {
+        const order = makeOrder();
+        const row = { id: 'dispatch-retry', status: 'PENDING' };
+        mockCourierDispatch.findOrCreate.mockImplementation(async ({ defaults }) => {
+            if (!row.dispatch_owner_token) {
+                Object.assign(row, defaults);
+                return [row, true];
+            }
+            return [row, false];
+        });
+        mockCourierDispatch.update.mockImplementation(async (values, { where }) => {
+            const matches = row.id === where.id
+                && row.status === where.status
+                && (!where.dispatch_owner_token || row.dispatch_owner_token === where.dispatch_owner_token);
+            if (!matches) return [0];
+            Object.assign(row, values);
+            return [1];
+        });
+        deliveryService.createDeliveryOrder
+            .mockRejectedValueOnce(Object.assign(new Error('Invalid pickup address'), { status: 400 }))
+            .mockResolvedValueOnce({
+                provider: 'pathao',
+                consignment_id: 'CN-RETRY',
+                tracking_code: 'TRK-RETRY',
+                status: 'pending',
+            });
+
+        await expect(orderService.bookForOrder(order, {
+            shopId: 'shop-1', throwOnError: false, mutationAuthority: { kind: 'test' },
+        })).resolves.toMatchObject({ failed: true, status: 'dispatch_failed' });
+        expect(row.status).toBe('FAILED');
+
+        await expect(orderService.bookForOrder(order, {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        })).resolves.toMatchObject({ tracking_code: 'TRK-RETRY' });
+
+        expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(2);
+        expect(row).toMatchObject({ status: 'COMMITTED', consignment_id: 'CN-RETRY' });
+    });
+
+    it('keeps an ambiguous provider timeout indeterminate and never retries it automatically', async () => {
+        const order = makeOrder();
+        let row = null;
+        mockCourierDispatch.findOrCreate.mockImplementation(async ({ defaults }) => {
+            if (!row) {
+                row = { id: 'dispatch-timeout', ...defaults };
+                return [row, true];
+            }
+            return [row, false];
+        });
+        mockCourierDispatch.update.mockImplementation(async (values, { where }) => {
+            const matches = row
+                && row.status === where.status
+                && row.dispatch_owner_token === where.dispatch_owner_token;
+            if (!matches) return [0];
+            Object.assign(row, values);
+            return [1];
+        });
+        mockCourierDispatch.findOne.mockImplementation(async () => row);
+        deliveryService.createDeliveryOrder.mockRejectedValueOnce(new Error('request timed out'));
+
+        await expect(orderService.bookForOrder(order, {
+            shopId: 'shop-1', throwOnError: false, mutationAuthority: { kind: 'test' },
+        })).resolves.toMatchObject({ failed: true, status: 'dispatch_indeterminate' });
+        expect(row.status).toBe('INDETERMINATE');
+
+        const retry = await orderService.bookForOrder(order, {
+            shopId: 'shop-1', throwOnError: false, mutationAuthority: { kind: 'test' },
+        });
+
+        expect(retry).toMatchObject({ blocked: true, reason: 'existing_courier_dispatch_claim' });
+        expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
     });
 
     it('does not let a pending-claim loser overwrite the committed winner', async () => {

@@ -67,6 +67,7 @@ export interface StorefrontCheckoutAddress {
   division?: string;
   district: string;
   upazila?: string;
+  area: string;
   street_address: string;
   zone?: string;
 }

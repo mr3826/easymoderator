@@ -118,12 +118,17 @@ export const apiClient = {
   cancelOrder: orderDomain.cancelOrder,
   bookCourier: orderDomain.bookCourier,
   getCourierEligibility: orderDomain.getCourierEligibility,
+  confirmCourierDestination: orderDomain.confirmCourierDestination,
   getDeliverySettings: orderDomain.getDeliverySettings,
   connectDeliveryProvider: orderDomain.connectDeliveryProvider,
   disconnectDeliveryProvider: orderDomain.disconnectDeliveryProvider,
   toggleDeliveryProvider: orderDomain.toggleDeliveryProvider,
   updateDeliverySettings: orderDomain.updateDeliverySettings,
   testDeliveryConnection: orderDomain.testDeliveryConnection,
+  getProviderAreas: orderDomain.getProviderAreas,
+  getPathaoCities: orderDomain.getPathaoCities,
+  getPathaoZones: orderDomain.getPathaoZones,
+  getPathaoAreas: orderDomain.getPathaoAreas,
 
   // Customer methods
   getCustomers: customerDomain.getCustomers,

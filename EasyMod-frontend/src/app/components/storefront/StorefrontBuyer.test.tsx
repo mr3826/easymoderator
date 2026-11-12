@@ -79,6 +79,7 @@ describe("StorefrontBuyer", () => {
     fireEvent.change(screen.getByLabelText(/আপনার নাম/), { target: { value: "রহিম" } });
     fireEvent.change(screen.getByLabelText(/ফোন নম্বর/), { target: { value: "01700000000" } });
     fireEvent.change(screen.getByLabelText(/^জেলা/), { target: { value: "ঢাকা" } });
+    fireEvent.change(screen.getByLabelText(/এলাকা \/ থানা \/ উপজেলা/), { target: { value: "মিরপুর" } });
     fireEvent.change(screen.getByLabelText(/বিস্তারিত ঠিকানা/), { target: { value: "রোড ১" } });
     fireEvent.click(screen.getByRole("checkbox"));
 
@@ -93,7 +94,12 @@ describe("StorefrontBuyer", () => {
     const expectedPayload = {
       customer_name: "রহিম",
       customer_phone: "01700000000",
-      delivery_address: { district: "ঢাকা", street_address: "রোড ১" },
+      delivery_address: {
+        district: "ঢাকা",
+        upazila: "মিরপুর",
+        area: "মিরপুর",
+        street_address: "রোড ১",
+      },
       consent: true,
       items: [{ product_id: "p-1", variant_id: "v-red", quantity: 1 }],
     };
@@ -106,5 +112,22 @@ describe("StorefrontBuyer", () => {
     fireEvent.submit(submitButton.closest("form")!);
     await waitFor(() => expect(mocks.checkout).toHaveBeenCalledTimes(3));
     expect(mocks.checkout.mock.calls[2][2]).toBe("checkout-key-2");
+  });
+
+  it("rejects checkout without an area even when submit is dispatched directly", async () => {
+    render(<StorefrontBuyer />);
+
+    expect(await screen.findByRole("heading", { name: "Market One" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("ভ্যারিয়েন্ট"), { target: { value: "v-red" } });
+    fireEvent.click(screen.getByRole("button", { name: "কার্টে যোগ করুন" }));
+    fireEvent.change(screen.getByLabelText(/আপনার নাম/), { target: { value: "রহিম" } });
+    fireEvent.change(screen.getByLabelText(/ফোন নম্বর/), { target: { value: "01700000000" } });
+    fireEvent.change(screen.getByLabelText(/^জেলা/), { target: { value: "ঢাকা" } });
+    fireEvent.change(screen.getByLabelText(/বিস্তারিত ঠিকানা/), { target: { value: "রোড ১" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.submit(screen.getByRole("button", { name: "ক্যাশ অন ডেলিভারি অর্ডার করুন" }).closest("form")!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("এলাকা/থানা");
+    expect(mocks.checkout).not.toHaveBeenCalled();
   });
 });

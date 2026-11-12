@@ -98,6 +98,34 @@ describe('extractDestinationFromOrder', () => {
             city_name: null,
         });
     });
+
+    test('trusts provider ids only when the server confirmation marker is present', () => {
+        const unverified = destinationService.extractDestinationFromOrder({
+            delivery_location: {
+                provider_destination: {
+                    redx: { area_id: 77, area_name: 'Mirpur' },
+                },
+            },
+        }, { provider: 'redx' });
+
+        expect(unverified).toMatchObject({ area_id: null, provider_confirmed: false });
+
+        const verified = destinationService.extractDestinationFromOrder({
+            delivery_location: {
+                provider_destination: {
+                    redx: {
+                        area_id: 77,
+                        area_name: 'Mirpur',
+                        source: 'merchant_confirmed',
+                        confirmed_at: '2026-11-04T00:00:00.000Z',
+                        confirmed_by: 'user-1',
+                    },
+                },
+            },
+        }, { provider: 'redx' });
+
+        expect(verified).toMatchObject({ area_id: 77, provider_confirmed: true, confirmed_at: '2026-11-04T00:00:00.000Z' });
+    });
 });
 
 describe('resolveDestination — RedX', () => {

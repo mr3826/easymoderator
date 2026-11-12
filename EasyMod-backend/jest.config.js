@@ -38,6 +38,18 @@ module.exports = {
         ...quarantined,
     ],
     moduleNameMapper: {
+        // Even with the message-queue singleton stubbed, importing
+        // queue-manager constructs several BullMQ Queue instances. Unit tests
+        // must never open Redis connections; queue-specific tests opt into
+        // their own explicit BullMQ mocks, while Redis-backed behavior belongs
+        // to the integration suite.
+        //
+        // The stub deliberately lives in tests/stubs/, NOT tests/__mocks__/:
+        // Jest auto-registers any __mocks__/<node-module>.js as a manual mock
+        // for EVERY lane, which silently replaced real BullMQ in the meta-e2e
+        // and integration suites (they need the real queue). Keeping it outside
+        // __mocks__ means it activates ONLY through this explicit unit mapper.
+        '^bullmq$': '<rootDir>/tests/stubs/bullmq.js',
         '^src/(.*)$': '<rootDir>/src/$1',
         // Redirect all message-queue imports to a stub so BullMQ never opens
         // a real Redis connection during unit tests (path varies: ../../jobs/...,

@@ -1572,6 +1572,9 @@
       "division": "Select Division",
       "district": "Select District",
       "upazila": "Select Upazila / Thana",
+      "courierArea": "Courier delivery area / thana",
+      "courierAreaPlaceholder": "Area as listed by the courier, if different",
+      "courierAreaHint": "Defaults to the selected upazila. Change this only when the courier lists a different area name.",
       "streetAddress": "House / Road / Area (e.g. House 12, Road 4)"
     },
     "errors": {
@@ -2882,6 +2885,32 @@
     "bookButton": "Book Courier",
     "bookingSuccess": "Courier booked! Tracking ID: {{trackingId}}",
     "trackingId": "Tracking ID",
+    "deliveryArea": {
+      "title": "Courier delivery area",
+      "description": "Choose the buyer's area from {{provider}}'s own directory.",
+      "change": "Choose area",
+      "loading": "Loading {{provider}} service areas…",
+      "searchPlaceholder": "Search by area or district",
+      "noResults": "No matching service areas found.",
+      "confirmButton": "Confirm delivery area",
+      "confirming": "Confirming…",
+      "confirmed": "Delivery area confirmed for {{provider}}.",
+      "errors": {
+        "confirmRequired": "Choose a delivery area from {{provider}}'s list before booking.",
+        "selectionIncomplete": "Select a delivery area first.",
+        "invalidSelection": "That delivery area is no longer available. Refresh the list and choose again.",
+        "directoryUnavailable": "The {{provider}} service area list is temporarily unavailable. Try again shortly.",
+        "providerRequired": "Choose a courier before confirming its delivery area.",
+        "notRequired": "This courier does not use a delivery-area selection.",
+        "dispatchActive": "This order already has an active courier dispatch. Its delivery area cannot be changed.",
+        "contradicted": "The selected area does not match the buyer's address. Review and confirm the correct area.",
+        "payloadInvalid": "The courier could not verify these destination details. Select the area again.",
+        "ownerOnly": "You do not have permission to confirm this delivery area.",
+        "notConnected": "Connect {{provider}} before loading its delivery areas.",
+        "loadFailed": "Could not load {{provider}} service areas.",
+        "confirmFailed": "Could not confirm this delivery area. Try again."
+      }
+    },
     "pickup": {
       "title": "Pickup details",
       "description": "Tell us where the courier should collect your orders.",

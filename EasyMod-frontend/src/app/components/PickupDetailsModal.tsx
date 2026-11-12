@@ -14,6 +14,7 @@ import { BD_PHONE_REGEX, BDPhoneInput } from '@/shared/components/BDPhoneInput';
 import { Input } from '@/app/components/ui/input';
 import { Textarea } from '@/app/components/ui/textarea';
 import { getErrorMessage } from '@shared/lib/http/errors';
+import { optionId, optionLabel, providerId } from '@/app/components/orders/directoryOptions';
 
 export interface PickupDetailsModalProps {
   provider: DeliveryProvider;
@@ -33,19 +34,6 @@ const hasMissingField = (missing: string[], aliases: string[]) => {
   if (missing.some((item) => /pickup|store|location/.test(item))) return true;
   return missing.some((item) => aliases.some((alias) => item === alias || item.includes(alias)));
 };
-
-const optionId = (option: DeliveryLocationOption, kind: 'city' | 'zone' | 'area') =>
-  String(option[`${kind}_id`] ?? option.id ?? '');
-
-const optionLabel = (option: DeliveryLocationOption, language?: string) => {
-  const kindNames = [option.city_name, option.zone_name, option.area_name];
-  const localizedName = language?.startsWith('bn')
-    ? option.name_bn ?? option.city_name_bn ?? option.zone_name_bn ?? option.area_name_bn
-    : undefined;
-  return String(localizedName ?? option.name ?? option.label ?? kindNames.find(Boolean) ?? option.id);
-};
-
-const providerId = (value: string): string | number => (/^\d+$/.test(value) ? Number(value) : value);
 
 const pickupValue = (
   pickup: PickupLocationSummary | PickupLocation | null,

@@ -48,17 +48,22 @@ const makeOrder = (overrides = {}) => ({
     customer_name: 'Rahim',
     customer_phone: '01711111111',
     delivery_address: 'House 12, Road 5, Dhanmondi, Dhaka',
-    // Structured destination ids on the order itself; Pathao cannot address a
-    // parcel without them and the booking path refuses an unaddressable
-    // payload (D5-1).
+    // These Pathao ids are recorded by the directory-confirmation flow.
     delivery_location: {
-        area_id: 11,
-        area_name: 'Dhanmondi',
-        zone_id: 22,
-        zone_name: 'Dhanmondi',
-        city_id: 33,
-        city_name: 'Dhaka',
-        district: 'Dhaka',
+        provider_destination: {
+            pathao: {
+                area_id: 11,
+                area_name: 'Dhanmondi',
+                zone_id: 22,
+                zone_name: 'Dhanmondi',
+                city_id: 33,
+                city_name: 'Dhaka',
+                district: 'Dhaka',
+                source: 'merchant_confirmed',
+                confirmed_at: '2026-11-04T00:00:00.000Z',
+                confirmed_by: 'user-1',
+            },
+        },
     },
     total: '1250.00',
     payment_method: 'COD',
@@ -410,6 +415,7 @@ describe('bookForOrder × Order Confidence gate', () => {
         ['payment method', { payment_method: 'bkash' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
         ['payment status', { payment_status: 'paid' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
         ['total', { total: '1500.00' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
+        ['delivery address', { delivery_address: 'House 99, Road 1, Uttara, Dhaka' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
         ['processing status', { order_status: 'processing' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
         ['draft status', { order_status: 'draft' }, 'ORDER_CHANGED_BEFORE_COURIER_CLAIM'],
         ['cancelled status', { order_status: 'cancelled' }, 'ORDER_NOT_BOOKABLE'],
@@ -429,6 +435,37 @@ describe('bookForOrder × Order Confidence gate', () => {
 
         expect(mockCourierDispatch.findOrCreate).not.toHaveBeenCalled();
         expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    // Destination race: an area-only correction between review and claim does
+    // not touch the confidence fingerprint, so the claim proceeds — but the
+    // provider payload is rebuilt from the locked row, so the stale area id can
+    // never reach the courier. Only the refreshed destination books.
+    test('books the refreshed destination when only the confirmed area changes before claim', async () => {
+        orderConfidence.checkBookingGate.mockResolvedValue({ allowed: true, mode: 'enforce' });
+        const refreshed = makeOrder();
+        refreshed.delivery_location.provider_destination.pathao = {
+            ...refreshed.delivery_location.provider_destination.pathao,
+            area_id: 12,
+            area_name: 'Mohakhali',
+            confirmed_at: '2026-11-05T00:00:00.000Z',
+        };
+        mockOrder.findOne
+            .mockResolvedValueOnce(makeOrder())
+            .mockResolvedValueOnce(refreshed);
+
+        await orderService.bookForOrder(makeOrder(), {
+            shopId: 'shop-1', mutationAuthority: { kind: 'test' },
+        });
+
+        expect(deliveryService.createDeliveryOrder).toHaveBeenCalledTimes(1);
+        const payload = deliveryService.createDeliveryOrder.mock.calls[0][1];
+        expect(payload).toMatchObject({
+            recipient_area: 12,
+            recipient_zone: 22,
+            recipient_city: 33,
+        });
+        expect(payload).not.toMatchObject({ recipient_area: 11 });
     });
 
     test('returns a conflict when the confidence gate reports a stale snapshot', async () => {

@@ -53,10 +53,10 @@ router.post('/:provider/pickup/sync', requireOwner, deliveryController.syncProvi
 
 // Pathao's city -> zone -> area lookup is read-only but still bound to the
 // authenticated shop's connected integration.
-router.get('/:provider/cities', requireOwner, deliveryController.getProviderCities);
-router.get('/:provider/cities/:cityId/zones', requireOwner, deliveryController.getProviderZones);
-router.get('/:provider/zones/:zoneId/areas', requireOwner, deliveryController.getProviderAreas);
-router.get('/:provider/areas', requireOwner, deliveryController.getProviderAreas);
+router.get('/:provider/cities', deliveryController.getProviderCities);
+router.get('/:provider/cities/:cityId/zones', deliveryController.getProviderZones);
+router.get('/:provider/zones/:zoneId/areas', deliveryController.getProviderAreas);
+router.get('/:provider/areas', deliveryController.getProviderAreas);
 
 /**
  * GET /shop/delivery/settings

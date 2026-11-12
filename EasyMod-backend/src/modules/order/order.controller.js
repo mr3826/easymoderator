@@ -737,6 +737,28 @@ const getCourierEligibility = async (req, res, next) => {
     }
 };
 
+/**
+ * Record the delivery area the merchant confirmed for one courier.
+ *
+ * The body names directory ids; the server re-reads the courier's directory and
+ * stores only what it confirmed. This is the correction path for an order whose
+ * address text the courier's directory could not match.
+ */
+const confirmCourierDestination = async (req, res, next) => {
+    try {
+        const { orderId } = req.params;
+        const shopId = req.user?.shopId;
+        const userId = req.user?.userId || req.user?.id || req.userId || null;
+        if (!shopId) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Shop ID required' } });
+        }
+        const result = await orderService.confirmCourierDestination(orderId, userId, shopId, req.body || {});
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        next(error);
+    }
+};
+
 const bookCourier = async (req, res, next) => {
     try {
         const { orderId } = req.params;
@@ -922,5 +944,6 @@ module.exports = {
     createDraftOrder,
     confirmOrder,
     getCourierEligibility,
+    confirmCourierDestination,
     bookCourier
 };

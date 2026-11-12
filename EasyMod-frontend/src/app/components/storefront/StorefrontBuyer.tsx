@@ -155,12 +155,13 @@ export default function StorefrontBuyer() {
       || !buyer.customerName.trim()
       || !buyer.customerPhone.trim()
       || !buyer.district.trim()
+      || !buyer.upazila.trim()
       || !buyer.streetAddress.trim()
       || !buyer.consent
     ) {
       setCheckoutError(isBangla
-        ? "নাম, ফোন, জেলা, বিস্তারিত ঠিকানা এবং সম্মতি পূরণ করে কার্টে পণ্য যোগ করুন।"
-        : "Enter your name, phone, district and street address, add a cart item, and give the required consent.");
+        ? "নাম, ফোন, জেলা, এলাকা/থানা, বিস্তারিত ঠিকানা এবং সম্মতি পূরণ করে কার্টে পণ্য যোগ করুন।"
+        : "Enter your name, phone, district, delivery area/thana and street address, add a cart item, and give the required consent.");
       return;
     }
     if (!/^01[3-9]\d{8}$/.test(buyer.customerPhone.trim())) {
@@ -182,7 +183,8 @@ export default function StorefrontBuyer() {
       delivery_address: {
         ...(buyer.division.trim() ? { division: buyer.division.trim() } : {}),
         district: buyer.district.trim(),
-        ...(buyer.upazila.trim() ? { upazila: buyer.upazila.trim() } : {}),
+        upazila: buyer.upazila.trim(),
+        area: buyer.upazila.trim(),
         street_address: buyer.streetAddress.trim(),
         ...(buyer.zone.trim() ? { zone: buyer.zone.trim() } : {}),
       },
@@ -369,8 +371,8 @@ export default function StorefrontBuyer() {
                         <input id="buyer-district" required maxLength={100} autoComplete="address-level2" value={buyer.district} onChange={(event) => updateBuyer("district", event.target.value)} className={fieldClassName} />
                       </div>
                       <div>
-                        <label htmlFor="buyer-upazila" className="text-sm font-medium text-gray-800">{isBangla ? "উপজেলা (ঐচ্ছিক)" : "Upazila (optional)"}</label>
-                        <input id="buyer-upazila" maxLength={100} value={buyer.upazila} onChange={(event) => updateBuyer("upazila", event.target.value)} className={fieldClassName} />
+                        <label htmlFor="buyer-upazila" className="text-sm font-medium text-gray-800">{isBangla ? "এলাকা / থানা / উপজেলা" : "Delivery area / thana / upazila"} <span aria-hidden="true">*</span></label>
+                        <input id="buyer-upazila" required maxLength={100} value={buyer.upazila} onChange={(event) => updateBuyer("upazila", event.target.value)} className={fieldClassName} />
                       </div>
                       <div>
                         <label htmlFor="buyer-zone" className="text-sm font-medium text-gray-800">{isBangla ? "এলাকা / জোন (ঐচ্ছিক)" : "Zone (optional)"}</label>
