@@ -368,7 +368,7 @@ describe('production workflow branch safety', () => {
         )?.[1];
         const buildBlock = workflow.match(/\n  build:\n([\s\S]*?)\n  # ── 4\./)?.[1];
 
-        expect(validationBlock).toContain("github.ref != 'refs/heads/main'");
+        expect(validationBlock).toContain("github.event_name == 'pull_request'");
         expect(buildBlock).not.toContain('docker-build-validation');
         expect(buildBlock.match(/uses: docker\/build-push-action@/g)).toHaveLength(2);
     });

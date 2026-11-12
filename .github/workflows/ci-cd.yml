@@ -709,11 +709,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [changes, test, meta-e2e, deployment-config]
-    # Feature branches and pull requests get a non-publishing Docker build.
-    # The main-branch production path builds and pushes each image exactly once
-    # in the `build` job, so validation cannot create a second candidate build.
+    # Pull requests get a non-publishing Docker build — on a PR this is the only
+    # build proof. Main pushes and release workflow_call runs publish through the
+    # `build` job, which already compiles the same Dockerfiles exactly once, so
+    # validation here would be a duplicate candidate build.
     if: |
-      github.ref != 'refs/heads/main' &&
+      github.event_name == 'pull_request' &&
       (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
     permissions:
       contents: read
@@ -886,6 +887,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
@@ -931,6 +935,7 @@ jobs:
         with:
           context: ./EasyMod-backend
           file: ./EasyMod-backend/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.backend_tag }}
           build-args: |
@@ -946,6 +951,7 @@ jobs:
         with:
           context: ./EasyMod-frontend
           file: ./EasyMod-frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.frontend_tag }}
           build-args: |
