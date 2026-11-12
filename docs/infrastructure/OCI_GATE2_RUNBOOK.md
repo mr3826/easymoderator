@@ -109,7 +109,7 @@ oci network security-list get --security-list-id <SECURITY_LIST_OCID> \
 **Evidence:** `ufw status verbose` output + the security-list ingress table.
 Confirm port 22's source is a restricted CIDR, not `0.0.0.0/0`.
 
-> **Execution deviation (2026-11-13, founder decision pending):** the live
+> **Execution deviation (2026-11-13) — FOUNDER-ACCEPTED, option (a):** the live
 > security list allows 22/tcp from `0.0.0.0/0`. The approved deploy contract
 > SSHes from GitHub-hosted runners whose egress IPs are dynamic, so a fixed
 > admin CIDR would break every deploy. Compensating controls verified on the
@@ -117,7 +117,8 @@ Confirm port 22's source is a restricted CIDR, not `0.0.0.0/0`.
 > without-password`, `KbdInteractiveAuthentication no`), ufw inner firewall,
 > OCI list limited to 22/80/443 tcp + 443 udp. Same posture as the current DO
 > production host. Recorded as a deviation — this acceptance row is **not**
-> silently passed.
+> silently passed. **Founder decision 2026-11-13: option (a) accepted; the
+> key-only posture is the approved production stance. Deviation CLOSED.**
 
 ## Step 6 — Reboot recovery test (in-VM reboot)
 
