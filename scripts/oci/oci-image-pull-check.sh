@@ -6,8 +6,10 @@
 # Run on the OCI host after oci-host-bootstrap.sh, with the compose file
 # present (Gate 2 copies it first; see docs/infrastructure/OCI_GATE2_RUNBOOK.md):
 #
-#   scp docker-compose.prod.yml root@<OCI_IP>:/opt/easymod/docker-compose.prod.yml
-#   ssh -i ~/.ssh/easymod_oci_deploy root@<OCI_IP> 'bash -s' \
+#   scp docker-compose.prod.yml ubuntu@<OCI_IP>:/tmp/docker-compose.prod.yml
+#   ssh -i ~/.ssh/easymod_oci_deploy ubuntu@<OCI_IP> \
+#       'sudo -n install -m 644 /tmp/docker-compose.prod.yml /opt/easymod/docker-compose.prod.yml'
+#   ssh -i ~/.ssh/easymod_oci_deploy ubuntu@<OCI_IP> 'sudo -n bash -s' \
 #       < scripts/oci/oci-image-pull-check.sh
 #
 # The four images are read directly from the compose file's `image:` lines

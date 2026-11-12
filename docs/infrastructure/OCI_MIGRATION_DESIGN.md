@@ -5,8 +5,9 @@ ARM64 migration. Written from baseline commit `47f442ed` (main tip at time of
 writing). This memo does **not** change any workflow; workflow edits are
 serialized to the Lead and applied at later gates.
 
-**Target:** `VM.Standard.A1.Flex` 4 OCPU / 24 GB, Ubuntu 24.04 aarch64,
-home region `ap-mumbai-1`. VCN `10.0.0.0/16`, public subnet `10.0.0.0/24`.
+**Target:** `VM.Standard.A1.Flex` 2 OCPU / 12 GB (proven Always-Free
+continuous spec, V2 D1), Ubuntu 24.04 aarch64, home region `ap-mumbai-1`.
+VCN `10.0.0.0/16`, public subnet `10.0.0.0/24`.
 
 **Source:** DigitalOcean droplet `s-2vcpu-4gb` x64, Ubuntu 24.04,
 `139.59.249.141`, deploy root `/opt/easymod`.
@@ -244,9 +245,13 @@ Change (design, not applied here):
 
 Two layers, both required:
 
-1. **OCI security list / NSG (outer):** ingress only 22/tcp
-   (**source-restricted** — admin CIDR, not `0.0.0.0/0`), 80/tcp, 443/tcp,
-   443/udp; all egress. This already exists.
+1. **OCI security list / NSG (outer):** ingress only 22/tcp, 80/tcp, 443/tcp,
+   443/udp; all egress. This already exists. **Live check 2026-11-13: 22/tcp
+   source is `0.0.0.0/0`, not a restricted admin CIDR.** The approved deploy
+   contract SSHes from GitHub-hosted runners with dynamic egress IPs, so a
+   fixed admin CIDR would break every deploy. Compensating controls: key-only
+   sshd + ufw + the 22/80/443-only list (same posture as current DO prod).
+   Recorded as a deviation pending founder decision — see runbook step 5.
 2. **ufw (inner, `scripts/oci/oci-host-bootstrap.sh`):** default deny
    incoming, allow outgoing; allow 22/tcp, 80/tcp, 443/tcp, 443/udp.
 
@@ -315,9 +320,11 @@ proven, the droplet is restarted and DNS is pointed back.
 ## 7. Explicit non-goals
 
 - **No Kubernetes.** The stack stays a single-host compose deployment.
-- **No paid OCI shapes.** Only Always Free eligible resources: A1 ≤ 4 OCPU /
-  24 GB, one boot volume ≤ 200 GB, free VCN, ephemeral public IP, Object
-  Storage ≤ 20 GB. Anything that would incur charges is out of scope.
+- **No paid OCI shapes.** Only Always Free eligible resources: A1 2 OCPU /
+  12 GB continuous (V2 D1 — the 4/24 eligibility cap exceeds the 1,500 OCPU-h
+  / 9,000 GB-h monthly free allowance for 24/7 use), one boot volume ≤ 200 GB,
+  free VCN, ephemeral public IP, Object Storage ≤ 20 GB. Anything that would
+  incur charges is out of scope.
 - **No ML sidecars on the new host.** `banglish-bert` and `clip-similarity`
   are not deployed: their `torch` + CPU wheel set has no aarch64 wheels, so
   they cannot run on the ARM64 A1 without an unsupported build. Keep them off

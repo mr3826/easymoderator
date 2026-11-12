@@ -3,10 +3,11 @@
 # Idempotent first-boot bootstrap for the Oracle Cloud Always Free ARM64 A1
 # instance that replaces the DigitalOcean droplet.
 #
-# Target: VM.Standard.A1.Flex (4 OCPU / 24 GB), Ubuntu 24.04 aarch64.
-# Run as root over SSH, streamed from the repo:
+# Target: VM.Standard.A1.Flex (2 OCPU / 12 GB — the proven Always-Free
+# continuous spec, V2 D1), Ubuntu 24.04 aarch64.
+# Run as ubuntu (passwordless sudo) over SSH, streamed from the repo:
 #
-#   ssh -i ~/.ssh/easymod_oci_deploy root@<OCI_IP> 'bash -s' \
+#   ssh -i ~/.ssh/easymod_oci_deploy ubuntu@<OCI_IP> 'sudo -n bash -s' \
 #       < scripts/oci/oci-host-bootstrap.sh
 #
 # The script is safe to re-run: every step converges to the same state.
@@ -14,7 +15,7 @@
 # What it intentionally does NOT do:
 #   * open :3000 (the old do-server-setup.sh leaked the backend port; the
 #     compose stack reaches backend/frontend over the internal bridge only)
-#   * configure swap (the A1 has 24 GB RAM vs the droplet's 4 GB; not needed)
+#   * configure swap (the A1 has 12 GB RAM vs the droplet's 4 GB; not needed)
 #   * clone the repo or place secrets (ci-cd.yml owns those steps)
 #   * log in to GHCR (login stays ephemeral-per-run in ci-cd.yml)
 
@@ -108,7 +109,7 @@ mkdir -p /opt/easymod
 chmod 755 /opt/easymod
 
 # ── 6. Swap note ─────────────────────────────────────────────────────────────
-echo "[6/7] Swap: not configured by design (A1 24 GB RAM >> 4 GB droplet)."
+echo "[6/7] Swap: not configured by design (A1 12 GB RAM >> 4 GB droplet)."
 echo "      If the kernel ever reports memory pressure, add a 2-4 GB swapfile"
 echo "      rather than shrinking the stack."
 

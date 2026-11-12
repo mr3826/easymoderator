@@ -25,8 +25,9 @@ oci compute instance get --instance-id "$OCI_INSTANCE_OCID" \
   --output table
 ```
 
-Expect `state=RUNNING`, `shape=VM.Standard.A1.Flex`, `ocpus=4`,
-`mem=24`. If the instance is still in the capacity-retry loop, stop here.
+Expect `state=RUNNING`, `shape=VM.Standard.A1.Flex`, `ocpus=2`,
+`mem=12` (the proven Always-Free continuous spec, V2 D1). If the instance is
+still in the capacity-retry loop, stop here.
 
 **Evidence:** the table output (instance OCID, state, shape, OCPU, memory).
 
@@ -48,10 +49,11 @@ between steps.
 
 ```bash
 ssh -i ~/.ssh/easymod_oci_deploy -o StrictHostKeyChecking=accept-new \
-    "root@$OCI_IP" 'bash -s' < scripts/oci/oci-host-bootstrap.sh
+    "ubuntu@$OCI_IP" 'sudo -n bash -s' < scripts/oci/oci-host-bootstrap.sh
 ```
 
-Expect the final line:
+The Ubuntu image's login user is `ubuntu` with passwordless sudo — not
+`root`/`opc`. Expect the final line:
 
 ```
 OCI_HOST_BOOTSTRAP_DONE=1 arch=aarch64 path=/opt/easymod
@@ -67,9 +69,11 @@ wrong.
 
 ```bash
 scp -i ~/.ssh/easymod_oci_deploy docker-compose.prod.yml \
-    "root@$OCI_IP:/opt/easymod/docker-compose.prod.yml"
+    "ubuntu@$OCI_IP:/tmp/docker-compose.prod.yml"
+ssh -i ~/.ssh/easymod_oci_deploy "ubuntu@$OCI_IP" \
+    'sudo -n install -m 644 /tmp/docker-compose.prod.yml /opt/easymod/docker-compose.prod.yml'
 
-ssh -i ~/.ssh/easymod_oci_deploy "root@$OCI_IP" 'bash -s' \
+ssh -i ~/.ssh/easymod_oci_deploy "ubuntu@$OCI_IP" 'sudo -n bash -s' \
     < scripts/oci/oci-image-pull-check.sh
 ```
 
@@ -88,7 +92,7 @@ digests.
 ## Step 5 — Verify the host firewall
 
 ```bash
-ssh -i ~/.ssh/easymod_oci_deploy "root@$OCI_IP" 'ufw status verbose'
+ssh -i ~/.ssh/easymod_oci_deploy "ubuntu@$OCI_IP" 'sudo -n ufw status verbose'
 ```
 
 Expect: default deny (incoming), default allow (outgoing), and rules for
@@ -105,6 +109,16 @@ oci network security-list get --security-list-id <SECURITY_LIST_OCID> \
 **Evidence:** `ufw status verbose` output + the security-list ingress table.
 Confirm port 22's source is a restricted CIDR, not `0.0.0.0/0`.
 
+> **Execution deviation (2026-11-13, founder decision pending):** the live
+> security list allows 22/tcp from `0.0.0.0/0`. The approved deploy contract
+> SSHes from GitHub-hosted runners whose egress IPs are dynamic, so a fixed
+> admin CIDR would break every deploy. Compensating controls verified on the
+> host: key-only sshd (`PasswordAuthentication no`, `PermitRootLogin
+> without-password`, `KbdInteractiveAuthentication no`), ufw inner firewall,
+> OCI list limited to 22/80/443 tcp + 443 udp. Same posture as the current DO
+> production host. Recorded as a deviation — this acceptance row is **not**
+> silently passed.
+
 ## Step 6 — Reboot recovery test (in-VM reboot)
 
 The reboot is issued **inside the guest** so the ephemeral public IP is
@@ -113,12 +127,12 @@ pull-check already pulled) for the volume probe.
 
 ```bash
 # 6a. Markers before reboot
-ssh -i ~/.ssh/easymod_oci_deploy "root@$OCI_IP" '
+ssh -i ~/.ssh/easymod_oci_deploy "ubuntu@$OCI_IP" '
   set -e
   ts="$(date -u +%FT%TZ)"
-  echo "gate2 $ts" > /opt/easymod/.gate2-probe
-  docker volume create oci-gate2-probe >/dev/null
-  docker run --rm -v oci-gate2-probe:/probe \
+  echo "gate2 $ts" | sudo -n tee /opt/easymod/.gate2-probe >/dev/null
+  sudo -n docker volume create oci-gate2-probe >/dev/null
+  sudo -n docker run --rm -v oci-gate2-probe:/probe \
     postgres@sha256:df7bca0066e6f60cc3dd32faa70caddec20e2c22b58932f79498e5704b23854a \
     sh -c "date -u +%FT%TZ > /probe/marker"
   cat /opt/easymod/.gate2-probe
@@ -127,13 +141,13 @@ ssh -i ~/.ssh/easymod_oci_deploy "root@$OCI_IP" '
 
 ```bash
 # 6b. Reboot (SSH drops; ignore the disconnect)
-ssh -i ~/.ssh/easymod_oci_deploy "root@$OCI_IP" 'systemctl reboot' || true
+ssh -i ~/.ssh/easymod_oci_deploy "ubuntu@$OCI_IP" 'sudo -n systemctl reboot' || true
 ```
 
 ```bash
 # 6c. Wait for the host to come back (re-probe after ~60-90 s)
 until ssh -i ~/.ssh/easymod_oci_deploy -o ConnectTimeout=5 \
-          -o StrictHostKeyChecking=accept-new "root@$OCI_IP" 'true' 2>/dev/null; do
+          -o StrictHostKeyChecking=accept-new "ubuntu@$OCI_IP" 'true' 2>/dev/null; do
   sleep 5
 done
 echo "host is back"
@@ -141,15 +155,15 @@ echo "host is back"
 
 ```bash
 # 6d. Prove persistence + Docker health after reboot
-ssh -i ~/.ssh/easymod_oci_deploy "root@$OCI_IP" '
+ssh -i ~/.ssh/easymod_oci_deploy "ubuntu@$OCI_IP" '
   set -e
   echo "--- boot dir marker ---"; cat /opt/easymod/.gate2-probe
-  echo "--- probe volume ---";    docker volume ls | grep oci-gate2-probe
-  docker run --rm -v oci-gate2-probe:/probe \
+  echo "--- probe volume ---";    sudo -n docker volume ls | grep oci-gate2-probe
+  sudo -n docker run --rm -v oci-gate2-probe:/probe \
     postgres@sha256:df7bca0066e6f60cc3dd32faa70caddec20e2c22b58932f79498e5704b23854a \
     sh -c "cat /probe/marker"
-  echo "--- docker arch ---"; docker info --format "{{.Architecture}}"
-  docker compose version
+  echo "--- docker arch ---"; sudo -n docker info --format "{{.Architecture}}"
+  sudo -n docker compose version
 '
 ```
 
@@ -192,8 +206,8 @@ keys, no `~/.oci/config` contents):
 | Required acceptance item | Proof to record |
 | --- | --- |
 | Entitlement proven | Pre-done: home region `ap-mumbai-1`, 41 A1 cores / 277 GB available, greenfield tenancy (cite the limits output date). |
-| A1 allocated | Step 1 output: OCID, `lifecycle-state=RUNNING`, `VM.Standard.A1.Flex`, 4 OCPU / 24 GB. |
-| Every resource provably Always Free | A1 ≤ 4 OCPU / 24 GB (step 1); boot volume ≤ 200 GB (`oci bv boot-volume get --boot-volume-id <ID> --query 'data."size-in-gbs"'`); VCN free; ephemeral public IP; Object Storage ≤ 20 GB (confirm bucket usage at provisioning). |
+| A1 allocated | Step 1 output: OCID, `lifecycle-state=RUNNING`, `VM.Standard.A1.Flex`, 2 OCPU / 12 GB. |
+| Every resource provably Always Free | A1 2 OCPU / 12 GB continuous (V2 D1: 1,460 OCPU-h ≤ 1,500; 8,760 GB-h ≤ 9,000); boot volume ≤ 200 GB (`oci bv boot-volume get --boot-volume-id <ID>` → `size-in-gbs`); VCN free; ephemeral public IP; Object Storage ≤ 20 GB (confirm bucket usage at provisioning). |
 | NSG/security list: only 22 (restricted), 80, 443 tcp+udp | Step 5: security-list ingress table (22 source is a restricted CIDR) + `ufw status verbose`. |
 | Redis/Postgres/Qdrant never published | Step 7 static awk output (only `caddy:`). |
 | Persistent volumes | Step 6 probe volume survives reboot; re-confirm real named volumes after first deploy. |

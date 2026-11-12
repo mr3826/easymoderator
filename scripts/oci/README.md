@@ -5,7 +5,8 @@ ARM64 A1 instance that replaces the DigitalOcean droplet. These scripts are
 **on-host** helpers; the GitHub Actions deploy path in `.github/workflows/` is
 unchanged by this pack (workflow edits are handled separately by the Lead).
 
-Target host: `VM.Standard.A1.Flex` 4 OCPU / 24 GB, Ubuntu 24.04 aarch64,
+Target host: `VM.Standard.A1.Flex` 2 OCPU / 12 GB (proven Always-Free
+continuous spec, V2 D1), Ubuntu 24.04 aarch64,
 region `ap-mumbai-1`. Deployment root is `/opt/easymod` (the basename is part of
 the container/network naming contract — see `OCI_MIGRATION_DESIGN.md`).
 
@@ -21,7 +22,7 @@ the container/network naming contract — see `OCI_MIGRATION_DESIGN.md`).
 Streamed over SSH, with `bash -s` reading the script from stdin:
 
 ```bash
-ssh -i ~/.ssh/easymod_oci_deploy root@<OCI_IP> 'bash -s' \
+ssh -i ~/.ssh/easymod_oci_deploy ubuntu@<OCI_IP> 'sudo -n bash -s' \
     < scripts/oci/oci-host-bootstrap.sh
 ```
 
@@ -38,9 +39,11 @@ Copy the compose file to the host first, then run the check:
 
 ```bash
 scp -i ~/.ssh/easymod_oci_deploy docker-compose.prod.yml \
-    root@<OCI_IP>:/opt/easymod/docker-compose.prod.yml
+    ubuntu@<OCI_IP>:/tmp/docker-compose.prod.yml
+ssh -i ~/.ssh/easymod_oci_deploy ubuntu@<OCI_IP> \
+    'sudo -n install -m 644 /tmp/docker-compose.prod.yml /opt/easymod/docker-compose.prod.yml'
 
-ssh -i ~/.ssh/easymod_oci_deploy root@<OCI_IP> 'bash -s' \
+ssh -i ~/.ssh/easymod_oci_deploy ubuntu@<OCI_IP> 'sudo -n bash -s' \
     < scripts/oci/oci-image-pull-check.sh
 ```
 
