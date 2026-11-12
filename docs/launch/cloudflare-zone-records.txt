@@ -49,3 +49,52 @@ Assigned nameservers, verified authoritative (SOA tom.ns.cloudflare.com. dns.clo
 
 Founder step, now COMPLETE: the Namecheap nameserver field points at those two, confirmed
 authoritative on 2026-08-08.
+
+================================================================================
+2026-11-11 LIVE RE-VERIFICATION (added during Oracle cutover preparation)
+================================================================================
+
+Read-only verification against the Cloudflare API. No records were created,
+modified or deleted by this verification.
+
+  Endpoint: GET /client/v4/zones/249e02c98e660449093f4ef708bbbc91/dns_records?per_page=50
+  Raw response archived verbatim (every field, record ids included):
+    docs/launch/cloudflare-zone-snapshot-2026-11-11.json
+
+Live result: 13 records, success=true, total_pages=1.
+  Types: 5 A, 3 MX, 5 TXT. No CAA, no SRV, no AAAA, no CNAME.
+  ALL 13 records: proxied=false (DNS only / grey cloud) and ttl=1 (Auto).
+  ALL 5 A records: content=139.59.249.141.
+
+TYPE  NAME                             PROXIED  TTL  VALUE                                                      RECORD ID
+----  -------------------------------  -------  ---  ---------------------------------------------------------  ----------------------------------
+A     easymod.tech                     false    1    139.59.249.141                                            47a7080a87666e30cbba875b17b46f5b
+A     www.easymod.tech                 false    1    139.59.249.141                                            41f9a7d42a08bd210fc788cea43bdb16
+A     app.easymod.tech                 false    1    139.59.249.141                                            a871298429968a436f802e9df0f13100
+A     api.easymod.tech                 false    1    139.59.249.141                                            23de956f1a2239217f859229d29fd020
+A     growth.easymod.tech              false    1    139.59.249.141                                            ed936347b777c9bdda6a2ef6e367317a
+MX    easymod.tech                     false    1    mx1.privateemail.com (priority 10)                         f5523c0e68779ea96744dd8552f5dc28
+MX    easymod.tech                     false    1    mx2.privateemail.com (priority 10)                         3684cd5c0824be94ac418f5c8f9d2c35
+MX    send.easymod.tech                false    1    feedback-smtp.ap-northeast-1.amazonses.com (priority 10)   4adee29fd81490fd51575832fa47ca34
+TXT   easymod.tech                     false    1    v=spf1 include:spf.privateemail.com ~all                   d42e920abb4a1704b1935d0445a2020a
+TXT   _dmarc.easymod.tech              false    1    v=DMARC1; p=none;                                          befe36c9995f9184e7289bdae0ef1791
+TXT   default._domainkey.easymod.tech  false    1    v=DKIM1;k=rsa;p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsJIcYKKtIhZaO9CyEGzzjLwCwLxL36eftI21W7A6FRPJKETfnHxZc2k82fzzigfuvO0YH/+qVLVD9P9tpzRQjbOnYpmlYj+0wNvy+Wij5BBwm/1bzjf8jyXiZ4BPUadE2tcBDuI5lNgON2qGjZShrjfMiNxaoNI/qGUHfSIC4pXXR2KUacyErLDyECetXC512EkMqcKEAh02R4TarqZVzKCcxXnbMLKLscd8golf3yUK1IgakEAxwPX2JCYHILbaTIDuP1YbrHZUeXhcKN87VtAz/DNgWFdWJHfXDRoTGYLvzADhUfPtgUQEw6hdY+eIWdQDgJ8GJdMoaoGNV4/8PQIDAQAB  b10186632b6fde0d1da0f83af5c4781d
+TXT   send.easymod.tech                false    1    v=spf1 include:amazonses.com ~all                          93e192cb268ee98bac5b2bbd8d3a1554
+TXT   resend._domainkey.easymod.tech    false    1    p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC46EF9fdcaYbODaNbdAxFaB/6387iX6L0OHOoxSmxXIcKBjzgV1Rmdw6Bn7YzXH1t9l3lPGQmjspRj+PKGIVCBPutDQF6T0vap/QGRwX7qR0JIklHTKK95MUOrVoH3uiV/VGSUIGJUS0o1HX3c4JxTdsb37rK+yKHlwySaEsmUPQIDAQAB  ea5cdcec6f5debacde93336e72535789
+
+DOC-VS-LIVE DELTA (this file was last updated 2026-08-08 with 12 rows):
+  +1 record: A growth.easymod.tech -> 139.59.249.141
+     id ed936347b777c9bdda6a2ef6e367317a, proxied=false, ttl=1,
+     created 2026-08-20T12:31:49Z, comment "Growth OS host; DNS-only so Caddy owns TLS/ACME".
+     Added after this file's last edit, so the historical "12 rows" and
+     "all four A records" statements above are superseded; the live zone is the
+     authority and the A-record count is now FIVE.
+  The other 12 rows still exist and their values are byte-identical to the
+  historical inventory above. The only ordering difference is cosmetic: the API
+  returns mx2 before mx1; the set is unchanged.
+  growth.easymod.tech is a cutover target (5th A record). It is listed in
+  scripts/cloudflare/dns-cutover.ps1 and scripts/cloudflare/dns-rollback.ps1.
+
+Email safety: MX, SPF, DMARC, DKIM (default._domainkey) and Resend
+(resend._domainkey + send MX/TXT) rows were NOT touched by this verification and
+must NEVER be touched by the cutover. Only the five A records may change.
