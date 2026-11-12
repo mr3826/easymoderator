@@ -181,11 +181,11 @@ class OrderValidator {
         body: Joi.object({
             provider: Joi.string().trim().lowercase()
                 .valid('redx', 'pathao').required(),
-            area_id: Joi.alternatives().try(Joi.string().trim(), Joi.number().integer()).required(),
+            area_id: Joi.alternatives().try(Joi.string().trim().max(64), Joi.number().integer()).required(),
             area_name: Joi.string().trim().max(160).allow('', null).optional(),
-            zone_id: Joi.alternatives().try(Joi.string().trim(), Joi.number().integer()).allow(null).optional(),
+            zone_id: Joi.alternatives().try(Joi.string().trim().max(64), Joi.number().integer()).allow(null).optional(),
             zone_name: Joi.string().trim().max(160).allow('', null).optional(),
-            city_id: Joi.alternatives().try(Joi.string().trim(), Joi.number().integer()).allow(null).optional(),
+            city_id: Joi.alternatives().try(Joi.string().trim().max(64), Joi.number().integer()).allow(null).optional(),
             city_name: Joi.string().trim().max(160).allow('', null).optional(),
             district: Joi.string().trim().max(160).allow('', null).optional(),
             postcode: Joi.string().trim().max(20).allow('', null).optional(),

@@ -166,4 +166,36 @@ describe('CourierBookingModal destination coverage', () => {
       city_name: 'Dhaka',
     }));
   });
+
+  it('never renders the courier directory for steadfast (it books by text address)', async () => {
+    // QA-6: the directory section is gated on supportsDirectory (redx/pathao).
+    // Steadfast books the confirmed order address and must never show a picker
+    // or a fabricated coverage verdict. Default provider is steadfast.
+    renderModal();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'redx' })).toBeInTheDocument());
+    expect(screen.queryByText('courier.deliveryArea.title')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('courier.deliveryArea.searchPlaceholder')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    'COURIER_DESTINATION_PAYLOAD_INVALID',
+    'COURIER_DESTINATION_CONTRADICTED',
+  ])('opens the area picker when booking fails with %s so the merchant can correct it', async (code) => {
+    // QA-6: SERVICEABLE eligibility keeps the picker collapsed (only "change"
+    // shows). A 409 the merchant resolves by choosing an area must auto-open the
+    // picker — the recovery path, not just an error toast. The server re-decides
+    // on the next book, so this is UX hardening, never a wrong-parcel risk.
+    (apiClient.getCourierEligibility as any).mockResolvedValue(eligibility({ decision: 'SERVICEABLE', reason_code: 'AREA_MATCHED' }));
+    (apiClient.bookCourier as any).mockRejectedValue({ code });
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'redx' }));
+    await waitFor(() => expect(screen.getByText(/courier\.eligibility\.serviceable/)).toBeInTheDocument());
+    expect(screen.queryByLabelText('courier.deliveryArea.searchPlaceholder')).not.toBeInTheDocument();
+
+    fireEvent.click(bookButton());
+
+    await waitFor(() => expect(screen.getByLabelText('courier.deliveryArea.searchPlaceholder')).toBeInTheDocument());
+  });
 });

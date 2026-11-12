@@ -167,6 +167,32 @@ describe('booking destination resolution', () => {
         );
     });
 
+    test('a contradicted destination reaches throwOnError:false callers as the specific 409', async () => {
+        // The payment webhook and auto-dispatch-on-confirm pass throwOnError:false.
+        // The "directory says no" signal must arrive as COURIER_DESTINATION_CONTRADICTED,
+        // not a generic {failed:true} with no code (QA-1 / Ops review).
+        getAreas.mockResolvedValue([{ id: 9, name: 'Atlantis', district_name: 'Dhaka' }]);
+
+        await expect(book(makeOrder(), { throwOnError: false })).rejects.toMatchObject({
+            status: 409,
+            code: 'COURIER_DESTINATION_CONTRADICTED',
+        });
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
+    test('an ambiguous directory match never guesses an id at booking time', async () => {
+        getAreas.mockResolvedValue([
+            { id: 1, name: 'Mirpur', district_name: 'Dhaka' },
+            { id: 2, name: 'Mirpur', district_name: 'Dhaka' },
+        ]);
+
+        await expect(book()).rejects.toMatchObject({
+            status: 409,
+            code: 'COURIER_DESTINATION_PAYLOAD_INVALID',
+        });
+        expect(deliveryService.createDeliveryOrder).not.toHaveBeenCalled();
+    });
+
     test('shadow mode may use a previously server-confirmed id despite a later directory miss', async () => {
         getAreas.mockResolvedValue([{ area_id: 9, area_name: 'Atlantis', district_name: 'Dhaka' }]);
         const order = makeOrder({
@@ -677,17 +703,68 @@ describe('confirming a courier destination', () => {
         });
     });
 
-    test('keeps the address text and any other courier\'s selection intact', async () => {
+    test('strips courier ids smuggled in a JSON-string delivery_address', async () => {
+        // The entity getter JSON-parses a string address back into an object on
+        // read, so the id-strip must cover the string form too (Security P2-3).
+        order.delivery_area = 'Mirpur';
+        order.delivery_address = { street_address: 'House 4, Road 12', area: 'Mirpur', district: 'Dhaka' };
+        order.delivery_location = JSON.stringify({
+            full_address: 'House 4, Road 12, Mirpur, Dhaka',
+            provider_destination: {
+                redx: { area_id: 1, area_name: 'Mirpur', district: 'Dhaka', source: 'merchant_confirmed', confirmed_at: '2026-11-04T00:00:00.000Z', confirmed_by: 'user-1' },
+            },
+        });
+
+        await orderService.updateOrder('order-1', 'user-1', 'shop-1', {
+            delivery_address: JSON.stringify({
+                street_address: 'House 9, Road 3', area: 'Gulshan', district: 'Dhaka',
+                area_id: 999, zone_id: 888, city_id: 777, provider_destination: { redx: { area_id: 999 } },
+            }),
+        });
+
+        const storedAddress = typeof order.delivery_address === 'string'
+            ? JSON.parse(order.delivery_address) : order.delivery_address;
+        expect(storedAddress.area).toBe('Gulshan');
+        expect(storedAddress).not.toHaveProperty('area_id');
+        expect(storedAddress).not.toHaveProperty('zone_id');
+        expect(storedAddress).not.toHaveProperty('city_id');
+        expect(storedAddress).not.toHaveProperty('provider_destination');
+    });
+
+    test('a byte-identical address resubmission keeps the merchant confirmation', async () => {
+        // delivery_address reads back as a parsed object; reference inequality
+        // used to flag a no-op resubmission as a change and wipe the confirmation
+        // (QA-2). Deep equality must treat it as unchanged.
+        const address = { street_address: 'House 4, Road 12', area: 'Mirpur', upazila: 'Mirpur', district: 'Dhaka' };
+        order.delivery_area = 'Mirpur';
+        order.delivery_address = { ...address };
+        order.delivery_location = JSON.stringify({
+            full_address: 'House 4, Road 12, Mirpur, Dhaka',
+            provider_destination: {
+                redx: { area_id: 1, area_name: 'Mirpur', district: 'Dhaka', source: 'merchant_confirmed', confirmed_at: '2026-11-04T00:00:00.000Z', confirmed_by: 'user-1' },
+            },
+        });
+
+        await orderService.updateOrder('order-1', 'user-1', 'shop-1', { delivery_address: { ...address } });
+
+        const stored = JSON.parse(order.delivery_location);
+        expect(stored.provider_destination.redx).toMatchObject({ area_id: 1, source: 'merchant_confirmed', confirmed_by: 'user-1' });
+        expect(order.delivery_area).toBe('Mirpur');
+    });
+
+    test('keeps the address text and any other courier\'s confirmed selection intact', async () => {
         order.delivery_location = JSON.stringify({
             full_address: 'Road 1, Mirpur, Dhaka',
-            provider_destination: { pathao: { area_id: 33, area_name: 'Mirpur' } },
+            provider_destination: {
+                pathao: { area_id: 33, area_name: 'Mirpur', source: 'merchant_confirmed', confirmed_at: '2026-11-04T00:00:00.000Z', confirmed_by: 'user-1' },
+            },
         });
 
         await confirm();
 
         const stored = JSON.parse(order.update.mock.calls[0][0].delivery_location);
         expect(stored.full_address).toBe('Road 1, Mirpur, Dhaka');
-        expect(stored.provider_destination.pathao).toMatchObject({ area_id: 33 });
+        expect(stored.provider_destination.pathao).toMatchObject({ area_id: 33, source: 'merchant_confirmed', confirmed_by: 'user-1' });
         expect(stored.provider_destination.redx).toMatchObject({ area_id: 1 });
     });
 

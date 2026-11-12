@@ -1094,7 +1094,11 @@ const updateOrder = async (orderId, userId, shopId, updateData) => {
             if (updateData[key] === undefined) continue;
             const oldValue = order[key];
             const newValue = updateData[key];
-            if (oldValue !== newValue) auditChanges[key] = { from: oldValue, to: newValue };
+            // Deep equality, not reference: delivery_address reads back from the
+            // entity getter as a parsed object, so a byte-identical resubmission is
+            // a fresh object that !== would always flag as changed — wiping a
+            // merchant confirmation. Matches getChangedCourierFields' valuesEqual.
+            if (!valuesEqual(oldValue, newValue)) auditChanges[key] = { from: oldValue, to: newValue };
             updates[key] = newValue;
         }
 
@@ -1102,6 +1106,19 @@ const updateOrder = async (orderId, userId, shopId, updateData) => {
         if (destinationChanged) {
             const removedAddressDestinationFields = [];
             const sanitizeStructuredAddress = (value) => {
+                // The entity getter JSON-parses a JSON-looking string address back
+                // into an object on read, so courier id fields embedded in the
+                // string form would otherwise bypass the strip below. Normalize a
+                // JSON-object string to an object first so both forms sanitize alike.
+                if (typeof value === 'string') {
+                    try {
+                        const parsed = JSON.parse(value);
+                        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return value;
+                        value = parsed;
+                    } catch {
+                        return value;
+                    }
+                }
                 if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
                 const sanitized = { ...value };
                 for (const field of ['area_id', 'areaId', 'zone_id', 'zoneId', 'city_id', 'cityId', 'provider_destination']) {
@@ -3361,6 +3378,7 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
                 'COURIER_DISPATCH_PROVIDER_UNAVAILABLE',
                 'COURIER_DESTINATION_NOT_SERVICEABLE',
                 'COURIER_DESTINATION_PAYLOAD_INVALID',
+                'COURIER_DESTINATION_CONTRADICTED',
             ].includes(error.code)) {
             throw error;
         }

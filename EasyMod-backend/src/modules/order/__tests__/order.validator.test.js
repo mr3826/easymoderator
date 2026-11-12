@@ -221,6 +221,14 @@ describe('order.validator', () => {
       expect(result.error).toBeDefined();
     });
 
+    it('bounds id strings so a huge id cannot amplify directory comparisons', () => {
+      const huge = 'x'.repeat(65);
+      expect(orderValidator.confirmCourierDestination.body.validate({ provider: 'redx', area_id: huge }).error).toBeDefined();
+      expect(orderValidator.confirmCourierDestination.body.validate({ provider: 'redx', area_id: 7, zone_id: huge }).error).toBeDefined();
+      expect(orderValidator.confirmCourierDestination.body.validate({ provider: 'redx', area_id: 7, city_id: huge }).error).toBeDefined();
+      expect(orderValidator.confirmCourierDestination.body.validate({ provider: 'redx', area_id: 'x'.repeat(64) }).error).toBeUndefined();
+    });
+
     it('requires a uuid order id in the path', () => {
       expect(orderValidator.confirmCourierDestination.params.validate(params).error).toBeUndefined();
       expect(orderValidator.confirmCourierDestination.params.validate({ orderId: 'order-1' }).error).toBeDefined();
