@@ -118,7 +118,8 @@ jobs:
 
   browser-e2e:
     name: Growth OS browser E2E gate
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.58.2 cannot install Chromium on ubuntu-26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: verify
     # Same narrowing rationale as `verify`: this job runs PR-controlled code.

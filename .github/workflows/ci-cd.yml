@@ -314,7 +314,8 @@ jobs:
   # not require the backend, PostgreSQL, Redis, Meta, or any live provider.
   frontend-e2e:
     name: EasyModerator frontend Playwright (mock-only)
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.58.2 cannot install Chromium on ubuntu-26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true'
