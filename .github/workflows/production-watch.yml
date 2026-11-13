@@ -1,0 +1,118 @@
+name: Production Watch
+
+# External black-box monitoring for the OCI production stack. The 2026-11-13
+# post-cutover audit found ZERO uptime or certificate-expiry monitoring
+# anywhere (host, repo, or DO account). A failed scheduled run is the alert:
+# GitHub notifies repository admins when a scheduled workflow keeps failing.
+#
+# Probe-target traps (from the audit — do not "fix" the probes to match):
+#   - app.easymod.tech/health returns SPA HTML 200 for ANY path — never a
+#     health signal. The real readiness signal is api.easymod.tech/health/ready.
+#   - growth.easymod.tech/api/health is 404 by design (allowlist proxy).
+#   - PRODUCTION_DEPLOY_ENABLED=false means main can legitimately lead
+#     production, so version drift is a notice, not a failure.
+
+on:
+  schedule:
+    # Hourly at :07 (off-the-hour schedules are the most delayed).
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-watch
+  # Probes are read-only and idempotent; only the newest run matters.
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: External health, TLS and version probes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: HTTPS endpoints
+        run: |
+          set -euo pipefail
+          fail=0
+          probe() {
+            url="$1"; expected="$2"; label="$3"
+            code=$(curl -sS -o /dev/null -m 30 -w '%{http_code}' "$url" || echo 000)
+            if [ "$code" = "$expected" ]; then
+              echo "PASS $label $url -> $code"
+            else
+              echo "::error::$label FAILED $url -> $code (expected $expected)"
+              fail=1
+            fi
+          }
+          probe https://easymod.tech/ 200 apex
+          probe https://app.easymod.tech/ 200 app
+          probe https://growth.easymod.tech/ 200 growth
+          probe https://api.easymod.tech/health/ready 200 api-readiness
+          # www must 301 to the apex (checked without following redirects).
+          probe https://www.easymod.tech/ 301 www-redirect
+          exit "$fail"
+
+      - name: Readiness contract
+        run: |
+          set -euo pipefail
+          curl -fsS -m 30 https://api.easymod.tech/health/ready | node -e '
+            let s = "";
+            process.stdin.on("data", (d) => (s += d));
+            process.stdin.on("end", () => {
+              const b = JSON.parse(s);
+              const ok = b.service === "easymod-backend"
+                && b.status === "ready"
+                && b.database === "connected"
+                && b.redis !== "degraded"
+                && b.redis !== "disconnected";
+              if (!ok) {
+                console.error("::error::readiness contract failed: " + JSON.stringify({
+                  service: b.service, status: b.status, database: b.database, redis: b.redis,
+                }));
+                process.exit(1);
+              }
+              console.log("READINESS_CONTRACT=PASS redis=" + b.redis);
+            });'
+
+      - name: Deployed version vs main
+        env:
+          MAIN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          deployed=$(curl -fsS -m 30 https://api.easymod.tech/api/version \
+            | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).gitSha')
+          echo "DEPLOYED_SHA=$deployed"
+          echo "MAIN_SHA=$MAIN_SHA"
+          if [ "$deployed" != "$MAIN_SHA" ]; then
+            echo "::notice::production runs ${deployed:0:8} while main is at ${MAIN_SHA:0:8} — expected while the deploy gate is closed; re-arm PRODUCTION_DEPLOY_ENABLED and dispatch Release/Production to close the gap"
+          else
+            echo "VERSION_MATCH=PASS"
+          fi
+
+      - name: TLS certificate expiry (all five hosts)
+        run: |
+          set -euo pipefail
+          fail=0
+          now_epoch=$(date -u +%s)
+          for host in easymod.tech www.easymod.tech app.easymod.tech api.easymod.tech growth.easymod.tech; do
+            cert=$(echo | openssl s_client -servername "$host" -connect "$host:443" 2>/dev/null \
+              | openssl x509 -noout -enddate -issuer)
+            end=$(printf '%s\n' "$cert" | sed -n 's/^notAfter=//p')
+            issuer=$(printf '%s\n' "$cert" | sed -n 's/^issuer=//p')
+            end_epoch=$(date -u -d "$end" +%s)
+            days=$(( (end_epoch - now_epoch) / 86400 ))
+            echo "$host: ${days}d left, expires $end, $issuer"
+            if ! printf '%s' "$issuer" | grep -qi "let's encrypt"; then
+              echo "::error::CERT_ISSUER $host is not a Let's Encrypt certificate: $issuer"
+              fail=1
+            fi
+            if [ "$days" -lt 21 ]; then
+              echo "::error::CERT_EXPIRY $host expires in ${days} days (< 21) — Caddy renewal is failing"
+              fail=1
+            elif [ "$days" -lt 35 ]; then
+              echo "::warning::CERT_RENEWAL_WINDOW $host expires in ${days} days — inside Caddy's ~30-day ARI renewal window; expect a fresh cert soon"
+            fi
+          done
+          exit "$fail"

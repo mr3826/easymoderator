@@ -136,6 +136,68 @@ function checkRedisAvailability() {
     };
 }
 
+/**
+ * Honest readiness classification for health endpoints.
+ *
+ * All real clients are created with `lazyConnect: true`, so an unused client
+ * legitimately sits in 'wait' until its first command — that is NOT a failure,
+ * and the old any-of-six `.some()` reading hid real failures behind it (a
+ * production audit found 4 of 6 clients down-reported as 'connected').
+ *
+ * Per-client states:
+ *   ready    — connected (or in-memory fallback active)
+ *   idle     — created but not connected yet (lazyConnect), or transiently
+ *              connecting/reconnecting
+ *   down     — ioredis gave up ('end'): retries exhausted or client closed
+ *
+ * Overall status:
+ *   connected      — nothing is down (ready/idle mix is normal)
+ *   degraded       — at least one client is down
+ *   not_configured — every client is the in-memory dev fallback
+ */
+function getRedisReadiness() {
+    const clients = {
+        session:   sessionRedis,
+        cache:     cacheRedis,
+        rateLimit: rateLimitRedis,
+        legacy:    legacyRedis,
+        ssePub:    sseRedisPub,
+        sseSub:    sseRedisSub
+    };
+
+    const details = {};
+    for (const [name, client] of Object.entries(clients)) {
+        if (!client) {
+            details[name] = 'down';
+            continue;
+        }
+        if (client._isMemoryFallback === true) {
+            details[name] = 'fallback';
+            continue;
+        }
+        if (client.status === 'ready') {
+            details[name] = 'ready';
+        } else if (client.status === 'end') {
+            details[name] = 'down';
+        } else {
+            // 'wait' (lazy, never used yet), 'connecting', 'reconnecting',
+            // 'close' — transient or unused, not a confirmed failure.
+            details[name] = 'idle';
+        }
+    }
+
+    const values = Object.values(details);
+    let status;
+    if (values.some((v) => v === 'down')) {
+        status = 'degraded';
+    } else if (values.every((v) => v === 'fallback')) {
+        status = 'not_configured';
+    } else {
+        status = 'connected';
+    }
+    return { status, details };
+}
+
 module.exports = {
     sessionRedis,
     cacheRedis,
@@ -144,5 +206,6 @@ module.exports = {
     sseRedisPub,
     sseRedisSub,
     closeAllRedis,
-    checkRedisAvailability
+    checkRedisAvailability,
+    getRedisReadiness
 };

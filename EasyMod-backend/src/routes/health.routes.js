@@ -8,7 +8,26 @@
 const express = require('express');
 const router = express.Router();
 const { sequelize } = require('../utils/database/database-setup');
-const { checkRedisAvailability } = require('../config/redis');
+const redisConfig = require('../config/redis');
+const { checkRedisAvailability } = redisConfig;
+
+/**
+ * Redis readiness that cannot over-report. The old any-of-six `.some()` said
+ * 'connected' while 4 of 6 clients were down (2026-11-13 production audit).
+ * Falls back to the legacy boolean map when getRedisReadiness is unavailable
+ * (older test mocks), so a partial mock can never crash the probe endpoints.
+ */
+const getRedisReadinessSafe = () => {
+    if (typeof redisConfig.getRedisReadiness === 'function') {
+        return redisConfig.getRedisReadiness();
+    }
+    const legacy = checkRedisAvailability() || {};
+    const anyReady = Object.values(legacy).some(Boolean);
+    return {
+        status: anyReady ? 'connected' : 'not_configured',
+        details: legacy,
+    };
+};
 const { authenticate } = require('../middleware/auth.middleware');
 const {
     getMalformedWebhookMetrics,
@@ -36,9 +55,8 @@ router.get('/ready', async (req, res) => {
         // Check database connection
         await sequelize.authenticate();
 
-        // Check Redis connections
-        const redisStatus = checkRedisAvailability();
-        const redisConnected = Object.values(redisStatus).some(status => status);
+        // Check Redis connections — per-client classification, never any-of-six.
+        const redis = getRedisReadinessSafe();
 
         res.status(200).json({
             // Provenance marker — proves this response came from the API and not
@@ -47,8 +65,11 @@ router.get('/ready', async (req, res) => {
             status: 'ready',
             timestamp: new Date().toISOString(),
             database: 'connected',
-            redis: redisConnected ? 'connected' : 'not_configured',
-            redis_details: redisStatus,
+            // connected | degraded | not_configured — 'degraded' means at least
+            // one Redis client is confirmed down (status 'end'); lazy-unused
+            // clients report 'idle' in redis_details and do not degrade.
+            redis: redis.status,
+            redis_details: redis.details,
             commit: process.env.GIT_SHA || null,
             version: process.env.APP_VERSION || '1.0.0'
         });
@@ -128,9 +149,9 @@ router.get('/detailed', authenticate, async (req, res) => {
     }
 
     try {
-        const redisStatus = checkRedisAvailability();
-        checks.redis_details = redisStatus;
-        checks.redis = Object.values(redisStatus).some(status => status) ? 'connected' : 'not_configured';
+        const redis = getRedisReadinessSafe();
+        checks.redis_details = redis.details;
+        checks.redis = redis.status;
     } catch (_) {
         checks.redis = 'disconnected';
     }

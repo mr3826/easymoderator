@@ -1,5 +1,11 @@
 # EasyModerator DNS cutover runbook - 2026-11-11
 
+> **Historical status (2026-11-14):** This runbook is a historical record of the
+> 2026-11-13 cutover, not an executable procedure. Its rollback sections (§5 and §7 —
+> "start the DigitalOcean stack" and "keep the droplet stopped but intact") are
+> **VOID**: the DigitalOcean droplet was destroyed on 2026-11-13, and rollback is now
+> redeploy-from-GHCR to the OCI host. Do not run the DNS rollback scripts.
+
 Operator: migration lead only. DNS is mutated by one script, run by hand.
 Related plan: `C:\Users\ahmee\.claude\plans\synthetic-dazzling-starfish.md` (sections "DNS / email" and Gate 4).
 

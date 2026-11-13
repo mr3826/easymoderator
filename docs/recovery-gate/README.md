@@ -52,19 +52,27 @@ captures the source-write, failure, and latest-restored-write timestamps.
 
 ## Credential policy
 
-Only `DO_TOKEN` is accepted for the DigitalOcean API probe. `DO_API_TOKEN` is
-ignored. Spaces access key, secret key, endpoint, bucket, and encryption-key
-values must be supplied through the environment or approved secret manager;
-they must never be committed, echoed, serialized, or placed in evidence.
+The DigitalOcean API probe (`DO_TOKEN`) was retired with the 2026-11-13 OCI
+cutover; `DO_API_TOKEN` and `DO_TOKEN` are ignored. The off-site target is OCI
+Object Storage behind its S3-compatible API (secret names kept from the Spaces
+era — see `docs/infrastructure/OCI_MIGRATION_DESIGN.md` §1.2/§2.3): access key,
+secret key, endpoint (`https://<namespace>.compat.objectstorage.<region>.oraclecloud.com`),
+bucket, and encryption-key values must be supplied through the environment or
+approved secret manager; they must never be committed, echoed, serialized, or
+placed in evidence. `OCI_AUDIT_PRIVATE_KEY` (restricted read-only identity) is
+reported as present/absent only and is used by the nightly workflow — not by
+this gate — to prove bucket privacy and lifecycle retention OCI-natively.
 
-If `DO_TOKEN` is configured at Windows user scope but is not present in the
-current process, resolve it into a temporary process environment before running
-the gate. Do not print the value and do not persist it.
+If off-site credentials are configured at Windows user scope but are not
+present in the current process, resolve them into a temporary process
+environment before running the gate. Do not print the values and do not persist
+them.
 
 ```powershell
-$env:DO_TOKEN = [Environment]::GetEnvironmentVariable('DO_TOKEN', 'User')
+$env:SPACES_ACCESS_KEY_ID = [Environment]::GetEnvironmentVariable('SPACES_ACCESS_KEY_ID', 'User')
+# ...repeat for SPACES_SECRET_ACCESS_KEY, SPACES_ENDPOINT, BACKUP_BUCKET, BACKUP_ENCRYPTION_KEY
 npm run recovery:gate -- --execute-offhost --write-evidence
-Remove-Item Env:DO_TOKEN
+Remove-Item Env:SPACES_ACCESS_KEY_ID  # ...and the rest
 ```
 
 `--execute-offhost` fails closed when any required Spaces credential is absent.

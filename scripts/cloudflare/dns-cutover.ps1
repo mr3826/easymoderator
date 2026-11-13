@@ -357,7 +357,7 @@ foreach ($item in $plan) {
     $null = Invoke-CfApi -Method 'Put' `
         -Path "/zones/$ZoneId/dns_records/$($item.Record.id)" `
         -Body $body `
-        -Remediation "the update for $($item.Name) failed after $changed record(s) may already have changed. Re-run this script (it is idempotent) to finish, or run scripts/cloudflare/dns-rollback.ps1 -DryRun then dns-rollback.ps1 to return all five A records to 139.59.249.141."
+        -Remediation "the update for $($item.Name) failed after $changed record(s) may already have changed. Re-run this script (it is idempotent) to finish. There is no DNS rollback script: to roll back, re-dispatch the Release/Production workflow (protected: PRODUCTION_DEPLOY_ENABLED=true plus a DEPLOY-<sha> approval, then the environment approval) to redeploy the digest-pinned GHCR images to the OCI host. DNS A records must only ever point at the OCI production host 130.210.21.100; the old DigitalOcean droplet 139.59.249.141 was destroyed on 2026-11-13."
     Write-Host "OK     $($item.Name) -> $NewIP (id $($item.Record.id))" -ForegroundColor Green
     $changed++
 }
@@ -404,7 +404,7 @@ Write-Host "INVARIANT PASS: every non-A record is unchanged." -ForegroundColor G
 if ($afterBad.Count -gt 0) {
     Write-Host "FATAL: post-update verification failed:" -ForegroundColor Red
     foreach ($problem in $afterBad) { Write-Host "  - $problem" -ForegroundColor Red }
-    Write-Host "REMEDIATION: inspect the zone with GET /dns_records; finish with this script or run scripts/cloudflare/dns-rollback.ps1." -ForegroundColor Yellow
+    Write-Host "REMEDIATION: inspect the zone with GET /dns_records and finish with this script. For a service rollback, re-dispatch Release/Production to the OCI host (digest-pinned GHCR images); DNS A records must only ever point at 130.210.21.100. Never point them at the destroyed DigitalOcean droplet 139.59.249.141." -ForegroundColor Yellow
     exit 2
 }
 

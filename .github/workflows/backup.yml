@@ -4,6 +4,10 @@ on:
   schedule:
     # Daily at 02:00 UTC (08:00 Bangladesh time); active merchant/payment data
     # should not accept a seven-day recovery point objective.
+    # Operator notes (observed 2026-11): GitHub's scheduler actually fires this
+    # ~08:0x-09:0x UTC, and each run then waits on the manual production
+    # environment approval (founder decision 2026-11-14: keep manual). The
+    # effective RPO is therefore "next approval", not 02:00 UTC.
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
@@ -25,28 +29,39 @@ concurrency:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Required GitHub secrets:
-#   DEPLOY_HOST       — Droplet IP or hostname (canonical deployment host)
-#   DO_SSH_PRIVATE_KEY — SSH private key with root access to the droplet
-#   DO_TOKEN           — DigitalOcean API token; used only for a redacted API probe
+#   DEPLOY_HOST        — production host IP or hostname (OCI host since the
+#                        2026-11-13 cutover; secret name kept from the DO era)
+#   DO_SSH_PRIVATE_KEY — SSH private key with root access to the production
+#                        host (name kept from the DO era; value is the OCI key)
 #
 # Local backups are written to /opt/easymod/backups/ (7-day retention).
 #
-# OFF-SITE backups (finding F-04) are uploaded to S3-compatible object storage,
-# client-side encrypted, when ALL of these secrets are configured:
-#   BACKUP_ENCRYPTION_KEY     — passphrase for client-side AES-256 (app-owned)
-#   SPACES_ACCESS_KEY_ID      — DO Spaces / S3 access key      (EXTERNAL)
-#   SPACES_SECRET_ACCESS_KEY  — DO Spaces / S3 secret key      (EXTERNAL)
-#   SPACES_ENDPOINT           — e.g. https://blr1.digitaloceanspaces.com
-#   BACKUP_BUCKET             — bucket/space name
-# Until the EXTERNAL Spaces credentials exist, this job fails closed with a
-# clear message and F-04 remains BLOCKED_EXTERNAL_CREDENTIAL. A backup that sits
-# only on the droplet it protects does not satisfy the pilot DR requirement.
+# OFF-SITE backups (finding F-04) are MANDATORY and fail closed. The target is
+# OCI Object Storage via its S3-compatible API; secret names are kept from the
+# DO Spaces era (see docs/infrastructure/OCI_MIGRATION_DESIGN.md §1.2/§2.3):
+#   BACKUP_ENCRYPTION_KEY     — passphrase for client-side AES-256 (app-owned;
+#                               losing it makes archives unrecoverable — keep
+#                               an off-platform copy)
+#   SPACES_ACCESS_KEY_ID      — OCI Customer Secret Key access id
+#   SPACES_SECRET_ACCESS_KEY  — OCI Customer Secret Key secret
+#   SPACES_ENDPOINT           — https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
+#                               (the non-compat hostname does NOT serve the S3 API)
+#   BACKUP_BUCKET             — bucket name
+#
+# Bucket privacy and lifecycle retention are audited OCI-natively after every
+# upload — the S3-compat API cannot read OCI lifecycle policies — using a
+# restricted read-only identity (`read buckets in tenancy` and nothing else):
+#   OCI_AUDIT_PRIVATE_KEY (secret); OCI_AUDIT_TENANCY_OCID, OCI_AUDIT_USER_OCID,
+#   OCI_AUDIT_FINGERPRINT, OCI_AUDIT_NAMESPACE, OCI_AUDIT_REGION (repo variables).
+# A backup that sits only on the host it protects does not satisfy the pilot
+# DR requirement, so every credential above is all-or-nothing.
 # ──────────────────────────────────────────────────────────────────────────────
 
-# This job talks only to the droplet over SSH and never calls the GitHub API,
-# so it needs no token scope at all. Declared explicitly rather than inherited:
-# the repository default is currently read, but a workflow that states its own
-# permissions does not silently widen if that default is ever changed.
+# The backup job talks to the production host over SSH and to object storage
+# over HTTPS; it never calls the GitHub API, so it needs no token scope at all.
+# Declared explicitly rather than inherited: the repository default is currently
+# read, but a workflow that states its own permissions does not silently widen
+# if that default is ever changed.
 permissions:
   contents: read
   packages: read
@@ -85,7 +100,6 @@ jobs:
       - name: Run pg_dump + encrypted off-site upload via SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
-          DO_TOKEN: ${{ secrets.DO_TOKEN }}
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
           SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
           SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
@@ -102,31 +116,45 @@ jobs:
           # pg_dump + validation + off-site upload must not be reaped by the
           # transport's hidden 10-minute command default.
           command_timeout: 30m
-          envs: DO_TOKEN,BACKUP_ENCRYPTION_KEY,SPACES_ACCESS_KEY_ID,SPACES_SECRET_ACCESS_KEY,SPACES_ENDPOINT,BACKUP_BUCKET,OFFSITE_RETENTION_DAYS,BACKUP_RUN_ID
+          envs: BACKUP_ENCRYPTION_KEY,SPACES_ACCESS_KEY_ID,SPACES_SECRET_ACCESS_KEY,SPACES_ENDPOINT,BACKUP_BUCKET,OFFSITE_RETENTION_DAYS,BACKUP_RUN_ID
           script: |
             set -euo pipefail
             umask 077
-
-            if [ -z "${DO_TOKEN:-}" ]; then
-              echo "::error::DO_TOKEN_MISSING"
-              echo "RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL"
-              exit 1
-            fi
-
-            # Verify the DigitalOcean credential without printing the token or
-            # response body. The Spaces S3 credentials remain separate.
-            DO_API_STATUS=$(curl -fsS -o /dev/null -w '%{http_code}' \
-              -H "Authorization: Bearer ${DO_TOKEN}" \
-              https://api.digitalocean.com/v2/account || true)
-            if [ "$DO_API_STATUS" != "200" ]; then
-              echo "::error::DO_TOKEN_AUTHENTICATION_FAILED status=$DO_API_STATUS"
-              exit 1
-            fi
 
             BACKUP_DIR=/opt/easymod/backups
             mkdir -p "$BACKUP_DIR"
             AWS_CLI_IMAGE='amazon/aws-cli@sha256:165b494a2acea6b41fd5bb6f9b0ce903124f9cf2da2faab61e9c3c95b8d8a1b9'
             POSTGRES_HELPER_IMAGE='postgres@sha256:df7bca0066e6f60cc3dd32faa70caddec20e2c22b58932f79498e5704b23854a'
+
+            # Fail fast — before any dump work: the off-site target is
+            # mandatory and all-or-nothing. A partial config is treated as
+            # "not configured" so we never upload UNENCRYPTED (missing
+            # BACKUP_ENCRYPTION_KEY) or to an unauthenticated target.
+            if [ -z "${BACKUP_ENCRYPTION_KEY:-}" ] || [ -z "${SPACES_ACCESS_KEY_ID:-}" ] \
+               || [ -z "${SPACES_SECRET_ACCESS_KEY:-}" ] || [ -z "${SPACES_ENDPOINT:-}" ] \
+               || [ -z "${BACKUP_BUCKET:-}" ]; then
+              echo "::error::OFFSITE_CREDENTIALS_MISSING (F-04 BLOCKED_EXTERNAL_CREDENTIAL)"
+              echo "RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL"
+              exit 1
+            fi
+            case "$SPACES_ENDPOINT" in
+              https://*) ;;
+              *) echo "::error::SPACES_ENDPOINT must use HTTPS"; exit 1 ;;
+            esac
+
+            # Reachability + auth probe against the S3-compatible endpoint,
+            # replacing the retired account-token probe. Runs in the pinned
+            # aws-cli container; no credential is printed on failure.
+            if ! docker run --rm \
+              -e AWS_ACCESS_KEY_ID="$SPACES_ACCESS_KEY_ID" \
+              -e AWS_SECRET_ACCESS_KEY="$SPACES_SECRET_ACCESS_KEY" \
+              "$AWS_CLI_IMAGE" s3api head-bucket --bucket "$BACKUP_BUCKET" \
+              --endpoint-url "$SPACES_ENDPOINT" >/dev/null 2>&1; then
+              echo "::error::OFFSITE_BUCKET_UNREACHABLE head-bucket failed for the configured endpoint/bucket"
+              echo "RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL"
+              exit 1
+            fi
+            echo "Off-site target reachable: head-bucket PASS"
 
             # The production compose contract requires immutable image
             # references even for read-only commands such as `exec`. Resolve
@@ -231,18 +259,10 @@ jobs:
               || echo "::warning::cleanup-product-media.js unavailable in the currently deployed backend image — orphan sweep skipped this run"
 
             # ── Off-site upload (F-04) ────────────────────────────────────────
-            # All-or-nothing guard: every off-site secret must be present. A
-            # partial config is treated as "not configured" so we never upload
-            # UNENCRYPTED (missing BACKUP_ENCRYPTION_KEY) or to an unauthenticated
-            # target.
-            if [ -n "${BACKUP_ENCRYPTION_KEY:-}" ] && [ -n "${SPACES_ACCESS_KEY_ID:-}" ] \
-               && [ -n "${SPACES_SECRET_ACCESS_KEY:-}" ] && [ -n "${SPACES_ENDPOINT:-}" ] \
-               && [ -n "${BACKUP_BUCKET:-}" ]; then
-              case "$SPACES_ENDPOINT" in
-                https://*) ;;
-                *) echo "::error::SPACES_ENDPOINT must use HTTPS"; exit 1 ;;
-              esac
-              echo "Off-site upload: credentials present — encrypting and uploading."
+            # Credential presence, HTTPS and bucket reachability were already
+            # enforced fail-closed at the top of this script; the upload itself
+            # is unconditional from here.
+            echo "Off-site upload: encrypting and uploading to object storage."
 
               upload_one() {
                 SRC="$1"; DEST_PREFIX="$2"
@@ -315,53 +335,23 @@ jobs:
               upload_one "$BACKUP_FILE" "db"
               upload_one "$BACKUP_DIR/$UPLOADS_BACKUP_FILE" "uploads"
 
-              # Verify the intended bucket is private and has an actual
-              # lifecycle policy. A configured retention variable alone is not
-              # evidence that Spaces will delete expired objects.
+              # Defense-in-depth privacy check through the S3-compat ACL view.
+              # The authoritative OCI-native privacy + lifecycle audit runs in
+              # the next step: OCI lifecycle policies are NOT readable through
+              # the S3 API (the lifecycle GET always reports
+              # NoSuchLifecycleConfiguration on OCI), so retention is proven
+              # there via the restricted audit identity instead.
               BUCKET_ACL=$(docker run --rm \
                 -e AWS_ACCESS_KEY_ID="$SPACES_ACCESS_KEY_ID" \
                 -e AWS_SECRET_ACCESS_KEY="$SPACES_SECRET_ACCESS_KEY" \
                 "$AWS_CLI_IMAGE" s3api get-bucket-acl --bucket "$BACKUP_BUCKET" \
                 --endpoint-url "$SPACES_ENDPOINT" --output json)
               if printf '%s' "$BUCKET_ACL" | grep -Eq 'AllUsers|AuthenticatedUsers'; then
-                echo "::error::Spaces bucket ACL exposes a public or authenticated-users grant"
+                echo "::error::object-storage bucket ACL exposes a public or authenticated-users grant"
                 exit 1
               fi
-              if ! [[ "$OFFSITE_RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]]; then
-                echo "::error::OFFSITE_RETENTION_DAYS must be a positive integer"
-                exit 1
-              fi
-              LIFECYCLE_RULES=$(docker run --rm \
-                -e AWS_ACCESS_KEY_ID="$SPACES_ACCESS_KEY_ID" \
-                -e AWS_SECRET_ACCESS_KEY="$SPACES_SECRET_ACCESS_KEY" \
-                "$AWS_CLI_IMAGE" s3api get-bucket-lifecycle-configuration --bucket "$BACKUP_BUCKET" \
-                --endpoint-url "$SPACES_ENDPOINT" \
-                --query 'Rules[?Status==`Enabled` && Expiration.Days != `null`].[Filter.Prefix,Expiration.Days]' \
-                --output text) || {
-                  echo "::error::unable to read the Spaces lifecycle policy"
-                  exit 1
-                }
-              if ! printf '%s\n' "$LIFECYCLE_RULES" | awk -v expected="$OFFSITE_RETENTION_DAYS" '
-                {
-                  prefix = $1
-                  days = $2
-                  if (days != expected) next
-                  if (prefix == "None" || prefix == "null" || prefix == "") broad = 1
-                  if (prefix == "db/" || prefix == "db") db = 1
-                  if (prefix == "uploads/" || prefix == "uploads") uploads = 1
-                }
-                END { exit (broad || (db && uploads)) ? 0 : 1 }
-              '; then
-                echo "::error::Spaces lifecycle policy does not enforce OFFSITE_RETENTION_DAYS=$OFFSITE_RETENTION_DAYS for db/ and uploads/"
-                exit 1
-              fi
-              echo "Off-site lifecycle retention policy verified: ${OFFSITE_RETENTION_DAYS} days"
 
               echo "Off-site upload complete."
-            else
-              echo "::error::Off-site backup upload BLOCKED — object-storage credentials not configured (F-04 BLOCKED_EXTERNAL_CREDENTIAL). Backups exist ONLY on the droplet."
-              exit 1
-            fi
 
             # Retain only the last 7 days of LOCAL copies
             find "$BACKUP_DIR" -name "easymod-*.dump" -mtime +7 -delete
@@ -370,23 +360,119 @@ jobs:
             echo "Retention cleanup done. Current backups:"
             ls -lh "$BACKUP_DIR"
 
+      - name: Audit bucket privacy + lifecycle retention (OCI-native)
+        env:
+          OCI_AUDIT_PRIVATE_KEY: ${{ secrets.OCI_AUDIT_PRIVATE_KEY }}
+          OCI_AUDIT_TENANCY_OCID: ${{ vars.OCI_AUDIT_TENANCY_OCID }}
+          OCI_AUDIT_USER_OCID: ${{ vars.OCI_AUDIT_USER_OCID }}
+          OCI_AUDIT_FINGERPRINT: ${{ vars.OCI_AUDIT_FINGERPRINT }}
+          OCI_AUDIT_NAMESPACE: ${{ vars.OCI_AUDIT_NAMESPACE }}
+          OCI_AUDIT_REGION: ${{ vars.OCI_AUDIT_REGION }}
+          BACKUP_BUCKET: ${{ secrets.BACKUP_BUCKET }}
+          OFFSITE_RETENTION_DAYS: ${{ vars.OFFSITE_RETENTION_DAYS || '30' }}
+        run: |
+          set -euo pipefail
+
+          # The retention variable alone is not evidence that the bucket will
+          # actually delete expired objects, and the S3-compat API cannot read
+          # OCI lifecycle policies. Prove both privacy and retention through
+          # the OCI control plane with the restricted read-only audit identity
+          # (group policy: `read buckets in tenancy`, nothing else).
+          if [ -z "${OCI_AUDIT_PRIVATE_KEY:-}" ] || [ -z "${OCI_AUDIT_TENANCY_OCID:-}" ] \
+             || [ -z "${OCI_AUDIT_USER_OCID:-}" ] || [ -z "${OCI_AUDIT_FINGERPRINT:-}" ] \
+             || [ -z "${OCI_AUDIT_NAMESPACE:-}" ] || [ -z "${OCI_AUDIT_REGION:-}" ] \
+             || [ -z "${BACKUP_BUCKET:-}" ]; then
+            echo "::error::OCI_AUDIT_CREDENTIALS_MISSING — cannot prove bucket privacy/retention"
+            echo "RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL"
+            exit 1
+          fi
+          if ! [[ "$OFFSITE_RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::OFFSITE_RETENTION_DAYS must be a positive integer"
+            exit 1
+          fi
+
+          umask 077
+          OCI_AUDIT_KEY_FILE=$(mktemp)
+          trap 'rm -f "$OCI_AUDIT_KEY_FILE"' EXIT
+          printf '%s\n' "$OCI_AUDIT_PRIVATE_KEY" > "$OCI_AUDIT_KEY_FILE"
+          export OCI_AUDIT_KEY_FILE
+
+          # Pinned to the SDK version bundled with the OCI CLI used to
+          # provision the bucket (3.96.2).
+          pip install --quiet --disable-pip-version-check 'oci==2.191.0'
+
+          python3 - <<'PY'
+          import os
+          import sys
+
+          import oci
+
+          cfg = {
+              "user": os.environ["OCI_AUDIT_USER_OCID"],
+              "fingerprint": os.environ["OCI_AUDIT_FINGERPRINT"],
+              "tenancy": os.environ["OCI_AUDIT_TENANCY_OCID"],
+              "region": os.environ["OCI_AUDIT_REGION"],
+              "key_file": os.environ["OCI_AUDIT_KEY_FILE"],
+          }
+          oci.config.validate_config(cfg)
+          client = oci.object_storage.ObjectStorageClient(cfg)
+
+          namespace = os.environ["OCI_AUDIT_NAMESPACE"]
+          bucket_name = os.environ["BACKUP_BUCKET"]
+          expected_days = int(os.environ["OFFSITE_RETENTION_DAYS"])
+
+          bucket = client.get_bucket(namespace, bucket_name).data
+          if bucket.public_access_type != "NoPublicAccess":
+              print("::error::bucket public_access_type=%s is not NoPublicAccess"
+                    % bucket.public_access_type)
+              sys.exit(1)
+          print("OFFSITE_PRIVACY_CHECK=NoPublicAccess:PASS")
+
+          policy = client.get_object_lifecycle_policy(namespace, bucket_name).data
+          covered = set()
+          for item in policy.items or []:
+              if item.action != "DELETE" or not item.is_enabled:
+                  continue
+              if item.time_amount != expected_days or (item.time_unit or "DAYS") != "DAYS":
+                  continue
+              prefixes = []
+              if item.object_name_filter and item.object_name_filter.inclusion_prefixes:
+                  prefixes = item.object_name_filter.inclusion_prefixes
+              if not prefixes:
+                  # An unfiltered DELETE rule covers the whole bucket.
+                  covered |= {"db/", "uploads/"}
+              for prefix in prefixes:
+                  if prefix in ("db/", "db"):
+                      covered.add("db/")
+                  if prefix in ("uploads/", "uploads"):
+                      covered.add("uploads/")
+          missing = {"db/", "uploads/"} - covered
+          if missing:
+              print("::error::lifecycle policy does not enforce %d-day DELETE for %s"
+                    % (expected_days, sorted(missing)))
+              sys.exit(1)
+          print("OFFSITE_LIFECYCLE_RETENTION=%d:PASS" % expected_days)
+          PY
+
+          echo "Off-site lifecycle retention policy verified: ${OFFSITE_RETENTION_DAYS} days"
+
   restore-drill:
     name: Isolated PostgreSQL restore drill
     # Nightly against the backup just taken, and on demand. Fresh-database CI
     # cannot see production schema drift, so the restored dump is the only
     # pre-production place a migration can be proved against the real schema.
     needs: [backup]
-    # always(): the drill reads the newest dump on the droplet, so a failed
-    # off-site upload must not also cost the day's migration proof.
+    # always(): the drill reads the newest dump on the production host, so a
+    # failed off-site audit must not also cost the day's migration proof.
     if: |
       always() && github.ref == 'refs/heads/main' && (
         github.event_name == 'schedule' ||
         (github.event_name == 'workflow_dispatch' && inputs.restore_drill == true)
       )
-    # The drill SSHs into the production droplet with repository-scoped
+    # The drill SSHs into the production host with repository-scoped
     # credentials, so it belongs behind the same protected environment gate as
     # the backup job itself. Without this, a scheduled or manual dispatch of
-    # backup.yml could reach the droplet without production-environment
+    # backup.yml could reach the production host without production-environment
     # approval, contradicting the isolation claim made for the file.
     environment: production
     runs-on: ubuntu-latest

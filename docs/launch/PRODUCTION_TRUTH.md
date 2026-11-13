@@ -1,208 +1,241 @@
 # Production Truth — EasyModerator
 
 The single record of **what is running in production** and **how it got there**.
-Update the "Current production state" table on every production deploy.
+Update this file on every production deploy and on every infrastructure cutover.
+
+**Last verified:** 2026-11-14 by the post-cutover audit.
+**Verification method:** live probes against the public hosts — `https://api.easymod.tech/api/version`
+(git SHA and migration ledger), `https://api.easymod.tech/health/ready` (database and
+Redis readiness), public DNS resolvers for all five A records, and the served TLS
+certificate dates. Claims that rest on a dated run receipt are labelled with that
+run; nothing below is inferred from an older receipt alone.
+
+Two health-probe traps are recorded here because they have caused false passes:
+
+- `app.easymod.tech/health` is **not** a health endpoint. The SPA answers any path
+  with HTML 200. The real signals are `api.easymod.tech/health/ready` and
+  `api.easymod.tech/api/version`.
+- `growth.easymod.tech/api/health` is 404 by design (allowlist proxy).
 
 ## Rules (launch freeze, effective 2026-07-23)
 
 1. `origin/main` is the only deployable source of truth. Main pushes run
-   verification and image publication; the production cutover happens **only**
-   via `.github/workflows/ci-cd.yml` manual `workflow_dispatch` from `main`
-   with the bounded deploy confirmation.
-2. No manual code changes on the droplet. `/opt/easymod` holds only `docker-compose.prod.yml`, `Caddyfile`, and `.env` — all rendered by CI.
-3. `docker-compose.prod.yml` is the single production process definition. The PM2 path (`ecosystem.config.js`, `commerce-ai.service`) is retired — Docker Compose services (`backend`, `worker`, `frontend`, `postgres`, `redis`, `qdrant`, `caddy`) are the only supported runtime.
-4. Image tags are the version identity: CI tags every changed image with the full commit SHA (`ghcr.io/mr3826/easymod-{backend,frontend}:<full-sha>`). Backend and worker share one image (different commands), so worker version == backend image tag. Frontend build version == frontend image tag. Production deployment must not use `:latest`.
+   verification and GHCR image publication; the production cutover happens **only**
+   via a protected manual `workflow_dispatch` from `main` with the bounded deploy
+   confirmation.
+2. No manual code changes on the OCI host. `/opt/easymod` holds only
+   `docker-compose.prod.yml`, `Caddyfile`, and `.env` — all rendered by CI.
+3. `docker-compose.prod.yml` is the single production process definition. The PM2
+   path (`ecosystem.config.js`, `commerce-ai.service`) is retired — Docker Compose
+   services (`backend`, `worker`, `frontend`, `growth`, `postgres`, `redis`,
+   `qdrant`, `caddy`) are the only supported runtime.
+4. Image tags are the version identity: CI tags every changed image with the full
+   commit SHA (`ghcr.io/mr3826/easymoderator-backend`, `...-frontend`,
+   `...-growth-os`). Backend and worker share one image (different commands), so
+   worker version == backend image tag. Production deployment must not use
+   `:latest`.
 
-## Current production state
+## Current runtime (2026-11-14)
 
-| Field | Value | Verified |
+| Field | Value |
+|---|---|
+| Cloud | Oracle Cloud Infrastructure (OCI) — sole production host |
+| Public host | `130.210.21.100` |
+| Instance | `easymod-oci-prod-a1` — `ocid1.instance.oc1.ap-mumbai-1.anrg6ljrgdua7wacrqez7xvw2rcim7e6g2jw6u7lytm4yeum4a3erh3sticq` |
+| Shape | `VM.Standard.A1.Flex`, 2 OCPU / 12 GB |
+| OS / arch | Ubuntu 24.04 LTS, aarch64 |
+| Region / tenancy | `ap-mumbai-1` / `ocid1.tenancy.oc1..aaaaaaaahdl6usyhhi6jc4bghpvz3rlbrhyuplj6xyrsf7b4ggrcj3635nva` |
+| Object Storage namespace | `bm1siqos8k1u` |
+| Deploy root | `/opt/easymod` (Docker Compose) |
+| Stack | `backend`, `worker`, `frontend`, `growth`, `postgres`, `redis`, `qdrant`, `caddy`; Caddy is the only public listener and terminates TLS |
+| Running commit | `90e66d65` — "ci: multi-arch (amd64+arm64) image builds…" (PR #246, merged 2026-11-12T22:13Z) |
+| Runtime identity | `/api/version` reports `gitSha=90e66d65…` (canonical API-origin path `/version`) |
+| Migrations | 72 applied; latest `20261103_001_courier_collection_recon_state` |
+| Readiness | `/health/ready` HTTP 200; database connected, Redis reported from per-client classification (`connected` / `degraded` / `not_configured`) |
+| Cutover deploy | Protected `workflow_dispatch` run `43353881466` — success 2026-11-13T02:48:55Z |
+| Image digests | backend `sha256:b8d9abc5…`, frontend `sha256:c1ed9d23…`, growth `sha256:4d0ceebc…` (digest-pinned GHCR pull) |
+
+## Domain and DNS authority
+
+Canonical domain: **`easymod.tech`**. The old `easymoderator.com` name does not
+exist (NXDOMAIN) and must not be used in any production URL.
+
+| Host | Role | DNS |
 |---|---|---|
-| Production commit SHA | Runtime is `bbc1024af831549436afb074ca5037925137d402`; current `origin/main` is `e5d6f973ae55ab497801d2c4e4f09c5690db5769` after workflow-only PRs #167 and #169. The Growth application image remains pinned to the already-built PR #166 image. | 2026-09-25 deployment [Actions run 36185036774](https://github.com/mr3826/easymoderator-monorepo/actions/runs/36185036774), public `/version`, and current `origin/main` |
-| Latest migration on `main` | `20260925_001_growth_os_followup_cancel_event_type`; production reports 57 migrations and public `/version` reports this as the latest migration. | 2026-09-25 deployment and public `/version` |
-| Backend / worker version | Backend and worker use the exact `bbc1024a` candidate image; public `/version` reports `bbc1024af831549436afb074ca5037925137d402`. | 2026-09-25 deployment receipt and public probe |
-| Growth frontend build version | Growth SPA build-info reports `50b659bb4949afaec78a462818b3573d0f99e3e0`, the runtime-affecting PR #166 merge SHA. Workflow-only PRs #167 and #169 did not change Growth source, so the existing published Growth artifact was reused intentionally. | 2026-09-25 deployment, public `build-info.json`, and published digest |
-| Growth image version | `ghcr.io/mr3826/easymoderator-growth-os@sha256:c54a14e4d426ed8908592093bf5147462ed8cd562fa5dc7f4d7dd2aefeb7f942`; deployment used explicit `growth_image_override`, recreated `easymod-growth-frontend-1`, and public `build-info.json` now reports `50b659bb`. | 2026-09-25 deployment run `36185036774` and public probe |
-| Deployment workflow | Exact-SHA manual production deploy succeeded with the explicit Growth digest override. Candidate DB authentication, migrations, schema audit, service replacement, health, version, and rollback checks passed. `PRODUCTION_DEPLOY_ENABLED` was restored to `false`. | [Actions run 36185036774](https://github.com/mr3826/easymoderator-monorepo/actions/runs/36185036774) |
-| Phase 1 security branch | `codex/phase1-security-compliance` is review-only: not merged and not deployed | 2026-07-23 |
+| `easymod.tech` (apex) | Marketing, pricing, privacy, terms | A → `130.210.21.100` |
+| `www.easymod.tech` | 301 → apex | A → `130.210.21.100` |
+| `app.easymod.tech` | Merchant/admin SPA | A → `130.210.21.100` |
+| `api.easymod.tech` | JSON API, webhooks, health, uploads, SSE | A → `130.210.21.100` |
+| `growth.easymod.tech` | Growth OS staff frontend | A → `130.210.21.100` |
+
+- DNS authority is **Cloudflare** for the `easymod.tech` zone. Every A record is
+  **grey-cloud / DNS-only** (`proxied=false`), TTL 300, so Caddy owns TLS and ACME
+  end to end.
+- MX, TXT (SPF/DMARC/DKIM) and Resend rows were preserved unchanged through the
+  2026-11-13 cutover; transactional mail continues through Resend.
+- `www` answers 301 to the apex. Caddy host blocks live in `Caddyfile` at ~line 23
+  (`www`), 28 (`api`), 87 (`app`), 122 (apex) and 204 (`growth`).
+
+## TLS and certificate renewal
+
+- Five Let's Encrypt certificates (issuers YE1/YE2), one per host, issued during
+  the cutover window 2026-11-13T01:59–02:58Z and valid until **2027-02-11T01:59Z**.
+- Caddy **v2.11.3** manages issuance and renewal with **ACME HTTP-01**. Records
+  stay grey-cloud so ports 80/443 reach the host directly.
+- ARI renewal windows are 2027-01-11/12. `caddy_data` is a Docker named volume and
+  persists across container restarts (proven on the OCI host).
+- Certificate expiry is a founder-owned risk: the certificates expire 2027-02-11,
+  **19 days after** the Namecheap registration expires (2027-01-22).
+
+## Deploy pipeline and gates
+
+- Repository: `mr3826/easymoderator` (renamed from `easymoderator-monorepo`; the old
+  name 307-redirects). The repository is public; it was briefly flipped private on
+  2026-11-12 and restored the same day.
+- Main pushes run the required test/build gates and publish **multi-arch
+  (amd64+arm64)** GHCR images tagged by full commit SHA:
+  `ghcr.io/mr3826/easymoderator-backend`, `...-frontend`, `...-growth-os`.
+- Production cutover is a separate protected `workflow_dispatch` (Release/Production)
+  from `main`:
+  - Repo variable `PRODUCTION_DEPLOY_ENABLED=false` (re-armed 2026-11-13T03:14:43Z).
+    **A dispatch while `false` silently SKIPS the deploy job** — it does not fail
+    and does not deploy.
+  - The dispatch must carry the exact `DEPLOY-<full main SHA>` confirmation marker.
+  - The `production` GitHub environment requires reviewer `mr3826`
+    (`required_reviewers: [mr3826]`, `prevent_self_review=false`, so it is
+    self-approvable).
+  - Only digest-pinned images are pulled and started; `:latest` is invalid.
+- `DEPLOY_HOST` holds the OCI IP (rotated 2026-11-13T02:06:50Z).
+  `DO_SSH_PRIVATE_KEY` and `DO_SSH_KNOWN_HOSTS` intentionally keep their historical
+  names; their **values** are OCI's. `known_hosts` must remain ECDSA-first (see
+  `scripts/oci/README.md`).
+- Health gating uses `api.easymod.tech/health/ready` and `/api/version`; never
+  `app.easymod.tech/health`.
+
+## Backup and disaster recovery
+
+- **Nightly off-site backup:** the `Database Backup` workflow (`backup.yml`). Its
+  schedule is declared at 02:00 UTC, but GitHub actually fires it ~08:0x–09:0x UTC.
+  Each run waits on a **manual `production` environment approval by `mr3826`** — the
+  founder chose to keep this approval, so it is manual daily by design.
+- **Off-site destination:** OCI Object Storage bucket `easymod-backups-prod`
+  (namespace `bm1siqos8k1u`), S3-compatible endpoint
+  `https://bm1siqos8k1u.compat.objectstorage.ap-mumbai-1.oraclecloud.com`.
+  - `NoPublicAccess`; 30-day DELETE lifecycle on the `db/` and `uploads/` prefixes.
+  - Credentials: OCI Customer Secret Key `easymod-backup-s3-20261114`.
+  - Lifecycle and privacy are audited nightly through restricted read-only OCI
+    identity `easymod-backup-audit` (group `easymod-backup-auditors`, policy
+    `easymod-backup-audit-read`). Lifecycle execution depends on IAM policy
+    `objectstorage-lifecycle-easymod-v2`.
+  - The job fail-closes on a failed `head-bucket` / credential probe before any
+    dump runs.
+- **First OCI-era run + isolated restore drill:** run `43397427527`, success
+  2026-11-13T09:35Z. The SSH host fingerprint was
+  `SHA256:s68VTR/KVo5rQvBhVPaPf24Nb9ieSqbmy4mMtloi3zY` (OCI host ECDSA key); every
+  pre-cutover run pinned `SHA256:S7VfelwQ19Q9FVVQ0twlKM/XmEoM2OjLa61ItW7g8iI`
+  (the destroyed DigitalOcean droplet).
+- **Boot-volume backups:** boot volume
+  `ocid1.bootvolume.oc1.ap-mumbai-1.abrg6ljrxr3a7t5iaa6uzes2oepoh6vqojlwthwh76yxx62eoxngkaye2mgq`
+  has custom policy `easymod-prod-boot-gold`
+  (`ocid1.volumebackuppolicy.oc1.ap-mumbai-1.amaaaaaagdua7waa5jbwy2anttm24ora3bg6mb3wub5q5gyqubbpszxbw7ga`):
+  weekly FULL Sunday 04:00 UTC retained 30 days + daily INCREMENTAL 05:00 UTC
+  retained 7 days.
+- **Restore-drill contract:** after any change to the backup path, a backup
+  produced on OCI must be uploaded, read back from OCI Object Storage, decrypted,
+  integrity-checked and restore-listed. Run `43397427527` is the current proof.
+- The DO Spaces bucket and `DO_TOKEN` are retained only until the first green OCI
+  off-site run. After that run they are deleted and the DO account can close
+  (founder action).
+
+## Rollback
+
+- **No rollback to DigitalOcean exists.** The droplet `easymod-prod` (`572180595`,
+  `139.59.249.141`, `s-2vcpu-4gb`, `sgp1`) was **DESTROYED 2026-11-13 (~10:27 UTC)**
+  on explicit founder confirmation. The product is pre-launch with no real
+  merchants, so DO-era data was declared moot. The droplet list was verified empty
+  and OCI health was re-verified immediately after. Any runbook section that says
+  "start the DO stack" or "keep the droplet stopped but intact" is void.
+- The only rollback is **redeploy-from-GHCR to the OCI host**: re-dispatch
+  Release/Production with `PRODUCTION_DEPLOY_ENABLED=true`, the exact
+  `DEPLOY-<sha>` marker, and `production` environment approval. It pulls the
+  digest-pinned `ghcr.io/mr3826/easymoderator-{backend,frontend,growth-os}` images
+  for the target SHA and restarts the stack.
+- A rollback is a code/SHA rollback only. It does not restore DO-era data, which no
+  longer exists anywhere.
+
+## History timeline
+
+| Date | Event |
+|---|---|
+| 2026-09-26 | Production ran on the DigitalOcean Singapore droplet `139.59.249.141`; runtime `e6bf0c7e`, 58 migrations. |
+| 2026-11-02 | DigitalOcean-era production runtime `91c0558e`. |
+| 2026-11-12/13 | `3dda3037` → `90e66d65` (multi-arch image builds, PR #246 merged 2026-11-12T22:13Z); OCI cutover deploy run `43353881466` succeeded 2026-11-13T02:48:55Z. |
+| 2026-11-13 ~10:27 UTC | DigitalOcean droplet `easymod-prod` destroyed on founder confirmation; OCI became the only production host. |
+
+## Open founder actions
+
+| Action | Why | Current evidence |
+|---|---|---|
+| Verify Namecheap auto-renew | Registration expires **2027-01-22**, 19 days before the certificates (2027-02-11). Registered 2026-01-22, never renewed, auto-renew unverified. | Namecheap panel; only `clientTransferProhibited` status |
+| Add CAA record `0 issue "letsencrypt.org"` | No CAA record exists and Caddy uses Let's Encrypt. | Cloudflare DNS |
+| Consider DNSSEC + registry lock | Zone is not DNSSEC-signed; transfer lock is only `clientTransferProhibited`. | Cloudflare / Namecheap |
+| Meta Tech Provider Access Verification | Deadline **2026-11-21**. | Meta dashboard |
+| Close the DigitalOcean account | Only after the first green OCI off-site backup run, once the Spaces bucket and `DO_TOKEN` are deleted. | Pending run |
+
+## Receipts
+
+### 2026-11-13 — OCI production cutover
+
+- `DEPLOY_RUN`: `43353881466` (`workflow_dispatch`, success
+  `2026-11-13T02:48:55Z`).
+- `RUNTIME_SHA`: `90e66d65`; `/api/version` matches; 72 migrations with latest
+  `20261103_001_courier_collection_recon_state`.
+- `READINESS`: `/health/ready` HTTP 200.
+- `DNS`: five A records at `130.210.21.100`, grey-cloud, TTL 300; non-A mail rows
+  unchanged.
+- `TLS`: five Let's Encrypt certificates live, valid to `2027-02-11T01:59Z`.
+- `DEPLOYMENT_GATE`: `PRODUCTION_DEPLOY_ENABLED=false` re-armed
+  `2026-11-13T03:14:43Z`.
+
+### 2026-11-13 — first OCI-era backup and isolated restore drill
+
+- `BACKUP_RUN`: `43397427527`, success `2026-11-13T09:35Z`.
+- `HOST_PROOF`: SSH fingerprint
+  `SHA256:s68VTR/KVo5rQvBhVPaPf24Nb9ieSqbmy4mMtloi3zY` (OCI host ECDSA key).
+- `RESTORE_DRILL`: isolated restore drill passed — backup read back, decrypted,
+  integrity-checked and restore-listed.
+
+### 2026-11-14 — post-cutover audit
+
+- The 11-agent adversarial audit confirmed the runtime, DNS, TLS and backup facts
+  above. It also found and recorded the health-probe traps at the top of this file,
+  the missing external uptime monitoring (now covered by `production-watch.yml`) and
+  the over-reported Redis readiness field (fixed in this PR: the `redis` field now
+  reports `connected` / `degraded` / `not_configured` from per-client
+  classification).
 
 ## Verification limits
 
-The latest receipt proves the GitHub deployment target, candidate image pulls,
-database authentication, migration ordering, schema audit, backend version
-identity, backend readiness, the explicit Growth image digest, and public
-backend/frontend/Growth HTTP smoke responses. It does not prove a privileged
-authenticated operator walkthrough, Sentry human-visible receipt, worker
+The receipts above prove the deployed SHA, migration ledger, readiness, DNS
+ownership, TLS issuance and the off-site backup/restore path. They do **not** prove
+an authenticated operator walkthrough, a human-visible Sentry receipt, worker
 canary behavior, media restore, Qdrant recovery, Redis recovery, or a live
-production rollback. The deployment uses a fail-closed `/api/version.gitSha`
-check before reporting success.
+production rollback execution. No claim is made for those boundaries.
 
-## 2026-09-25 owner discovery and work queues deployment receipt
-
-- `MERGED_SHA`: `ccae4b97af3eeb4765c5e78911d74a817ff750a2` from PR #162.
-- `DEPLOYMENT_RUN`: `36156435580` — exact-SHA `target=all` deployment completed
-  successfully.
-- `MIGRATION`: no schema changes; production remains at migration count 57 with
-  latest `20260925_001_growth_os_followup_cancel_event_type`.
-- `VERSION_PROBE`: HTTP 200; `gitSha` exactly matches `ccae4b97`.
-- `BACKEND_READINESS`: HTTP 200; database and Redis report connected.
-- `GROWTH_READINESS`: HTTP 200; Growth root returned HTTP 200.
-- `AUTHORIZATION_BOUNDARY`: unauthenticated Growth session and prospect API
-  requests returned HTTP 401.
-- `DEPLOYMENT_GATE`: `PRODUCTION_DEPLOY_ENABLED=false` restored at
-  2026-09-25T17:16:30Z.
-- `UNVERIFIED`: authenticated Growth operator walkthrough, frontend/Growth
-  image digest, Sentry receipt, and live rollback remain external or separate
-  proof boundaries; no claim is made for them.
-
-## 2026-09-25 Growth OS MVP-1 final engineering deployment receipt
-
-- `IMPLEMENTATION_MERGE_SHA`: `50b659bb4949afaec78a462818b3573d0f99e3e0` from PR #166.
-- `DEPLOY_CONTRACT_MERGE_SHA`: `bbc1024af831549436afb074ca5037925137d402` from PR #167;
-  workflow-only change adding the explicit `growth_image_override` dispatch input.
-- `BOOTSTRAP_WORKFLOW_FIX`: PR #169, merged as
-  `e5d6f973ae55ab497801d2c4e4f09c5690db5769`; the audited role grant now
-  executes inside the running backend container without requiring Compose image
-  variables from `.env.prod`.
-- `GROWTH_IMAGE`: `ghcr.io/mr3826/easymoderator-growth-os@sha256:c54a14e4d426ed8908592093bf5147462ed8cd562fa5dc7f4d7dd2aefeb7f942`.
-- `DEPLOYMENT_RUN`: `36185036774` — exact-SHA `target=all` deployment completed
-  successfully with `growth_image_override` set to the published digest.
-- `MIGRATION`: no schema changes; production remains at migration count 57 with
-  latest `20260925_001_growth_os_followup_cancel_event_type`.
-- `VERSION_PROBE`: HTTP 200; backend `gitSha` exactly matches `bbc1024a`.
-- `GROWTH_BUILD_PROBE`: HTTP 200; public `build-info.json` reports the intended
-  runtime-affecting Growth SHA `50b659bb`.
-- `BACKEND_READINESS`: HTTP 200; database and Redis overall readiness report
-  connected. Optional/lazy Redis subclient flags remain mixed and are not
-  treated as a required-readiness failure.
-- `GROWTH_READINESS`: HTTP 200 with `app=growth-os`; Growth root returned HTTP 200.
-- `AUTHORIZATION_BOUNDARY`: unauthenticated Growth session requests returned
-  HTTP 401.
-- `DEPLOYMENT_GATE`: `PRODUCTION_DEPLOY_ENABLED=false` restored at
-  2026-09-25T20:34:24Z.
-- `ROLLBACK_STATUS`: `MECHANISM_VERIFIED`; deployment workflow completed its
-  protected rollback checks, but no live production rollback was executed.
-- `AUTHENTICATED_PRODUCTION`: `BLOCKED_EXTERNAL_CREDENTIAL`; no operator
-  identity, MFA proof, or `GROWTH_BOOTSTRAP_ACTOR_EMAIL` was available.
-- `SENTRY`: `BLOCKED_EXTERNAL_CREDENTIAL`; DSN provisioning and human-visible
-  event receipt remain unavailable.
-- `BOOTSTRAP_PROOF`: the corrected audited workflow reached the production role
-  service. `info@easymod.tech` was rejected because it has an active merchant
-  membership; `founder@easymod.tech` and `growth@easymod.tech` were not found.
-  No role grant or manual data mutation was performed. A real existing shop-less
-  target identity is still required.
-
-## 2026-09-25 autonomous credential audit receipt
-
-- `AUDIT_MAIN`: `aea32dddb65dd86bddf36dd080e0dd89c8ed18c8` before this
-  documentation-only receipt.
-- `RUNTIME`: backend/worker remains `bbc1024af831549436afb074ca5037925137d402`;
-  Growth SPA remains `50b659bb4949afaec78a462818b3573d0f99e3e0`; Growth image
-  digest remains verified as
-  `sha256:c54a14e4d426ed8908592093bf5147462ed8cd562fa5dc7f4d7dd2aefeb7f942`.
-- `DEPLOYMENT_GATE`: `PRODUCTION_DEPLOY_ENABLED=false`.
-- `BOOTSTRAP_ACTOR_CONFIG`: `GROWTH_BOOTSTRAP_ACTOR_EMAIL` is intentionally
-  absent after temporary candidate checks. It must be a protected production
-  environment secret containing an existing actor account email, not a password,
-  token, or fabricated identity.
-- `BOOTSTRAP_TARGET_CONFIG`: the workflow input is a non-secret existing user
-  email. The role service rejects active merchant memberships and requires an
-  empty active-Super-Admin set for first bootstrap. Growth user creation is not
-  available before the first Super Admin, so no autonomous account-provisioning
-  route exists.
-- `BOOTSTRAP_RESULTS`: protected runs reached the role service and failed closed
-  for merchant-linked or nonexistent candidates. No role, account, session, or
-  production data mutation occurred.
-- `SENTRY_BACKEND_CONFIG`: repository secret `SENTRY_DSN` is present and is
-  consumed only by backend/worker runtime configuration. Its value is not
-  printed or copied.
-- `SENTRY_BROWSER_CONFIG`: `VITE_SENTRY_DSN` is absent from repository and
-  production environment variables. The frontend code treats it as optional and
-  does not receive the backend secret by fallback.
-- `SENTRY_RECEIPT`: not proven. The approved test-alert route requires an
-  authenticated `SUPER_ADMIN`; no valid Growth session exists.
-- `AUTHENTICATED_GROWTH`: not proven. No eligible shop-less target account or
-  supported pre-bootstrap account creation route exists in the current state.
-- `MOBILE`: no mobile worktree, branch, dirty file, source, CI, or concurrent
-  agent state was modified.
-
-## 2026-09-26 Growth bootstrap implementation receipt
-
-The pre-bootstrap account deadlock is resolved in the pending Growth change;
-this receipt does not claim production execution. The protected
-`seed-initial-growth-admin.yml` workflow creates only the dedicated shop-less
-operator identity with a transient secret, production password hashing, forced
-rotation, and a one-time marker. The canonical `grant-growth-role.yml` workflow
-remains the only role mutation path and now requires completed rotation and
-real MFA before its transactional audited `SUPER_ADMIN` grant; it clears the
-marker and invalidates sessions in that transaction. The workflow streams the
-temporary password to the running container and never places it in process
-arguments, logs, source, or audit payloads.
-
-- `BOOTSTRAP_IMPLEMENTATION`: `PENDING_MERGE_AND_LIVE_PROOF`
-- `BOOTSTRAP_LIVE_SEED`: `NOT_RUN`
-- `PASSWORD_ROTATION`: `NOT_PROVEN`
-- `MFA`: `NOT_PROVEN`
-- `GROWTH_BOOTSTRAP_ACTOR_EMAIL`: `NOT_CONFIGURED`
-- `VITE_SENTRY_DSN`: `NOT_DISCOVERABLE_FROM_AUTHORIZED_SOURCES`
-- `MOBILE_WORK`: `PROTECTED_AND_UNMODIFIED`
-
-## 2026-09-26 (evening) Growth bootstrap live completion receipt
-
-The pending state above was superseded the same day. No secret, DSN, MFA
-seed, password, or session value is recorded here.
-
-- Production runtime: `5d1929dbc1d247de010e4724d649740d9e5b35c0`; deploy gate
-  restored and verified `false`.
-- Seed: `seed-initial-growth-admin.yml` run `36218828021` created the shop-less
-  operator identity with forced rotation and the one-time marker only. Two
-  fail-closed production-drift repairs preceded it (missing `users.role`
-  column; `settings` stored as `json`), each merged through protected CI and
-  each leaving no partial production write.
-- Password rotation completed through the normal forced flow; the bootstrap
-  temporary credential is verified rejected.
-- MFA enrolled through the genuine production setup/verify/enable flow and
-  enforced at login (control plane shows `MFA: Yes`).
-- `GROWTH_BOOTSTRAP_ACTOR_EMAIL` configured in the protected production
-  environment.
-- `SUPER_ADMIN` granted via the canonical audited `grant-growth-role.yml` run
-  `36220618508`; pre-grant sessions invalidated (401), audit receipt present,
-  marker cleared in the same transaction, fresh MFA-authenticated `SUPER_ADMIN`
-  session verified.
-- Authenticated production walkthrough and the disposable owner-revocation
-  proof both passed; no live merchant data mutated.
-- Platform `SUPER_ADMIN` granted via `grant-platform-admin.yml` run
-  `36222365407`, enabling admin-API authorization for the operator.
-- Sentry residual boundary: backend Sentry configured/healthy; the controlled
-  `/api/admin/ops/test-alert` emission requires a human operator login on the
-  API host (by design) and provider-side receipt proof requires a Sentry auth
-  token that exists in no authorized source. `VITE_SENTRY_DSN` remains
-  undiscoverable from all authorized sources; browser error tracking stays
-  disabled by design until the provider provisions a canonical public DSN.
-
-
-## Commercial model rollout status
-
-The rollback-safe runtime and current Growth control-plane migrations are deployed
-by main commit `81437a6aacbf9e2d519816d5824a18ecfe7d332b`. The
-2026-09-23 production migration and schema audit completed successfully with no
-drift; the earlier repair-ledger evidence remains preserved in the dated audit
-history.
-
-## Post-deploy verification (run on the droplet after each deploy)
+## Post-deploy verification (run against the OCI host after each deploy)
 
 ```bash
 # What is actually running, and since when
-docker ps --format '{{.Names}}\t{{.Image}}\t{{.CreatedAt}}'
+ssh root@130.210.21.100 "docker ps --format '{{.Names}}\t{{.Image}}\t{{.CreatedAt}}'"
 
-# Cross-check against the canonical monorepo main ref
-git ls-remote https://github.com/mr3826/easymoderator-monorepo.git refs/heads/main
+# Cross-check against the canonical repository main ref
+git ls-remote https://github.com/mr3826/easymoderator.git refs/heads/main
 
 # Application-reported release and migration ledger summary. This is not schema proof.
 curl --fail --silent --show-error https://api.easymod.tech/version
 
 # Entity-backed schema contract (read-only; must return no drift)
-docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm --no-deps -T \
-  -e RUN_MIGRATIONS_ON_STARTUP=false backend npm run schema:audit
+ssh root@130.210.21.100 "cd /opt/easymod && docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm --no-deps -T -e RUN_MIGRATIONS_ON_STARTUP=false backend npm run schema:audit"
 ```
 
 ## Launch-freeze exception log
@@ -210,56 +243,3 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm --no-dep
 | Date | Exception | Resolution |
 |---|---|---|
 | 2026-07-23 | Prod had been running `f1c7ee5` from unmerged branch `codex/messenger-production-recovery` | PR #73 merged as `3f878e3`; the canonical `main` deployment workflow completed successfully and restored the source-of-truth invariant |
-
-## 2026-09-25 follow-up lifecycle deployment receipt
-
-- `MERGED_SHA`: `61f92dbc60b6dbde80357b143d47961ef65120e0` from PR #159.
-- `DEPLOYMENT_RUN`: `36145507046` — exact-SHA manual production deployment
-  completed successfully after `production` environment approval.
-- `MIGRATION`: `20260925_001_growth_os_followup_cancel_event_type` applied;
-  public `/version` reports it as migration 57, the latest migration.
-- `VERSION_PROBE`: HTTP 200; `gitSha` exactly matches `61f92dbc`.
-- `BACKEND_READINESS`: HTTP 200; database and Redis readiness reported by the
-  backend probe.
-- `GROWTH_READINESS`: `https://growth.easymod.tech/health/ready` returned HTTP
-  200 with `app=growth-os`; the Growth root returned HTTP 200.
-- `AUTHORIZATION_BOUNDARY`: unauthenticated Growth session and prospect API
-  requests returned HTTP 401.
-- `DEPLOYMENT_GATE`: `PRODUCTION_DEPLOY_ENABLED=false` restored at
-  2026-09-25T14:26:46Z.
-- `UNVERIFIED`: authenticated Growth operator walkthrough, Growth image digest,
-  Sentry receipt, and live rollback execution remain external/unavailable proof
-  boundaries; no claim is made for them.
-
----
-
-## 2026-09-26T15:20Z — MVP-1 Remediation Runtime + Real-Data Cutover
-
-- `PRODUCTION_RUNTIME_SHA`: `e6bf0c7ea038ab7ca092f0edb25a691342ed6243`
-  (deploy run `36250821060`, success, `production` environment approved).
-  Backend `/api/version` and Growth `build-info.json` both report this SHA;
-  the Growth image is digest-pinned
-  `sha256:85a3ee2241a9912779cd6268b6d0ea8d4b69772ea253374a8efe578dfc133b68`.
-- `MIGRATION`: `/version` reports 58 migrations, latest
-  `20260914_001_native_session_refresh_lineage` (mobile wave-2 lineage;
-  Growth schema unchanged since `20260925_001`).
-- `READINESS`: backend `/health/ready` 200; growth `/health/ready` 200;
-  growth root 200; apex 200; app 200.
-- `AUTHORIZATION_BOUNDARY`: unauthenticated
-  `/api/internal/growth-os/session` and `/prospects` return 401; non-proxied
-  API paths on the growth host return 404.
-- `EDGE_ISOLATION`: Caddy no longer depends on the internal Growth SPA
-  container at boot (PR #186); merchant hosts verified 200 with Growth
-  routing intact.
-- `REAL_DATA_IMPORT`: protected `run-growth-importer` apply run `36251822972`
-  imported 4 historical prospects (1 additional source deduplicated onto an
-  existing identity; 1 permanently invalid source row rejected and recorded).
-  Post-apply verification: full 6-row scan, identical rejection set,
-  `SECOND_RUN_WOULD_CREATE=0` — idempotency enforced by gate, receipts under
-  `/root/growth-os-receipts/`.
-- `DEPLOYMENT_GATE`: `PRODUCTION_DEPLOY_ENABLED=false` restored
-  (2026-09-26T15:17Z window closed after final verification).
-- `UNVERIFIED`: authenticated operator walkthrough of the imported ledger and
-  numeric value-measurement baseline require an operator-held MFA session
-  (`PROOF_REQUIRES_OPERATOR_SESSION`); Sentry provider receipt remains
-  `USER_CONFIGURATION_REQUIRED`. No claim is made beyond deployed evidence.

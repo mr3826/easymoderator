@@ -69,17 +69,35 @@ describe('recovery gate', () => {
     expect(renderReport(report)).toContain('PRODUCTION_DEPLOY_ENABLED=false');
   });
 
-  test('pauses off-host execution explicitly when DO_TOKEN is missing', () => {
-    const previous = process.env.DO_TOKEN;
-    delete process.env.DO_TOKEN;
+  test('pauses off-host execution explicitly when off-site credentials are missing', () => {
+    // The DO_TOKEN probe was retired with the 2026-11-13 OCI cutover; the
+    // fail-closed contract now hangs on the off-site object-storage credentials
+    // themselves (names kept from the Spaces era, values point at OCI).
+    const names = [
+      'DO_TOKEN',
+      'SPACES_ACCESS_KEY_ID',
+      'SPACES_SECRET_ACCESS_KEY',
+      'SPACES_ENDPOINT',
+      'BACKUP_BUCKET',
+      'BACKUP_ENCRYPTION_KEY',
+    ];
+    const saved = {};
+    for (const name of names) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
     try {
       const report = buildReport({ repoRoot: path.resolve(__dirname, '../../..'), probeDocker: false, executeOffhost: true });
-      expect(report.doTokenStatus).toBe('DO_TOKEN_MISSING');
-      expect(report.recoveryExecutionPausedForCredential).toBe(true);
-      expect(renderReport(report)).toContain('RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL');
+      const verification = report.agents.backup.offhost.verification;
+      expect(verification.status).toBe('BLOCKED_EXTERNAL_CREDENTIAL');
+      expect(verification.blocker).toBe('SPACES_CREDENTIALS_MISSING');
+      expect(report.finalStatus).toBe('RECOVERY_GATE_BLOCKED');
+      expect(renderReport(report)).toContain('BLOCKED_EXTERNAL_CREDENTIAL');
     } finally {
-      if (previous === undefined) delete process.env.DO_TOKEN;
-      else process.env.DO_TOKEN = previous;
+      for (const name of names) {
+        if (saved[name] === undefined) delete process.env[name];
+        else process.env[name] = saved[name];
+      }
     }
   });
 

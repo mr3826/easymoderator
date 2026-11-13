@@ -14,7 +14,7 @@ EasyModerator is a production-focused Messenger sales and order automation platf
 | `EasyMod-frontend/` | React/Vite merchant dashboard, marketing pages, inbox, products, orders, first-time setup, and legal pages. |
 | `EasyMod-growth/` | Independent React/Vite TypeScript Growth OS staff frontend, served on `growth.easymod.tech` and using the `/api/internal/growth-os/*` namespace. |
 | `.github/workflows/` | Canonical CI/CD, Growth OS publish, backup, administration, purge, and load-testing workflows. |
-| `docker-compose.prod.yml` | Production service composition used on the DigitalOcean droplet. |
+| `docker-compose.prod.yml` | Production service composition used on the production OCI host. |
 | `Caddyfile` | Production reverse proxy/static serving configuration. |
 | `docs/` | Launch, App Review, operational, and audit documentation. |
 | `package.json` | Root npm workspace orchestration; module package manifests remain authoritative for dependencies. |

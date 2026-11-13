@@ -659,12 +659,18 @@ describe('production workflow branch safety', () => {
         expect(backupWorkflow).toContain(
             'OFFSITE_RETENTION_DAYS must be a positive integer',
         );
-        expect(backupWorkflow).toContain(
-            "Rules[?Status==`Enabled` && Expiration.Days != `null`].[Filter.Prefix,Expiration.Days]",
-        );
-        expect(backupWorkflow).toContain(
-            'END { exit (broad || (db && uploads)) ? 0 : 1 }',
-        );
+        // Retention + privacy are proven OCI-natively with the restricted
+        // read-only audit identity: the S3-compat API cannot read OCI
+        // lifecycle policies, so the DO-era S3 query must never come back.
+        expect(backupWorkflow).toContain('get_object_lifecycle_policy');
+        expect(backupWorkflow).toContain('public_access_type != "NoPublicAccess"');
+        expect(backupWorkflow).toContain('OFFSITE_PRIVACY_CHECK=NoPublicAccess:PASS');
+        expect(backupWorkflow).toContain('OFFSITE_LIFECYCLE_RETENTION=');
+        expect(backupWorkflow).not.toContain('get-bucket-lifecycle-configuration');
+        // The retired DigitalOcean token probe must not be reintroduced; the
+        // fail-closed contract now hangs on the off-site credentials themselves.
+        expect(backupWorkflow).not.toContain('DO_TOKEN');
+        expect(backupWorkflow).toContain('RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL');
         expect(backupWorkflow).toContain(
             'Off-site lifecycle retention policy verified',
         );
