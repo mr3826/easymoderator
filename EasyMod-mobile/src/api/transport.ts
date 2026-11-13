@@ -9,7 +9,8 @@ export interface HttpResponse {
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  body?: unknown;
+  /** Request bodies are JSON objects; the transport owns serialization. */
+  body?: object;
   headers?: Record<string, string>;
   /** Skip attaching the Authorization header — used for signin, which has no token yet. */
   skipAuth?: boolean;
@@ -36,7 +37,17 @@ export const fetchTransport: Transport = {
     const { method = 'GET', body, headers = {}, skipAuth = false, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
 
     const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const clearRequestTimeout = () => {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = undefined;
+      }
+    };
+    timeoutHandle = setTimeout(() => {
+      controller.abort();
+      clearRequestTimeout();
+    }, timeoutMs);
 
     const finalHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -71,12 +82,12 @@ export const fetchTransport: Transport = {
           try {
             return await res.json();
           } finally {
-            clearTimeout(timeoutHandle);
+            clearRequestTimeout();
           }
         },
       };
     } catch (error) {
-      clearTimeout(timeoutHandle);
+      clearRequestTimeout();
       throw error;
     }
   },

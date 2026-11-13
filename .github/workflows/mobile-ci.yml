@@ -4,9 +4,10 @@ name: Mobile CI
 # this workflow carries no secrets, no deployment environment and no
 # workflow_dispatch trigger, and it never pushes to a registry or reaches a host
 # over SSH. It validates every pull request with a cheap isolation check, then
-# runs the mobile proof only for mobile-relevant changes. Pushes to mobile/**
-# branches also run the mobile proof; it never
-# runs for a push to main (the signed build there is mobile-release.yml). The
+# runs the fast mobile proof only for mobile-relevant changes. Pushes to mobile/**
+# branches also run the fast proof. The expensive all-ABI/runtime proof is
+# opt-in on a pull request with the `mobile-native` label and the signed build
+# on main is owned by mobile-release.yml. It never runs for a push to main. The
 # isolation-guard job below fails the run structurally if any of that ever
 # changes — do not weaken it to make a future change pass.
 
@@ -28,7 +29,7 @@ on:
       - '.github/scripts/verify-mobile-ci-isolation.js'
       - '.github/scripts/verify-mobile-protected-paths.js'
   # Every PR gets a stable Mobile CI status. Non-mobile diffs run only the
-  # isolation/path detector; mobile-relevant diffs run the full proof.
+  # isolation/path detector; mobile-relevant diffs run the fast proof.
   pull_request:
     branches:
       - main
@@ -141,7 +142,8 @@ jobs:
     if: >-
       needs.protected-paths.result == 'success' &&
       needs.protected-paths.outputs.mobile_relevant == 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'mobile-native'))
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'mobile-native')
     timeout-minutes: 90
     env:
       APP_VARIANT: preview
@@ -254,6 +256,15 @@ jobs:
             --out "$RUNNER_TEMP/signing-path-manifest" | tee artifacts/signing-path-check.txt
           rm -f "$keystore"
 
+      - name: Free safe runner storage before emulator provisioning
+        # Hosted runners may already contain multiple SDK system images. Remove
+        # those unused images before the API 24 runtime proof provisions its own.
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sudo rm -rf "$sdk_root/system-images" "$sdk_root/ndk" "$sdk_root/cmake"
+          df -h
+
       - name: Enable KVM
         run: |
           set -euo pipefail
@@ -261,16 +272,25 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Install and cold-launch the re-signed release APK on API 24 (x86)
+      - name: Verify release minimum SDK without an API 24 emulator
+        run: |
+          set -euo pipefail
+          aapt="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          test -n "$aapt"
+          min_sdk="$($aapt dump badging android/app/build/outputs/apk/release/app-release.apk | sed -n "s/.*sdkVersion:'\([^']*\)'.*/\1/p")"
+          test "$min_sdk" = '24'
+          echo "Verified release minSdkVersion=$min_sdk"
+
+      - name: Install and cold-launch the re-signed release APK on API 34 (x86_64)
         uses: reactivecircus/android-emulator-runner@324029e2f414c084d8b15ba075288885e74aef9c # v2.34.0
         with:
-          api-level: 24
-          target: google_apis
-          arch: x86
-          profile: Nexus 5
-          ram-size: 2048M
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
           disable-animations: true
           working-directory: ./EasyMod-mobile
           script: node scripts/android-install-launch-check.js signing-path/app-release.apk tech.easymod.merchant.preview artifacts
@@ -417,7 +437,14 @@ jobs:
           unzip -q "$MAESTRO_ZIP" -d "$MAESTRO_UNPACK"
           cp -R "$MAESTRO_UNPACK/maestro/." "$MAESTRO_DIR/"
           echo "$MAESTRO_DIR/bin" >> "$GITHUB_PATH"
-          "$MAESTRO_DIR/bin/maestro" --version
+           "$MAESTRO_DIR/bin/maestro" --version
+
+      - name: Free safe runner storage before emulator provisioning
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sudo rm -rf "$sdk_root/system-images" "$sdk_root/ndk" "$sdk_root/cmake"
+          df -h
 
       - name: Enable KVM
         run: |
@@ -430,7 +457,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@324029e2f414c084d8b15ba075288885e74aef9c # v2.34.0
         with:
           api-level: 34
-          target: google_apis
+          target: default
           arch: x86_64
           profile: pixel_6
           ram-size: 4096M
@@ -568,7 +595,7 @@ jobs:
           MOBILE_RELEVANT: ${{ needs.protected-paths.outputs.mobile_relevant }}
           R_MOBILE: ${{ needs.mobile.result }}
           R_RELEASE: ${{ needs.android-release.result }}
-          ANDROID_REQUIRED: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'mobile-native') }}
+          ANDROID_REQUIRED: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'mobile-native') }}
           R_BACKEND: ${{ needs.mobile-backend-contract.result }}
           BACKEND_TOUCHED: ${{ needs.protected-paths.outputs.backend_touched }}
           R_E2E_SCOPE: ${{ needs.mobile-e2e-scope.result }}

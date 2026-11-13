@@ -5,15 +5,25 @@ tags:
   - products
   - stock-stepper
 ---
-- launchApp
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../support/sign-in.yaml
+    env:
+      LOGIN_EMAIL: ${E2E_EMAIL}
+      LOGIN_PASSWORD: ${E2E_PASSWORD}
 - extendedWaitUntil:
     visible:
       id: home-attention-list
     timeout: 60000
-- openLink: easymodmerchant://products
+- openLink: easymodmerchantdev://products
 - extendedWaitUntil:
     visible:
       id: product-screen-title
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: product-card-${E2E_SHOP_A_PRODUCT_ID}
     timeout: 30000
 - assertVisible:
     id: product-add-draft-btn
@@ -23,15 +33,20 @@ tags:
     id: product-chip-low_stock
 - assertVisible:
     id: product-chip-out_of_stock
+- assertVisible:
+    id: stepper-increment-${E2E_SHOP_A_PRODUCT_ID}
+- tapOn:
+    id: stepper-increment-${E2E_SHOP_A_PRODUCT_ID}
 - tapOn:
     id: product-add-draft-btn
 - extendedWaitUntil:
     visible:
-      id: draft-name-input
+      id: photo-draft-name-input
     timeout: 10000
 - assertVisible:
-    id: draft-price-input
+    id: photo-draft-price-input
 - assertVisible:
-    id: draft-save-btn
+    id: photo-draft-submit-btn
 - tapOn:
-    id: draft-cancel-btn
+    id: photo-draft-close-btn
+- back

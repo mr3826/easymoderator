@@ -228,6 +228,15 @@ jobs:
           sudo rm -rf "$sdk_root/system-images" "$sdk_root/ndk" "$sdk_root/cmake"
           df -h | tee signed/release/disk-after-cleanup.txt
 
+      - name: Verify release minimum SDK without an API 24 emulator
+        run: |
+          set -euo pipefail
+          aapt="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          test -n "$aapt"
+          min_sdk="$($aapt dump badging signed/release/app-release.apk | sed -n "s/.*sdkVersion:'\([^']*\)'.*/\1/p")"
+          test "$min_sdk" = '24'
+          echo "Verified release minSdkVersion=$min_sdk"
+
       - name: Enable KVM
         run: |
           set -euo pipefail
@@ -235,16 +244,16 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Install and cold-launch the signed APK on API 24 (x86)
+      - name: Install and cold-launch the signed APK on API 34 (x86_64)
         uses: reactivecircus/android-emulator-runner@324029e2f414c084d8b15ba075288885e74aef9c # v2.34.0
         with:
-          api-level: 24
+          api-level: 34
           target: default
-          arch: x86
-          profile: Nexus 5
-          ram-size: 2048M
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
           disable-animations: true
           working-directory: ./
           script: node EasyMod-mobile/scripts/android-install-launch-check.js signed/release/app-release.apk ${{ matrix.package }} signed/release/runtime

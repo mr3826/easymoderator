@@ -110,7 +110,7 @@ export function useConfirmOrder() {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ idempotencyKey }),
+          body: { idempotencyKey },
         },
       );
       if (!result.ok) throw result.error;
@@ -158,7 +158,7 @@ export function useCancelOrder() {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ reason, idempotencyKey }),
+          body: { reason, idempotencyKey },
         },
       );
       if (!result.ok) throw result.error;
@@ -220,7 +220,7 @@ export function useCreateManualOrder() {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify(params),
+          body: params,
         },
       );
       if (!result.ok) throw result.error;

@@ -5,7 +5,13 @@ tags:
   - home
   - daily-summary
 ---
-- launchApp
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../support/sign-in.yaml
+    env:
+      LOGIN_EMAIL: ${E2E_EMAIL}
+      LOGIN_PASSWORD: ${E2E_PASSWORD}
 - extendedWaitUntil:
     visible:
       id: home-attention-list
@@ -32,3 +38,4 @@ tags:
     id: mobile-courier-filter-failed
 - assertVisible:
     id: mobile-courier-filter-returned
+- back

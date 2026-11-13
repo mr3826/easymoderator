@@ -23,11 +23,13 @@ import {
   useSetConversationAiMode,
 } from '@/hooks/useInbox';
 import { OrderDraftModal } from '@/components/orders/OrderDraftModal';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { brandColors, fontFamily, neutral, radius, spacing } from '@/theme/tokens';
 
 export function ConversationScreen({ id }: { id: string | undefined }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const isOnline = useNetworkStatus();
   const [replyText, setReplyText] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [draftModalVisible, setDraftModalVisible] = useState(false);
@@ -64,7 +66,7 @@ export function ConversationScreen({ id }: { id: string | undefined }) {
 
   const handleSend = async () => {
     const trimmed = replyText.trim();
-    if (!trimmed || !id || sendReplyMutation.isPending) return;
+    if (!isOnline || !trimmed || !id || sendReplyMutation.isPending) return;
 
     setErrorMessage(null);
     const idempotencyKey = `idemp-mob-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -87,7 +89,7 @@ export function ConversationScreen({ id }: { id: string | undefined }) {
   };
 
   const handleToggleAi = async () => {
-    if (!id || setAiModeMutation.isPending) return;
+    if (!isOnline || !id || setAiModeMutation.isPending) return;
     try {
       await setAiModeMutation.mutateAsync({
         conversationId: id,
@@ -123,6 +125,7 @@ export function ConversationScreen({ id }: { id: string | undefined }) {
             <Pressable
               testID="mobile-conversation-create-draft"
               onPress={() => setDraftModalVisible(true)}
+              disabled={!isOnline}
               style={styles.draftPill}
               accessibilityRole="button"
             >
@@ -131,7 +134,7 @@ export function ConversationScreen({ id }: { id: string | undefined }) {
             <Pressable
               testID="mobile-conversation-ai-toggle"
               onPress={handleToggleAi}
-              disabled={setAiModeMutation.isPending}
+              disabled={!isOnline || setAiModeMutation.isPending}
               style={[styles.aiPill, isAiPaused ? styles.aiPillPaused : styles.aiPillActive]}
               accessibilityRole="button"
             >
@@ -184,15 +187,15 @@ export function ConversationScreen({ id }: { id: string | undefined }) {
             placeholderTextColor={neutral.muted}
             multiline
             maxLength={2000}
-            editable={!sendReplyMutation.isPending}
+            editable={isOnline && !sendReplyMutation.isPending}
           />
           <Pressable
             testID="mobile-conversation-send-btn"
             style={[
               styles.sendButton,
-              (!replyText.trim() || sendReplyMutation.isPending) && styles.sendButtonDisabled,
+              (!isOnline || !replyText.trim() || sendReplyMutation.isPending) && styles.sendButtonDisabled,
             ]}
-            disabled={!replyText.trim() || sendReplyMutation.isPending}
+            disabled={!isOnline || !replyText.trim() || sendReplyMutation.isPending}
             onPress={handleSend}
             accessibilityRole="button"
           >

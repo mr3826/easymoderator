@@ -139,8 +139,9 @@ export function ProductListScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('mobile.products.addDraft', 'নতুন ড্রাফট')}
           testID="product-add-draft-btn"
-          style={styles.addDraftBtn}
+          style={[styles.addDraftBtn, !isOnline ? styles.buttonDisabled : null]}
           onPress={() => setIsDraftModalVisible(true)}
+          disabled={!isOnline}
         >
           <Text style={styles.addDraftBtnText}>+ {t('mobile.products.addDraftShort', 'ড্রাফট')}</Text>
         </Pressable>
@@ -175,6 +176,7 @@ export function ProductListScreen() {
             <Pressable
               key={chip.id}
               accessibilityRole="button"
+              testID={`product-chip-${chip.id}`}
               style={[styles.chip, isActive && styles.chipActive]}
               onPress={() => setSelectedStockFilter(chip.id)}
             >
@@ -275,6 +277,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  buttonDisabled: { opacity: 0.5 },
   addDraftBtnText: {
     fontFamily: fontFamily.bold,
     fontSize: 13,

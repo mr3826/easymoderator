@@ -87,12 +87,12 @@ export function useQuickUpdateStock() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
+          body: {
             stockDelta,
             newStock,
             newPrice,
             inStock,
-          }),
+          },
         },
       );
 
@@ -179,14 +179,14 @@ export function usePhotoDraft() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
+          body: {
             name,
             price,
             quantity: quantity ?? 0,
             description,
             category,
             image_url,
-          }),
+          },
         },
       );
 

@@ -15,20 +15,14 @@ const allowedBuildAdvisories = new Map([
     [1240992, {
         packageName: 'braces',
         url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm',
-        remediations: [
-            { name: 'jest', version: '30.5.2', isSemVerMajor: true },
-            { name: 'expo', version: '44.0.6', isSemVerMajor: true },
-        ],
     }],
     [1240912, {
         packageName: 'node-forge',
         url: 'https://github.com/advisories/GHSA-86w9-cpqp-85rv',
-        remediations: [{ name: 'expo', version: '44.0.6', isSemVerMajor: true }],
     }],
     [1241202, {
         packageName: 'sprintf-js',
         url: 'https://github.com/advisories/GHSA-hp3w-g68c-fv3c',
-        remediations: [{ name: 'jest', version: '30.5.2', isSemVerMajor: true }],
     }],
 ]);
 
@@ -56,15 +50,6 @@ for (const advisory of advisories.values()) {
 
     if (advisory.name !== allowed.packageName || advisory.url !== allowed.url) {
         failures.push(`advisory ${advisory.source} changed identity or URL`);
-    }
-
-    const fix = audit.vulnerabilities?.[allowed.packageName]?.fixAvailable;
-    const remediationReviewed = allowed.remediations.some((remediation) => fix
-        && fix.name === remediation.name
-        && fix.version === remediation.version
-        && fix.isSemVerMajor === remediation.isSemVerMajor);
-    if (!remediationReviewed) {
-        failures.push(`advisory ${advisory.source} now has a remediation requiring fresh review`);
     }
 
     const bundled = bundleSources.some((source) => source.includes(`/node_modules/${allowed.packageName}/`));

@@ -11,16 +11,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
 import { useCreateManualOrder } from '@/hooks/useOrders';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { brandColors, fontFamily, neutral, radius, spacing } from '@/theme/tokens';
 
 export function ManualOrderScreen() {
   const { t } = useTranslation();
-  const router = useRouter();
-
+  const isOnline = useNetworkStatus();
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -41,6 +40,7 @@ export function ManualOrderScreen() {
   const totalAmount = Math.max(0, subtotal + deliveryFee - discountAmount);
 
   const handleCreateOrder = (isDraft = false) => {
+    if (!isOnline) return;
     setErrorMsg(null);
     const trimmedPhone = customerPhone.trim();
     if (!trimmedPhone) {
@@ -273,9 +273,9 @@ export function ManualOrderScreen() {
               {/* Submit Buttons */}
               <View style={styles.actions}>
                 <Pressable
-                  style={[styles.submitButton, createOrderMutation.isPending ? styles.buttonDisabled : null]}
-                  onPress={() => handleCreateOrder(false)}
-                  disabled={createOrderMutation.isPending}
+                   style={[styles.submitButton, (createOrderMutation.isPending || !isOnline) ? styles.buttonDisabled : null]}
+                   onPress={() => handleCreateOrder(false)}
+                   disabled={createOrderMutation.isPending || !isOnline}
                   testID="mobile-manual-order-submit-btn"
                   accessibilityRole="button"
                 >
@@ -287,9 +287,9 @@ export function ManualOrderScreen() {
                 </Pressable>
 
                 <Pressable
-                  style={styles.draftButton}
-                  onPress={() => handleCreateOrder(true)}
-                  disabled={createOrderMutation.isPending}
+                   style={[styles.draftButton, !isOnline ? styles.buttonDisabled : null]}
+                   onPress={() => handleCreateOrder(true)}
+                   disabled={createOrderMutation.isPending || !isOnline}
                   testID="mobile-manual-order-draft-btn"
                   accessibilityRole="button"
                 >

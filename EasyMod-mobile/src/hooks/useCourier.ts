@@ -95,12 +95,12 @@ export function useBookCourier() {
             'Content-Type': 'application/json',
             'X-Idempotency-Key': generatedKey,
           },
-          body: JSON.stringify({
+          body: {
             provider: provider || undefined,
             weight_kg: weight_kg ?? undefined,
             note: note || undefined,
             idempotencyKey: generatedKey,
-          }),
+          },
         },
       );
 

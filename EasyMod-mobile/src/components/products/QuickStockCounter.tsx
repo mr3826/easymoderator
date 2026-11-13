@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { MobileProduct } from '@/api/mobile/schemas';
 import { useQuickUpdateStock } from '@/hooks/useProducts';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { brandColors, fontFamily, neutral, radius, spacing } from '@/theme/tokens';
 
 interface QuickStockCounterProps {
@@ -20,6 +21,7 @@ interface QuickStockCounterProps {
 
 export function QuickStockCounter({ product }: QuickStockCounterProps) {
   const { t } = useTranslation();
+  const isOnline = useNetworkStatus();
   const updateStockMutation = useQuickUpdateStock();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [manualStock, setManualStock] = useState(String(product.quantity));
@@ -81,6 +83,7 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
   };
 
   const isPending = updateStockMutation.isPending;
+  const isDisabled = isPending || !isOnline;
 
   return (
     <View style={styles.container}>
@@ -90,8 +93,8 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
           accessibilityRole="button"
           accessibilityLabel={t('mobile.products.decrement', 'স্টক ১ কমান')}
           testID={`stepper-decrement-${product.id}`}
-          style={[styles.stepperBtn, product.quantity <= 0 && styles.stepperBtnDisabled]}
-          disabled={product.quantity <= 0 || isPending}
+          style={[styles.stepperBtn, (product.quantity <= 0 || !isOnline) && styles.stepperBtnDisabled]}
+          disabled={product.quantity <= 0 || isDisabled}
           onPress={() => handleDelta(-1)}
           hitSlop={8}
         >
@@ -104,6 +107,7 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
           testID={`stepper-stock-display-${product.id}`}
           style={styles.stockDisplay}
           onPress={openManualModal}
+          disabled={isDisabled}
         >
           {isPending ? (
             <ActivityIndicator size="small" color={brandColors.primary} />
@@ -120,7 +124,7 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
           accessibilityLabel={t('mobile.products.increment', 'স্টক ১ বাড়ান')}
           testID={`stepper-increment-${product.id}`}
           style={styles.stepperBtn}
-          disabled={isPending}
+          disabled={isDisabled}
           onPress={() => handleDelta(1)}
           hitSlop={8}
         >
@@ -131,8 +135,8 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
           accessibilityRole="button"
           accessibilityLabel={t('mobile.products.incrementFive', 'স্টক ৫ বাড়ান')}
           testID={`stepper-increment-five-${product.id}`}
-          style={[styles.stepperBtn, styles.quickJumpBtn]}
-          disabled={isPending}
+          style={[styles.stepperBtn, styles.quickJumpBtn, !isOnline && styles.stepperBtnDisabled]}
+          disabled={isDisabled}
           onPress={() => handleDelta(5)}
           hitSlop={8}
         >
@@ -143,8 +147,8 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
           accessibilityRole="button"
           accessibilityLabel={t('mobile.products.incrementTen', 'স্টক ১০ বাড়ান')}
           testID={`stepper-increment-ten-${product.id}`}
-          style={[styles.stepperBtn, styles.quickJumpBtn]}
-          disabled={isPending}
+          style={[styles.stepperBtn, styles.quickJumpBtn, !isOnline && styles.stepperBtnDisabled]}
+          disabled={isDisabled}
           onPress={() => handleDelta(10)}
           hitSlop={8}
         >
@@ -155,8 +159,8 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
           accessibilityRole="button"
           accessibilityLabel={t('mobile.products.markSoldOut', 'স্টক শেষ চিহ্নিত করুন')}
           testID={`stepper-sold-out-${product.id}`}
-          style={[styles.stepperBtn, styles.soldOutBtn, product.quantity <= 0 && styles.stepperBtnDisabled]}
-          disabled={product.quantity <= 0 || isPending}
+          style={[styles.stepperBtn, styles.soldOutBtn, (product.quantity <= 0 || !isOnline) && styles.stepperBtnDisabled]}
+          disabled={product.quantity <= 0 || isDisabled}
           onPress={handleSoldOut}
           hitSlop={8}
         >
@@ -220,7 +224,7 @@ export function QuickStockCounter({ product }: QuickStockCounterProps) {
                 accessibilityRole="button"
                 style={styles.saveBtn}
                 onPress={handleSaveManual}
-                disabled={isPending}
+                disabled={isDisabled}
               >
                 {isPending ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />

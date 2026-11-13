@@ -213,7 +213,10 @@ describe('duplicate tap remains idempotent', () => {
     // Real time, not the dedupe window's synthetic clock — this is a genuinely later, separate
     // open of the same item (e.g. the merchant tapped the same order card again), which must
     // still navigate.
-    const opened = openDeepLink('order', 'order-100', Date.now() + 60_000);
+    let opened = false;
+    await act(async () => {
+      opened = openDeepLink('order', 'order-100', Date.now() + 60_000);
+    });
     expect(opened).toBe(true);
   });
 });

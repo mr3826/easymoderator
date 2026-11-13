@@ -5,12 +5,18 @@ tags:
   - courier
   - problem-center
 ---
-- launchApp
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../support/sign-in.yaml
+    env:
+      LOGIN_EMAIL: ${E2E_EMAIL}
+      LOGIN_PASSWORD: ${E2E_PASSWORD}
 - extendedWaitUntil:
     visible:
       id: home-attention-list
     timeout: 60000
-- openLink: easymodmerchant://courier-problems
+- openLink: easymodmerchantdev://courier-problems
 - extendedWaitUntil:
     visible:
       id: mobile-courier-filter-all
@@ -23,3 +29,4 @@ tags:
     id: mobile-courier-filter-hold
 - tapOn:
     id: mobile-courier-filter-failed
+- back

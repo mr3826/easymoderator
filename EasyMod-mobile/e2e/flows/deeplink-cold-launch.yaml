@@ -26,3 +26,4 @@ tags:
       id: deeplink-found
     timeout: 90000
 - takeScreenshot: deeplink-cold-launch
+- back

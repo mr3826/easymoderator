@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
-import type { OrderSummary } from '@/api/mobile/schemas';
 import { apiErrorMessageKey } from '@/lib/api-error-i18n';
 import { formatBdCurrency } from '@/lib/currency';
 import { useCustomerQuickView } from '@/hooks/useCustomer';
@@ -29,7 +28,7 @@ export function CustomerQuickViewScreen({ id }: CustomerQuickViewScreenProps) {
   const query = useCustomerQuickView(id ?? '');
 
   const customer = query.data?.customer;
-  const orders = query.data?.orders ?? [];
+  const orders = useMemo(() => query.data?.orders ?? [], [query.data?.orders]);
   const rawPhone = customer?.phone ? String(customer.phone).trim() : null;
   const rawEmail = customer?.email ? String(customer.email).trim() : null;
   const rawName = customer?.name ? String(customer.name).trim() : null;

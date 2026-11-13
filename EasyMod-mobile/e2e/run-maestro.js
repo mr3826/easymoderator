@@ -30,6 +30,7 @@ const summaryJsonPath = path.join(artifactRoot, 'e2e-summary.json');
 const summaryTextPath = path.join(artifactRoot, 'e2e-summary.txt');
 
 const APP_ID = 'tech.easymod.merchant.dev';
+const APP_SCHEME = process.env.E2E_APP_SCHEME || 'easymodmerchantdev';
 const DEFAULT_EMAIL = 'mobile-dev@easymod.test';
 const DEFAULT_PASSWORD = 'MobileDev123!';
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:4000';
@@ -46,7 +47,9 @@ const SHUTDOWN_TIMEOUT_MS = 5000;
 // mobile-e2e-fixtures.integration.test.js.
 const SEED = {
   secondOwnerEmail: 'mobile-dev-b@easymod.test',
+  shopACustomerId: '56962817-240b-515a-8c02-e3f6268c7be6', // customer:draft-risky
   shopAOrderId: 'efc22718-691a-5966-8ac9-9f025c36da8b', // order:draft-large
+  shopAConversationId: '9cf21b45-d24d-53ce-8559-a20a5dc877bf', // conversation:needs-reply
   shopAProductId: '1594cc1f-d329-55dc-8033-7bf979411da8', // product:low-stock-a
   shopBProductId: '4c432011-9187-5b43-bb46-3dbe5526308c', // product:shop-b-low-stock
 };
@@ -70,6 +73,12 @@ const FLOW_PLAN = [
   { name: 'two-factor', file: 'two-factor.yaml' },
   { name: 'deep-link-stale', file: 'wave25-stale-entity.yaml' },
   { name: 'deep-link-cold-launch', file: 'deeplink-cold-launch.yaml' },
+  { name: 'customer-quick-view', file: 'customer-quick-view.yaml' },
+  { name: 'daily-operational-summary', file: 'daily-operational-summary.yaml' },
+  { name: 'inbox-reply', file: 'inbox-reply-flow.yaml' },
+  { name: 'order-confirm', file: 'order-confirm-flow.yaml' },
+  { name: 'product-stock-stepper', file: 'product-stock-stepper.yaml' },
+  { name: 'courier-booking', file: 'courier-booking-flow.yaml' },
   { name: 'reinstall-keeps-session', file: 'reinstall-keeps-session.yaml', reset: false, beforeFlow: 'reinstall' },
   { name: 'shop-isolation', file: 'shop-isolation.yaml' },
 ];
@@ -219,6 +228,22 @@ function runCommand(command, args, options = {}) {
       resolve(signal ? 1 : (code ?? 1));
     });
   });
+}
+
+async function resetAppNavigation(adb) {
+  if (await runCommand(adb, ['shell', 'am', 'force-stop', APP_ID]) !== 0) {
+    throw new Error('Android app force-stop failed.');
+  }
+
+  const rootUrl = `${APP_SCHEME}:///`;
+  if (await runCommand(adb, [
+    'shell', 'am', 'start', '-W',
+    '-a', 'android.intent.action.VIEW',
+    '-d', rootUrl,
+    '-p', APP_ID,
+  ]) !== 0) {
+    throw new Error(`Android app root navigation failed for ${rootUrl}.`);
+  }
 }
 
 function captureCommand(command, args) {
@@ -627,7 +652,9 @@ async function main() {
       E2E_EMAIL: email,
       E2E_PASSWORD: password,
       E2E_SECOND_EMAIL: SEED.secondOwnerEmail,
+      E2E_SHOP_A_CUSTOMER_ID: SEED.shopACustomerId,
       E2E_SHOP_A_ORDER_ID: SEED.shopAOrderId,
+      E2E_SHOP_A_CONVERSATION_ID: SEED.shopAConversationId,
       E2E_SHOP_A_PRODUCT_ID: SEED.shopAProductId,
       E2E_SHOP_B_PRODUCT_ID: SEED.shopBProductId,
     };
@@ -646,6 +673,11 @@ async function main() {
             throw new Error('APK reinstall over the signed-in app failed.');
           }
         }
+        // Maestro launchApp can restore the previous navigation stack. Re-open
+        // the app's root URL between flows so every scenario starts from
+        // AuthProvider's Home route without clearing SecureStore or invalidating
+        // the reinstall-session flow.
+        await resetAppNavigation(deviceTools.adb);
         if (emulator) await closeSystemDialogs(deviceTools.adb);
         console.log(`\n=== FLOW ${flow.name} (${flow.file}) ===`);
         passed = (await runFlow(deviceTools.maestro, flow, flowEnv)) === 0;

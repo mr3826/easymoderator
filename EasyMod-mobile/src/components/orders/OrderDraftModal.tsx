@@ -12,6 +12,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { useCreateManualOrder } from '@/hooks/useOrders';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { brandColors, fontFamily, neutral, radius, spacing } from '@/theme/tokens';
 
 export interface OrderDraftModalProps {
@@ -32,6 +33,7 @@ export function OrderDraftModal({
   onOrderCreated,
 }: OrderDraftModalProps) {
   const { t } = useTranslation();
+  const isOnline = useNetworkStatus();
 
   const [customerName, setCustomerName] = useState(initialCustomerName);
   const [customerPhone, setCustomerPhone] = useState(initialCustomerPhone);
@@ -40,18 +42,21 @@ export function OrderDraftModal({
   const [quantity, setQuantity] = useState(1);
   const [price, setPrice] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(60);
-  const [discount, setDiscount] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const createOrderMutation = useCreateManualOrder();
 
   const unitPrice = Number(price) || 0;
-  const discountAmount = Number(discount) || 0;
+  const discountAmount = 0;
   const subtotal = quantity * unitPrice;
   const totalAmount = Math.max(0, subtotal + deliveryFee - discountAmount);
 
   const handleSubmit = (isDraft: boolean) => {
     setErrorMsg(null);
+    if (!isOnline) {
+      setErrorMsg(t('mobile.offline.mutationUnavailable', 'Reconnect to continue this action.'));
+      return;
+    }
     const trimmedPhone = customerPhone.trim();
     if (!trimmedPhone) {
       setErrorMsg(t('mobile.orders.manualOrder.customerPhone') + ' is required');
@@ -232,9 +237,9 @@ export function OrderDraftModal({
             {/* Submit Actions */}
             <View style={styles.actions}>
               <Pressable
-                style={[styles.confirmBtn, createOrderMutation.isPending ? styles.buttonDisabled : null]}
+                style={[styles.confirmBtn, (createOrderMutation.isPending || !isOnline) ? styles.buttonDisabled : null]}
                 onPress={() => handleSubmit(false)}
-                disabled={createOrderMutation.isPending}
+                disabled={createOrderMutation.isPending || !isOnline}
                 testID="mobile-draft-confirm-btn"
                 accessibilityRole="button"
               >
@@ -246,9 +251,9 @@ export function OrderDraftModal({
               </Pressable>
 
               <Pressable
-                style={styles.draftBtn}
+                style={[styles.draftBtn, !isOnline ? styles.buttonDisabled : null]}
                 onPress={() => handleSubmit(true)}
-                disabled={createOrderMutation.isPending}
+                disabled={createOrderMutation.isPending || !isOnline}
                 testID="mobile-draft-save-btn"
                 accessibilityRole="button"
               >

@@ -117,7 +117,7 @@ export function useSendConversationReply() {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ message, message_tag: messageTag, idempotencyKey }),
+          body: { message, message_tag: messageTag, idempotencyKey },
         },
       );
       if (!result.ok) throw result.error;
@@ -155,7 +155,7 @@ export function useSetConversationAiMode() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode }),
+          body: { mode },
         },
       );
       if (!result.ok) throw result.error;
@@ -166,7 +166,7 @@ export function useSetConversationAiMode() {
         queryKey: mobileQueryKeys.conversation(shopId, variables.conversationId),
       });
       void queryClient.invalidateQueries({
-        queryKey: ['mobile', shopId, 'inbox'],
+        queryKey: mobileQueryKeys.inbox(shopId),
       });
     },
   });

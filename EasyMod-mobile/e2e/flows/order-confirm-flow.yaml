@@ -5,31 +5,39 @@ tags:
   - orders
   - order-confirm
 ---
-- launchApp
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../support/sign-in.yaml
+    env:
+      LOGIN_EMAIL: ${E2E_EMAIL}
+      LOGIN_PASSWORD: ${E2E_PASSWORD}
 - extendedWaitUntil:
     visible:
       id: home-attention-list
     timeout: 60000
-- openLink: easymodmerchant://order/ord-test-confirm-1
+- openLink: easymodmerchantdev://order-detail/${E2E_SHOP_A_ORDER_ID}
 - extendedWaitUntil:
     visible:
-      id: order-detail-screen
+      id: mobile-order-detail
     timeout: 30000
 - assertVisible:
-    id: order-customer-risk-panel
+    id: mobile-order-risk-panel
 - assertVisible:
-    id: order-confirm-btn
+    id: mobile-order-confirm-btn
 - assertVisible:
-    id: order-cancel-btn
+    id: mobile-order-cancel-btn
 - tapOn:
-    id: order-confirm-btn
+    id: mobile-order-confirm-btn
 - extendedWaitUntil:
     visible:
-      id: order-confirm-modal-submit
+      id: mobile-order-modal-confirm-submit
     timeout: 10000
 - tapOn:
-    id: order-confirm-modal-submit
+    id: mobile-order-modal-confirm-submit
 - extendedWaitUntil:
     visible:
       id: order-status-confirmed
     timeout: 30000
+- back
+- back

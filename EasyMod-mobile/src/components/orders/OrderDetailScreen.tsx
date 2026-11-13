@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Linking,
   Modal,
@@ -18,11 +17,13 @@ import { useTranslation } from 'react-i18next';
 import { apiErrorMessageKey } from '@/lib/api-error-i18n';
 import { useCancelOrder, useConfirmOrder, useOrder, useOrderRisk } from '@/hooks/useOrders';
 import { useBookCourier, useDeliveryTracking } from '@/hooks/useCourier';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { brandColors, fontFamily, neutral, radius, spacing } from '@/theme/tokens';
 
 export function OrderDetailScreen({ id }: { id: string | undefined }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const isOnline = useNetworkStatus();
 
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
@@ -84,6 +85,7 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
   const canBookCourier = (order.order_status === 'confirmed' || order.order_status === 'finalized') && !isBooked;
 
   const handleBookCourier = () => {
+    if (!isOnline) return;
     setCourierError(null);
     bookCourierMutation.mutate(
       {
@@ -113,6 +115,7 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
   };
 
   const handleConfirmOrder = () => {
+    if (!isOnline) return;
     setActionError(null);
     confirmMutation.mutate(
       { orderId: order.id },
@@ -129,6 +132,7 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
   };
 
   const handleCancelOrder = () => {
+    if (!isOnline) return;
     setActionError(null);
     cancelMutation.mutate(
       { orderId: order.id, reason: cancelReason },
@@ -171,7 +175,9 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
         </Pressable>
         <View style={styles.headerInfo}>
           <Text style={styles.title}>{order.order_number || t('mobile.orders.unknownNumber')}</Text>
-          <Text style={styles.meta}>{order.order_status} · {order.payment_status}</Text>
+          <Text style={styles.meta} testID={`order-status-${order.order_status}`}>
+            {order.order_status} · {order.payment_status}
+          </Text>
         </View>
       </View>
 
@@ -312,6 +318,7 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
                   <Pressable
                     style={styles.bookCourierButton}
                     onPress={() => setCourierModalVisible(true)}
+                    disabled={!isOnline}
                     testID="mobile-order-book-courier-btn"
                   >
                     <Text style={styles.bookCourierButtonText}>📦 {t('mobile.orders.detail.courier.bookCourier')}</Text>
@@ -338,9 +345,9 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
       <View style={styles.actionBar}>
         {canConfirm ? (
           <Pressable
-            style={[styles.confirmButton, confirmMutation.isPending ? styles.buttonDisabled : null]}
+            style={[styles.confirmButton, (confirmMutation.isPending || !isOnline) ? styles.buttonDisabled : null]}
             onPress={() => setConfirmModalVisible(true)}
-            disabled={confirmMutation.isPending}
+            disabled={confirmMutation.isPending || !isOnline}
             testID="mobile-order-confirm-btn"
             accessibilityRole="button"
           >
@@ -354,9 +361,9 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
 
         {canBookCourier ? (
           <Pressable
-            style={[styles.bookCourierActionBarBtn, bookCourierMutation.isPending ? styles.buttonDisabled : null]}
+            style={[styles.bookCourierActionBarBtn, (bookCourierMutation.isPending || !isOnline) ? styles.buttonDisabled : null]}
             onPress={() => setCourierModalVisible(true)}
-            disabled={bookCourierMutation.isPending}
+            disabled={bookCourierMutation.isPending || !isOnline}
             testID="mobile-order-book-courier-action-btn"
             accessibilityRole="button"
           >
@@ -366,9 +373,9 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
 
         {canCancel ? (
           <Pressable
-            style={[styles.cancelButton, cancelMutation.isPending ? styles.buttonDisabled : null]}
+            style={[styles.cancelButton, (cancelMutation.isPending || !isOnline) ? styles.buttonDisabled : null]}
             onPress={() => setCancelModalVisible(true)}
-            disabled={cancelMutation.isPending}
+            disabled={cancelMutation.isPending || !isOnline}
             testID="mobile-order-cancel-btn"
             accessibilityRole="button"
           >
@@ -402,6 +409,7 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
               <Pressable
                 style={styles.modalConfirmBtn}
                 onPress={handleConfirmOrder}
+                disabled={!isOnline || confirmMutation.isPending}
                 testID="mobile-order-modal-confirm-submit"
               >
                 <Text style={styles.modalConfirmText}>{t('mobile.orders.detail.actions.confirm')}</Text>
@@ -440,6 +448,7 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
               <Pressable
                 style={styles.modalDestructiveBtn}
                 onPress={handleCancelOrder}
+                disabled={!isOnline || cancelMutation.isPending}
                 testID="mobile-order-modal-cancel-submit"
               >
                 <Text style={styles.modalDestructiveText}>{t('mobile.orders.detail.actions.cancel')}</Text>
@@ -504,7 +513,7 @@ export function OrderDetailScreen({ id }: { id: string | undefined }) {
               <Pressable
                 style={styles.modalConfirmBtn}
                 onPress={handleBookCourier}
-                disabled={bookCourierMutation.isPending}
+                disabled={!isOnline || bookCourierMutation.isPending}
                 testID="mobile-order-modal-book-courier-submit"
               >
                 {bookCourierMutation.isPending ? (

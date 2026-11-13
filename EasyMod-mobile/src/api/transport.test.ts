@@ -14,6 +14,7 @@ const originalFetch = global.fetch;
 afterEach(() => {
   global.fetch = originalFetch;
   __resetTokenStoreForTests();
+  jest.clearAllTimers();
   jest.useRealTimers();
 });
 
@@ -39,6 +40,26 @@ describe('fetchTransport', () => {
 
     const response = await fetchTransport.request('/api/mobile/today', {
       headers: { Cookie: 'commerce_ai.sid=browser-session' },
+    });
+
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes an object request body exactly once', async () => {
+    const fetchMock = jest.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.body).toBe(JSON.stringify({ mode: 'pause' }));
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as Response;
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const response = await fetchTransport.request('/api/mobile/inbox/conversations/1/ai-mode', {
+      method: 'POST',
+      body: { mode: 'pause' },
     });
 
     await expect(response.json()).resolves.toEqual({ ok: true });
@@ -76,5 +97,6 @@ describe('fetchTransport', () => {
     jest.advanceTimersByTime(100);
     expect(signal?.aborted).toBe(true);
     await expect(bodyPromise).rejects.toMatchObject({ name: 'AbortError' });
+    jest.runOnlyPendingTimers();
   });
 });

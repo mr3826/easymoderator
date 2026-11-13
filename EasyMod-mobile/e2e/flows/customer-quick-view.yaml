@@ -4,12 +4,18 @@ tags:
   - mobile-e2e
   - customer
 ---
-- launchApp
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../support/sign-in.yaml
+    env:
+      LOGIN_EMAIL: ${E2E_EMAIL}
+      LOGIN_PASSWORD: ${E2E_PASSWORD}
 - extendedWaitUntil:
     visible:
       id: home-attention-list
     timeout: 60000
-- openLink: easymodmerchant://customer-detail/cust-test-1
+- openLink: easymodmerchantdev://customer-detail/${E2E_SHOP_A_CUSTOMER_ID}
 - extendedWaitUntil:
     visible:
       id: mobile-customer-quick-view
