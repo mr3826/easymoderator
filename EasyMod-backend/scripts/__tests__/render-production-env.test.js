@@ -21,6 +21,7 @@ const path = require('path');
 const {
     buildRenderedEnv,
     normalizePaymentEncryptionKey,
+    validAcmeEmail,
     renderToFile,
 } = require('../render-production-env');
 
@@ -58,6 +59,7 @@ function validSource(overrides = {}) {
         META_WEBHOOK_VERIFY_TOKEN: hex64('f'),
         RESEND_API_KEY: 're_live_key',
         EMAIL_FROM: 'EasyModerator <no-reply@easymod.tech>',
+        ACME_EMAIL: 'ops@example.com',
         SENTRY_DSN: 'https://public@example.ingest.sentry.io/1',
         OPENAI_API_KEY: 'sk-openai-test',
         // keep optional providers off so the fixture stays minimal
@@ -144,6 +146,30 @@ describe('Docker production env-file serialization', () => {
         } finally {
             await fs.promises.rm(tempDir, { recursive: true, force: true });
         }
+    });
+});
+
+describe('ACME_EMAIL (Caddy Let\'s Encrypt contact)', () => {
+    test('renders the configured contact address', () => {
+        const rendered = buildRenderedEnv(validSource({ ACME_EMAIL: ' ops@example.com ' }));
+        expect(rendered.ACME_EMAIL).toBe('ops@example.com');
+    });
+
+    test('a missing ACME_EMAIL fails the render before deployment', () => {
+        expect(() => buildRenderedEnv(validSource({ ACME_EMAIL: '' })))
+            .toThrow(/ACME_EMAIL/);
+    });
+
+    test('a malformed ACME_EMAIL fails the render — an invalid contact is as silent as none', () => {
+        for (const bad of ['not-an-email', 'ops@', '@example.com', 'ops @example.com', 'ops@example', 'bad\nvalue@example.com']) {
+            expect(() => buildRenderedEnv(validSource({ ACME_EMAIL: bad })))
+                .toThrow(/ACME_EMAIL must be a single valid email address/);
+        }
+    });
+
+    test('validAcmeEmail trims valid addresses and passes through empty for required() to catch', () => {
+        expect(validAcmeEmail('  acme+tls@easymod.tech ')).toBe('acme+tls@easymod.tech');
+        expect(validAcmeEmail('')).toBe('');
     });
 });
 

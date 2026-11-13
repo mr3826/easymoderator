@@ -14,10 +14,16 @@ const { checkRedisAvailability } = redisConfig;
 /**
  * Redis readiness that cannot over-report. The old any-of-six `.some()` said
  * 'connected' while 4 of 6 clients were down (2026-11-13 production audit).
- * Falls back to the legacy boolean map when getRedisReadiness is unavailable
- * (older test mocks), so a partial mock can never crash the probe endpoints.
+ * The primary path issues a real PING through each client's own configured
+ * connection (bounded timeout, short-lived cache — see config/redis.js); a
+ * running container or a configured REDIS_URL alone never counts as ready.
+ * Falls back to connection-state classification, then to the legacy boolean
+ * map, so partial test mocks can never crash the probe endpoints.
  */
-const getRedisReadinessSafe = () => {
+const getRedisReadinessSafe = async () => {
+    if (typeof redisConfig.probeRedisReadiness === 'function') {
+        return redisConfig.probeRedisReadiness();
+    }
     if (typeof redisConfig.getRedisReadiness === 'function') {
         return redisConfig.getRedisReadiness();
     }
@@ -51,39 +57,48 @@ router.get('/live', (req, res) => {
  * Includes database connectivity check
  */
 router.get('/ready', async (req, res) => {
+    // Readiness (not liveness — that is /live and never depends on Redis):
+    // the service can only serve requests when the database AND the Redis
+    // dependencies actually answer. A required dependency that fails its PING
+    // probe makes this endpoint return 503, which is what marks the container
+    // unhealthy for compose and fails a deployment verification honestly.
+    let database = 'connected';
     try {
-        // Check database connection
         await sequelize.authenticate();
-
-        // Check Redis connections — per-client classification, never any-of-six.
-        const redis = getRedisReadinessSafe();
-
-        res.status(200).json({
-            // Provenance marker — proves this response came from the API and not
-            // from a proxy or static-host stub. The launch gate requires it.
-            service: 'easymod-backend',
-            status: 'ready',
-            timestamp: new Date().toISOString(),
-            database: 'connected',
-            // connected | degraded | not_configured — 'degraded' means at least
-            // one Redis client is confirmed down (status 'end'); lazy-unused
-            // clients report 'idle' in redis_details and do not degrade.
-            redis: redis.status,
-            redis_details: redis.details,
-            commit: process.env.GIT_SHA || null,
-            version: process.env.APP_VERSION || '1.0.0'
-        });
     } catch (error) {
-        // Do NOT include error.message — this endpoint is unauthenticated and
-        // error messages can expose connection strings, DB hostnames, or credentials.
-        res.status(503).json({
-            service: 'easymod-backend',
-            status: 'not_ready',
-            timestamp: new Date().toISOString(),
-            database: 'disconnected',
-            redis: 'disconnected'
-        });
+        database = 'disconnected';
     }
+
+    let redis = { status: 'disconnected', details: {} };
+    if (database === 'connected') {
+        try {
+            redis = await getRedisReadinessSafe();
+        } catch (_) {
+            redis = { status: 'disconnected', details: {} };
+        }
+    }
+
+    // 'not_configured' is the in-memory dev fallback (no real Redis configured)
+    // and stays ready by contract; 'degraded'/'disconnected' are not.
+    const ready = database === 'connected'
+        && redis.status !== 'degraded'
+        && redis.status !== 'disconnected';
+
+    // Do NOT include error details — this endpoint is unauthenticated and
+    // error messages can expose connection strings, DB hostnames, or
+    // credentials. Only neutral status words leave this handler.
+    res.status(ready ? 200 : 503).json({
+        // Provenance marker — proves this response came from the API and not
+        // from a proxy or static-host stub. The launch gate requires it.
+        service: 'easymod-backend',
+        status: ready ? 'ready' : 'not_ready',
+        timestamp: new Date().toISOString(),
+        database,
+        redis: redis.status,
+        redis_details: redis.details,
+        commit: process.env.GIT_SHA || null,
+        version: process.env.APP_VERSION || '1.0.0'
+    });
 });
 
 /**
@@ -149,7 +164,7 @@ router.get('/detailed', authenticate, async (req, res) => {
     }
 
     try {
-        const redis = getRedisReadinessSafe();
+        const redis = await getRedisReadinessSafe();
         checks.redis_details = redis.details;
         checks.redis = redis.status;
     } catch (_) {
@@ -276,7 +291,12 @@ router.get('/detailed', authenticate, async (req, res) => {
         checks.autoReplyCanary = { lastOkAgeMs: null, fresh: false };
     }
 
-    const unhealthy = checks.database === 'disconnected' || checks.redis === 'disconnected';
+    // A PING-verified 'degraded' (any real client down) is as unhealthy as a
+    // full outage: the launch gate requires redis === 'connected', and the
+    // HTTP status must not claim otherwise.
+    const unhealthy = checks.database === 'disconnected'
+        || checks.redis === 'disconnected'
+        || checks.redis === 'degraded';
     res.status(unhealthy ? 503 : 200).json(checks);
 });
 

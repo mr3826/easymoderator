@@ -6,7 +6,14 @@
 	# (window 2027-01-11/12, cert expiry 2027-02-11) would have been silent.
 	# Caddy registers the contact with the CA on next reload/renewal; existing
 	# certificates are kept.
-	email work.evan.ahmed@gmail.com
+	#
+	# {$ACME_EMAIL} is substituted from the container environment at adapt time.
+	# docker-compose.prod.yml pins it with `${ACME_EMAIL:?...}` (fail fast if
+	# unset) and render-production-env.js requires a valid address before the
+	# deploy ever reaches the host, so an empty contact list can never silently
+	# come back. The real address lives in the ACME_EMAIL repository variable —
+	# never in git. See docs/deployment/DEPLOYMENT_READINESS.md.
+	email {$ACME_EMAIL}
 }
 
 # EasyModerator canonical production origins
