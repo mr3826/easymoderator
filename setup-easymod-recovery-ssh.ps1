@@ -4,16 +4,32 @@
   EasyModerator recovery SSH setup and validation helper
 
   This script is intentionally interactive and fail-closed. It does not connect
-  to the Droplet until the user has manually installed the displayed public key
-  and confirmed the host-key fingerprint from the DigitalOcean console.
+  to the host until the user has manually installed the displayed public key and
+  confirmed the host-key fingerprint against ssh-keyscan output.
 
   It never prints private keys, secret values, .env.prod contents, or raw SSH
   output. It never deploys, restarts, mutates Docker/database state, restores,
   changes DNS, or switches traffic.
+
+  IMPORTANT: the DigitalOcean production droplet (139.59.249.141) was DESTROYED
+  on 2026-11-13. This script now targets the Oracle Cloud OCI production host
+  only and refuses to run against the retired DigitalOcean address.
 #################################################################################>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyString()]
+    [string]$ProductionHost
+)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($ProductionHost) -or $ProductionHost.Trim() -eq '139.59.249.141') {
+    throw 'FATAL: -ProductionHost must be the live OCI production host (for example 130.210.21.100). Empty values and the destroyed DigitalOcean IP 139.59.249.141 are refused. No SSH, secret update, or production mutation was attempted.'
+}
+$script:ConfirmedProductionHost = $ProductionHost.Trim()
 
 $script:ExitCode = 0
 $script:Report = [ordered]@{
@@ -39,21 +55,25 @@ $script:Report = [ordered]@{
     MEDIA_BACKUP_SHA256 = 'NOT_RUN'
     BACKUP_TOTAL_SIZE = 'NOT_RUN'
     ROOT_DISK_USAGE = 'NOT_RUN'
-    DO_TOKEN_REQUIRED_BY_RECOVERY_CODE = 'NOT_CHECKED'
-    DO_TOKEN_GITHUB = 'NOT_CHECKED'
     SPACES_CONFIGURATION_REQUIRED = 'NOT_CHECKED'
     SPACES_ACCESS_KEY_GITHUB = 'NOT_CHECKED'
     SPACES_SECRET_KEY_GITHUB = 'NOT_CHECKED'
     SPACES_BUCKET_CONFIGURED = 'NOT_CHECKED'
     SPACES_REGION_CONFIGURED = 'NOT_CHECKED'
+    OCI_AUDIT_PRIVATE_KEY_GITHUB = 'NOT_CHECKED'
+    OCI_AUDIT_TENANCY_OCID_VARIABLE = 'NOT_CHECKED'
+    OCI_AUDIT_USER_OCID_VARIABLE = 'NOT_CHECKED'
+    OCI_AUDIT_FINGERPRINT_VARIABLE = 'NOT_CHECKED'
+    OCI_AUDIT_NAMESPACE_VARIABLE = 'NOT_CHECKED'
+    OCI_AUDIT_REGION_VARIABLE = 'NOT_CHECKED'
     NEXT_BLOCKER = 'NONE'
 }
 
-$script:RepoName = 'mr3826/easymoderator-monorepo'
-$script:ProductionHost = '139.59.249.141'
+$script:RepoName = 'mr3826/easymoderator'
+$script:ProductionHost = $script:ConfirmedProductionHost
 $script:ProductionUser = 'root'
 $script:ProductionPath = '/opt/easymod'
-$script:KeyComment = 'github-actions:easymoderator-monorepo'
+$script:KeyComment = 'github-actions:easymoderator'
 $script:UserProfile = [Environment]::GetFolderPath('UserProfile')
 if ([string]::IsNullOrWhiteSpace($script:UserProfile)) {
     $script:UserProfile = $env:USERPROFILE
@@ -66,6 +86,21 @@ $script:RepoPath = $null
 $script:PublicKey = $null
 $script:SecretNames = $null
 $script:RequiredSpaceNames = @()
+$script:OffsiteSecretNames = @(
+    'BACKUP_ENCRYPTION_KEY',
+    'SPACES_ACCESS_KEY_ID',
+    'SPACES_SECRET_ACCESS_KEY',
+    'SPACES_ENDPOINT',
+    'BACKUP_BUCKET'
+)
+$script:OciAuditSecretNames = @('OCI_AUDIT_PRIVATE_KEY')
+$script:OciAuditVariableNames = @(
+    'OCI_AUDIT_TENANCY_OCID',
+    'OCI_AUDIT_USER_OCID',
+    'OCI_AUDIT_FINGERPRINT',
+    'OCI_AUDIT_NAMESPACE',
+    'OCI_AUDIT_REGION'
+)
 
 function Write-Section {
     param([Parameter(Mandatory = $true)][string]$Title)
@@ -195,7 +230,7 @@ function Initialize-Key {
 }
 
 function Show-PublicKeyInstallInstructions {
-    Write-Section 'RUN THIS IN DIGITALOCEAN WEB CONSOLE'
+    Write-Section 'RUN THIS IN THE OCI HOST CONSOLE'
 
     $commands = @(
         'set -eu',
@@ -217,30 +252,61 @@ function Show-PublicKeyInstallInstructions {
     Write-Host ($commands -join [Environment]::NewLine)
     Write-Host ''
 
-    if (-not (Read-YesNo -Prompt 'Have you run the above command successfully on the Droplet? [Y/N]')) {
-        Stop-Safely -Reason 'Public-key installation was not confirmed in the DigitalOcean console.'
+    if (-not (Read-YesNo -Prompt 'Have you run the above command successfully on the OCI host? [Y/N]')) {
+        Stop-Safely -Reason 'Public-key installation was not confirmed on the OCI host.'
     }
 }
 
 function Confirm-HostKey {
     Write-Section 'HOST-KEY VERIFICATION'
 
-    $scan = @(& ssh-keyscan -t ed25519 $script:ProductionHost 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $scan.Count -eq 0) {
+    # appleboy/ssh-action pins the FIRST line of DO_SSH_KNOWN_HOSTS and its Go
+    # SSH client offers ECDSA first. Scan each key type separately so the
+    # emitted block is deterministically ECDSA, ed25519, RSA. A first line that
+    # is not the ECDSA key makes every deploy fail with a host key mismatch.
+    $ecdsa = @(& ssh-keyscan -T 10 -t ecdsa $script:ProductionHost 2>$null |
+        ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
+    $ed25519 = @(& ssh-keyscan -T 10 -t ed25519 $script:ProductionHost 2>$null |
+        ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
+    $rsa = @(& ssh-keyscan -T 10 -t rsa $script:ProductionHost 2>$null |
+        ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
+
+    if ($ecdsa.Count -eq 0) {
+        Stop-Safely -Reason 'ssh-keyscan did not return an ecdsa host key.'
+    }
+    if ($ed25519.Count -eq 0) {
         Stop-Safely -Reason 'ssh-keyscan did not return an ed25519 host key.'
     }
+    if ($rsa.Count -eq 0) {
+        Stop-Safely -Reason 'ssh-keyscan did not return an RSA host key.'
+    }
 
-    Set-Content -LiteralPath $script:KnownHostsPath -Value ($scan -join [Environment]::NewLine) -Encoding ascii
-    $localFingerprint = Get-Sha256Fingerprint -Path $script:KnownHostsPath
+    $scan = @($ecdsa + $ed25519 + $rsa)
+    $firstFields = @($scan[0] -split '\s+')
+    if ($firstFields.Count -lt 2 -or $firstFields[1] -ne 'ecdsa-sha2-nistp256') {
+        Stop-Safely -Reason 'The first scanned host-key line is not ecdsa-sha2-nistp256; DO_SSH_KNOWN_HOSTS ordering would break deploys.'
+    }
+
+    $fingerprintFile = Join-Path $env:TEMP 'easymod_known_hosts_first_line'
+    try {
+        [System.IO.File]::WriteAllText($fingerprintFile, "$($scan[0])`n")
+        $localFingerprint = Get-Sha256Fingerprint -Path $fingerprintFile
+    }
+    finally {
+        Remove-Item -LiteralPath $fingerprintFile -Force -ErrorAction SilentlyContinue
+    }
     if ([string]::IsNullOrWhiteSpace($localFingerprint)) {
         Stop-Safely -Reason 'Unable to calculate the scanned host-key fingerprint.'
     }
 
+    [System.IO.File]::WriteAllText($script:KnownHostsPath, (($scan -join "`n") + "`n"))
+
     Write-Host "LOCAL_SCANNED_HOST_FINGERPRINT=$localFingerprint"
     Write-Host ''
-    Write-Host '=== RUN THIS IN DIGITALOCEAN WEB CONSOLE ===' -ForegroundColor Cyan
-    Write-Host 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256'
-    $consoleFingerprint = Read-Host 'Paste the fingerprint returned by the DigitalOcean web console'
+    Write-Host 'Verify this independently with the OCI known-hosts generator:' -ForegroundColor Cyan
+    Write-Host "  .\scripts\oci\generate-known-hosts.ps1 -TargetHost $($script:ProductionHost)"
+    Write-Host 'Compare against the recorded receipt in scripts/oci/README.md.'
+    $consoleFingerprint = Read-Host 'Paste the ECDSA fingerprint printed by generate-known-hosts.ps1 (or the README receipt)'
 
     $expected = Normalize-Fingerprint -Value $localFingerprint
     $actual = Normalize-Fingerprint -Value $consoleFingerprint
@@ -294,7 +360,7 @@ function Invoke-SshValidation {
         $script:Report.SSH_AUTH = 'FAIL'
         Write-Host 'SSH_AUTH=FAIL' -ForegroundColor Red
         Write-Host ''
-        Write-Host 'Run these diagnostics in the DigitalOcean web console:' -ForegroundColor Yellow
+        Write-Host 'Run these diagnostics on the OCI host (OCI Cloud Shell or serial console):' -ForegroundColor Yellow
         Write-Host 'ssh-keygen -lf /root/.ssh/authorized_keys -E sha256'
         Write-Host 'stat -c ''%a %U:%G %n'' /root/.ssh /root/.ssh/authorized_keys'
         Write-Host 'systemctl is-active ssh'
@@ -316,14 +382,14 @@ function Invoke-SshValidation {
     Write-Host "ENV_FILE=$($script:Report.ENV_FILE)"
     Write-Host "BACKUP_DIR=$($script:Report.BACKUP_DIR)"
 
-    if ($script:Report.REMOTE_HOST -ne 'easymod-prod') {
-        Add-Blocker -Reason 'Remote hostname was not easymod-prod.'
+    if ($script:Report.REMOTE_HOST -notin @('easymod-oci-prod-a1', 'easymod-prod')) {
+        Add-Blocker -Reason 'Remote hostname was not the expected OCI production hostname.'
     }
     if ($script:Report.DEPLOY_PATH -ne 'PASS' -or $script:Report.ENV_FILE -ne 'PASS' -or $script:Report.BACKUP_DIR -ne 'PASS') {
         Add-Blocker -Reason 'One or more required remote deployment paths failed validation.'
     }
 
-    return ($script:Report.REMOTE_HOST -eq 'easymod-prod' -and
+    return ($script:Report.REMOTE_HOST -in @('easymod-oci-prod-a1', 'easymod-prod') -and
         $script:Report.REMOTE_USER -eq 'root' -and
         $script:Report.DEPLOY_PATH -eq 'PASS' -and
         $script:Report.ENV_FILE -eq 'PASS' -and
@@ -332,6 +398,14 @@ function Invoke-SshValidation {
 
 function Get-GitHubSecretNames {
     $names = @(& gh secret list --repo $script:RepoName --json name --jq '.[].name' 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+    return @($names | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
+}
+
+function Get-GitHubVariableNames {
+    $names = @(& gh variable list --repo $script:RepoName --json name --jq '.[].name' 2>$null)
     if ($LASTEXITCODE -ne 0) {
         return $null
     }
@@ -369,7 +443,7 @@ function Install-GitHubSshSecrets {
     Write-Host 'DO_SSH_PRIVATE_KEY and DO_SSH_KNOWN_HOSTS are not recovery-only: ci-cd.yml, backfill-product-attributes.yml,' -ForegroundColor Yellow
     Write-Host 'grant-platform-admin.yml, and purge-test-account.yml also authenticate with these same secret names.' -ForegroundColor Yellow
     Write-Host 'Continuing will rotate the key those workflows use too. This is safe: the pubkey install step only appends' -ForegroundColor Yellow
-    Write-Host 'to authorized_keys, so any existing key on the Droplet keeps working.' -ForegroundColor Yellow
+    Write-Host 'to authorized_keys, so any existing key on the OCI host keeps working.' -ForegroundColor Yellow
     if (-not (Read-YesNo -Prompt 'Install/update the GitHub Actions SSH secrets now? [Y/N]')) {
         $script:Report.DO_SSH_PRIVATE_KEY_GITHUB = 'NOT_REQUESTED'
         $script:Report.DO_SSH_KNOWN_HOSTS_GITHUB = 'NOT_REQUESTED'
@@ -455,10 +529,11 @@ function Inspect-WorkflowContract {
 
     $names = @(
         'DO_SSH_PRIVATE_KEY', 'DO_SSH_KNOWN_HOSTS', 'DEPLOY_HOST', 'DEPLOY_USER',
-        'SERVER_USER', 'SSH_USER', 'DO_TOKEN', 'SPACES_ACCESS_KEY',
-        'SPACES_SECRET_KEY', 'SPACES_BUCKET', 'SPACES_REGION', 'SPACES_ENDPOINT',
-        'SPACES_ACCESS_KEY_ID', 'SPACES_SECRET_ACCESS_KEY', 'BACKUP_BUCKET',
-        'BACKUP_ENCRYPTION_KEY'
+        'SERVER_USER', 'SSH_USER',
+        'SPACES_ACCESS_KEY_ID', 'SPACES_SECRET_ACCESS_KEY', 'SPACES_ENDPOINT',
+        'BACKUP_BUCKET', 'BACKUP_ENCRYPTION_KEY',
+        'OCI_AUDIT_PRIVATE_KEY', 'OCI_AUDIT_TENANCY_OCID', 'OCI_AUDIT_USER_OCID',
+        'OCI_AUDIT_FINGERPRINT', 'OCI_AUDIT_NAMESPACE', 'OCI_AUDIT_REGION'
     )
     $rows = @()
     $matchMap = @{}
@@ -487,28 +562,7 @@ function Inspect-WorkflowContract {
         Write-Host 'SSH_USER_VARIABLES_REQUIRED=NONE_FOUND; inspect any hard-coded workflow username separately.'
     }
 
-    $recoveryRoot = Join-Path $script:RepoPath 'scripts\recovery-gate'
-    $recoveryFiles = @()
-    if (Test-Path -LiteralPath $recoveryRoot -PathType Container) {
-        $recoveryFiles = @(Get-ChildItem -LiteralPath $recoveryRoot -Recurse -File -ErrorAction SilentlyContinue)
-    }
-    $doTokenMatches = @(Get-ExactNameMatches -Files $recoveryFiles -Name 'DO_TOKEN')
-    if ($doTokenMatches.Count -gt 0) {
-        $script:Report.DO_TOKEN_REQUIRED_BY_RECOVERY_CODE = 'YES'
-        Write-Host 'DO_TOKEN_REQUIRED_BY_RECOVERY_CODE=YES'
-        Write-Host ('DO_TOKEN_REFERENCES=' + (($doTokenMatches | ForEach-Object {
-            "$(Get-RepoRelativePath -FullName $_.Path):$($_.LineNumber)"
-        }) -join ', '))
-    } else {
-        $script:Report.DO_TOKEN_REQUIRED_BY_RECOVERY_CODE = 'NO'
-        Write-Host 'DO_TOKEN_REQUIRED_BY_RECOVERY_CODE=NO'
-    }
-
-    $spaceNames = @(
-        'SPACES_ACCESS_KEY', 'SPACES_ACCESS_KEY_ID', 'SPACES_SECRET_KEY',
-        'SPACES_SECRET_ACCESS_KEY', 'SPACES_BUCKET', 'BACKUP_BUCKET',
-        'SPACES_REGION', 'SPACES_ENDPOINT', 'BACKUP_ENCRYPTION_KEY'
-    )
+    $spaceNames = $script:OffsiteSecretNames
     $required = @($spaceNames | Where-Object { @($matchMap[$_]).Count -gt 0 })
     $script:RequiredSpaceNames = $required
     $script:Report.SPACES_CONFIGURATION_REQUIRED = if ($required.Count -gt 0) { 'YES' } else { 'NO' }
@@ -551,7 +605,7 @@ fi
 
 echo "ROOT_DISK_USAGE=$(df -h / 2>/dev/null | awk 'NR==2 {print $5}')"
 
-for name in DATABASE_URL REDIS_URL QDRANT_URL QDRANT_API_KEY QDRANT_COLLECTION DO_TOKEN SPACES_ACCESS_KEY SPACES_SECRET_KEY SPACES_BUCKET SPACES_REGION SPACES_ENDPOINT SPACES_ACCESS_KEY_ID SPACES_SECRET_ACCESS_KEY BACKUP_BUCKET BACKUP_ENCRYPTION_KEY; do
+for name in DATABASE_URL REDIS_URL QDRANT_URL QDRANT_API_KEY QDRANT_COLLECTION SPACES_ACCESS_KEY_ID SPACES_SECRET_ACCESS_KEY SPACES_ENDPOINT BACKUP_BUCKET BACKUP_ENCRYPTION_KEY; do
   if grep -Eq "^[[:space:]]*$name[[:space:]]*=" /opt/easymod/.env.prod 2>/dev/null; then
     printf '%s=PRESENT\n' "$name"
   else
@@ -593,9 +647,8 @@ fi
     $allowedPrefixes = @(
         'CONTAINER=', 'DOCKER_PS=', 'BACKUP_LISTING_ENTRIES=', 'BACKUP_TOTAL_SIZE=',
         'ROOT_DISK_USAGE=', 'DATABASE_URL=', 'REDIS_URL=', 'QDRANT_URL=',
-        'QDRANT_API_KEY=', 'QDRANT_COLLECTION=', 'DO_TOKEN=', 'SPACES_ACCESS_KEY=',
-        'SPACES_SECRET_KEY=', 'SPACES_BUCKET=', 'SPACES_REGION=', 'SPACES_ENDPOINT=',
-        'SPACES_ACCESS_KEY_ID=', 'SPACES_SECRET_ACCESS_KEY=', 'BACKUP_BUCKET=',
+        'QDRANT_API_KEY=', 'QDRANT_COLLECTION=', 'SPACES_ACCESS_KEY_ID=',
+        'SPACES_SECRET_ACCESS_KEY=', 'SPACES_ENDPOINT=', 'BACKUP_BUCKET=',
         'BACKUP_ENCRYPTION_KEY=', 'DATABASE_BACKUP_FOUND=', 'DATABASE_BACKUP_CUSTOM_FORMAT=',
         'DATABASE_BACKUP_SHA256=', 'MEDIA_BACKUP_FOUND=', 'MEDIA_BACKUP_GZIP=',
         'MEDIA_BACKUP_ARCHIVE=', 'MEDIA_BACKUP_SHA256='
@@ -634,42 +687,42 @@ function Get-ConfiguredSecretStatus {
     return 'MISSING'
 }
 
-function Configure-OptionalRecoverySecrets {
-    if ($script:Report.DO_TOKEN_REQUIRED_BY_RECOVERY_CODE -eq 'YES') {
-        Write-Section 'OPTIONAL DO_TOKEN GITHUB SECRET'
-        Write-Host 'The local recovery code references DO_TOKEN.'
-        Write-Host 'If you choose Yes, gh will prompt for the token. It will not be placed in a PowerShell variable, command line, file, or report.'
-
-        if (Read-YesNo -Prompt 'Configure DO_TOKEN in GitHub Actions now? [Y/N]') {
-            & gh secret set DO_TOKEN --repo $script:RepoName
-            $setExitCode = $LASTEXITCODE
-            if ($setExitCode -eq 0) {
-                if ($null -eq $script:SecretNames) {
-                    $script:SecretNames = Get-GitHubSecretNames
-                }
-                $script:Report.DO_TOKEN_GITHUB = if ($null -ne $script:SecretNames -and $script:SecretNames -contains 'DO_TOKEN') { 'PRESENT' } else { 'SET_UNVERIFIED' }
-            } else {
-                $script:Report.DO_TOKEN_GITHUB = 'MISSING'
-                Add-Blocker -Reason 'DO_TOKEN was not configured in GitHub Actions.'
-            }
-        } else {
-            $script:Report.DO_TOKEN_GITHUB = 'NOT_REQUESTED'
-        }
+function Update-OciAuditReport {
+    if ($null -eq $script:SecretNames) {
+        $script:SecretNames = Get-GitHubSecretNames
+    }
+    if ($null -eq $script:SecretNames) {
+        $script:Report.OCI_AUDIT_PRIVATE_KEY_GITHUB = 'NOT_CHECKED'
     } else {
-        $script:Report.DO_TOKEN_GITHUB = 'NOT_REQUIRED_BY_RECOVERY_CODE'
+        $auditKeyPresent = @($script:OciAuditSecretNames | Where-Object { $script:SecretNames -contains $_ }).Count -gt 0
+        $script:Report.OCI_AUDIT_PRIVATE_KEY_GITHUB = if ($auditKeyPresent) { 'PRESENT' } else { 'MISSING_OPTIONAL' }
+    }
+
+    $variableNames = Get-GitHubVariableNames
+    if ($null -eq $variableNames) {
+        foreach ($name in $script:OciAuditVariableNames) {
+            $script:Report["$($name)_VARIABLE"] = 'NOT_CHECKED'
+        }
+        return
+    }
+    foreach ($name in $script:OciAuditVariableNames) {
+        $script:Report["$($name)_VARIABLE"] = if ($variableNames -contains $name) { 'PRESENT' } else { 'MISSING_OPTIONAL' }
     }
 }
 
 function Update-SpacesSecretReport {
-    $script:Report.SPACES_ACCESS_KEY_GITHUB = Get-ConfiguredSecretStatus -Names @('SPACES_ACCESS_KEY_ID', 'SPACES_ACCESS_KEY')
-    $script:Report.SPACES_SECRET_KEY_GITHUB = Get-ConfiguredSecretStatus -Names @('SPACES_SECRET_ACCESS_KEY', 'SPACES_SECRET_KEY')
-    $script:Report.SPACES_BUCKET_CONFIGURED = Get-ConfiguredSecretStatus -Names @('BACKUP_BUCKET', 'SPACES_BUCKET')
-    $script:Report.SPACES_REGION_CONFIGURED = Get-ConfiguredSecretStatus -Names @('SPACES_ENDPOINT', 'SPACES_REGION')
+    if ($null -eq $script:SecretNames) {
+        $script:SecretNames = Get-GitHubSecretNames
+    }
+    $script:Report.SPACES_ACCESS_KEY_GITHUB = Get-ConfiguredSecretStatus -Names @('SPACES_ACCESS_KEY_ID')
+    $script:Report.SPACES_SECRET_KEY_GITHUB = Get-ConfiguredSecretStatus -Names @('SPACES_SECRET_ACCESS_KEY')
+    $script:Report.SPACES_BUCKET_CONFIGURED = Get-ConfiguredSecretStatus -Names @('BACKUP_BUCKET')
+    $script:Report.SPACES_REGION_CONFIGURED = Get-ConfiguredSecretStatus -Names @('SPACES_ENDPOINT')
 
     if ($script:Report.SPACES_CONFIGURATION_REQUIRED -eq 'YES' -and $null -ne $script:SecretNames) {
         $missing = @($script:RequiredSpaceNames | Where-Object { $script:SecretNames -notcontains $_ })
         if ($missing.Count -gt 0) {
-            Add-Blocker -Reason 'Required Spaces GitHub secrets are missing.'
+            Add-Blocker -Reason 'Required off-site OCI Object Storage GitHub secrets are missing.'
         }
     }
 }
@@ -685,9 +738,12 @@ function Write-FinalReport {
         'DEPLOY_HOST_GITHUB', 'WORKFLOW_SSH_USER_CONTRACT', 'DATABASE_BACKUP_FOUND',
         'DATABASE_BACKUP_CUSTOM_FORMAT', 'DATABASE_BACKUP_SHA256', 'MEDIA_BACKUP_FOUND',
         'MEDIA_BACKUP_GZIP', 'MEDIA_BACKUP_ARCHIVE', 'MEDIA_BACKUP_SHA256',
-        'BACKUP_TOTAL_SIZE', 'ROOT_DISK_USAGE', 'DO_TOKEN_REQUIRED_BY_RECOVERY_CODE',
-        'DO_TOKEN_GITHUB', 'SPACES_CONFIGURATION_REQUIRED', 'SPACES_ACCESS_KEY_GITHUB',
-        'SPACES_SECRET_KEY_GITHUB', 'SPACES_BUCKET_CONFIGURED', 'SPACES_REGION_CONFIGURED',
+        'BACKUP_TOTAL_SIZE', 'ROOT_DISK_USAGE', 'SPACES_CONFIGURATION_REQUIRED',
+        'SPACES_ACCESS_KEY_GITHUB', 'SPACES_SECRET_KEY_GITHUB',
+        'SPACES_BUCKET_CONFIGURED', 'SPACES_REGION_CONFIGURED',
+        'OCI_AUDIT_PRIVATE_KEY_GITHUB', 'OCI_AUDIT_TENANCY_OCID_VARIABLE',
+        'OCI_AUDIT_USER_OCID_VARIABLE', 'OCI_AUDIT_FINGERPRINT_VARIABLE',
+        'OCI_AUDIT_NAMESPACE_VARIABLE', 'OCI_AUDIT_REGION_VARIABLE',
         'NEXT_BLOCKER'
     )) {
         Write-Host "$key=$($script:Report[$key])"
@@ -713,7 +769,7 @@ try {
 
     Get-RepoPathInteractively
     Inspect-WorkflowContract
-    Configure-OptionalRecoverySecrets
+    Update-OciAuditReport
     Update-SpacesSecretReport
     Invoke-RemoteReadOnlyInspection -SshReady $sshReady
 

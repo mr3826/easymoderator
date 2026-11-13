@@ -29,9 +29,19 @@ Exit code `0` = all hard gates pass. The script prints PASS/FAIL per gate.
 | 6 | **Canary green for 7 straight days** — no STALE / DLQ / enqueue-failure ops alerts fired in the alert channel for a week | Review Slack/Sentry ops-alert history | Eng |
 | 7 | **≥10 shops activated** — 10 real shops reached their first successful AI reply | `launch-readiness.js` gate 5 (`/api/analytics/growth` → `totals.activated`) | Auto |
 | 8 | **Alerting actually reaches a human** — `SLACK_ALERT_WEBHOOK_URL` and/or `SENTRY_DSN` set in prod and a test alert was received | Trigger a test alert; confirm receipt | Eng |
-| 9 | **Shared Inbox upload volume ready** — outbound attachments persist on the droplet and are publicly reachable for Meta Messenger | Manual upload smoke test below | Eng |
+| 9 | **Shared Inbox upload volume ready** — outbound attachments persist on the OCI host volume + off-site object storage and are publicly reachable for Meta Messenger | Manual upload smoke test below | Eng |
 | 10 | **Meta deletion identity coverage ready** — every connected active pilot/reviewer Page has a legitimate app-scoped/Page-scoped identity mapping | `GET /api/admin/meta-identity-readiness` reports `connectedChannelsMissingMappings: 0`; reconnect missing channels before Meta submission/public launch | Eng |
 | 11 | **Commercial model is live and honest** — Shuru signup, Growth quota/top-ups, Partner eligibility/bands, and payment replay guards match the server catalog | Apply migration `20260828_004_commercial_model`; smoke-test `/api/subscription/plans`, `/pricing`, a 100/500-conversation boundary, and a forged/replayed bKash callback | Eng |
+
+### Gate 7 re-baseline — 2026-11-14 founder decision
+
+The **pilot phase** requires **≥2 activated pilot shops** (2–5 merchants, per the
+approved pilot plan), not 10. The **≥10 activated shops** threshold remains the
+**GA bar** and is unchanged.
+
+`EasyMod-backend/scripts/launch-readiness.js` still enforces the GA number
+(`ACTIVATION_TARGET`, default `10`). The pilot waiver is **manual** and is not
+encoded in that script; do not edit the code for the pilot phase.
 
 ## Informational (track, not blocking)
 
@@ -66,7 +76,7 @@ Then watch for one week:
 Run these on every initial-launch deploy before testing with real shops:
 
 ```bash
-ssh root@<droplet>
+ssh root@130.210.21.100   # OCI production host; receipts: /api/version, /health/ready
 cd /opt/easymod
 docker compose --env-file .env.prod -f docker-compose.prod.yml config --volumes
 docker volume ls | grep backend_uploads
@@ -77,7 +87,7 @@ docker system df
 Expected:
 - `backend_uploads` exists as a Docker named volume.
 - Backend has `BASE_URL=https://api.easymod.tech`, `APP_URL=https://app.easymod.tech`, and `BODY_SIZE_LIMIT=35mb` in `/opt/easymod/.env.prod`.
-- Droplet disk has enough free space for launch testing and pilot-shop attachments.
+- OCI host disk has enough free space for launch testing and pilot-shop attachments.
 - Daily backup workflow archives both Postgres and `easymod-uploads-*.tar.gz`.
 
 Then verify the live Shared Inbox flow with a Facebook Page tester:
@@ -101,10 +111,23 @@ Then verify the live Shared Inbox flow with a Facebook Page tester:
 - [ ] Gate 4 — DLQ empty
 - [ ] Gate 5 — Canary fresh
 - [ ] Gate 6 — Canary green 7 days, no ops alerts
-- [ ] Gate 7 — ≥10 shops activated
+- [ ] Gate 7 — ≥10 shops activated (GA bar); pilot phase: ≥2 activated pilot shops under the 2026-11-14 waiver
 - [ ] Gate 8 — Alerting verified reaching a human
 - [ ] Gate 9 — Shared Inbox upload volume + attachment round-trip verified
 - [ ] Gate 10 — All connected pilot/reviewer Meta channels have valid identity mappings
 - [ ] Gate 11 — Commercial model, quota, and payment replay smoke tests green
 
 **Launch approved by:** ______________________  **Date:** ____________
+
+---
+
+## Post-cutover addenda (2026-11-14)
+
+- DNS and TLS are now OCI-terminated: all five `easymod.tech` A records point at the
+  OCI host `130.210.21.100` (Cloudflare, grey-cloud), and Caddy v2.11.3 issues and
+  renews the five Let's Encrypt certificates with ACME HTTP-01.
+- The nightly `Database Backup` waits on a manual `production` environment approval
+  by `mr3826` every day. That is by design, not a stuck workflow.
+- `production-watch.yml` provides scheduled uptime and certificate-expiry
+  monitoring. Do not use `app.easymod.tech/health` as a probe; it returns SPA HTML
+  200 for any path.

@@ -1,3 +1,14 @@
+# Global options — must be the first block in the file.
+{
+	# ACME account contact so Let's Encrypt renewal-failure and expiry notices
+	# reach a human. Missing until the 2026-11-13 post-cutover audit: the
+	# account was registered with an empty contact list, so renewal failures
+	# (window 2027-01-11/12, cert expiry 2027-02-11) would have been silent.
+	# Caddy registers the contact with the CA on next reload/renewal; existing
+	# certificates are kept.
+	email work.evan.ahmed@gmail.com
+}
+
 # EasyModerator canonical production origins
 #
 #   easymod.tech      marketing and public/legal pages

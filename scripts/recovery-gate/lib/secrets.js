@@ -3,7 +3,6 @@
 // Secret handling is intentionally presence-only. Callers must never log the
 // returned values or serialize process.env into evidence.
 const SECRET_NAMES = Object.freeze([
-  'DO_TOKEN',
   'SPACES_ACCESS_KEY_ID',
   'SPACES_SECRET_ACCESS_KEY',
   'SPACES_ENDPOINT',
@@ -11,6 +10,7 @@ const SECRET_NAMES = Object.freeze([
   'BACKUP_ENCRYPTION_KEY',
   'RECOVERY_DATABASE_URL',
   'RECOVERY_DB_PASSWORD',
+  'OCI_AUDIT_PRIVATE_KEY',
 ]);
 
 function secretStatus(env = process.env) {
@@ -22,13 +22,11 @@ function secretStatus(env = process.env) {
   // DO_API_TOKEN is deliberately not used. It is reported only as a policy
   // warning so a caller can see that the compatibility variable was ignored.
   result.DO_API_TOKEN_IGNORED = Boolean(env.DO_API_TOKEN);
-  result.DO_TOKEN_SOURCE = result.DO_TOKEN ? 'process_environment' : 'missing';
   return result;
 }
 
 function requiredSpacesSecretsPresent(env = process.env) {
   return [
-    'DO_TOKEN',
     'SPACES_ACCESS_KEY_ID',
     'SPACES_SECRET_ACCESS_KEY',
     'SPACES_ENDPOINT',

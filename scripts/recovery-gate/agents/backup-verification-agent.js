@@ -57,26 +57,47 @@ function runAws(args, env) {
   };
 }
 
-function verifySpacesAccess(env = process.env) {
-  const secrets = secretStatus(env);
-  if (!secrets.DO_TOKEN) {
+function verifyLifecycle(env) {
+  const endpoint = String(env.SPACES_ENDPOINT || '');
+  if (/oraclecloud\.com/i.test(endpoint)) {
+    const namespace = endpoint.replace(/^https?:\/\//i, '').split('.')[0];
+    const command = `oci os object-lifecycle-policy get --namespace-name ${namespace} --bucket-name ${env.BACKUP_BUCKET}`;
+    process.stderr.write(`NOTICE: OCI Object Storage lifecycle is not exposed by the S3-compatible API. Verify it with: ${command}\n`);
     return {
-      status: 'BLOCKED',
-      blocker: 'DO_TOKEN_MISSING',
-      message: 'RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL',
+      status: 'NOTICE_OCI_CLI_REQUIRED',
+      namespace,
+      command,
+      note: 'get-bucket-lifecycle-configuration is unsupported on the OCI S3-compatible endpoint; this is not a failure.',
     };
   }
+
+  const lifecycle = runAws([
+    's3api', 'get-bucket-lifecycle-configuration', '--bucket', env.BACKUP_BUCKET,
+    '--endpoint-url', env.SPACES_ENDPOINT,
+  ], {
+    ...env,
+    AWS_ACCESS_KEY_ID: env.SPACES_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY: env.SPACES_SECRET_ACCESS_KEY,
+  });
+  if (!lifecycle.available) {
+    return { status: 'NOT_VERIFIED', reason: 'AWS_CLI_MISSING' };
+  }
+  return { status: lifecycle.ok ? 'PASS' : 'NOT_VERIFIED' };
+}
+
+function verifySpacesAccess(env = process.env) {
+  const secrets = secretStatus(env);
   if (!requiredSpacesSecretsPresent(env)) {
     return {
       status: 'BLOCKED_EXTERNAL_CREDENTIAL',
       blocker: 'SPACES_CREDENTIALS_MISSING',
       secretPresence: {
-        DO_TOKEN: secrets.DO_TOKEN,
         SPACES_ACCESS_KEY_ID: secrets.SPACES_ACCESS_KEY_ID,
         SPACES_SECRET_ACCESS_KEY: secrets.SPACES_SECRET_ACCESS_KEY,
         SPACES_ENDPOINT: secrets.SPACES_ENDPOINT,
         BACKUP_BUCKET: secrets.BACKUP_BUCKET,
         BACKUP_ENCRYPTION_KEY: secrets.BACKUP_ENCRYPTION_KEY,
+        OCI_AUDIT_PRIVATE_KEY: secrets.OCI_AUDIT_PRIVATE_KEY,
       },
     };
   }
@@ -104,11 +125,13 @@ function verifySpacesAccess(env = process.env) {
     AWS_ACCESS_KEY_ID: env.SPACES_ACCESS_KEY_ID,
     AWS_SECRET_ACCESS_KEY: env.SPACES_SECRET_ACCESS_KEY,
   });
+  const lifecycle = verifyLifecycle(env);
   return {
     status: acl.ok ? 'PASS' : 'FAIL',
     bucketHead: head.ok ? 'PASS' : 'FAIL',
     bucketAcl: acl.ok ? 'PASS' : 'FAIL',
     publicRead: acl.ok ? 'NOT_DETECTED_BY_ACL_PROBE' : 'NOT_VERIFIED',
+    lifecycle,
   };
 }
 
@@ -150,8 +173,8 @@ function run({ repoRoot, env = process.env, executeOffhost = false } = {}) {
       workflowEvidence: hasRetention,
     },
     secretPresence: {
-      DO_TOKEN: secrets.DO_TOKEN,
       spacesCredentialsComplete: requiredSpacesSecretsPresent(env),
+      OCI_AUDIT_PRIVATE_KEY: secrets.OCI_AUDIT_PRIVATE_KEY,
       DO_API_TOKEN_IGNORED: secrets.DO_API_TOKEN_IGNORED,
     },
   };

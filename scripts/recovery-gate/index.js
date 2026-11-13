@@ -9,7 +9,6 @@ const { run: runFraud } = require('./agents/fraud-shield-agent');
 const { run: runObservability } = require('./agents/observability-agent');
 const { run: runSecurity } = require('./agents/security-secrets-agent');
 const { EvidenceRecorder, utcNow } = require('./lib/evidence');
-const { secretStatus } = require('./lib/secrets');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 
@@ -27,7 +26,6 @@ function parseArgs(argv) {
 function buildReport(options = {}) {
   const evidence = new EvidenceRecorder();
   evidence.record('Recovery-Orchestrator Agent', 'start', { productionDeployEnabled: false, productionSwitched: 'NO' });
-  const secrets = secretStatus(process.env);
   const backup = runBackup({ repoRoot, executeOffhost: options.executeOffhost });
   evidence.record('Backup-Verification Agent', 'completed', { status: backup.offhost.status });
   const restore = runRestore({ repoRoot, executeRestore: options.executeRestore, probeDocker: options.probeDocker });
@@ -50,8 +48,6 @@ function buildReport(options = {}) {
   const report = {
     finalStatus: hardBlockers.length === 0 ? 'READY_FOR_CONTROLLED_CUTOVER' : 'RECOVERY_GATE_BLOCKED',
     generatedAtUtc: utcNow(),
-    doTokenStatus: secrets.DO_TOKEN ? 'AVAILABLE_IN_PROCESS' : 'DO_TOKEN_MISSING',
-    recoveryExecutionPausedForCredential: backup.offhost.verification.blocker === 'DO_TOKEN_MISSING',
     backupFrequency: backup.frequency,
     backupSchedule: backup.schedule.scheduleUtc,
     configuredBackupInterval: backup.configuredBackupInterval,
@@ -89,8 +85,6 @@ function buildReport(options = {}) {
 function renderReport(report) {
   const lines = [
     'FINAL_STATUS', report.finalStatus, '',
-    'DO_TOKEN_STATUS', report.doTokenStatus, '',
-    ...(report.recoveryExecutionPausedForCredential ? ['RECOVERY_EXECUTION_PAUSED_FOR_CREDENTIAL', ''] : []),
     'OFFHOST_BACKUP', report.agents.backup.offhost.verification.status, '',
     'BACKUP_FREQUENCY', report.backupFrequency,
     'BACKUP_SCHEDULE', report.backupSchedule,

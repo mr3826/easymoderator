@@ -164,14 +164,18 @@ OCI Object Storage exposes an **S3-compatible API**, so the `aws-cli`
 container keeps working with an endpoint swap:
 
 ```
-https://<namespace>.objectstorage.<region>.oci.oraclecloud.com
+https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
 ```
 
 Concrete values for this tenancy/region:
 
 - namespace: `bm1siqos8k1u`
 - region: `ap-mumbai-1`
-- endpoint: `https://bm1siqos8k1u.objectstorage.ap-mumbai-1.oci.oraclecloud.com`
+- endpoint: `https://bm1siqos8k1u.compat.objectstorage.ap-mumbai-1.oraclecloud.com`
+
+Use the **`compat`** hostname. The non-compat hostname
+(`https://bm1siqos8k1u.objectstorage.ap-mumbai-1.oraclecloud.com`) does **not**
+resolve for S3 requests in this tenancy.
 
 Mark namespace/region as **placeholders** in any template so a different
 tenancy/region can substitute them; do not hardcode the concrete endpoint into
@@ -342,3 +346,39 @@ proven, the droplet is restarted and DNS is pointed back.
   contract (`/opt/easymod`, Docker, ufw), secrets re-pointed (names kept),
   and the DO-only backup probe/audit rewritten. Everything else rides
   unchanged.
+
+---
+
+## Post-cutover status (2026-11-14)
+
+Gate 4 is complete and this memo's target is now the live production host.
+
+- **Gate 4 — complete.** Protected cutover deploy `43353881466`
+  (`workflow_dispatch`, success 2026-11-13T02:48:55Z) put main `90e66d65` on
+  `130.210.21.100`. `/api/version` matches the SHA, 72 migrations are applied
+  (latest `20261103_001_courier_collection_recon_state`), `/health/ready` is 200,
+  and the five host certificates were issued by Let's Encrypt during the cutover.
+- **Droplet destroyed 2026-11-13 (~10:27 UTC).** This crossed §6's
+  "stop, do not destroy" precondition. The founder waived it explicitly because the
+  product is pre-launch with no real merchants (DO-era data declared moot) and the
+  OCI restore drill had passed (run `43397427527`). The droplet list was verified
+  empty afterwards and OCI health was re-verified. Every rollback path that mentions
+  the DO droplet is void; rollback is redeploy-from-GHCR to the OCI host.
+- **§2.3 items 1–3 are IMPLEMENTED in this PR.**
+  1. `backup.yml` is repointed to OCI Object Storage. The `DO_TOKEN` account probe is
+     replaced by a `head-bucket` probe against the configured bucket through the
+     S3-compatible endpoint.
+  2. Privacy is proven OCI-natively via the bucket's `public_access_type`
+     (`NoPublicAccess`) instead of the unreliable S3 ACL check.
+  3. Lifecycle compliance is proven through the restricted read-only audit identity
+     `easymod-backup-audit` using `oci-python-sdk` `GetObjectLifecyclePolicy` and
+     `GetBucket`. The S3 endpoint is
+     `https://bm1siqos8k1u.compat.objectstorage.ap-mumbai-1.oraclecloud.com`; the
+     bucket is `easymod-backups-prod`, with a 30-day DELETE lifecycle on the `db/`
+     and `uploads/` prefixes.
+- **Boot-volume backup policy assigned.** `easymod-prod-boot-gold` on boot volume
+  `ocid1.bootvolume.oc1.ap-mumbai-1.abrg6ljrxr3a7t5iaa6uzes2oepoh6vqojlwthwh76yxx62eoxngkaye2mgq`:
+  weekly FULL Sunday 04:00 UTC retained 30 days + daily INCREMENTAL 05:00 UTC
+  retained 7 days.
+- **Remaining sequence:** first green OCI off-site backup run → delete the DO Spaces
+  bucket and the `DO_TOKEN` secret → founder closes the DO account.

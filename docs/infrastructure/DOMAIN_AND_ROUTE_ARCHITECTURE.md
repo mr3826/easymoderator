@@ -17,13 +17,14 @@ EasyModerator uses three canonical HTTPS origins:
 | `https://app.easymod.tech` | Sign-in, signup, OAuth completion, merchant and admin UI | No | Credentialed calls to API |
 | `https://api.easymod.tech` | JSON API, webhooks, health, SSE, generated/public assets | No | Host-only auth/session cookies |
 
-This is a domain separation, not an AWS migration. The initial rollout remains on
-the existing DigitalOcean deployment so routing and infrastructure migrations do
-not fail at the same time.
+This is a domain separation, not an AWS migration. The initial rollout remained on
+the DigitalOcean deployment (retired 2026-11-13) so routing and infrastructure
+migrations did not fail at the same time.
 
 ## Verified pre-migration state
 
-- Production runs on one DigitalOcean Singapore droplet (`139.59.249.141`).
+- Production runs on the Oracle Cloud OCI host `130.210.21.100` (`VM.Standard.A1.Flex`,
+  2 OCPU / 12 GB, Ubuntu 24.04 aarch64, region `ap-mumbai-1`).
 - Caddy is the only public listener and proxies the frontend/backend containers.
 - The authoritative live release on 2026-08-05 was
   `2271cb8198c998fa38db28ebc475f4bb7c286458`.
@@ -189,8 +190,8 @@ Old callback paths stay internally proxied during the transition.
 
 ### Stage 0 — DNS and release control
 
-1. Create Namecheap `A app -> 139.59.249.141` with a short TTL (60s).
-   Confirm `A api -> 139.59.249.141` already exists with the same TTL.
+1. Create the Cloudflare `A app -> 130.210.21.100` record with a short TTL.
+   Confirm `A api -> 130.210.21.100` already exists with the same TTL.
 2. Verify both resolve from a public resolver before merging:
    `nslookup app.easymod.tech 8.8.8.8` must not return NXDOMAIN.
    `api.easymod.tech` TLS is expected to fail until this release deploys its vhost —
@@ -290,9 +291,10 @@ Rollback is proxy/config first, DNS last:
 
 The zone moved off the frozen Namecheap panel during the cutover. `easymod.tech` is now
 served by Cloudflare (`tom.ns.cloudflare.com`, `ursula.ns.cloudflare.com`), DNS-only /
-grey-cloud on every row so Caddy keeps ownership of TLS and ACME. All four A records
-(`@`, `www`, `api`, `app`) point at `139.59.249.141`. The full 12-row zone — including the
-PrivateEmail and Resend rows that carry password-reset mail — is recorded in
+grey-cloud on every row so Caddy keeps ownership of TLS and ACME on the OCI host. All
+five A records (`@`, `www`, `api`, `app`, `growth`) point at `130.210.21.100`. The full
+12-row zone — including the PrivateEmail and Resend rows that carry password-reset
+mail — is recorded in
 [`docs/launch/cloudflare-zone-records.txt`](../launch/cloudflare-zone-records.txt).
 
 ## Cutover blockers and human-owned actions
