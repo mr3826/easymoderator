@@ -203,6 +203,7 @@ describe('production-defaults feature-flag matrix', () => {
             META_LOGIN_CONFIG_ID: '1685388446490514', META_APP_ID: '1234567890', META_APP_SECRET: 'j'.repeat(64),
             META_WEBHOOK_VERIFY_TOKEN: 'k'.repeat(64),
             RESEND_API_KEY: 're_live', EMAIL_FROM: 'no-reply@easymod.tech',
+            ACME_EMAIL: 'ops@example.com',
             SENTRY_DSN: 'https://public@example.ingest.sentry.io/1',
             OPENAI_API_KEY: 'sk-openai-test',
             BKASH_ENABLED: 'false', TELEGRAM_ENABLED: 'false',

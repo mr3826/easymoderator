@@ -28,6 +28,22 @@ function strictBooleanFlag(value, name, defaultValue) {
 }
 
 /**
+ * ACME_EMAIL must be a single, syntactically valid email address. Caddy would
+ * accept almost anything here and Let's Encrypt would silently drop renewal
+ * notices sent to a malformed address, so the render fails closed instead —
+ * an invalid contact is indistinguishable from no contact once deployed.
+ * Empty values are handled by required(); this only validates what is present.
+ */
+function validAcmeEmail(value) {
+    if (!value) return value;
+    const trimmed = String(value).trim();
+    if (/[\r\n]/.test(trimmed) || !/^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$/.test(trimmed)) {
+        throw new Error('ACME_EMAIL must be a single valid email address (e.g. ops@example.com)');
+    }
+    return trimmed;
+}
+
+/**
  * Register a derived secret with the Actions log scrubber. The transformed key
  * is not itself a GitHub secret, so without this it would not be masked if it
  * ever leaked into a stack trace. No-op outside Actions so a local render never
@@ -228,6 +244,13 @@ function buildRenderedEnv(source = process.env) {
         SLACK_ALERT_WEBHOOK_URL: source.SLACK_ALERT_WEBHOOK_URL || '',
         RESEND_API_KEY: required('RESEND_API_KEY'),
         EMAIL_FROM: required('EMAIL_FROM'),
+        // Caddy's Let's Encrypt account contact (Caddyfile `email {$ACME_EMAIL}`
+        // via docker-compose.prod.yml). Rendered from the ACME_EMAIL repository
+        // variable so no real address is committed; a missing or malformed value
+        // fails the render — and therefore the deployment — before the host is
+        // ever touched. An empty ACME contact silently loses renewal-failure
+        // notices (2026-11-13 audit finding).
+        ACME_EMAIL: validAcmeEmail(required('ACME_EMAIL')),
         SEED_ADMIN_EMAIL: source.SEED_ADMIN_EMAIL || 'admin@easymod.tech',
         SEED_ADMIN_PASSWORD: source.SEED_ADMIN_PASSWORD || '',
         SEED_ADMIN_NAME: source.SEED_ADMIN_NAME || 'EasyMod Admin',
@@ -274,6 +297,7 @@ function renderToFile(outputPath, source = process.env) {
 module.exports = {
     buildRenderedEnv,
     normalizePaymentEncryptionKey,
+    validAcmeEmail,
     renderToFile,
     RENDER_INPUT_REQUIRED,
 };

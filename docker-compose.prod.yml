@@ -39,6 +39,12 @@ services:
     image: caddy@sha256:86deaf5e3d3408a6ccec08fbb79989783dd26e206ae10bcf78a801dc8c9ab794
     restart: unless-stopped
     logging: *default-logging
+    # ACME contact for Let's Encrypt renewal-failure notices (Caddyfile global
+    # `email {$ACME_EMAIL}`). Interpolated from .env.prod at compose time; the
+    # `:?` guard fails `docker compose up` with a clear message if it is
+    # missing, so the edge can never start with an empty ACME contact again.
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required for Let's Encrypt renewal notices}
     ports:
       - "80:80"
       - "443:443"
@@ -181,11 +187,16 @@ services:
       - redis_data:/data
     networks:
       - internal
+    # Genuine server-side PING (not a container-running check). This stack runs
+    # Redis without requirepass; if authentication is ever introduced, this
+    # must become `redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping` or
+    # the healthcheck will report a healthy server as down (NOAUTH).
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   # ── Qdrant: Vector DB for RAG ─────────────────────────────────────────────
   qdrant:

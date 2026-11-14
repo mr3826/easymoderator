@@ -497,6 +497,7 @@ jobs:
           DB_USER=e2e
           DB_PASSWORD=synthetic-dry-run-password
           DB_NAME=easymod_dry_run
+          ACME_EMAIL=ops@example.com
           EOF
           cp _tmp/.env.prod .env.prod
           trap 'rm -f .env.prod' EXIT
@@ -584,6 +585,9 @@ jobs:
           SLACK_ALERT_WEBHOOK_URL: ${{ secrets.SLACK_ALERT_WEBHOOK_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          # Caddy ACME contact (repository variable — an email address is not a
+          # secret, but it must never be committed; render fails without it).
+          ACME_EMAIL: ${{ vars.ACME_EMAIL }}
           SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
           ALLOW_SELF_SIGNED_TLS: ${{ secrets.ALLOW_SELF_SIGNED_TLS }}
           BODY_SIZE_LIMIT: ${{ secrets.BODY_SIZE_LIMIT || '35mb' }}
@@ -1086,6 +1090,9 @@ jobs:
           SLACK_ALERT_WEBHOOK_URL: ${{ secrets.SLACK_ALERT_WEBHOOK_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          # Caddy ACME contact (repository variable — an email address is not a
+          # secret, but it must never be committed; render fails without it).
+          ACME_EMAIL: ${{ vars.ACME_EMAIL }}
           SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
           ALLOW_SELF_SIGNED_TLS: ${{ secrets.ALLOW_SELF_SIGNED_TLS }}
           BODY_SIZE_LIMIT: ${{ secrets.BODY_SIZE_LIMIT || '35mb' }}

@@ -144,7 +144,7 @@ function checkRedisAvailability() {
  * and the old any-of-six `.some()` reading hid real failures behind it (a
  * production audit found 4 of 6 clients down-reported as 'connected').
  *
- * Per-client states:
+ * Per-client states (synchronous, connection-state based):
  *   ready    — connected (or in-memory fallback active)
  *   idle     — created but not connected yet (lazyConnect), or transiently
  *              connecting/reconnecting
@@ -156,17 +156,8 @@ function checkRedisAvailability() {
  *   not_configured — every client is the in-memory dev fallback
  */
 function getRedisReadiness() {
-    const clients = {
-        session:   sessionRedis,
-        cache:     cacheRedis,
-        rateLimit: rateLimitRedis,
-        legacy:    legacyRedis,
-        ssePub:    sseRedisPub,
-        sseSub:    sseRedisSub
-    };
-
     const details = {};
-    for (const [name, client] of Object.entries(clients)) {
+    for (const [name, client] of Object.entries(redisClients())) {
         if (!client) {
             details[name] = 'down';
             continue;
@@ -185,17 +176,106 @@ function getRedisReadiness() {
             details[name] = 'idle';
         }
     }
+    return { status: summarize(details), details };
+}
 
+function redisClients() {
+    return {
+        session:   sessionRedis,
+        cache:     cacheRedis,
+        rateLimit: rateLimitRedis,
+        legacy:    legacyRedis,
+        ssePub:    sseRedisPub,
+        sseSub:    sseRedisSub
+    };
+}
+
+function summarize(details) {
     const values = Object.values(details);
-    let status;
-    if (values.some((v) => v === 'down')) {
-        status = 'degraded';
-    } else if (values.every((v) => v === 'fallback')) {
-        status = 'not_configured';
-    } else {
-        status = 'connected';
+    if (values.some((v) => v === 'down')) return 'degraded';
+    if (values.every((v) => v === 'fallback')) return 'not_configured';
+    return 'connected';
+}
+
+// ── Authenticated PING-based readiness probe ─────────────────────────────────
+// A running container, an open TCP port, or a configured REDIS_URL does not
+// make Redis ready. The probe below issues a real PING over each client's own
+// configured connection (host/port/password/TLS come from the client's config,
+// so credentials are never duplicated here), bounded by a timeout, and reuses
+// the existing clients — no new connection per health request. Results are
+// cached briefly so a fleet of probes cannot turn readiness into a PING storm.
+
+const PROBE_TIMEOUT_MS = Math.min(10000, Math.max(100,
+    Number.parseInt(process.env.REDIS_HEALTH_PROBE_TIMEOUT_MS, 10) || 1500));
+const PROBE_CACHE_MS = Math.max(0,
+    Number.parseInt(process.env.REDIS_HEALTH_CACHE_MS, 10) || 10000);
+
+let readinessCache = null;
+
+function pingWithTimeout(client, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        let timer = null;
+        const settle = (fn, value) => {
+            if (timer) clearTimeout(timer);
+            fn(value);
+        };
+        timer = setTimeout(
+            () => settle(reject, new Error(`redis PING timed out after ${timeoutMs}ms`)),
+            timeoutMs,
+        );
+        Promise.resolve()
+            .then(() => client.ping())
+            .then((reply) => settle(resolve, reply))
+            .catch((err) => settle(reject, err));
+    });
+}
+
+async function probeClient(name, client) {
+    if (!client) return 'down';
+    if (client._isMemoryFallback === true) return 'fallback';
+    try {
+        const reply = await pingWithTimeout(client, PROBE_TIMEOUT_MS);
+        return reply === 'PONG' ? 'ready' : 'down';
+    } catch (err) {
+        // ioredis rejects non-subscription commands on the SSE subscriber
+        // connection. PING is protocol-legal in subscribe mode, but if this
+        // ioredis build refuses it, fall back to connection-state truth for
+        // this one client instead of reporting a false 'down'. The shared
+        // server was already PING-proven through ssePub.
+        if (/subscriber mode/i.test(String(err && err.message))) {
+            if (client.status === 'ready') return 'ready';
+            return client.status === 'end' ? 'down' : 'idle';
+        }
+        return 'down';
     }
-    return { status, details };
+}
+
+/**
+ * Async, PING-verified Redis readiness. Returns
+ * `{ status: connected|degraded|not_configured, details, probedAt }`.
+ * `force: true` bypasses the short-lived cache (tests, incident triage).
+ */
+async function probeRedisReadiness({ force = false } = {}) {
+    if (!force && readinessCache && (Date.now() - readinessCache.at) < PROBE_CACHE_MS) {
+        return readinessCache.result;
+    }
+    const entries = Object.entries(redisClients());
+    const results = await Promise.all(
+        entries.map(async ([name, client]) => [name, await probeClient(name, client)]),
+    );
+    const details = Object.fromEntries(results);
+    const result = {
+        status: summarize(details),
+        details,
+        probedAt: new Date().toISOString(),
+    };
+    readinessCache = { at: Date.now(), result };
+    return result;
+}
+
+/** Drop the cached probe result (tests, or after a config-affecting restart). */
+function resetRedisReadinessCache() {
+    readinessCache = null;
 }
 
 module.exports = {
@@ -207,5 +287,7 @@ module.exports = {
     sseRedisSub,
     closeAllRedis,
     checkRedisAvailability,
-    getRedisReadiness
+    getRedisReadiness,
+    probeRedisReadiness,
+    resetRedisReadinessCache
 };
