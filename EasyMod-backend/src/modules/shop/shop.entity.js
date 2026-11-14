@@ -50,8 +50,37 @@ const Shop = sequelize.define('Shop', {
         type: DataTypes.JSON,
         allowNull: true,
         defaultValue: {}
-    }
-    ,
+    },
+    // ----- Business-wide AI emergency stop (ADR-0013 §6) -----
+    // Dedicated, audited storage — deliberately outside the merchant-writable
+    // `settings` JSON so general shop writers cannot toggle a safety control.
+    // Engage also writes settings.ai.automation_mode = MANUAL (rollback belt).
+    ai_emergency_stop: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+        comment: 'True = no automatic AI sends on any channel; bypass-proof. Engage also sets business mode MANUAL.',
+    },
+    ai_emergency_stop_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'When the current emergency stop was engaged.',
+    },
+    ai_emergency_stop_by: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        comment: 'Actor who engaged the current emergency stop.',
+    },
+    ai_emergency_stop_source: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        comment: 'merchant | admin — controls who may resume the stop.',
+    },
+    ai_emergency_stop_prior_mode: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        comment: 'Business automation mode snapshotted at engage; preserved on repeat engage. Never auto-restored on resume.',
+    },
     config_version: {
         type: DataTypes.INTEGER,
         allowNull: false,

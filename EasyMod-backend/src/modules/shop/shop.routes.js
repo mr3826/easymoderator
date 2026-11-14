@@ -1,5 +1,7 @@
 const express = require('express');
+const Joi = require('joi');
 const shopController = require('./shop.controller');
+const { validate } = require('../helpers');
 const { authenticate } = require('../../middleware/auth.middleware');
 const { verifyShopAccess } = require('../../middleware/shop-access.middleware');
 const { requireOwner } = require('../../middleware/shop-permission.middleware');
@@ -14,6 +16,13 @@ const {
 } = require('./shop.validator');
 
 const router = express.Router();
+
+// Optional operator note for the emergency stop (audited, never customer-facing).
+const emergencyStopBody = Joi.object({
+    reason: Joi.string().trim().max(500).allow('', null).messages({
+        'string.max': 'reason must be at most 500 characters',
+    }),
+}).unknown(false).default({});
 const recoveryAuthenticate = typeof authenticate.withOptions === 'function'
   ? authenticate.withOptions({ requireShopMembership: false })
   : authenticate;
@@ -68,6 +77,12 @@ router.get('/ai-settings', shopController.getAISettings);
 
 // PUT /shop/ai-settings - Update AI behaviour settings
 router.put('/ai-settings', verifyShopAccess, requireOwner, shopController.updateAISettings);
+
+// POST /shop/ai/emergency-stop - Business-wide, bypass-proof AI stop (OWNER)
+router.post('/ai/emergency-stop', verifyShopAccess, requireOwner, validate({ body: emergencyStopBody }), shopController.engageAiEmergencyStop);
+
+// POST /shop/ai/emergency-resume - Source-aware resume; mode stays MANUAL (OWNER)
+router.post('/ai/emergency-resume', verifyShopAccess, requireOwner, shopController.resumeAiEmergencyStop);
 
 // GET /shop/ai-settings/intent-thresholds - Get per-intent confidence thresholds
 router.get('/ai-settings/intent-thresholds', shopController.getIntentThresholds);

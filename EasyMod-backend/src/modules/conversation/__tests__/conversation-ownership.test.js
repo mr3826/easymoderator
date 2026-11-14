@@ -36,7 +36,10 @@ jest.mock('../../entities', () => ({
 }));
 jest.mock('../../subscription/subscription.service', () => ({ trackUsage: jest.fn() }));
 jest.mock('../../shop/shop.service', () => ({ getShopAiSettings: jest.fn(async () => ({})) }));
-jest.mock('../../shop/ai-reply-mode', () => ({ getEffectiveAiReplyMode: jest.fn(async () => 'MANUAL') }));
+jest.mock('../../shop/ai-reply-mode', () => ({
+    ...jest.requireActual('../../shop/ai-reply-mode'),
+    getEffectiveAiReplyMode: jest.fn(async () => 'MANUAL'),
+}));
 jest.mock('../../../utils/database/database-setup', () => ({
     sequelize: { getDialect: () => 'sqlite', transaction: undefined },
 }));

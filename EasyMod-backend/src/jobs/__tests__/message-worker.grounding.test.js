@@ -981,6 +981,8 @@ describe('existing behaviour is preserved', () => {
         });
         metaChannelService.getSettings
             .mockResolvedValueOnce({ automation_mode: 'AI_ACTIVE', ai_auto_reply: true })
+            // Fresh allow_order_creation re-read immediately before the mutation.
+            .mockResolvedValueOnce({ automation_mode: 'AI_ACTIVE', ai_auto_reply: true })
             .mockRejectedValueOnce(new Error('latest channel settings unavailable'));
 
         const result = await processMessageJob(job({ message: 'yes' }));

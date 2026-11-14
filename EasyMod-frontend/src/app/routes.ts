@@ -25,7 +25,9 @@ const CategoryDetails = lazy(() => import("./components/CategoryDetails"));
 const SubcategoryDetails = lazy(() => import("./components/SubcategoryDetails"));
 const ManageShop = lazy(() => import("./components/ManageShop"));
 const SettingsHub = lazy(() => import("./components/SettingsHub"));
-const ChatSettings = lazy(() => import("./components/ChatSettings"));
+const ChannelsOverview = lazy(() => import("./components/channels/ChannelsOverview"));
+const ChannelDetail = lazy(() => import("./components/channels/ChannelDetail"));
+const BusinessAutomationDefaults = lazy(() => import("./components/BusinessAutomationDefaults"));
 const DeliverySettings = lazy(() => import("./components/DeliverySettings"));
 const PaymentSettings = lazy(() => import("./components/PaymentSettings"));
 const NotificationSettings = lazy(() => import("./components/NotificationSettings"));
@@ -189,14 +191,17 @@ export const router = createBrowserRouter([
 		children: [
 			{ path: "/dashboard", Component: withSuspense(Dashboard) },
 			{ path: "/inbox", Component: withSuspense(UnifiedInbox) },
-			{ path: "/channels", loader: () => redirect("/manage-shop/chat-settings") },
+			{ path: "/channels", loader: () => redirect("/manage-shop/channels") },
 			{
 				path: "/manage-shop",
 				Component: withSuspense(ManageShop),
 				children: [
 					{ index: true, Component: withSuspense(SettingsHub) },
 					{ path: "business-info", Component: withSuspense(BusinessInfoSettings) },
-					{ path: "chat-settings", Component: withSuspense(ChatSettings) },
+					{ path: "channels", Component: withSuspense(ChannelsOverview) },
+					{ path: "channels/:channelId", Component: withSuspense(ChannelDetail) },
+					{ path: "automation", Component: withSuspense(BusinessAutomationDefaults) },
+					{ path: "chat-settings", loader: () => redirect("/manage-shop/channels") },
 					{ path: "delivery-settings", Component: withSuspense(DeliverySettings) },
 					{ path: "payment-settings", Component: withSuspense(PaymentSettings) },
 					{ path: "notifications", Component: withSuspense(NotificationSettings) },
@@ -233,7 +238,7 @@ export const router = createBrowserRouter([
 	},
 	{
 		path: "/settings/channels",
-		loader: () => redirect("/manage-shop/chat-settings"),
+		loader: () => redirect("/manage-shop/channels"),
 	},
 	{
 		path: "/app",

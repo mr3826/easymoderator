@@ -28,6 +28,18 @@ jest.mock('../../entities', () => ({
     MetaChannel: {},
     MetaChannelSettings: {},
     InboxDeliveryOutbox: mockInboxDeliveryOutbox,
+    Shop: {
+        findByPk: jest.fn(async () => ({
+            id: 'shop-a',
+            is_active: true,
+            ai_emergency_stop: false,
+            ai_emergency_stop_at: null,
+            ai_emergency_stop_by: null,
+            ai_emergency_stop_source: null,
+            ai_emergency_stop_prior_mode: null,
+        })),
+    },
+    Subscription: { findOne: jest.fn(async () => ({ status: 'active' })) },
 }));
 jest.mock('../../../utils/database/database-setup', () => ({
     sequelize: { transaction: jest.fn(async () => mockTransaction) },
@@ -42,8 +54,13 @@ jest.mock('../../../utils/structured-logger', () => ({
     createLogger: jest.fn(() => ({ error: jest.fn(), info: jest.fn(), warn: jest.fn() })),
 }));
 jest.mock('../../shop/ai-reply-mode', () => ({
+    ...jest.requireActual('../../shop/ai-reply-mode'),
     getEffectiveAiReplyMode: jest.fn(async () => 'AUTO'),
-    AI_REPLY_MODES: { AUTO: 'AUTO', DRAFT: 'DRAFT', MANUAL: 'MANUAL' },
+}));
+// The effective-config display fields read the business settings once per
+// request; this suite pins the BUSINESS mode projection (AUTO).
+jest.mock('../../shop/shop.service', () => ({
+    getShopAiSettings: jest.fn(async () => ({ automation_mode: 'AUTO' })),
 }));
 
 const conversationService = require('../conversation.service');
@@ -107,6 +124,59 @@ beforeEach(() => {
 });
 
 describe('ConversationService delivery projection', () => {
+    it('adds the effective automation fields while keeping the business ai_reply_mode', async () => {
+        const row = {
+            id: 'conversation-1',
+            customer_id: 'customer-1',
+            channel: 'messenger',
+            metadata: {},
+            hitl: false,
+            customer: null,
+            metaChannel: null,
+            message: null,
+        };
+        mockConversationModel.findAndCountAll = jest.fn().mockResolvedValue({ rows: [row], count: 1 });
+        mockMessageModel.findAll.mockResolvedValue([]);
+
+        const result = await conversationService.getConversations('shop-a');
+
+        expect(result.ai_reply_mode).toBe('AUTO');
+        expect(result.conversations[0]).toEqual(expect.objectContaining({
+            effective_ai_reply_mode: 'AUTO',
+            mode_source: 'business_default',
+            emergency_stop: expect.objectContaining({ active: false }),
+            billing_ai_active: true,
+        }));
+    });
+
+    it('fails closed for the automation display fields when the safety state cannot be read', async () => {
+        const { Shop } = require('../../entities');
+        Shop.findByPk.mockRejectedValueOnce(new Error('db unavailable'));
+        const row = {
+            id: 'conversation-1',
+            customer_id: 'customer-1',
+            channel: 'messenger',
+            metadata: {},
+            hitl: false,
+            customer: null,
+            metaChannel: null,
+            message: null,
+        };
+        mockConversationModel.findAndCountAll = jest.fn().mockResolvedValue({ rows: [row], count: 1 });
+        mockMessageModel.findAll.mockResolvedValue([]);
+
+        const result = await conversationService.getConversations('shop-a');
+
+        // ADR-0013 §9 / ADR-0011 C5: an unreadable safety state must not present
+        // AI as active — the display agrees with the worker's fail-closed guards.
+        expect(result.conversations[0]).toEqual(expect.objectContaining({
+            effective_ai_reply_mode: 'MANUAL',
+            mode_source: 'emergency_stop',
+            emergency_stop: expect.objectContaining({ active: true }),
+            billing_ai_active: false,
+        }));
+    });
+
     it('projects customer identity instead of an internal intent enum', () => {
         const result = conversationService.mapConversation({
             id: 'conversation-1',

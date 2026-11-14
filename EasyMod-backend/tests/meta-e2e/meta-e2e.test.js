@@ -24,6 +24,8 @@ const {
     UsageEvent, Subscription, Customer, Conversation, Message,
     Product,
 } = require('../../src/modules/entities');
+const MetaChannelSettings = require('../../src/modules/channel-providers/meta-channel-settings.entity');
+const shopService = require('../../src/modules/shop/shop.service');
 
 const { IDS, RUNTIME, EXPECTED, CUSTOMER_PSID, CUSTOMER_PSID_PAGE_A2 } = fixtures;
 const { GroundingDecision, ReasonCode, ProductEvidenceStatus, MediaStatus } = grounding;
@@ -731,6 +733,223 @@ describe('META-E2E-REPLY-MODE — one business mode controls every automatic sen
         expect(autoPage2.sends).toHaveLength(1);
         expect(autoPage1.jobResults[0]).toEqual(expect.objectContaining({ sent: true }));
         expect(autoPage2.jobResults[0]).toEqual(expect.objectContaining({ sent: true }));
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// META-E2E-CHANNEL-OVERRIDE — narrow-only per-Page authority (ADR-0013 §3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Create/replace the channel override row for one E2E channel. */
+const setChannelOverrides = async (channelId, overrides) => {
+    const [row] = await MetaChannelSettings.findOrCreate({ where: { channel_id: channelId } });
+    await row.update({ overrides });
+    return row;
+};
+
+describe('META-E2E-CHANNEL-OVERRIDE — two Pages can diverge within the business ceiling', () => {
+    test('Page 1 AUTO-override sends while Page 2 DRAFT-override holds under business AUTO', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'AUTO');
+        await setChannelOverrides(IDS.channelA, { automation_mode: 'AUTO' });
+        await setChannelOverrides(IDS.channelA2, { automation_mode: 'DRAFT' });
+
+        const page1 = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA,
+            psid: CUSTOMER_PSID,
+            candidate: `${EXPECTED.knownProductName} — ৳${EXPECTED.knownProductPrice}.`,
+        });
+        const page2 = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA2,
+            psid: CUSTOMER_PSID_PAGE_A2,
+            candidate: `${EXPECTED.knownProductName} — ৳${EXPECTED.knownProductPrice}.`,
+        });
+
+        expect(page1.sends).toHaveLength(1);
+        expect(page1.jobResults[0]).toEqual(expect.objectContaining({ sent: true }));
+        expect(page2.sends).toHaveLength(0);
+        expect(page2.jobResults[0]).toEqual(expect.objectContaining({
+            sent: false,
+            reason: 'draft_mode',
+        }));
+
+        // Changing Page 1's override never touched Page 2's stored row.
+        const page2Row = await MetaChannelSettings.findByPk(IDS.channelA2);
+        expect(page2Row.overrides).toEqual({ automation_mode: 'DRAFT' });
+    });
+
+    test('reverting the Page 2 override converges it back to the business default', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'AUTO');
+        await setChannelOverrides(IDS.channelA2, { automation_mode: 'DRAFT' });
+
+        const held = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA2,
+            psid: CUSTOMER_PSID_PAGE_A2,
+            candidate: `${EXPECTED.knownProductName} — ৳${EXPECTED.knownProductPrice}.`,
+        });
+        expect(held.sends).toHaveLength(0);
+
+        // Revert-to-inherit is a null override (the server deletes the key).
+        await setChannelOverrides(IDS.channelA2, null);
+
+        const converged = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA2,
+            psid: CUSTOMER_PSID_PAGE_A2,
+            candidate: `${EXPECTED.knownProductName} — ৳${EXPECTED.knownProductPrice}.`,
+        });
+        expect(converged.sends).toHaveLength(1);
+        expect(converged.jobResults[0]).toEqual(expect.objectContaining({ sent: true }));
+    });
+
+    test('a business default change propagates only to inheriting Pages', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'AUTO');
+        await setChannelOverrides(IDS.channelA2, { automation_mode: 'DRAFT' });
+
+        await harness.setBusinessReplyMode(IDS.shopA, 'MANUAL');
+
+        const page1 = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA,
+            psid: CUSTOMER_PSID,
+            candidate: 'Manual Page 1 must not send this.',
+        });
+        const page2 = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA2,
+            psid: CUSTOMER_PSID_PAGE_A2,
+            candidate: 'Manual Page 2 must not send this.',
+        });
+
+        expect(page1.sends).toHaveLength(0);
+        expect(page2.sends).toHaveLength(0);
+        expect(page1.jobResults[0]).toEqual(expect.objectContaining({ reason: 'manual_mode' }));
+        expect(page2.jobResults[0]).toEqual(expect.objectContaining({ reason: 'manual_mode' }));
+    });
+
+    test('a stored widening override is clamped at runtime, never honored', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'MANUAL');
+        // Bypass the API deliberately: the runtime clamp must hold even for a
+        // row written by an older release or a direct database edit.
+        await setChannelOverrides(IDS.channelA, { automation_mode: 'AUTO' });
+
+        const result = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA,
+            psid: CUSTOMER_PSID,
+            candidate: 'A clamped channel must never auto-send.',
+        });
+
+        expect(result.sends).toHaveLength(0);
+        expect(result.jobResults[0]).toEqual(expect.objectContaining({
+            skipped: true,
+            reason: 'manual_mode',
+        }));
+    });
+
+    test('the settings API rejects a widening PATCH with 400 INVALID_OVERRIDE_WIDENING', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'MANUAL');
+        const metaChannelService = require('../../src/modules/channel-providers/meta-channel.service');
+
+        // Service-level enforcement is the authority behind the HTTP controller
+        // (the controller maps AppError status/code onto the response).
+        await expect(
+            metaChannelService.updateSettings(
+                IDS.channelA,
+                { overrides: { automation_mode: 'AUTO' } },
+                { shopId: IDS.shopA, userId: null },
+            ),
+        ).rejects.toMatchObject({ status: 400, code: 'INVALID_OVERRIDE_WIDENING' });
+
+        const row = await MetaChannelSettings.findByPk(IDS.channelA);
+        expect(row?.overrides?.automation_mode).toBeUndefined();
+    });
+
+    test('a narrowing PATCH is accepted and stored canonically', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'AUTO');
+        const metaChannelService = require('../../src/modules/channel-providers/meta-channel.service');
+
+        await metaChannelService.updateSettings(
+            IDS.channelA,
+            { overrides: { automation_mode: 'AI_SUGGEST_ONLY' } },
+            { shopId: IDS.shopA, userId: null },
+        );
+
+        const row = await MetaChannelSettings.findByPk(IDS.channelA);
+        expect(row.overrides).toEqual({ automation_mode: 'DRAFT' });
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// META-E2E-EMERGENCY-STOP — business-wide, bypass-proof (ADR-0013 §6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('META-E2E-EMERGENCY-STOP — no automatic delivery while stopped', () => {
+    test('a stop engaged AFTER the job is queued holds it before the LLM', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'AUTO');
+        // A channel AUTO override must not bypass the business-wide stop.
+        await setChannelOverrides(IDS.channelA, { automation_mode: 'AUTO' });
+        transport.setCandidate(`${EXPECTED.knownProductName} — ৳${EXPECTED.knownProductPrice}.`);
+
+        const payload = harness.messagePayload({
+            pageId: IDS.pageA,
+            psid: CUSTOMER_PSID,
+            text: 'black panjabi ache?',
+        });
+        const response = await harness.postWebhook(payload);
+        expect(response.status).toBe(200);
+
+        // The job is durably queued; now the merchant hits the stop.
+        expect(await harness.waitForJobs(1)).toHaveLength(1);
+        await shopService.engageAiEmergencyStop(IDS.shopA, null, { source: 'merchant' });
+
+        const results = await harness.drainQueue();
+        expect(results[0]).toEqual(expect.objectContaining({
+            skipped: true,
+            reason: 'emergency_stop',
+        }));
+        expect(transport.capturedSends()).toHaveLength(0);
+        expect(transport.llmProvidersCalled()).toEqual([]);
+    });
+
+    test('agent sends still deliver under the stop (human agency preserved)', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'AUTO');
+        await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA,
+            psid: CUSTOMER_PSID,
+            candidate: `${EXPECTED.knownProductName} — ৳${EXPECTED.knownProductPrice}.`,
+        });
+        await shopService.engageAiEmergencyStop(IDS.shopA, null, { source: 'merchant' });
+
+        const manual = await harness.sendAgentReply({
+            shopId: IDS.shopA,
+            content: 'We are still here — a human will help you.',
+        });
+        expect(manual.sends).toHaveLength(1);
+    });
+
+    test('resume keeps MANUAL and the next automatic turn is still skipped', async () => {
+        await harness.setBusinessReplyMode(IDS.shopA, 'AUTO');
+        await shopService.engageAiEmergencyStop(IDS.shopA, null, { source: 'merchant' });
+        const resumed = await shopService.resumeAiEmergencyStop(IDS.shopA, null, {
+            source: 'merchant',
+        });
+        expect(resumed).toEqual(expect.objectContaining({
+            active: false,
+            automation_mode: 'MANUAL',
+        }));
+
+        const result = await harness.deliver({
+            text: 'black panjabi ache?',
+            pageId: IDS.pageA,
+            psid: CUSTOMER_PSID,
+            candidate: 'Resume must not re-enable AUTO.',
+        });
+        expect(result.sends).toHaveLength(0);
+        expect(result.jobResults[0]).toEqual(expect.objectContaining({ reason: 'manual_mode' }));
     });
 });
 

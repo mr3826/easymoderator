@@ -114,7 +114,9 @@ describe('testWebhook canonical health contract', () => {
             body: {},
         }, response(), next);
 
-        expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+        // API_CONTRACT §2: cross-shop is a 404 (no existence leak); rejection
+        // still precedes any Meta request.
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
         expect(provider.verifyWebhookSubscription).not.toHaveBeenCalled();
     });
 

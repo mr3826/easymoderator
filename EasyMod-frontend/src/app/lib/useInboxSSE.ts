@@ -14,6 +14,10 @@ interface SSECallbacks {
     onConversationUpdated?: (data: { conversation_id: string; ai_paused?: boolean }) => void;
     onDeliveryFailed?: (data: { conversation_id?: string; message_id?: string; reason: string }) => void;
     onChannelError?: (data: { type: string; page_id: string; display_name: string; message: string }) => void;
+    /** ADR-0013 §9: a channel override / purpose write changed effective config. */
+    onChannelSettingsChanged?: (data: { channel_id: string; effective_mode?: AiReplyMode; mode_source?: string; override_keys?: string[] }) => void;
+    /** ADR-0013 §6: business-wide emergency stop engaged or resumed. */
+    onEmergencyStopChanged?: (data: { active: boolean; at?: string | null; by?: string | null; source?: string | null; prior_mode?: AiReplyMode | null }) => void;
     onSSEOffline?: () => void;
     onSSEOnline?: () => void;
 }
@@ -26,10 +30,10 @@ interface SSECallbacks {
  * Reconnects automatically with exponential back-off (1s → 30s cap) on error.
  * Cookies are sent automatically by EventSource (withCredentials: true).
  */
-export function useInboxSSE({ onNewMessage, onHitlChanged, onAiPaused, onAiReplyModeChanged, onMessageDeliveryUpdated, onConversationRead, onCustomerUpdated, onConversationUpdated, onDeliveryFailed, onChannelError, onSSEOffline, onSSEOnline }: SSECallbacks): void {
+export function useInboxSSE({ onNewMessage, onHitlChanged, onAiPaused, onAiReplyModeChanged, onMessageDeliveryUpdated, onConversationRead, onCustomerUpdated, onConversationUpdated, onDeliveryFailed, onChannelError, onChannelSettingsChanged, onEmergencyStopChanged, onSSEOffline, onSSEOnline }: SSECallbacks): void {
     // Keep callbacks in a ref so reconnects always use the latest closures
-    const callbacksRef = useRef<SSECallbacks>({ onNewMessage, onHitlChanged, onAiPaused, onAiReplyModeChanged, onMessageDeliveryUpdated, onConversationRead, onCustomerUpdated, onConversationUpdated, onDeliveryFailed, onChannelError, onSSEOffline, onSSEOnline });
-    callbacksRef.current = { onNewMessage, onHitlChanged, onAiPaused, onAiReplyModeChanged, onMessageDeliveryUpdated, onConversationRead, onCustomerUpdated, onConversationUpdated, onDeliveryFailed, onChannelError, onSSEOffline, onSSEOnline };
+    const callbacksRef = useRef<SSECallbacks>({ onNewMessage, onHitlChanged, onAiPaused, onAiReplyModeChanged, onMessageDeliveryUpdated, onConversationRead, onCustomerUpdated, onConversationUpdated, onDeliveryFailed, onChannelError, onChannelSettingsChanged, onEmergencyStopChanged, onSSEOffline, onSSEOnline });
+    callbacksRef.current = { onNewMessage, onHitlChanged, onAiPaused, onAiReplyModeChanged, onMessageDeliveryUpdated, onConversationRead, onCustomerUpdated, onConversationUpdated, onDeliveryFailed, onChannelError, onChannelSettingsChanged, onEmergencyStopChanged, onSSEOffline, onSSEOnline };
 
     const shopId = authService.getCurrentShopId();
 
@@ -126,6 +130,38 @@ export function useInboxSSE({ onNewMessage, onHitlChanged, onAiPaused, onAiReply
             es.addEventListener('channel_error', (e: MessageEvent) => {
                 try {
                     callbacksRef.current.onChannelError?.(JSON.parse(e.data));
+                } catch (e) {
+                    console.error('[useInboxSSE] Failed to parse SSE event data:', e);
+                }
+            });
+
+            es.addEventListener('channel_settings_changed', (e: MessageEvent) => {
+                try {
+                    const payload = JSON.parse(e.data) as { channel_id?: string; effective_mode?: unknown; mode_source?: string; override_keys?: string[] };
+                    callbacksRef.current.onChannelSettingsChanged?.({
+                        ...payload,
+                        channel_id: String(payload?.channel_id ?? ''),
+                        effective_mode: payload?.effective_mode === undefined
+                            ? undefined
+                            : normalizeAiReplyMode(payload.effective_mode),
+                    });
+                } catch (e) {
+                    console.error('[useInboxSSE] Failed to parse SSE event data:', e);
+                }
+            });
+
+            es.addEventListener('emergency_stop_changed', (e: MessageEvent) => {
+                try {
+                    const payload = JSON.parse(e.data) as { active?: unknown; at?: string | null; by?: string | null; source?: string | null; prior_mode?: unknown };
+                    callbacksRef.current.onEmergencyStopChanged?.({
+                        active: payload?.active === true,
+                        at: payload?.at ?? null,
+                        by: payload?.by ?? null,
+                        source: payload?.source ?? null,
+                        prior_mode: payload?.prior_mode === undefined || payload?.prior_mode === null
+                            ? null
+                            : normalizeAiReplyMode(payload.prior_mode),
+                    });
                 } catch (e) {
                     console.error('[useInboxSSE] Failed to parse SSE event data:', e);
                 }

@@ -476,26 +476,34 @@ async function markChannelReconnect(shopId, channelId, { transaction = null } = 
 
 /**
  * EMERGENCY: hard-stop a shop's AI through the business-level source of truth.
- * Channel-level reply-mode writes are intentionally not part of this path.
+ * Delegates to the same emergency-stop transaction as the merchant path with
+ * source='admin' (flag + snapshot + MANUAL belt + audit). Channel-level
+ * reply-mode writes are intentionally not part of this path.
  */
 async function emergencyDisableAi(shopId, adminUserId, { transaction = null } = {}) {
   const currentSettings = transaction
     ? await shopService.getShopAiSettings(shopId, { transaction })
     : await shopService.getShopAiSettings(shopId);
   const before = { automation_mode: currentSettings?.automation_mode ?? null };
-  if (transaction) {
-    await shopService.updateShopAiSettings(
-      shopId,
-      adminUserId,
-      { automation_mode: AI_REPLY_MODES.MANUAL },
-      { transaction, auditRequired: true },
-    );
-  } else {
-    await shopService.updateShopAiSettings(shopId, adminUserId, {
-      automation_mode: AI_REPLY_MODES.MANUAL,
-    });
-  }
-  return { before, after: { automation_mode: AI_REPLY_MODES.MANUAL } };
+  const emergencyStop = await shopService.engageAiEmergencyStop(shopId, adminUserId, {
+    source: 'admin',
+    transaction,
+  });
+  return {
+    before,
+    after: { automation_mode: AI_REPLY_MODES.MANUAL },
+    emergency_stop: emergencyStop,
+  };
+}
+
+/**
+ * Platform-admin resume. Clears any source; the mode stays MANUAL.
+ */
+async function resumeAiEmergencyStop(shopId, adminUserId, { transaction = null } = {}) {
+  return shopService.resumeAiEmergencyStop(shopId, adminUserId, {
+    source: 'admin',
+    transaction,
+  });
 }
 
 module.exports = {
@@ -503,5 +511,6 @@ module.exports = {
   getDashboard, getMetaIdentityReadiness, listShops, getShopOverview,
   getShopChannels, getShopBilling, getAuditLogs,
   // mutations
-  setShopStatus, addCredits, changePlan, markChannelReconnect, emergencyDisableAi,
+  setShopStatus, addCredits, changePlan, markChannelReconnect,
+  emergencyDisableAi, resumeAiEmergencyStop,
 };

@@ -111,12 +111,19 @@ describe('admin.service mutations', () => {
     expect(res).toEqual({ before: { status: 'CONNECTED' }, after: { status: 'TOKEN_EXPIRED' } });
   });
 
-  it('emergencyDisableAi sets MANUAL through the business setting only', async () => {
+  it('emergencyDisableAi delegates to the shop emergency-stop with source=admin (MANUAL belt)', async () => {
     jest.spyOn(metaChannelService, 'listByShop').mockResolvedValue([{ id: 'ch-1' }, { id: 'ch-2' }]);
     jest.spyOn(metaChannelService, 'getSettings').mockResolvedValue({ automation_mode: 'AI_ACTIVE' });
     jest.spyOn(metaChannelService, 'updateSettings').mockResolvedValue({});
     jest.spyOn(shopService, 'getShopAiSettings').mockResolvedValue({ automation_mode: 'AUTO' });
-    jest.spyOn(shopService, 'updateShopAiSettings').mockResolvedValue({});
+    const engage = jest.spyOn(shopService, 'engageAiEmergencyStop').mockResolvedValue({
+      active: true,
+      at: '2026-11-14T00:00:00.000Z',
+      by: 'admin-1',
+      source: 'admin',
+      prior_mode: 'AUTO',
+      already_active: false,
+    });
 
     const res = await adminService.emergencyDisableAi('shop-1', 'admin-1');
 
@@ -124,10 +131,41 @@ describe('admin.service mutations', () => {
     expect(metaChannelService.getSettings).not.toHaveBeenCalled();
     expect(metaChannelService.updateSettings).not.toHaveBeenCalled();
     expect(shopService.getShopAiSettings).toHaveBeenCalledWith('shop-1');
-    expect(shopService.updateShopAiSettings).toHaveBeenCalledWith('shop-1', 'admin-1', { automation_mode: 'MANUAL' });
+    expect(engage).toHaveBeenCalledWith(
+      'shop-1',
+      'admin-1',
+      expect.objectContaining({ source: 'admin' }),
+    );
     expect(res).toEqual({
       before: { automation_mode: 'AUTO' },
       after: { automation_mode: 'MANUAL' },
+      emergency_stop: expect.objectContaining({
+        active: true,
+        source: 'admin',
+        prior_mode: 'AUTO',
+      }),
     });
+  });
+
+  it('resumeAiEmergencyStop delegates with source=admin and keeps the mode MANUAL', async () => {
+    const resume = jest.spyOn(shopService, 'resumeAiEmergencyStop').mockResolvedValue({
+      active: false,
+      automation_mode: 'MANUAL',
+      prior_mode: 'AUTO',
+      already_inactive: false,
+    });
+
+    const res = await adminService.resumeAiEmergencyStop('shop-1', 'admin-1');
+
+    expect(resume).toHaveBeenCalledWith(
+      'shop-1',
+      'admin-1',
+      expect.objectContaining({ source: 'admin' }),
+    );
+    expect(res).toEqual(expect.objectContaining({
+      active: false,
+      automation_mode: 'MANUAL',
+      prior_mode: 'AUTO',
+    }));
   });
 });

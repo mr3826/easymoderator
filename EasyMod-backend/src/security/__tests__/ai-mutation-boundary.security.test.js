@@ -31,9 +31,33 @@ describe('AI mutation import boundary', () => {
         expect(violations).toEqual([]);
     });
 
-    test('the worker passes mutation permission and trace context into the order seam', () => {
+    test('the worker derives mutation permission from the resolved effective mode and a fresh channel order permission', () => {
         const source = fs.readFileSync(workerPath, 'utf8');
-        expect(source).toContain('mutationsAllowed: isAutoSendMode(businessMode)');
+
+        // ADR-0013 §7: permission is no longer the business-mode literal. It is
+        // (a) the EFFECTIVE resolved mode for this turn and (b) a fresh channel
+        // re-read of allow_order_creation immediately before each mutation seam.
+        expect(source).toMatch(
+            /const\s+resolveMutationsAllowed\s*=\s*async\s*\(effectiveMode,\s*channel\)\s*=>\s*\{[\s\S]*?if\s*\(!isAutoSendMode\(effectiveMode\)\)\s*return\s+false;[\s\S]*?const\s+latest\s*=\s*await\s+getChannelAISettings\(channel\);[\s\S]*?return\s+latest\.allow_order_creation\s*!==\s*false;/,
+        );
+
+        // Both mutation seams (interaction kernel and order flow) re-resolve
+        // immediately before the call and pass the fresh decision in.
+        expect(source).toMatch(
+            /const\s+interactionsMutationsAllowed\s*=\s*await\s+resolveMutationsAllowed\(guardEffectiveMode,\s*jobChannel\);/,
+        );
+        expect(source).toContain('mutationsAllowed: interactionsMutationsAllowed');
+        expect(source).toMatch(
+            /const\s+orderFlowMutationsAllowed\s*=\s*await\s+resolveMutationsAllowed\(guardEffectiveMode,\s*jobChannel\);/,
+        );
+        expect(source).toContain('mutationsAllowed: orderFlowMutationsAllowed');
+
+        // The effective mode must come from the resolver, never a direct
+        // business-mode literal at the seam.
+        expect(source).not.toContain('mutationsAllowed: isAutoSendMode(businessMode)');
+        expect(source).toContain('const guardEffectiveMode = resolvedAutomation.mode;');
+
+        // Trace/context propagation into the order seam is unchanged.
         expect(source).toContain('conversationId,');
         expect(source).toContain('traceId: job.id || effExternalId || conversationId');
     });

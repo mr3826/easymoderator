@@ -24,7 +24,7 @@ const conversationLockService = require('./conversation-lock.service');
 const { Op, literal } = require('sequelize');
 const { selectChannelRuntimeSettings } = require('../channel-providers/meta-channel-settings.runtime');
 const { DEFAULT_AI_SETTINGS } = require('../shop/shop-defaults');
-const { getEffectiveAiReplyMode } = require('../shop/ai-reply-mode');
+const { loadEffectiveChannelAutomation } = require('../channel-providers/channel-automation.resolver');
 const {
     MESSAGE_DELIVERY_STATES,
     SUGGESTION_VISIBILITY,
@@ -299,7 +299,7 @@ async function escalateToHuman({
 
         try {
             const customerChannelType = pf === 'facebook' ? 'messenger' : pf;
-            const [customer, settings, businessMode] = await Promise.all([
+            const [customer, settings, automation] = await Promise.all([
                 Customer.findOne({
                     where: {
                         shop_id: shopId,
@@ -309,7 +309,7 @@ async function escalateToHuman({
                     },
                 }),
                 MetaChannelSettings.findOne({ where: { channel_id: channel.id } }),
-                getEffectiveAiReplyMode(shopId),
+                loadEffectiveChannelAutomation(shopId, channel.id).catch(() => null),
             ]);
 
             const customerKnown = isContextRecord(customer) && hasRequiredContextValue(customer.id);
@@ -321,10 +321,29 @@ async function escalateToHuman({
                 console.warn(`[handoff] Holding message not sent for conv ${convId}: ${missing} unavailable`);
                 return holdingMsg;
             }
+            if (!automation) {
+                await stampHoldingMessage(holdingMsg, convId, MESSAGE_DELIVERY_STATES.HELD, null, {
+                    held_reason: 'channel_settings_unavailable',
+                    suggestion_visibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                }).catch(() => {});
+                emitHoldingDelivery(shopId, convId, holdingMsg, MESSAGE_DELIVERY_STATES.HELD);
+                return holdingMsg;
+            }
+            if (automation.emergencyStop?.active === true || automation.modeSource === 'emergency_stop') {
+                // Business-wide emergency stop suppresses every automatic send,
+                // including this reassurance holding message. The conversation
+                // stays HITL for the human team; hitl is never cleared here.
+                await stampHoldingMessage(holdingMsg, convId, MESSAGE_DELIVERY_STATES.HELD, null, {
+                    held_reason: 'emergency_stop',
+                    suggestion_visibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                }).catch(() => {});
+                emitHoldingDelivery(shopId, convId, holdingMsg, MESSAGE_DELIVERY_STATES.HELD);
+                return holdingMsg;
+            }
 
             const policySettings = {
                 ...selectChannelRuntimeSettings(settings),
-                automation_mode: businessMode,
+                automation_mode: automation.mode,
             };
 
             const normalizedMessage = {

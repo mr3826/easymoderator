@@ -69,11 +69,18 @@ jest.mock('../../policy/policy.engine', () => ({
     }),
 }));
 
+// The shim consults the single resolver (ADR-0013 §5); never the business-only
+// display reader.
+jest.mock('../../channel-providers/channel-automation.resolver', () => ({
+    loadEffectiveChannelAutomation: jest.fn(),
+}));
+
 const metaChannelService = require('../../channel-providers/meta-channel.service');
 const { Conversation } = require('../../conversation/conversation.entity');
 const Customer = require('../../customer/customer.entity');
 const { getProvider } = require('../../channel-providers/provider.registry');
 const policyEngine = require('../../policy/policy.engine');
+const { loadEffectiveChannelAutomation } = require('../../channel-providers/channel-automation.resolver');
 const { sendMessage, sendToCustomer } = require('../webhook.service');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,6 +100,13 @@ beforeEach(() => {
     metaChannelService.getSettings.mockResolvedValue({ channel_id: 'mc-1', automation_mode: 'DRAFT', ai_auto_reply: true });
     Customer.findOne.mockResolvedValue(mockCustomerRecord);
     mockSendMessage.mockResolvedValue({ providerMessageId: 'mid-1' });
+    loadEffectiveChannelAutomation.mockResolvedValue({
+        mode: 'AUTO',
+        modeSource: 'business_default',
+        emergencyStop: { active: false },
+        shopIsActive: true,
+        billingAiActive: true,
+    });
 });
 
 describe('sendMessage (webhook shim — exact routing)', () => {
@@ -260,6 +274,81 @@ describe('sendMessage (webhook shim — exact routing)', () => {
                 settings: expect.objectContaining({ automation_mode: expect.any(String) }),
             }),
         );
+        expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    test('the effective resolver mode (not the business default) reaches the policy engine', async () => {
+        loadEffectiveChannelAutomation.mockResolvedValueOnce({
+            mode: 'DRAFT',
+            modeSource: 'channel_override',
+            emergencyStop: { active: false },
+        });
+        mockSendMessage.mockResolvedValueOnce({});
+
+        await sendMessage(buildChannel(), 'psid', 'msg');
+
+        expect(loadEffectiveChannelAutomation).toHaveBeenCalledWith('shop-uuid-1234', 'mc-1');
+        expect(policyEngine.evaluateOutbound).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.objectContaining({ settings: expect.objectContaining({ automation_mode: 'DRAFT' }) }),
+        );
+    });
+
+    test('an unavailable resolver blocks the automatic send (fail-closed)', async () => {
+        loadEffectiveChannelAutomation.mockRejectedValueOnce(new Error('shop unavailable'));
+
+        await expect(sendMessage(buildChannel(), 'psid', 'msg')).resolves.toEqual({
+            sent: false,
+            reason: 'channel_settings_unavailable',
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    test('transactional post-mutation facts proceed when the resolver throws (committed-mutation rule)', async () => {
+        loadEffectiveChannelAutomation.mockRejectedValueOnce(new Error('shop unavailable'));
+        mockSendMessage.mockResolvedValueOnce({});
+
+        await expect(sendMessage(buildChannel(), 'psid', 'order confirmed', { messageType: 'transactional' }))
+            .resolves.toEqual(expect.objectContaining({ sent: true }));
+        expect(policyEngine.evaluateOutbound).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.objectContaining({ settings: expect.objectContaining({ automation_mode: 'MANUAL' }) }),
+        );
+    });
+
+    test('transactional post-mutation facts proceed when the resolver returns null (missing channel row)', async () => {
+        loadEffectiveChannelAutomation.mockResolvedValueOnce(null);
+        mockSendMessage.mockResolvedValueOnce({});
+
+        await expect(sendMessage(buildChannel(), 'psid', 'payment receipt', { messageType: 'transactional' }))
+            .resolves.toEqual(expect.objectContaining({ sent: true }));
+        expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    test('emergency stop suppresses a non-transactional automatic send', async () => {
+        loadEffectiveChannelAutomation.mockResolvedValueOnce({
+            mode: 'MANUAL',
+            modeSource: 'emergency_stop',
+            emergencyStop: { active: true },
+        });
+
+        await expect(sendMessage(buildChannel(), 'psid', 'msg')).resolves.toEqual({
+            sent: false,
+            reason: 'emergency_stop',
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    test('transactional post-mutation facts still reach the customer during a stop', async () => {
+        loadEffectiveChannelAutomation.mockResolvedValueOnce({
+            mode: 'MANUAL',
+            modeSource: 'emergency_stop',
+            emergencyStop: { active: true },
+        });
+        mockSendMessage.mockResolvedValueOnce({});
+
+        await expect(sendMessage(buildChannel(), 'psid', 'order confirmed', { messageType: 'transactional' }))
+            .resolves.toEqual(expect.objectContaining({ sent: true }));
         expect(mockSendMessage).toHaveBeenCalledTimes(1);
     });
 

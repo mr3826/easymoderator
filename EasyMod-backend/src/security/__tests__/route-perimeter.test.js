@@ -61,7 +61,12 @@ describe('launch route perimeter contracts', () => {
     test('Meta channel settings PATCH checks row ownership before mutation', () => {
         const controller = source('src/modules/channel-providers/meta-channel.controller.js');
         const ownershipCheck = controller.indexOf('await assertChannelBelongsToShop(channelId, shopId);');
-        const mutation = controller.indexOf('await metaChannelService.updateSettings(channelId, patch);');
+        // ADR-0013: the service call is tenant-scoped — the shop/user scope is
+        // passed so the service can re-assert ownership behind the controller.
+        // The ownership-before-mutation intent is preserved.
+        const mutation = controller.indexOf(
+            'await metaChannelService.updateSettings(channelId, patch, { shopId, userId });',
+        );
 
         expect(ownershipCheck).toBeGreaterThan(-1);
         expect(mutation).toBeGreaterThan(ownershipCheck);

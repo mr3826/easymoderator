@@ -43,6 +43,7 @@ const {
     Shop,
 } = require('../../modules/entities');
 const { sequelize } = require('../../utils/database/database-setup');
+const MetaChannelSettings = require('../../modules/channel-providers/meta-channel-settings.entity');
 const recovery = require('../../modules/ai/recovery/turn-recovery.service');
 const policyEngine = require('../../modules/policy/policy.engine');
 const { _private: workerPrivate } = require('../message-worker');
@@ -56,6 +57,14 @@ const TURN_ID = 'recovery-integration-turn';
 beforeAll(async () => {
     await syncSchema();
     await seed();
+    // ADR-0013: the recovery holding path reads the resolver WITHOUT
+    // createIfMissing (boundary semantics). In production Guard 4 has already
+    // created the channel-settings row on the first turn; mirror that state so
+    // the fixture exercises the send path, not the missing-row hold.
+    await MetaChannelSettings.findOrCreate({
+        where: { channel_id: IDS.channelA },
+        defaults: { channel_id: IDS.channelA },
+    });
     await Customer.create({
         id: CUSTOMER_ID,
         shop_id: IDS.shopA,
@@ -105,7 +114,7 @@ test('replaying one turn preserves its start timestamp and sends one holding mes
         conversationId: CONVERSATION_ID,
         platform: 'facebook',
         recipientId: '7000000000000002',
-        channel: { id: 'channel-recovery' },
+        channel: { id: IDS.channelA },
         language: 'en',
     });
     control.setPolicySettings({ automation_mode: 'AI_ACTIVE', ai_auto_reply: true });
@@ -128,7 +137,7 @@ test('recovery holding delivery rechecks business mode before provider delivery'
         conversationId: CONVERSATION_ID,
         platform: 'facebook',
         recipientId: '7000000000000002',
-        channel: { id: 'channel-recovery' },
+        channel: { id: IDS.channelA },
         language: 'en',
     });
 
@@ -166,7 +175,7 @@ test('AI pipeline turns do not emit provider-delay holding messages before the s
         conversationId: CONVERSATION_ID,
         platform: 'facebook',
         recipientId: '7000000000000002',
-        channel: { id: 'channel-recovery' },
+        channel: { id: IDS.channelA },
         language: 'en',
         providerDelayRecovery: false,
     });
@@ -204,7 +213,7 @@ test('recovery holding delivery does not send when the customer context is missi
         conversationId: CONVERSATION_ID,
         platform: 'facebook',
         recipientId: 'psid-that-is-not-in-the-customer-table',
-        channel: { id: 'channel-recovery' },
+        channel: { id: IDS.channelA },
         language: 'en',
     });
     control.setPolicySettings({ automation_mode: 'AI_ACTIVE', ai_auto_reply: true });
@@ -224,7 +233,7 @@ test('recovery holding delivery does not send with an empty settings context', a
         conversationId: CONVERSATION_ID,
         platform: 'facebook',
         recipientId: '7000000000000002',
-        channel: { id: 'channel-recovery' },
+        channel: { id: IDS.channelA },
         language: 'en',
     });
     control.setPolicySettings({});

@@ -94,6 +94,29 @@ describe('Shop Domain API', () => {
 
       expect(result.automation_mode).toBe('MANUAL');
     });
+
+    it('preserves the read-only emergency stop block', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: {
+          data: {
+            automation_mode: 'MANUAL',
+            emergency_stop: {
+              active: true,
+              at: '2026-11-14T00:00:00.000Z',
+              by: 'user-1',
+              source: 'merchant',
+              prior_mode: 'DRAFT',
+            },
+          },
+        },
+      });
+
+      const result = await shop.getShopAISettings();
+
+      expect(result.emergency_stop?.active).toBe(true);
+      expect(result.emergency_stop?.source).toBe('merchant');
+      expect(result.emergency_stop?.prior_mode).toBe('DRAFT');
+    });
   });
 
   describe('updateShopAISettings', () => {
@@ -111,6 +134,49 @@ describe('Shop Domain API', () => {
       (httpClient.put as any).mockRejectedValue(new Error('Server error'));
 
       await expect(shop.updateShopAISettings({} as any)).rejects.toThrow('Server error');
+    });
+  });
+
+  describe('emergencyStop', () => {
+    it('posts to the business emergency-stop route', async () => {
+      const state = {
+        active: true,
+        at: '2026-11-14T00:00:00.000Z',
+        by: 'user-1',
+        source: 'merchant',
+        prior_mode: 'DRAFT',
+        already_active: false,
+      };
+      (httpClient.post as any).mockResolvedValue({ data: { data: state } });
+
+      const result = await shop.emergencyStop();
+
+      expect(httpClient.post).toHaveBeenCalledWith('/api/shop/ai/emergency-stop', {});
+      expect(result.active).toBe(true);
+    });
+
+    it('forwards an optional reason', async () => {
+      (httpClient.post as any).mockResolvedValue({ data: { data: { active: true } } });
+
+      await shop.emergencyStop('runaway replies');
+
+      expect(httpClient.post).toHaveBeenCalledWith('/api/shop/ai/emergency-stop', {
+        reason: 'runaway replies',
+      });
+    });
+  });
+
+  describe('emergencyResume', () => {
+    it('posts to the resume route and keeps the mode at MANUAL', async () => {
+      (httpClient.post as any).mockResolvedValue({
+        data: { data: { active: false, automation_mode: 'MANUAL', prior_mode: 'DRAFT' } },
+      });
+
+      const result = await shop.emergencyResume();
+
+      expect(httpClient.post).toHaveBeenCalledWith('/api/shop/ai/emergency-resume', {});
+      expect(result.automation_mode).toBe('MANUAL');
+      expect(result.prior_mode).toBe('DRAFT');
     });
   });
 

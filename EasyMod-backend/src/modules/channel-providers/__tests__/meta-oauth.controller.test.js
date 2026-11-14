@@ -227,7 +227,9 @@ describe('meta-oauth.controller', () => {
                 body: { aiAutoReply: false },
             }, mkRes(), next);
 
-            expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+            // API_CONTRACT §2 / ADR-0013: cross-shop is a 404 (never reveal another
+            // shop's channel exists); rejection still precedes any service mutation.
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
             expect(channelService.updateSettings).not.toHaveBeenCalled();
         });
     });
@@ -264,14 +266,46 @@ describe('meta-oauth.controller', () => {
 
             expect(res.json).toHaveBeenCalledWith({
                 success: true,
-                data: {
+                data: expect.objectContaining({
                     confidenceThresholdSend: 0.8,
                     confidenceThresholdSuggest: 0.5,
                     businessHours: { mon: { open: '09:00', close: '18:00' } },
                     allowOrderCreation: false,
                     purposeLabel: 'Sales',
-                },
+                    // ADR-0013 / API_CONTRACT §2 additive effective-config fields.
+                    overrides: {},
+                    effective: expect.objectContaining({
+                        automation_mode: 'MANUAL',
+                        confidence_threshold: 75,
+                        greeting: expect.objectContaining({ enabled: true }),
+                        business_hours: { mon: { open: '09:00', close: '18:00' } },
+                        allow_order_creation: false,
+                        purpose_label: 'Sales',
+                    }),
+                    // The display loader is unavailable in this isolated harness;
+                    // it must degrade to the fail-closed source, never a send.
+                    mode_source: 'fail_closed',
+                    warnings: [],
+                    emergency_stop: {
+                        active: false, at: null, by: null, source: null, prior_mode: null,
+                    },
+                    billing_ai_active: false,
+                    deprecated_fields: [
+                        'confidenceThresholdSend',
+                        'confidenceThresholdSuggest',
+                    ],
+                }),
             });
+            // The deprecated Page-level automation fields stay omitted (the
+            // intent of this test); only the dead legacy thresholds remain, and
+            // they are explicitly marked deprecated.
+            const payload = res.json.mock.calls[0][0].data;
+            expect(payload).not.toHaveProperty('automationMode');
+            expect(payload).not.toHaveProperty('aiAutoReply');
+            expect(payload).not.toHaveProperty('automation_mode');
+            expect(payload).not.toHaveProperty('ai_auto_reply');
+            // The service call is tenant-scoped (ADR-0013 §2).
+            expect(channelService.getSettings).toHaveBeenCalledWith('channel-1', { shopId: 'shop-1' });
             expect(next).not.toHaveBeenCalled();
         });
     });

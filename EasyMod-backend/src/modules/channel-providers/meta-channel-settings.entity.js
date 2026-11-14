@@ -44,12 +44,29 @@ const MetaChannelSettings = sequelize.define('MetaChannelSettings', {
         comment: 'AI confidence >= this value shows suggestion to human agent',
     },
 
+    // ----- Per-channel automation overrides (ADR-0013) -----
+    // Explicit overrides only; an absent key (or NULL for the whole object)
+    // inherits the business default. automation_mode is narrow-only: the
+    // effective mode is the most restrictive of business default and override.
+    overrides: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: null,
+        comment: 'Explicit per-channel overrides {automation_mode, confidence_threshold, greeting}; NULL/absent key = inherit. Narrow-only mode.',
+    },
+
     // ----- Business hours -----
     business_hours: {
         type: DataTypes.JSONB,
         allowNull: true,
         defaultValue: null,
-        comment: 'Null = always active. Shape: { mon: [{open:"09:00",close:"18:00"}], ... }',
+        comment: [
+            'Null = always active.',
+            'Accepted shapes: { mon: { open: "09:00", close: "18:00" }, ... } or',
+            '{ mon: [{ open, close }, ...], ... } (inside = any slot matches).',
+            'Optional `timezone` (IANA) inside the object; falls back to the shop timezone, then Asia/Dhaka.',
+            'Overnight ranges (close < open) are allowed; malformed values are treated as CLOSED (fail-closed).',
+        ].join(' '),
     },
 
     // ----- Commerce -----

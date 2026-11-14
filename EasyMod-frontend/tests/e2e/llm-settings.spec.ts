@@ -1,9 +1,9 @@
 /**
  * AI reply settings - Playwright system tests.
  *
- * These tests intentionally exercise the current embedded AI settings form on
- * the Business Information page rather than the removed standalone provider
- * settings screen.
+ * These tests exercise the AI settings form on the business automation
+ * defaults page (`/manage-shop/automation`, ADR-0013 §9) rather than the
+ * removed standalone provider settings screen. The form itself is unchanged.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -108,7 +108,9 @@ async function loginAndGo(page: Page) {
     await page.getByLabel(/password/i).fill('password123');
     await page.getByRole('button', { name: /sign in/i }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
-    await page.goto('/manage-shop/business-info');
+    // ADR-0013 §9: the reply settings form now lives on the business
+    // automation defaults page; the business profile keeps identity only.
+    await page.goto('/manage-shop/automation');
     await expect(page.getByRole('heading', { name: 'Reply Settings' })).toBeVisible({ timeout: 15_000 });
 }
 

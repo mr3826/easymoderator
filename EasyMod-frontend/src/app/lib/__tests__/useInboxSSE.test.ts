@@ -117,4 +117,60 @@ describe('useInboxSSE', () => {
     });
     unmount();
   });
+
+  it('delivers channel_settings_changed with a normalized effective mode', () => {
+    const onChannelSettingsChanged = vi.fn();
+    const { unmount } = renderHook(() => useInboxSSE({
+      onNewMessage: vi.fn(),
+      onHitlChanged: vi.fn(),
+      onChannelSettingsChanged,
+    }));
+
+    const source = MockEventSource.instances[0];
+    act(() => {
+      source.emit('channel_settings_changed', JSON.stringify({
+        channel_id: 'chan-1',
+        effective_mode: 'AI_SUGGEST_ONLY',
+        mode_source: 'channel_override',
+        override_keys: ['automation_mode'],
+      }));
+    });
+
+    expect(onChannelSettingsChanged).toHaveBeenCalledWith({
+      channel_id: 'chan-1',
+      effective_mode: 'DRAFT',
+      mode_source: 'channel_override',
+      override_keys: ['automation_mode'],
+    });
+    unmount();
+  });
+
+  it('delivers emergency_stop_changed with a normalized prior mode', () => {
+    const onEmergencyStopChanged = vi.fn();
+    const { unmount } = renderHook(() => useInboxSSE({
+      onNewMessage: vi.fn(),
+      onHitlChanged: vi.fn(),
+      onEmergencyStopChanged,
+    }));
+
+    const source = MockEventSource.instances[0];
+    act(() => {
+      source.emit('emergency_stop_changed', JSON.stringify({
+        active: true,
+        at: '2026-11-14T00:00:00.000Z',
+        by: 'owner-1',
+        source: 'merchant',
+        prior_mode: 'AI_ACTIVE',
+      }));
+    });
+
+    expect(onEmergencyStopChanged).toHaveBeenCalledWith({
+      active: true,
+      at: '2026-11-14T00:00:00.000Z',
+      by: 'owner-1',
+      source: 'merchant',
+      prior_mode: 'AUTO',
+    });
+    unmount();
+  });
 });

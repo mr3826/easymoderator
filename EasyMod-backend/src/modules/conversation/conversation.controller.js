@@ -1223,14 +1223,16 @@ class ConversationController {
                 });
             }
 
-            const { hitl, status, assignee_id, resolution_note, last_seen_message_id } = req.body;
+            const { hitl, status, assignee_id, resolution_note, last_seen_message_id, handoff_reason } = req.body;
             if (hitl !== undefined || status === 'closed') {
                 deliveryLock = await acquireDeliveryLock(conversationId);
             }
             const conversation = await conversationService.updateConversation(
                 conversationId,
                 shopId,
-                { hitl, status, assignee_id, resolution_note, last_seen_message_id },
+                // ADR-0013 §8: handoff_reason must reach the service claim branch
+                // (Joi-validated above); dropping it here falsified every reason.
+                { hitl, status, assignee_id, resolution_note, last_seen_message_id, handoff_reason },
                 {
                     actor: req.user ? {
                         userId: req.user.userId || req.user.id || null,

@@ -23,6 +23,7 @@ const mockMetaChannel = {
 
 const mockMetaChannelSettings = {
     findOrCreate: jest.fn(),
+    findByPk: jest.fn(),
 };
 
 jest.mock('../../../utils/database/database-setup', () => ({
@@ -324,18 +325,23 @@ describe('MetaChannelService cross-shop Meta asset claims', () => {
 describe('MetaChannelService channel settings allowlist', () => {
     test('does not persist deprecated Page AI fields while keeping supported settings', async () => {
         const update = jest.fn().mockResolvedValue(undefined);
-        mockMetaChannelSettings.findOrCreate.mockResolvedValueOnce([{ update }, false]);
+        const settingsRow = { channel_id: 'channel-1', overrides: null, update };
+        mockMetaChannel.findByPk.mockResolvedValue({ id: 'channel-1', shop_id: 'shop-1' });
+        mockMetaChannelSettings.findOrCreate.mockResolvedValueOnce([settingsRow, false]);
+        mockMetaChannelSettings.findByPk.mockResolvedValue(settingsRow);
+        const transaction = { LOCK: { UPDATE: 'UPDATE' } };
+        sequelize.transaction.mockImplementation(async (callback) => callback(transaction));
 
         await metaChannelService.updateSettings('channel-1', {
             ai_auto_reply: false,
             automation_mode: 'AUTO',
             business_hours: { mon: { open: '09:00', close: '18:00' } },
             purpose_label: 'Sales',
-        });
+        }, { shopId: 'shop-1' });
 
         expect(update).toHaveBeenCalledWith({
             business_hours: { mon: { open: '09:00', close: '18:00' } },
             purpose_label: 'Sales',
-        });
+        }, { transaction });
     });
 });

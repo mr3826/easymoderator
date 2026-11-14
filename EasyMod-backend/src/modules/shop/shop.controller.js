@@ -390,9 +390,10 @@ const getAISettings = async (req, res, next) => {
         const { shopId } = req.user;
         if (!shopId) throw new AppError('No shop selected', 400);
 
-        const [aiSettings, planCode] = await Promise.all([
+        const [aiSettings, planCode, emergencyStop] = await Promise.all([
             shopService.getShopAiSettings(shopId),
-            getShopPlanCode(shopId)
+            getShopPlanCode(shopId),
+            shopService.getShopEmergencyStopState(shopId).catch(() => null)
         ]);
 
         const normalizedAiSettings = aiSettings
@@ -413,7 +414,11 @@ const getAISettings = async (req, res, next) => {
             language_autodetect: false
         };
 
-        res.status(200).json({ success: true, data: normalizedAiSettings, plan_capabilities: planCapabilities });
+        const payload = normalizedAiSettings
+            ? { ...normalizedAiSettings, emergency_stop: emergencyStop }
+            : normalizedAiSettings;
+
+        res.status(200).json({ success: true, data: payload, plan_capabilities: planCapabilities });
     } catch (error) {
         next(error);
     }
@@ -482,6 +487,48 @@ const updateAISettings = async (req, res, next) => {
             ? { ...data, automation_mode: normalizeAiReplyMode(data.automation_mode) }
             : data;
         res.status(200).json({ success: true, data: normalizedData });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * POST /shop/ai/emergency-stop
+ * Business-wide stop. Bypass-proof: no channel override can send while active.
+ * Engage also writes MANUAL through the business setting (rollback belt).
+ */
+const engageAiEmergencyStop = async (req, res, next) => {
+    try {
+        const { shopId, userId } = req.user;
+        if (!shopId) throw new AppError('No shop selected', 400);
+
+        const reason = req.body?.reason ?? null;
+        const state = await shopService.engageAiEmergencyStop(shopId, userId, {
+            reason,
+            source: 'merchant',
+        });
+
+        res.status(200).json({ success: true, data: state });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * POST /shop/ai/emergency-resume
+ * Source-aware: a merchant cannot resume an administrator-set stop. Mode stays
+ * MANUAL — the owner explicitly re-chooses (the prior mode is shown in the UI).
+ */
+const resumeAiEmergencyStop = async (req, res, next) => {
+    try {
+        const { shopId, userId } = req.user;
+        if (!shopId) throw new AppError('No shop selected', 400);
+
+        const state = await shopService.resumeAiEmergencyStop(shopId, userId, {
+            source: 'merchant',
+        });
+
+        res.status(200).json({ success: true, data: state });
     } catch (error) {
         next(error);
     }
@@ -760,6 +807,8 @@ module.exports = {
     updateLLMConfig,
     getAISettings,
     updateAISettings,
+    engageAiEmergencyStop,
+    resumeAiEmergencyStop,
     getIntentThresholds,
     updateIntentThresholds,
     getAiDefaults,

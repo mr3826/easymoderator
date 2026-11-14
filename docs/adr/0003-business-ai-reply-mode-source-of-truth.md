@@ -1,6 +1,6 @@
 # ADR-0003: Business-Level AI Reply Mode
 
-Status: Accepted<br>
+Status: Superseded by [ADR-0013](0013-channel-automation-ownership.md) (2026-11-14)<br>
 Date: 2026-09-03<br>
 Owners: Engineering + Product
 

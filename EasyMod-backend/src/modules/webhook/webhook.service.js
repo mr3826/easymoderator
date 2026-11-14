@@ -34,7 +34,7 @@ const metaChannelService = require('../channel-providers/meta-channel.service');
 const { selectChannelRuntimeSettings } = require('../channel-providers/meta-channel-settings.runtime');
 const { getProvider } = require('../channel-providers/provider.registry');
 const policyEngine = require('../policy/policy.engine');
-const { getEffectiveAiReplyMode } = require('../shop/ai-reply-mode');
+const { loadEffectiveChannelAutomation } = require('../channel-providers/channel-automation.resolver');
 const { createLogger } = require('../../utils/structured-logger');
 
 const logger = createLogger('WebhookService');
@@ -147,13 +147,48 @@ async function sendMessage(channel, recipientId, messageText, { messageType = nu
             shopId: channel.shop_id,
             platform,
         });
-        return { sent: false, reason: 'settings_unavailable' };
+        // Committed-mutation facts must never disappear (AGENT_ACTION_POLICY):
+        // transactional sends proceed with fail-closed defaults; the policy
+        // engine still enforces consent/window and exempts transactional mode.
+        if (messageType !== 'transactional') {
+            return { sent: false, reason: 'settings_unavailable' };
+        }
+        settings = {};
     }
-    // Channel settings still provide per-Page policy inputs, but business reply
-    // mode is resolved from the shop and is authoritative for delivery.
+    // Channel settings still provide per-Page policy inputs. The reply mode is
+    // the resolver's EFFECTIVE mode (emergency stop > shop inactive > clamped
+    // channel override > business default); this shim never reads the business
+    // mode directly.
+    let automation;
+    try {
+        automation = await loadEffectiveChannelAutomation(channel.shop_id, metaChannel.id);
+    } catch (automationErr) {
+        logger.warn('Effective channel automation unavailable in webhook shim — blocking send', {
+            shopId: channel.shop_id,
+            platform,
+            error: automationErr.message,
+        });
+        if (messageType !== 'transactional') {
+            return { sent: false, reason: 'channel_settings_unavailable' };
+        }
+        automation = null;
+    }
+    if (!automation && messageType !== 'transactional') {
+        return { sent: false, reason: 'channel_settings_unavailable' };
+    }
+    if (automation && (automation.emergencyStop?.active === true || automation.modeSource === 'emergency_stop')) {
+        // The stop suppresses automatic sends. Transactional post-mutation facts
+        // (order confirmation, payment receipt) are not AI replies and must still
+        // reach the customer (ADR-0004 delivery truth).
+        if (messageType !== 'transactional') {
+            return { sent: false, reason: 'emergency_stop' };
+        }
+    }
     settings = {
         ...selectChannelRuntimeSettings(settings),
-        automation_mode: await getEffectiveAiReplyMode(channel.shop_id),
+        // Transactional sends may proceed without a resolved automation state;
+        // MANUAL is the fail-closed placeholder and draftMode exempts them.
+        automation_mode: automation?.mode ?? 'MANUAL',
     };
 
     // Build a minimal NormalizedMessage for the policy engine

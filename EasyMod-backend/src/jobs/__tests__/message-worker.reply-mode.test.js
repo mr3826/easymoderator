@@ -26,6 +26,7 @@ const mockHasPurchaseIntent = jest.fn();
 const mockConversationFindOne = jest.fn();
 const mockMessageFindAll = jest.fn();
 const mockMessageCount = jest.fn();
+const mockMessageFindOne = jest.fn();
 const mockStoreAIResponse = jest.fn();
 const mockStoredMessageUpdate = jest.fn();
 const mockUpdateConversationState = jest.fn();
@@ -71,7 +72,11 @@ jest.mock('src/utils/ops-alert', () => ({ opsAlert: jest.fn(async () => {}) }));
 jest.mock('src/utils/sse-manager', () => ({ emit: jest.fn() }));
 jest.mock('src/modules/conversation/conversation.entity', () => ({
     Conversation: { findOne: mockConversationFindOne },
-    Message: { findAll: mockMessageFindAll, count: mockMessageCount, findByPk: mockMessageFindByPk },
+    Message: {
+        findAll: mockMessageFindAll,
+        count: mockMessageCount,
+        findByPk: mockMessageFindByPk,
+    },
 }));
 jest.mock('src/modules/conversation/conversation-state-standalone.service', () => ({
     detectLanguage: jest.fn(() => 'en'),
@@ -205,6 +210,7 @@ beforeEach(() => {
     mockMarkSent.mockResolvedValue(true);
     mockGetSessionForInteraction.mockResolvedValue(null);
     mockChannel.status = 'CONNECTED';
+    mockFindUniqueChannel.mockReset().mockImplementation(async () => mockChannel);
     mockCacheGet.mockReset().mockResolvedValue(null);
     mockCacheDel.mockReset().mockResolvedValue(1);
     mockConversationFindOne.mockResolvedValue({ id: 'conv-1', hitl: false, status: 'open', metadata: {} });
@@ -393,7 +399,15 @@ test('AUTO waits for a slow model without sending a recovery holding message', a
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
 });
 
-test('Page automation_mode and ai_auto_reply cannot override an AUTO business', async () => {
+/**
+ * TEST_STRATEGY §4 deliberate amendment.
+ *
+ * The legacy Page columns (`automation_mode`, `ai_auto_reply`) remain DEAD
+ * storage: they can never widen or narrow the business default. The NEW
+ * mechanism is `overrides.automation_mode`, which is narrow-only. This test
+ * keeps both pins: legacy ignored, overrides honored only when narrower.
+ */
+test('legacy Page automation_mode/ai_auto_reply columns are still ignored', async () => {
     mockGetChannelSettings.mockResolvedValue({
         ...channelSettings,
         automation_mode: 'MANUAL',
@@ -422,6 +436,135 @@ test('Page automation_mode and ai_auto_reply cannot override an AUTO business', 
             provider_message_id: 'provider-1',
         }),
     }));
+});
+
+test('an AUTO override cannot widen a DRAFT business default (runtime clamp)', async () => {
+    // Business DRAFT, channel tries AUTO (legacy alias accepted at the edge).
+    mockGetShopAiSettings.mockResolvedValue(shopSettings('DRAFT'));
+    mockGetChannelSettings.mockResolvedValue({
+        ...channelSettings,
+        overrides: { automation_mode: 'AI_ACTIVE' },
+    });
+
+    await processMessageJob(makeJob());
+
+    // Clamped to DRAFT: generation runs, nothing is delivered.
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockStoreAIResponse).toHaveBeenCalledWith(
+        'conv-1',
+        'candidate response',
+        expect.objectContaining({ delivery_state: 'DRAFT_READY' }),
+    );
+});
+
+test('two channels diverge under one AUTO business: A AUTO sends, B DRAFT holds', async () => {
+    const channelA = { ...mockChannel, id: 'channel-a' };
+    const channelB = { ...mockChannel, id: 'channel-b' };
+    const overridesByChannel = {
+        'channel-a': { automation_mode: 'AUTO' },
+        'channel-b': { automation_mode: 'DRAFT' },
+    };
+    mockFindUniqueChannel.mockImplementation(async () => channelA);
+    mockGetChannelSettings.mockImplementation(async (channelId) => ({
+        ...channelSettings,
+        overrides: { ...(overridesByChannel[channelId] || {}) },
+    }));
+
+    const resultA = await processMessageJob(makeJob());
+    expect(resultA.sent).toBe(true);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+    // Channel B is a different Page of the same shop; A's override never leaks.
+    mockFindUniqueChannel.mockImplementation(async () => channelB);
+    mockStoreAIResponse.mockClear();
+    mockStoredMessageUpdate.mockClear();
+    const resultB = await processMessageJob(makeJob());
+
+    expect(resultB).toEqual(expect.objectContaining({ sent: false, reason: 'draft_mode' }));
+    expect(mockSendMessage).toHaveBeenCalledTimes(1); // still only A's send
+    expect(mockStoreAIResponse).toHaveBeenCalledWith(
+        'conv-1',
+        'candidate response',
+        expect.objectContaining({ delivery_state: 'DRAFT_READY' }),
+    );
+    // A's stored override object was never mutated by evaluating B.
+    expect(overridesByChannel['channel-a']).toEqual({ automation_mode: 'AUTO' });
+});
+
+test('changing channel A override never changes channel B (independent settings rows)', async () => {
+    mockFindUniqueChannel.mockImplementation(async () => ({ ...mockChannel, id: 'channel-a' }));
+    mockGetChannelSettings.mockImplementation(async (channelId) => ({
+        ...channelSettings,
+        overrides: { ...(channelId === 'channel-a' ? { automation_mode: 'DRAFT' } : {}) },
+    }));
+    await processMessageJob(makeJob());
+    expect(mockSendMessage).not.toHaveBeenCalled();
+
+    mockFindUniqueChannel.mockImplementation(async () => ({ ...mockChannel, id: 'channel-b' }));
+    mockStoreAIResponse.mockClear();
+    await processMessageJob(makeJob());
+    // B inherits business AUTO and sends; changing A did not touch B.
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+});
+
+test('a channel MANUAL override skips before the LLM with reason manual_mode', async () => {
+    mockGetChannelSettings.mockResolvedValue({
+        ...channelSettings,
+        overrides: { automation_mode: 'MANUAL' },
+    });
+
+    const result = await processMessageJob(makeJob());
+
+    expect(result).toEqual(expect.objectContaining({
+        skipped: true,
+        reason: 'manual_mode',
+        mode_source: 'channel_override',
+    }));
+    expect(mockProcessNewIntent).not.toHaveBeenCalled();
+    expect(mockHandleOrderFlow).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+});
+
+test('a pre-override SEND_PENDING candidate is not reused after the channel narrows to DRAFT', async () => {
+    mockGetChannelSettings.mockResolvedValue({
+        ...channelSettings,
+        overrides: { automation_mode: 'DRAFT' },
+    });
+    // This focused harness does not expose Message.findOne globally (the
+    // candidate gate is otherwise inert); add it just for this scenario.
+    const { Message } = require('src/modules/conversation/conversation.entity');
+    Message.findOne = mockMessageFindOne;
+    mockMessageFindOne.mockResolvedValueOnce({
+        id: 'candidate-1',
+        conversation_id: 'conv-1',
+        sender: 'ai',
+        delivery_state: 'SEND_PENDING',
+        metadata: { provider_send_attempted: false },
+    });
+
+    try {
+        const result = await processMessageJob(makeJob());
+
+        expect(result).toEqual(expect.objectContaining({ sent: false }));
+        expect(mockSendMessage).not.toHaveBeenCalled();
+    } finally {
+        delete Message.findOne;
+    }
+});
+
+test('needs_human (legacy handoff status) pauses the worker before the LLM', async () => {
+    mockConversationFindOne.mockResolvedValue({
+        id: 'conv-1',
+        hitl: false,
+        status: 'needs_human',
+        metadata: {},
+    });
+
+    const result = await processMessageJob(makeJob());
+
+    expect(result).toEqual(expect.objectContaining({ skipped: true, reason: 'needs_human' }));
+    expect(mockProcessNewIntent).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
 });
 
 test('AUTO persists every provider MID returned for a multi-part send', async () => {

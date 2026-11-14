@@ -18,11 +18,28 @@ const {
     stripAutomationModeFromShopUpdate,
 } = require('./shop-settings.validator');
 const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
-const { normalizeAiReplyMode, isAutoSendMode } = require('./ai-reply-mode');
+const { AI_REPLY_MODES, normalizeAiReplyMode, isAutoSendMode } = require('./ai-reply-mode');
+const { readEmergencyStopState } = require('../channel-providers/channel-automation.resolver');
 const { invalidateUserSessions } = require('../auth/session-invalidation.service');
 const cacheService = require('../../utils/cache.service');
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
+
+// The emergency stop is dedicated, audited, source-aware storage. It must never
+// be writable through the general shop-update surface (which would bypass the
+// row lock, the MANUAL belt, and the admin-source resume rule).
+const EMERGENCY_STOP_COLUMNS = Object.freeze([
+    'ai_emergency_stop',
+    'ai_emergency_stop_at',
+    'ai_emergency_stop_by',
+    'ai_emergency_stop_source',
+    'ai_emergency_stop_prior_mode',
+]);
+
+const stripEmergencyStopColumns = (payload) => {
+    for (const column of EMERGENCY_STOP_COLUMNS) delete payload[column];
+    return payload;
+};
 
 const distinctUserIds = (memberships) => [...new Set(
     memberships.map((membership) => membership.user_id).filter(Boolean)
@@ -251,6 +268,7 @@ const updateShopById = async (shopId, userId, updateData) => {
         if (!shop) throw new AppError('Shop not found', 404);
 
         const nextUpdate = stripAutomationModeFromShopUpdate({ ...updateData });
+        stripEmergencyStopColumns(nextUpdate);
         delete nextUpdate.id;
         if (hasOwn(nextUpdate, 'settings')
             && (!nextUpdate.settings || typeof nextUpdate.settings !== 'object' || Array.isArray(nextUpdate.settings))) {
@@ -685,6 +703,17 @@ const updateShopAiSettings = async (
         normalizedUpdates.automation_mode = normalizeAiReplyMode(updates.automation_mode);
         // Reply mode is the source of truth for this legacy derived flag.
         normalizedUpdates.auto_reply_enabled = isAutoSendMode(normalizedUpdates.automation_mode);
+        // ADR-0013 §6: while the emergency stop is active the MANUAL rollback
+        // belt must hold. Raising the business default to AUTO would defeat the
+        // belt for old-code rollback and contradict the stopped state; the owner
+        // must resume the stop first (resume keeps MANUAL; re-choice is explicit).
+        if (shop.ai_emergency_stop === true && normalizedUpdates.automation_mode === 'AUTO') {
+            throw new AppError(
+                'Emergency stop is active — automation mode cannot be raised to AUTO. Resume the stop first.',
+                409,
+                'EMERGENCY_STOP_ACTIVE',
+            );
+        }
     }
 
     const currentSettings = shop.settings || {};
@@ -780,9 +809,248 @@ const updateShopAiSettings = async (
 };
 
 /**
+ * Business-wide AI emergency stop (ADR-0013 §6).
+ *
+ * Engage and resume are single transactions under the Shop row lock. Engage
+ * also writes MANUAL through the business setting (rollback belt) and audits
+ * either path. Resume is source-aware and never restores a prior mode.
+ */
+const emergencyStopPayload = (state) => ({
+    active: state.active,
+    at: state.at,
+    by: state.by,
+    source: state.source,
+    prior_mode: state.prior_mode,
+});
+
+const emitEmergencyStopChanged = (shopId, payload) => {
+    try {
+        const sseManager = require('../../utils/sse-manager');
+        sseManager.emit(shopId, 'emergency_stop_changed', payload);
+    } catch (error) {
+        console.warn('Failed to publish emergency stop change:', error.message);
+    }
+};
+
+const finalizeEmergencyStop = (shopId, payload) => {
+    void invalidateShopSettingsCaches(shopId).catch(() => {});
+    emitEmergencyStopChanged(shopId, payload);
+};
+
+/**
+ * Read the emergency-stop block for display (GET /shop/ai-settings).
+ * @returns {Promise<object|null>}
+ */
+const getShopEmergencyStopState = async (shopId, { transaction = null } = {}) => {
+    if (!shopId) return null;
+    const shop = await Shop.findByPk(shopId, {
+        attributes: [
+            'id',
+            'ai_emergency_stop',
+            'ai_emergency_stop_at',
+            'ai_emergency_stop_by',
+            'ai_emergency_stop_source',
+            'ai_emergency_stop_prior_mode',
+        ],
+        ...(transaction ? { transaction } : {}),
+    });
+    if (!shop) return null;
+    return readEmergencyStopState(shop);
+};
+
+/**
+ * Engage the business-wide emergency stop.
+ *
+ * @param {string} shopId
+ * @param {string} userId
+ * @param {{reason?: string|null, source?: 'merchant'|'admin', transaction?: object}} [options]
+ * @returns {Promise<object>} `{active, at, by, source, prior_mode, already_active}`
+ */
+const engageAiEmergencyStop = async (
+    shopId,
+    userId,
+    { reason = null, source = 'merchant', transaction = null } = {},
+) => {
+    if (!shopId) throw new AppError('No shop selected', 400);
+
+    const run = async (tx) => {
+        const shop = await Shop.findByPk(shopId, { transaction: tx, lock: tx.LOCK?.UPDATE });
+        if (!shop) throw new AppError('Shop not found', 404);
+
+        // Idempotent repeat engage: keep the original snapshot/source/actor.
+        if (shop.ai_emergency_stop === true) {
+            return { state: readEmergencyStopState(shop), already: true, changed: false };
+        }
+
+        const priorMode = normalizeAiReplyMode(shop.settings?.ai?.automation_mode);
+        const engagedAt = new Date();
+
+        const [affected] = await Shop.update(
+            {
+                ai_emergency_stop: true,
+                ai_emergency_stop_at: engagedAt,
+                ai_emergency_stop_by: userId || null,
+                ai_emergency_stop_source: source,
+                ai_emergency_stop_prior_mode: priorMode,
+            },
+            {
+                where: { id: shopId, ai_emergency_stop: false },
+                transaction: tx,
+            },
+        );
+
+        if (!affected) {
+            // Lost the conditional race; report the winning state unchanged.
+            const current = await Shop.findByPk(shopId, { transaction: tx });
+            return { state: readEmergencyStopState(current), already: true, changed: false };
+        }
+
+        // Rollback-safety belt: old code that ignores the new columns still
+        // sees MANUAL through the existing business setting.
+        await updateShopAiSettings(
+            shopId,
+            userId || null,
+            { automation_mode: AI_REPLY_MODES.MANUAL },
+            { transaction: tx, auditRequired: true },
+        );
+
+        const AuditService = require('../audit/audit.service');
+        await AuditService.logOperation({
+            userId: userId || null,
+            shopId,
+            action: 'AI_EMERGENCY_STOP_ENGAGED',
+            resourceType: 'SHOP',
+            resourceId: shopId,
+            newValues: { ai_emergency_stop: true, source, prior_mode: priorMode },
+            metadata: { source, prior_mode: priorMode, reason: reason ?? null },
+        }, { transaction: tx, required: true });
+
+        return {
+            state: {
+                active: true,
+                at: engagedAt,
+                by: userId || null,
+                source,
+                prior_mode: priorMode,
+            },
+            already: false,
+            changed: true,
+        };
+    };
+
+    const result = transaction
+        ? await run(transaction)
+        : await sequelize.transaction((ownedTransaction) => run(ownedTransaction));
+
+    if (result.changed) {
+        const payload = emergencyStopPayload(result.state);
+        if (transaction && typeof transaction.afterCommit === 'function') {
+            transaction.afterCommit(() => finalizeEmergencyStop(shopId, payload));
+        } else {
+            finalizeEmergencyStop(shopId, payload);
+        }
+    }
+
+    return { ...result.state, already_active: result.already };
+};
+
+/**
+ * Resume the business-wide emergency stop. The mode deliberately stays MANUAL:
+ * the owner must explicitly choose a mode again.
+ *
+ * @param {string} shopId
+ * @param {string} userId
+ * @param {{source?: 'merchant'|'admin', transaction?: object}} [options]
+ * @returns {Promise<object>} `{active, automation_mode, prior_mode, already_inactive}`
+ */
+const resumeAiEmergencyStop = async (
+    shopId,
+    userId,
+    { source = 'merchant', transaction = null } = {},
+) => {
+    if (!shopId) throw new AppError('No shop selected', 400);
+
+    const run = async (tx) => {
+        const shop = await Shop.findByPk(shopId, { transaction: tx, lock: tx.LOCK?.UPDATE });
+        if (!shop) throw new AppError('Shop not found', 404);
+
+        const currentMode = normalizeAiReplyMode(shop.settings?.ai?.automation_mode);
+
+        if (shop.ai_emergency_stop !== true) {
+            return {
+                state: { active: false, automation_mode: currentMode, prior_mode: null },
+                already: true,
+                changed: false,
+            };
+        }
+
+        if (source !== 'admin' && shop.ai_emergency_stop_source === 'admin') {
+            throw new AppError(
+                'This emergency stop was set by an administrator and can only be resumed by platform admin',
+                403,
+                'EMERGENCY_STOP_ADMIN_SOURCE',
+            );
+        }
+
+        const priorMode = shop.ai_emergency_stop_prior_mode ?? null;
+        const resumeAt = new Date();
+
+        await Shop.update(
+            {
+                ai_emergency_stop: false,
+                ai_emergency_stop_at: null,
+                ai_emergency_stop_by: null,
+                ai_emergency_stop_source: null,
+                ai_emergency_stop_prior_mode: null,
+            },
+            { where: { id: shopId }, transaction: tx },
+        );
+
+        const AuditService = require('../audit/audit.service');
+        await AuditService.logOperation({
+            userId: userId || null,
+            shopId,
+            action: 'AI_EMERGENCY_STOP_RESUMED',
+            resourceType: 'SHOP',
+            resourceId: shopId,
+            oldValues: { ai_emergency_stop: true, prior_mode: priorMode },
+            newValues: { ai_emergency_stop: false, automation_mode: currentMode },
+            metadata: { source, prior_mode: priorMode, resumed_at: resumeAt.toISOString() },
+        }, { transaction: tx, required: true });
+
+        return {
+            state: { active: false, automation_mode: currentMode, prior_mode: priorMode },
+            already: false,
+            changed: true,
+        };
+    };
+
+    const result = transaction
+        ? await run(transaction)
+        : await sequelize.transaction((ownedTransaction) => run(ownedTransaction));
+
+    if (result.changed) {
+        const payload = {
+            active: false,
+            at: null,
+            by: null,
+            source: null,
+            prior_mode: result.state.prior_mode,
+        };
+        if (transaction && typeof transaction.afterCommit === 'function') {
+            transaction.afterCommit(() => finalizeEmergencyStop(shopId, payload));
+        } else {
+            finalizeEmergencyStop(shopId, payload);
+        }
+    }
+
+    return { ...result.state, already_inactive: result.already };
+};
+
+/**
  * ✅ NEW: Get effective confidence threshold for a specific intent
  * Falls back to global confidence_threshold if no intent-specific override exists
- * 
+ *
  * @param {string} shopId - Shop ID
  * @param {string} intent - Intent type (e.g., 'product_inquiry', 'complaint')
  * @returns {Promise<number>} - Threshold as 0-100 integer
@@ -859,6 +1127,9 @@ module.exports = {
     getUserRoleInShop,
     getShopAiSettings,
     updateShopAiSettings,
+    getShopEmergencyStopState,
+    engageAiEmergencyStop,
+    resumeAiEmergencyStop,
     getEffectiveThresholdForIntent,
     getAiDefaults,
     applyBrandingPreset

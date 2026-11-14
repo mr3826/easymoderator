@@ -48,7 +48,12 @@ async function getInboxActions(shopId, { now = Date.now(), view = 'attention', a
     // handoffs that paused a checkout).
     for (const c of shopConversations) {
         if (c.hitl === true && c.status === 'active') {
-            const suspended = (c.metadata && c.metadata.handoff_reason) || null;
+            const meta = c.metadata || {};
+            // A merchant takeover reason (manual_handoff_reason) is NOT a
+            // suspended-checkout system handoff; classifying it as one
+            // mislabels the cause in the queue (ADR-0013 §8).
+            const manualReason = meta.manual_handoff_reason || null;
+            const suspended = manualReason ? null : (meta.handoff_reason || null);
             items.push({
                 bucket: ACTION_BUCKETS.NEEDS_HUMAN,
                 item_key: `hitl:${c.id}`,
@@ -60,6 +65,10 @@ async function getInboxActions(shopId, { now = Date.now(), view = 'attention', a
                 customer_id: c.customer_id || null,
                 status: 'awaiting_human',
                 owner: c.assignee_id || null,
+                // Explicit source so the UI can render a merchant reason label
+                // (literal display map) without guessing from the code.
+                handoff_source: manualReason ? 'manual' : (suspended ? 'system' : null),
+                manual_handoff_reason: manualReason,
                 next_action: { type: NEXT_ACTION.OPEN_CONVERSATION },
                 since: c.updated_at,
             });
