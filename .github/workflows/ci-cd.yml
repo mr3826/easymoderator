@@ -355,6 +355,13 @@ jobs:
         working-directory: ./EasyMod-frontend
         run: npm run test:e2e:truth-gate
 
+      # The apex serves the MARKETING React entry (main-marketing.tsx), not the
+      # merchant app entry. This config forces that entry so landing regressions
+      # (e.g. the 2026-11-15 "No QueryClient set" apex outage) fail CI.
+      - name: Run contract-derived landing browser proof (marketing entry)
+        working-directory: ./EasyMod-frontend
+        run: npm run test:e2e:landing
+
       - name: Upload frontend Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
