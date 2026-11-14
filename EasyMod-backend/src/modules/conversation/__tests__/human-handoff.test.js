@@ -9,6 +9,7 @@ process.env.NODE_ENV = 'test';
 
 const mockNotifyShop = jest.fn().mockResolvedValue({ queued: true });
 const mockGetShopAiSettings = jest.fn();
+const mockMessageUpdate = jest.fn(async () => [1]);
 
 jest.mock('src/utils/sse-manager', () => ({ emit: jest.fn() }));
 jest.mock('src/modules/channel-providers/provider.registry', () => ({ getProvider: jest.fn() }));
@@ -21,6 +22,7 @@ jest.mock('src/modules/policy/policy.engine', () => ({
 jest.mock('src/modules/entities', () => ({
     Customer: { findOne: jest.fn() },
     MetaChannelSettings: { findOne: jest.fn() },
+    Message: { update: (...args) => mockMessageUpdate(...args) },
 }));
 jest.mock('src/modules/conversation/conversation-lock.service', () => ({
     acquireForDelivery: jest.fn(async () => ({ available: false })),
@@ -28,6 +30,9 @@ jest.mock('src/modules/conversation/conversation-lock.service', () => ({
 }));
 jest.mock('src/modules/shop/shop.service', () => ({
     getShopAiSettings: mockGetShopAiSettings,
+}));
+jest.mock('src/modules/channel-providers/channel-automation.resolver', () => ({
+    loadEffectiveChannelAutomation: jest.fn(),
 }));
 jest.mock('src/modules/notification/merchant-notification.service', () => ({
     notifyShop: mockNotifyShop,
@@ -38,6 +43,7 @@ const { getProvider } = require('src/modules/channel-providers/provider.registry
 const { sendEscalationAutoReply } = require('src/modules/conversation/escalation-auto-reply.service');
 const policyEngine = require('src/modules/policy/policy.engine');
 const { Customer, MetaChannelSettings } = require('src/modules/entities');
+const { loadEffectiveChannelAutomation } = require('src/modules/channel-providers/channel-automation.resolver');
 const { escalateToHuman } = require('src/modules/conversation/human-handoff.service');
 
 describe('escalateToHuman', () => {
@@ -53,6 +59,11 @@ describe('escalateToHuman', () => {
             reason: 'OK',
             augment: {},
             transform: null,
+        });
+        loadEffectiveChannelAutomation.mockResolvedValue({
+            mode: 'AUTO',
+            modeSource: 'business_default',
+            emergencyStop: { active: false },
         });
     });
 
@@ -104,7 +115,7 @@ describe('escalateToHuman', () => {
                 recipientId: '123',
                 platform: 'facebook',
                 settings: expect.objectContaining({
-                    automation_mode: 'MANUAL',
+                    automation_mode: 'AUTO',
                     business_hours: { mon: { open: '09:00', close: '18:00' } },
                     purpose_label: 'Sales',
                 }),
@@ -303,6 +314,66 @@ describe('escalateToHuman', () => {
         });
 
         expect(getProvider).not.toHaveBeenCalled();
+    });
+});
+
+describe('emergency stop / fail-closed holding delivery', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockGetShopAiSettings.mockResolvedValue({ handoff_settings: { cooldown_minutes: 30 } });
+        Customer.findOne.mockResolvedValue({ id: 'cust-1' });
+        MetaChannelSettings.findOne.mockResolvedValue({ channel_id: 'ch1' });
+        policyEngine.evaluateOutbound.mockResolvedValue({ allow: true, reason: 'OK', transform: null });
+        sendEscalationAutoReply.mockResolvedValue({
+            id: 'm1', content: 'hold on', conversation_id: 'c1', metadata: {},
+        });
+        mockMessageUpdate.mockResolvedValue([1]);
+    });
+
+    test('stop suppresses the automatic holding send, stamps HELD emergency_stop, preserves hitl', async () => {
+        loadEffectiveChannelAutomation.mockResolvedValueOnce({
+            mode: 'MANUAL', modeSource: 'emergency_stop', emergencyStop: { active: true },
+        });
+        const conversation = { id: 'c1', hitl: false, update: jest.fn().mockResolvedValue() };
+        const send = jest.fn().mockResolvedValue();
+        getProvider.mockReturnValue({ sendMessage: send });
+
+        await escalateToHuman({
+            conversation, shopId: 's1', conversationId: 'c1', platform: 'messenger',
+            recipientId: 123, channel: { id: 'ch1' }, reason: 'low_confidence',
+        });
+
+        expect(send).not.toHaveBeenCalled();
+        expect(policyEngine.evaluateOutbound).not.toHaveBeenCalled();
+        expect(mockMessageUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            delivery_state: 'HELD',
+            metadata: expect.objectContaining({
+                held_reason: 'emergency_stop',
+                delivery_state: 'HELD',
+            }),
+        }), expect.objectContaining({
+            where: expect.objectContaining({ id: 'm1', conversation_id: 'c1' }),
+        }));
+        // Human agency: hitl is only ever SET here, never cleared by the stop.
+        expect(conversation.update).toHaveBeenCalledTimes(1);
+        expect(conversation.update).toHaveBeenCalledWith(expect.objectContaining({ hitl: true }));
+    });
+
+    test('an unavailable resolver holds with channel_settings_unavailable and never calls the provider', async () => {
+        loadEffectiveChannelAutomation.mockRejectedValueOnce(new Error('shop settings unavailable'));
+        const conversation = { id: 'c1', hitl: false, update: jest.fn().mockResolvedValue() };
+        const send = jest.fn().mockResolvedValue();
+        getProvider.mockReturnValue({ sendMessage: send });
+
+        await escalateToHuman({
+            conversation, shopId: 's1', conversationId: 'c1', platform: 'messenger',
+            recipientId: 123, channel: { id: 'ch1' }, reason: 'low_confidence',
+        });
+
+        expect(send).not.toHaveBeenCalled();
+        expect(mockMessageUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            metadata: expect.objectContaining({ held_reason: 'channel_settings_unavailable' }),
+        }), expect.any(Object));
     });
 });
 

@@ -183,7 +183,33 @@ function isKnownApiPath(path: string): boolean {
     '/api/audit',
     '/api/commercial/claims',
     '/api/public/commercial-contract',
-  ].includes(path) || isConversationMessagesPath(path) || isConversationReadPath(path) || isConversationPath(path);
+  ].includes(path) || isConversationMessagesPath(path) || isConversationReadPath(path) || isConversationPath(path)
+    || /^\/api\/channels\/meta\/[^/]+\/settings$/.test(path);
+}
+
+/** Channel settings payload for the redesigned surfaces (ADR-0013 §2). */
+function channelSettings(mode: AiReplyMode, overrides: Record<string, unknown> = {}) {
+  return {
+    confidenceThresholdSend: 0.8,
+    confidenceThresholdSuggest: 0.5,
+    businessHours: null,
+    allowOrderCreation: true,
+    purposeLabel: null,
+    overrides,
+    effective: {
+      automation_mode: mode,
+      confidence_threshold: 75,
+      greeting: { enabled: true, custom_text: 'Welcome' },
+      business_hours: null,
+      allow_order_creation: true,
+      purpose_label: null,
+    },
+    mode_source: Object.keys(overrides).length > 0 ? 'channel_override' : 'business_default',
+    warnings: [],
+    emergency_stop: { active: false, at: null, by: null, source: null, prior_mode: null },
+    billing_ai_active: true,
+    deprecated_fields: ['confidenceThresholdSend', 'confidenceThresholdSuggest'],
+  };
 }
 
 interface RouteOptions {
@@ -438,6 +464,19 @@ async function setupRoutes(page: Page, options: RouteOptions = {}): Promise<Rout
         return route.fulfill(jsonResponse([mockMetaChannel]));
       }
 
+      const channelSettingsMatch = path.match(/^\/api\/channels\/meta\/([^/]+)\/settings$/);
+      if (channelSettingsMatch) {
+        if (method === 'GET') {
+          return route.fulfill(jsonResponse(channelSettings(state.mode as AiReplyMode)));
+        }
+        if (method === 'PATCH') {
+          const body = (request.postDataJSON() || {}) as { overrides?: Record<string, unknown> };
+          return route.fulfill(jsonResponse(
+            channelSettings(state.mode as AiReplyMode, body.overrides || {}),
+          ));
+        }
+      }
+
       if (path === '/api/audit' && method === 'POST') {
         return route.fulfill(jsonResponse({ id: 'audit-1' }, 201));
       }
@@ -550,7 +589,9 @@ async function expectAiActiveCleared(page: Page): Promise<void> {
 
 test('Scenario A: Manual, Draft, and Auto render in order and save the canonical mode', async ({ page }) => {
   const fixture = await setupRoutes(page, { mode: 'DRAFT' });
-  await loginAndGo(page, '/manage-shop/business-info');
+  // ADR-0013 §9: reply mode moved off the business profile to the business
+  // automation defaults page. The radiogroup contract is unchanged.
+  await loginAndGo(page, '/manage-shop/automation');
 
   const group = page.getByTestId('ai-reply-mode');
   await expect(group).toHaveAttribute('role', 'radiogroup');
@@ -588,9 +629,9 @@ test('Scenario A: Manual, Draft, and Auto render in order and save the canonical
   fixture.assertNoUnexpectedApiRequests();
 });
 
-test('Scenario B: the mode control is accessible and Page settings has no AI participation toggle', async ({ page }) => {
+test('Scenario B: the mode control is accessible; channels expose a labeled narrow-only override, never a legacy toggle', async ({ page }) => {
   const fixture = await setupRoutes(page, { mode: 'MANUAL' });
-  await loginAndGo(page, '/manage-shop/business-info');
+  await loginAndGo(page, '/manage-shop/automation');
 
   const group = page.getByTestId('ai-reply-mode');
   await expect(group).toHaveAttribute('aria-labelledby', 'ai-reply-mode-label');
@@ -606,10 +647,31 @@ test('Scenario B: the mode control is accessible and Page settings has no AI par
   await draft.press('Space');
   await expect(draft).toHaveAttribute('aria-checked', 'true');
 
+  // ADR-0013 §9: the legacy chat-settings route redirects to the channel
+  // workspace. No legacy Page-level AI participation toggle may survive.
   await page.goto('/manage-shop/chat-settings');
-  await expect(page.getByRole('heading', { name: 'Channel Settings' })).toBeVisible();
+  await expect(page).toHaveURL(/\/manage-shop\/channels$/);
+  await expect(page.getByRole('heading', { name: 'Channels & Automation' })).toBeVisible();
   await expect(page.getByRole('switch')).toHaveCount(0);
   await expect(page.getByText(/Page AI participation/i)).toHaveCount(0);
+
+  // The per-channel control is a labeled, narrow-only override with explicit
+  // inherit -> override -> revert affordances (never a second enablement path).
+  await page.goto('/manage-shop/channels/meta-channel-1');
+  await expect(page.getByTestId('channel-effective-mode')).toContainText('Manual replies only');
+  await expect(page.getByTestId('channel-mode-source')).toContainText('Business default');
+  await expect(page.getByTestId('channel-mode-override')).toHaveCount(0);
+  await expect(page.getByRole('switch')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Override for this channel' }).click();
+  const override = page.getByTestId('channel-mode-override');
+  await expect(override).toHaveAttribute('role', 'radiogroup');
+  // MANUAL business ceiling: only MANUAL may be stored for this channel.
+  await expect(override.locator('input[value="MANUAL"]')).toHaveCount(1);
+  await expect(override.locator('input[value="AUTO"]')).toHaveCount(0);
+  await expect(page.getByText(/cannot be more automated than the business default/i)).toBeVisible();
+  await expect(page.getByTestId('channel-override-revert-automation_mode')).toBeVisible();
+
   fixture.assertNoUnexpectedApiRequests();
 });
 

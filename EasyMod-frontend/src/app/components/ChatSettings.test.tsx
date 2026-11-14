@@ -170,11 +170,16 @@ describe('ChatSettings', () => {
     expect(screen.queryByText(/Auto-Selected for Best Results/i)).not.toBeInTheDocument();
   });
 
-  it('does not render a Page-level AI reply mode or participation control', async () => {
+  // TEST_STRATEGY §4 amendment: the "no Page-level AI control" pin moved to
+  // channels/__tests__/ChannelConnectionManager.test.tsx. ChatSettings is now
+  // a thin consumer of the extracted connection manager and must keep rendering
+  // the same connection surface.
+  it('renders the shared ChannelConnectionManager surface', async () => {
     await renderComponent();
-    expect(screen.queryByText(/Page AI participation/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/AI will not draft or send replies for this Page/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/automatic replies for this Page/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Channel Settings')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add another Facebook Page/i })).toBeInTheDocument();
+    }, { timeout: 2000 });
   });
 
   it('makes API call to load channels on mount', async () => {

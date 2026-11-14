@@ -61,6 +61,39 @@ test('one open handoff = exactly one actionable item; resolution removes it', as
     expect(after.items).toHaveLength(0);
 });
 
+test('a MANUAL takeover reason is classified as manual, never HANDOFF_SUSPENDED_CHECKOUT', async () => {
+    E.Conversation.findAll.mockResolvedValue([conv({
+        hitl: true,
+        metadata: {
+            // A concurrent SYSTEM reason must not win over the merchant's reason.
+            handoff_reason: 'sentiment_escalation',
+            manual_handoff_reason: 'customer_request',
+        },
+    })]);
+
+    const res = await getInboxActions('shop-1');
+    const item = res.items.find((i) => i.bucket === ACTION_BUCKETS.NEEDS_HUMAN);
+    expect(item).toMatchObject({
+        reason_code: ACTION_REASONS.HITL_REQUIRED,
+        handoff_source: 'manual',
+        manual_handoff_reason: 'customer_request',
+    });
+    expect(item.reason_code).not.toBe(ACTION_REASONS.HANDOFF_SUSPENDED_CHECKOUT);
+});
+
+test('system handoff_reason keeps the suspended-checkout classification', async () => {
+    E.Conversation.findAll.mockResolvedValue([conv({
+        hitl: true,
+        metadata: { handoff_reason: 'low_confidence' },
+    })]);
+
+    const res = await getInboxActions('shop-1');
+    expect(res.items[0]).toMatchObject({
+        reason_code: ACTION_REASONS.HANDOFF_SUSPENDED_CHECKOUT,
+        handoff_source: 'system',
+    });
+});
+
 test('committed-without-ack outranks drafts and never double-lists the same message', async () => {
     E.Conversation.findAll.mockResolvedValue([conv({ hitl: true })]);
     E.Message.findAll.mockImplementation(async ({ where }) => {

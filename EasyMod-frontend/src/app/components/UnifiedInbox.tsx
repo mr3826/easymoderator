@@ -18,6 +18,7 @@ import {
   normalizeAiReplyMode,
   type AiReplyMode,
   type Conversation,
+  type ManualHandoffReason,
   type Message,
   type ResponseTemplate,
 } from "@/api/types/conversation";
@@ -145,6 +146,23 @@ const AI_REPLY_MODE_LABEL_KEYS: Record<AiReplyMode, string> = {
   MANUAL: "inbox.mode.manual",
 };
 
+/** Literal keys — never build a t() key by interpolation (coverage test). */
+const TAKEOVER_REASON_LABEL_KEYS: Record<ManualHandoffReason, string> = {
+  manual_takeover: "inbox.takeoverReason.manualTakeover",
+  customer_request: "inbox.takeoverReason.customerRequest",
+  phone_call: "inbox.takeoverReason.phoneCall",
+  order_issue: "inbox.takeoverReason.orderIssue",
+  other: "inbox.takeoverReason.other",
+};
+
+const TAKEOVER_REASONS: ManualHandoffReason[] = [
+  "manual_takeover",
+  "customer_request",
+  "phone_call",
+  "order_issue",
+  "other",
+];
+
 const getAiReplyStatus = (
   messages: Message[],
   mode: AiReplyMode,
@@ -264,6 +282,11 @@ export default function UnifiedInbox() {
   const [resolveNote, setResolveNote] = useState("");
   const [sseConnected, setSseConnected] = useState(true);
   const sseEverConnectedRef = useRef(false);
+  // ADR-0013 §6: shop-wide stop survives a conversation switch; SSE keeps it fresh.
+  const [emergencyStopActive, setEmergencyStopActive] = useState(false);
+  // ADR-0013 §8: optional manual-takeover reason (fixed list).
+  const [takeoverOpen, setTakeoverOpen] = useState(false);
+  const [takeoverReason, setTakeoverReason] = useState<ManualHandoffReason>("manual_takeover");
   const [aiReplyMode, setAiReplyMode] = useState<AiReplyMode>(DEFAULT_AI_REPLY_MODE);
   const [aiReplyStatuses, setAiReplyStatuses] = useState<Record<string, AiReplyStatus>>({});
   const aiReplyModeRef = useRef<AiReplyMode>(DEFAULT_AI_REPLY_MODE);
@@ -1085,16 +1108,33 @@ export default function UnifiedInbox() {
     onConversationUpdated: useCallback(() => {
       refreshActionQueue();
     }, [refreshActionQueue]),
+
+    // ADR-0013 §9: an override / purpose write changed effective config.
+    onChannelSettingsChanged: useCallback(() => {
+      void loadConversationsRef.current();
+      const selectedId = selectedConversationRef.current?.id;
+      if (selectedId) void loadMessagesRef.current(selectedId, 1);
+    }, []),
+
+    // ADR-0013 §6: the shop-wide stop engaged or resumed.
+    onEmergencyStopChanged: useCallback((payload: { active: boolean }) => {
+      setEmergencyStopActive(payload.active === true);
+      void loadConversationsRef.current();
+    }, []),
   });
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleToggleHITL = async () => {
+  const applyHitl = async (newHITL: boolean, reason?: ManualHandoffReason) => {
     if (!selectedConversation) return;
     try {
       setTogglingHITL(true);
-      const newHITL = !selectedConversation.hitl;
-      const response = await apiClient.updateConversation(selectedConversation.id, { hitl: newHITL });
+      const response = await apiClient.updateConversation(
+        selectedConversation.id,
+        newHITL
+          ? { hitl: true, ...(reason ? { handoff_reason: reason } : {}) }
+          : { hitl: false },
+      );
       const updated = {
         ...selectedConversation,
         ...response,
@@ -1133,6 +1173,22 @@ export default function UnifiedInbox() {
     } finally {
       setTogglingHITL(false);
     }
+  };
+
+  // Taking over opens the optional-reason dialog; resuming is immediate.
+  const handleToggleHITL = () => {
+    if (!selectedConversation) return;
+    if (selectedConversation.hitl) {
+      void applyHitl(false);
+    } else {
+      setTakeoverReason("manual_takeover");
+      setTakeoverOpen(true);
+    }
+  };
+
+  const confirmTakeover = () => {
+    setTakeoverOpen(false);
+    void applyHitl(true, takeoverReason);
   };
 
   // MW-V1: merge a panel-driven ownership change (canonical PATCH result) into
@@ -1420,7 +1476,12 @@ export default function UnifiedInbox() {
           data-testid="inbox-ai-reply-mode"
           className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm whitespace-nowrap"
         >
-          {t("inbox.modeLabel")}: {t(AI_REPLY_MODE_LABEL_KEYS[aiReplyMode])}
+          {t("inbox.modeLabel")}:{" "}
+          {t(
+            AI_REPLY_MODE_LABEL_KEYS[
+              selectedConversation?.effective_ai_reply_mode ?? aiReplyMode
+            ],
+          )}
         </span>
       </div>
 
@@ -1429,6 +1490,18 @@ export default function UnifiedInbox() {
         <div className="shrink-0 bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-sm text-yellow-800 flex items-center gap-2 font-bn">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{t("inbox.offlineBanner")}</span>
+        </div>
+      )}
+
+      {/* ADR-0013 §6: shop-wide emergency stop is always visible in the inbox. */}
+      {(emergencyStopActive || selectedConversation?.emergency_stop?.active === true) && (
+        <div
+          role="alert"
+          data-testid="emergency-stop-banner"
+          className="shrink-0 bg-red-50 border-b border-red-200 px-4 py-2 text-sm text-red-800 flex items-center gap-2 font-bn"
+        >
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>{t("inbox.emergencyBanner")}</span>
         </div>
       )}
 
@@ -1516,6 +1589,57 @@ export default function UnifiedInbox() {
           </div>
         )}
       </div>
+
+      {/* ADR-0013 §8: optional manual-takeover reason (fixed list). */}
+      {takeoverOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="inbox-takeover-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4"
+        >
+          <div className="w-full max-w-sm space-y-4 rounded-lg bg-white p-6 shadow-xl">
+            <h3 id="inbox-takeover-title" className="text-lg font-semibold text-gray-900 font-bn">
+              {t("inbox.takeoverDialog.title")}
+            </h3>
+            <p className="text-sm text-gray-600 font-bn">{t("inbox.takeoverDialog.desc")}</p>
+            <label className="block text-xs font-medium text-gray-700 font-bn">
+              {t("inbox.takeoverDialog.reason")}
+              <select
+                data-testid="takeover-reason-select"
+                value={takeoverReason}
+                onChange={(event) =>
+                  setTakeoverReason(event.target.value as ManualHandoffReason)
+                }
+                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-sm"
+              >
+                {TAKEOVER_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {t(TAKEOVER_REASON_LABEL_KEYS[reason])}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setTakeoverOpen(false)}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 font-bn"
+              >
+                {t("inbox.takeoverDialog.cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={togglingHITL}
+                onClick={confirmTakeover}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 font-bn"
+              >
+                {t("inbox.takeoverDialog.confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

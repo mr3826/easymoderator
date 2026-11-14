@@ -99,7 +99,16 @@ class ConversationValidator {
             // MW-V1 D1: privileged manager escalation must be expressible over
             // HTTP. The service honors force ONLY for owner/admin actors; staff
             // sending it is inert (conversation-ownership tests pin this).
-            force: Joi.boolean()
+            force: Joi.boolean(),
+            // ADR-0013 §8: merchant-facing takeover reason. Applies only with
+            // hitl:true; ignored otherwise. Fixed list — never free text.
+            handoff_reason: Joi.string().valid(
+                'manual_takeover',
+                'customer_request',
+                'phone_call',
+                'order_issue',
+                'other',
+            )
         }).min(1)
     };
 

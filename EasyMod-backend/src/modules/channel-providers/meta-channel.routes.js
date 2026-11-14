@@ -34,11 +34,65 @@ const unsupportedPageSetting = (key) => Joi.any().forbidden().messages({
     'any.unknown': `${key} is not supported for Page settings; configure the business AI reply mode instead`,
 });
 
+// ── Business hours (tightened per ADR-0013 §7) ─────────────────────────────
+// Day keys mon..sun; HH:MM; optional IANA timezone; both accepted shapes
+// (`{day:{open,close}}` and `{day:[{open,close},...]}`); overnight allowed.
+const HHMM_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const businessHoursSlot = Joi.object({
+    open: Joi.string().pattern(HHMM_PATTERN).required().messages({
+        'string.pattern.base': 'business hours must use HH:MM',
+    }),
+    close: Joi.string().pattern(HHMM_PATTERN).required().messages({
+        'string.pattern.base': 'business hours must use HH:MM',
+    }),
+}).unknown(false);
+
+const businessHoursDay = Joi.alternatives().try(
+    businessHoursSlot,
+    Joi.array().items(businessHoursSlot).min(1),
+);
+
+const timezoneSchema = Joi.string().custom((value, helpers) => {
+    try {
+        // eslint-disable-next-line no-new
+        new Intl.DateTimeFormat('en-US', { timeZone: value });
+        return value;
+    } catch (_) {
+        return helpers.error('any.invalid');
+    }
+}, 'IANA timezone validation').messages({
+    'any.invalid': 'timezone must be a valid IANA timezone',
+});
+
+const businessHoursSchema = Joi.object({
+    mon: businessHoursDay,
+    tue: businessHoursDay,
+    wed: businessHoursDay,
+    thu: businessHoursDay,
+    fri: businessHoursDay,
+    sat: businessHoursDay,
+    sun: businessHoursDay,
+    timezone: timezoneSchema,
+}).unknown(false).allow(null);
+
+const overridesSchema = Joi.object({
+    automation_mode: Joi.string()
+        .valid('AUTO', 'DRAFT', 'MANUAL', 'AI_ACTIVE', 'AI_SUGGEST_ONLY', 'HUMAN_ACTIVE')
+        .allow(null),
+    confidence_threshold: Joi.number().min(0).max(100).allow(null),
+    greeting: Joi.object({
+        enabled: Joi.boolean(),
+        custom_text: Joi.string().max(500).allow(''),
+    }).unknown(false).or('enabled', 'custom_text').allow(null),
+}).unknown(false).allow(null);
+
 const channelSettingsPatchBody = Joi.object({
     aiAutoReply: unsupportedPageSetting('aiAutoReply'),
     automationMode: unsupportedPageSetting('automationMode'),
     ai_auto_reply: unsupportedPageSetting('ai_auto_reply'),
     automation_mode: unsupportedPageSetting('automation_mode'),
+    overrides: overridesSchema,
     confidenceThresholdSend: Joi.number().min(0).max(1).messages({
         'number.base': 'confidenceThresholdSend must be a number',
         'number.min': 'confidenceThresholdSend must be between 0 and 1',
@@ -49,8 +103,8 @@ const channelSettingsPatchBody = Joi.object({
         'number.min': 'confidenceThresholdSuggest must be between 0 and 1',
         'number.max': 'confidenceThresholdSuggest must be between 0 and 1',
     }),
-    businessHours: Joi.object().unknown(true).allow(null),
-    business_hours: Joi.object().unknown(true).allow(null),
+    businessHours: businessHoursSchema,
+    business_hours: businessHoursSchema,
     allowOrderCreation: Joi.boolean().messages({
         'boolean.base': 'allowOrderCreation must be a boolean',
     }),

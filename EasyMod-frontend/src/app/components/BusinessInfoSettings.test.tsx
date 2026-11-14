@@ -1,15 +1,13 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import BusinessInfoSettings from './BusinessInfoSettings';
 
 // ── Hoist mock functions so they are available inside vi.mock factories ───
 const {
   mockGetShopBusinessInfo,
-  mockGetShopAISettings,
-  mockGetTelegramNotificationStatus,
   mockUpdateShopBusinessInfo,
-  mockUpdateShopAISettings,
 } = vi.hoisted(() => {
   const mockBusinessInfo = {
     businessInfo: {
@@ -26,22 +24,9 @@ const {
     documents: [],
     ai_settings: {},
   };
-  const mockAISettings = {
-    automation_mode: 'DRAFT',
-    confidence_threshold: 75,
-    auto_reply_enabled: false,
-    max_auto_order_value: 5000,
-    ask_email: false,
-    primary_language: 'mixed',
-    required_fields: { customer_name: true, mobile_number: true, delivery_address: true, payment_method: true, email_address: false, special_instructions: false },
-    handoff_settings: { trigger_keywords: ['complain', 'problem'], notification_channel: 'in_app', cooldown_minutes: 30 },
-  };
   return {
-    mockGetShopBusinessInfo:    vi.fn().mockResolvedValue(mockBusinessInfo),
-    mockGetShopAISettings:      vi.fn().mockResolvedValue(mockAISettings),
-    mockGetTelegramNotificationStatus: vi.fn().mockResolvedValue({ status: 'connected', connected: true }),
+    mockGetShopBusinessInfo: vi.fn().mockResolvedValue(mockBusinessInfo),
     mockUpdateShopBusinessInfo: vi.fn().mockResolvedValue(mockBusinessInfo),
-    mockUpdateShopAISettings:   vi.fn().mockResolvedValue(mockAISettings),
   };
 });
 
@@ -49,12 +34,6 @@ const {
 const mockBusinessInfo = {
   businessInfo: { shopName: 'Test Shop', address: '123 Main St', phone: '01700000000', openingHours: '9am-6pm', additionalInfo: 'Exchange within 3 days.', deliveryAreas: ['Dhaka', 'Chittagong'], paymentMethods: ['COD', 'bKash'] },
   brandingRules: {}, faqs: [], documents: [], ai_settings: {},
-};
-const mockAISettings = {
-  automation_mode: 'DRAFT', confidence_threshold: 75, auto_reply_enabled: false,
-  max_auto_order_value: 5000, ask_email: false, primary_language: 'mixed',
-  required_fields: { customer_name: true, mobile_number: true, delivery_address: true, payment_method: true, email_address: false, special_instructions: false },
-  handoff_settings: { trigger_keywords: ['complain', 'problem'], notification_channel: 'in_app', cooldown_minutes: 30 },
 };
 
 // ── Mock react-i18next ────────────────────────────────────────────────────
@@ -65,11 +44,8 @@ vi.mock('react-i18next', () => ({
 // ── Mock API client ───────────────────────────────────────────────────────
 vi.mock('@/api', () => ({
   apiClient: {
-    getShopBusinessInfo:    mockGetShopBusinessInfo,
-    getShopAISettings:      mockGetShopAISettings,
-    getTelegramNotificationStatus: mockGetTelegramNotificationStatus,
+    getShopBusinessInfo: mockGetShopBusinessInfo,
     updateShopBusinessInfo: mockUpdateShopBusinessInfo,
-    updateShopAISettings:   mockUpdateShopAISettings,
   },
 }));
 
@@ -84,18 +60,19 @@ vi.mock('@/app/lib/auth', () => ({
 
 // ── Mock lucide-react icons ───────────────────────────────────────────────
 vi.mock('lucide-react', () => ({
-  Plus:       () => null,
-  X:          () => null,
-  ChevronDown:() => null,
-  ChevronUp:  () => null,
-  CircleIcon: () => null,
+  Bot: () => null,
+  ChevronRight: () => null,
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 const renderComponent = async () => {
   let utils: ReturnType<typeof render> | undefined;
   await act(async () => {
-    utils = render(<BusinessInfoSettings />);
+    utils = render(
+      <MemoryRouter>
+        <BusinessInfoSettings />
+      </MemoryRouter>,
+    );
   });
   return utils!;
 };
@@ -105,21 +82,19 @@ const renderComponent = async () => {
 describe('BusinessInfoSettings', () => {
   beforeEach(() => {
     mockGetShopBusinessInfo.mockReset().mockResolvedValue(mockBusinessInfo);
-    mockGetShopAISettings.mockReset().mockResolvedValue(mockAISettings);
-    mockGetTelegramNotificationStatus.mockReset().mockResolvedValue({ status: 'connected', connected: true });
     mockUpdateShopBusinessInfo.mockReset().mockResolvedValue(mockBusinessInfo);
-    mockUpdateShopAISettings.mockReset().mockResolvedValue(mockAISettings);
   });
 
   // ── Loading & data display ──────────────────────────────────────────────
 
   it('shows loading state initially', async () => {
-    // Make the API call take time
     mockGetShopBusinessInfo.mockImplementation(() => new Promise(() => {}));
-    mockGetShopAISettings.mockImplementation(() => new Promise(() => {}));
 
-    render(<BusinessInfoSettings />);
-    // Should show some loading indicator (spinner or skeleton)
+    render(
+      <MemoryRouter>
+        <BusinessInfoSettings />
+      </MemoryRouter>,
+    );
     const loading = document.querySelector('[class*="animate"]') ||
                     screen.queryByText(/loading/i) ||
                     document.querySelector('[role="status"]');
@@ -149,7 +124,6 @@ describe('BusinessInfoSettings', () => {
 
   it('shows error message when load fails', async () => {
     mockGetShopBusinessInfo.mockRejectedValueOnce(new Error('Network error'));
-    mockGetShopAISettings.mockResolvedValue(mockAISettings);
 
     await renderComponent();
 
@@ -159,26 +133,29 @@ describe('BusinessInfoSettings', () => {
     });
   });
 
-  // ── AI settings panel ───────────────────────────────────────────────────
+  // ── AI controls removed from the business profile (ADR-0013 §1) ─────────
 
-  it('renders AI settings panel', async () => {
+  it('does not render AI reply controls', async () => {
     await renderComponent();
 
     await waitFor(() => {
-      // automation mode select or label should be visible
-      const automationLabels = screen.queryAllByText(/automation/i);
-      const aiLabels = screen.queryAllByText(/AI/i);
-      expect(automationLabels.length > 0 || aiLabels.length > 0).toBe(true);
+      expect(screen.getByDisplayValue('Test Shop')).toBeInTheDocument();
     });
+
+    expect(screen.queryByTestId('ai-reply-mode')).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="range"]')).toBeNull();
   });
 
-  it('renders the confidence threshold slider', async () => {
+  it('links to the business automation defaults page', async () => {
     await renderComponent();
 
     await waitFor(() => {
-      const slider = document.querySelector('input[type="range"]');
-      expect(slider).toBeTruthy();
+      expect(screen.getByTestId('business-info-automation-link')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('business-info-automation-link')).toHaveAttribute(
+      'href',
+      '/manage-shop/automation',
+    );
   });
 
   // ── Dirty-state tracking ────────────────────────────────────────────────
@@ -190,9 +167,7 @@ describe('BusinessInfoSettings', () => {
       expect(screen.getByDisplayValue('Test Shop')).toBeInTheDocument();
     });
 
-    // Find the Save Info button — it should be disabled (not dirty)
     const saveButtons = screen.getAllByRole('button', { name: /save/i });
-    // At least one save button should exist
     expect(saveButtons.length).toBeGreaterThan(0);
   });
 
@@ -203,13 +178,11 @@ describe('BusinessInfoSettings', () => {
       expect(screen.getByDisplayValue('Test Shop')).toBeInTheDocument();
     });
 
-    // Modify shop name
     const shopNameInput = screen.getByDisplayValue('Test Shop');
     await act(async () => {
       fireEvent.change(shopNameInput, { target: { value: 'Updated Shop' } });
     });
 
-    // A save button should now be enabled (dirty = true)
     await waitFor(() => {
       const saveButtons = screen.getAllByRole('button', { name: /save/i });
       const enabledSave = saveButtons.find(btn => !(btn as HTMLButtonElement).disabled);
@@ -226,13 +199,11 @@ describe('BusinessInfoSettings', () => {
       expect(screen.getByDisplayValue('Test Shop')).toBeInTheDocument();
     });
 
-    // Dirty the form
     const shopNameInput = screen.getByDisplayValue('Test Shop');
     await act(async () => {
       fireEvent.change(shopNameInput, { target: { value: 'New Name' } });
     });
 
-    // Click save
     await waitFor(() => {
       const saveButtons = screen.getAllByRole('button', { name: /save/i });
       const enabledSave = saveButtons.find(btn => !(btn as HTMLButtonElement).disabled);
@@ -256,7 +227,6 @@ describe('BusinessInfoSettings', () => {
       fireEvent.change(shopNameInput, { target: { value: 'Changed Name' } });
     });
 
-    // Find and click the enabled save button
     await waitFor(async () => {
       const saveButtons = screen.getAllByRole('button', { name: /save/i });
       const enabledSave = saveButtons.find(btn => !(btn as HTMLButtonElement).disabled);
@@ -301,14 +271,13 @@ describe('BusinessInfoSettings', () => {
 
   // ── API alignment checks ────────────────────────────────────────────────
 
-  it('loads business info and AI settings in parallel (both API calls made)', async () => {
+  it('loads business info only (AI settings moved to the automation page)', async () => {
     await renderComponent();
 
     await waitFor(() => {
       expect(mockGetShopBusinessInfo).toHaveBeenCalledTimes(1);
-      expect(mockGetShopAISettings).toHaveBeenCalledTimes(1);
-      expect(mockGetTelegramNotificationStatus).toHaveBeenCalledTimes(1);
     });
+    expect(mockUpdateShopBusinessInfo).not.toHaveBeenCalled();
   });
 
   it('sends business info payload to the correct endpoint shape', async () => {
@@ -334,9 +303,6 @@ describe('BusinessInfoSettings', () => {
     await waitFor(() => {
       if (mockUpdateShopBusinessInfo.mock.calls.length > 0) {
         const payload = mockUpdateShopBusinessInfo.mock.calls[0][0];
-        // Must be a businessInfo object (not wrapped). Delivery areas / payment
-        // methods are no longer collected here — they live on the Delivery /
-        // Payment Settings pages.
         expect(typeof payload).toBe('object');
         expect(payload).toHaveProperty('shopName');
         expect(payload).not.toHaveProperty('deliveryAreas');

@@ -128,4 +128,84 @@ describe('Meta channel settings PATCH contract', () => {
         expect(mockUpdateChannelSettings).toHaveBeenCalledTimes(1);
         expect(mockUpdateChannelSettings.mock.calls[0][0].body).toEqual(body);
     });
+
+    // ── ADR-0013 §9 amendment: top-level mode keys stay forbidden while the
+    //    nested narrow-only override is accepted by the route contract. ──
+    test('accepts an overrides object (narrow-only enforcement is service-side)', async () => {
+        const body = {
+            overrides: {
+                automation_mode: 'DRAFT',
+                confidence_threshold: 80,
+                greeting: { enabled: true, custom_text: 'Hello' },
+            },
+        };
+
+        const response = await request(buildApp())
+            .patch(`/api/channels/meta/${CHANNEL_ID}/settings`)
+            .send(body);
+
+        expect(response.status).toBe(200);
+        expect(mockUpdateChannelSettings).toHaveBeenCalledTimes(1);
+    });
+
+    test('accepts overrides.automation_mode aliases and null revert markers', async () => {
+        const response = await request(buildApp())
+            .patch(`/api/channels/meta/${CHANNEL_ID}/settings`)
+            .send({ overrides: { automation_mode: 'AI_SUGGEST_ONLY', confidence_threshold: null } });
+
+        expect(response.status).toBe(200);
+    });
+
+    test('accepts overrides:null as "no override changes"', async () => {
+        const response = await request(buildApp())
+            .patch(`/api/channels/meta/${CHANNEL_ID}/settings`)
+            .send({ overrides: null });
+
+        expect(response.status).toBe(200);
+    });
+
+    test.each([
+        ['unknown override key', { overrides: { model_preset: 'advanced' } }],
+        ['out-of-range threshold', { overrides: { confidence_threshold: 150 } }],
+        ['unknown automation mode', { overrides: { automation_mode: 'TURBO' } }],
+        ['overlong greeting', { overrides: { greeting: { custom_text: 'x'.repeat(501) } } }],
+        ['empty greeting', { overrides: { greeting: {} } }],
+    ])('rejects %s at the route boundary', async (_label, body) => {
+        const response = await request(buildApp())
+            .patch(`/api/channels/meta/${CHANNEL_ID}/settings`)
+            .send(body);
+
+        expect(response.status).toBe(400);
+        expect(mockUpdateChannelSettings).not.toHaveBeenCalled();
+    });
+
+    test('accepts both business-hours shapes, overnight ranges, and a valid IANA timezone', async () => {
+        const body = {
+            businessHours: {
+                mon: { open: '22:00', close: '06:00' },
+                tue: [{ open: '09:00', close: '12:00' }, { open: '14:00', close: '18:00' }],
+                timezone: 'America/New_York',
+            },
+        };
+
+        const response = await request(buildApp())
+            .patch(`/api/channels/meta/${CHANNEL_ID}/settings`)
+            .send(body);
+
+        expect(response.status).toBe(200);
+    });
+
+    test.each([
+        ['bad HH:MM', { businessHours: { mon: { open: '9:00', close: '18:00' } } }],
+        ['unknown day key', { businessHours: { funday: { open: '09:00', close: '18:00' } } }],
+        ['invalid timezone', { businessHours: { mon: { open: '09:00', close: '18:00' }, timezone: 'Mars/Olympus' } }],
+        ['unknown slot key', { businessHours: { mon: { open: '09:00', close: '18:00', lunch: true } } }],
+    ])('rejects tightened business hours: %s', async (_label, body) => {
+        const response = await request(buildApp())
+            .patch(`/api/channels/meta/${CHANNEL_ID}/settings`)
+            .send(body);
+
+        expect(response.status).toBe(400);
+        expect(mockUpdateChannelSettings).not.toHaveBeenCalled();
+    });
 });

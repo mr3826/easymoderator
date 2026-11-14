@@ -7,6 +7,7 @@ import type { ApiResponse, PaginatedResponse } from '../types/common';
 import type {
   AiReplyMode,
   Conversation,
+  ManualHandoffReason,
   Message,
   ResponseTemplate,
   VoiceTranscriptionRequest,
@@ -157,6 +158,10 @@ export async function updateConversation(
     status?: 'active' | 'closed' | 'archived';
     hitl?: boolean;
     assignee_id?: string;
+    /** Override a HUMAN_TAKEOVER_CONFLICT claim (server already supports it). */
+    force?: boolean;
+    /** Applies only with hitl:true (ADR-0013 §8); server defaults it. */
+    handoff_reason?: ManualHandoffReason;
     resolution_note?: string;
     last_seen_message_id?: string;
   }

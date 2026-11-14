@@ -184,3 +184,21 @@
     line-height: 1.5;
   }
 }
+
+/* Channel automation redesign (ADR-0013 §9) — scoped Midnight/Violet/Sunlight
+   semantic tokens. Additive only; no global retheme. */
+.ca-scope {
+  --ca-midnight: #17223b;
+  --ca-violet: #7460d9;
+  --ca-violet-deep: #5d49bb;
+  --ca-sunlight: #f4c35e;
+  --ca-surface: #ffffff;
+  --ca-surface-muted: #f5f4fb;
+  --ca-surface-sunken: #eeecf8;
+  --ca-ink: #17223b;
+  --ca-ink-muted: #5b6478;
+  --ca-ink-soft: #8a91a3;
+  --ca-border: #ddd9ee;
+  --ca-violet-soft: #ece9fb;
+  --ca-sunlight-soft: #fdf3dc;
+}

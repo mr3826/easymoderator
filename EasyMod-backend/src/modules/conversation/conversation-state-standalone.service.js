@@ -431,6 +431,11 @@ class ConversationStateService {
             const currentMeta = conversation.metadata || {};
             await conversation.update({
                 status: 'needs_human',
+                // ADR-0013 §8: `needs_human` alone is NOT a pause signal for the
+                // worker on legacy rows. Setting the canonical HITL flag here
+                // closes the keyword-fallback bypass — subsequent customer
+                // messages must never receive an automatic AI reply.
+                hitl: true,
                 metadata: {
                     ...currentMeta,
                     handoff_reason: reason,

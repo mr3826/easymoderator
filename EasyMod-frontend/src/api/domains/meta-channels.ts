@@ -20,6 +20,12 @@
 
 import { httpClient } from '@/shared/lib/http/client';
 import type { ApiResponse } from '../types/common';
+import type {
+  AiReplyMode,
+  AiReplyModeSource,
+  ChannelAutomationWarning,
+  EmergencyStopState,
+} from '../types/conversation';
 import type { AxiosResponse } from 'axios';
 
 export type MetaPlatform = 'facebook';
@@ -52,6 +58,12 @@ export interface MetaChannel {
   updatedAt: string;
   /** Cosmetic merchant-facing tag (e.g. "Sales", "Support"). Display only. */
   purposeLabel: string | null;
+  // Additive effective-automation fields (ADR-0013 §2, list endpoint).
+  effective_mode?: AiReplyMode;
+  mode_source?: AiReplyModeSource;
+  override_count?: number;
+  emergency_stop?: EmergencyStopState;
+  billing_ai_active?: boolean;
 }
 
 export interface MetaOAuthAsset {
@@ -208,12 +220,91 @@ export async function getMetaChannelConsentSummary(
   return res.data.data;
 }
 
+/**
+ * Channel automation types (ADR-0013 §2). `overrides` contains ONLY explicit
+ * keys ({} when the channel inherits everything); `effective` is the resolved
+ * configuration after the narrow-only clamp and channel-native defaults.
+ */
+export interface ChannelBusinessHoursSlot {
+  open: string;
+  close: string;
+}
+
+/** Accepts both `{day:{open,close}}` and `{day:[{open,close},…]}` shapes. */
+export interface ChannelBusinessHours {
+  timezone?: string;
+  mon?: ChannelBusinessHoursSlot | ChannelBusinessHoursSlot[];
+  tue?: ChannelBusinessHoursSlot | ChannelBusinessHoursSlot[];
+  wed?: ChannelBusinessHoursSlot | ChannelBusinessHoursSlot[];
+  thu?: ChannelBusinessHoursSlot | ChannelBusinessHoursSlot[];
+  fri?: ChannelBusinessHoursSlot | ChannelBusinessHoursSlot[];
+  sat?: ChannelBusinessHoursSlot | ChannelBusinessHoursSlot[];
+  sun?: ChannelBusinessHoursSlot | ChannelBusinessHoursSlot[];
+}
+
+export interface ChannelAutomationGreeting {
+  enabled: boolean;
+  custom_text: string;
+}
+
+/** Canonical explicit overrides; NULL/absent key means inherit. */
+export interface ChannelAutomationOverrides {
+  automation_mode?: AiReplyMode;
+  confidence_threshold?: number;
+  greeting?: ChannelAutomationGreeting;
+}
+
+export interface ChannelAutomationEffective {
+  automation_mode: AiReplyMode;
+  confidence_threshold: number;
+  greeting: ChannelAutomationGreeting;
+  business_hours: ChannelBusinessHours | null;
+  allow_order_creation: boolean;
+  purpose_label: string | null;
+}
+
 export interface MetaChannelSettings {
   confidenceThresholdSend: number;
   confidenceThresholdSuggest: number;
+  businessHours: ChannelBusinessHours | null;
   allowOrderCreation: boolean;
   purposeLabel: string | null;
+  /** Only explicit override keys; empty object when nothing is overridden. */
+  overrides: ChannelAutomationOverrides;
+  effective: ChannelAutomationEffective;
+  mode_source: AiReplyModeSource;
+  warnings: ChannelAutomationWarning[];
+  emergency_stop: EmergencyStopState;
+  billing_ai_active: boolean;
+  /** Legacy runtime-dead thresholds; the redesigned UI never renders these. */
+  deprecated_fields: string[];
 }
+
+/**
+ * PATCH body. `null` reverts a key to inherit (the server deletes it);
+ * an absent key leaves the stored override untouched. Legacy mode aliases are
+ * accepted for old clients but always stored canonical.
+ */
+export interface ChannelAutomationOverridesPatch {
+  automation_mode?: AiReplyMode | 'AI_ACTIVE' | 'AI_SUGGEST_ONLY' | 'HUMAN_ACTIVE' | null;
+  confidence_threshold?: number | null;
+  greeting?: ChannelAutomationGreeting | null;
+}
+
+export interface MetaChannelSettingsPatch {
+  businessHours?: ChannelBusinessHours | null;
+  confidenceThresholdSend?: number;
+  confidenceThresholdSuggest?: number;
+  allowOrderCreation?: boolean;
+  purposeLabel?: string | null;
+  overrides?: ChannelAutomationOverridesPatch | null;
+}
+
+/** Canonical react-query keys for the redesigned channel surfaces. */
+export const channelQueryKeys = {
+  list: () => ['channels'] as const,
+  settings: (channelId: string) => ['channel-settings', channelId] as const,
+};
 
 export async function getMetaChannelSettings(
   channelId: string,
@@ -226,7 +317,7 @@ export async function getMetaChannelSettings(
 
 export async function updateMetaChannelSettings(
   channelId: string,
-  patch: Partial<MetaChannelSettings>,
+  patch: MetaChannelSettingsPatch,
 ): Promise<MetaChannelSettings> {
   const res: AxiosResponse<ApiResponse<MetaChannelSettings>> = await httpClient.patch(
     `${BASE}/${channelId}/settings`,

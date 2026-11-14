@@ -922,7 +922,13 @@
       "aiPaused": "AI is paused",
       "needsReply": "Merchant reply needed",
       "noReplyNeeded": "No reply task is currently reported",
-      "unavailable": "Reply task state unavailable"
+      "unavailable": "Reply task state unavailable",
+      "hitlRequired": "Human takeover required",
+      "humanRequired": "Human review needed",
+      "providerSendFailed": "Provider delivery failed",
+      "lowConfidence": "AI confidence was low",
+      "sentimentNegative": "Customer sentiment is negative",
+      "manualTakeover": "Conversation taken over manually"
     },
     "deliveryStatus": {
       "pending": "Delivery pending",
@@ -937,7 +943,26 @@
       "nextTask": "Open next reply task",
       "returnToQueue": "Return to reply queue"
     },
-    "retry": "Retry"
+    "retry": "Retry",
+    "owner": {
+      "assigned": "Assigned to {{name}}",
+      "teammate": "A teammate"
+    },
+    "emergencyBanner": "AI replies are stopped for every channel. Your team can still reply; messages already being delivered may complete.",
+    "takeoverDialog": {
+      "title": "Take over this conversation?",
+      "desc": "AI replies pause for this conversation only. Your team can still reply.",
+      "reason": "Reason (optional)",
+      "cancel": "Cancel",
+      "confirm": "Take over"
+    },
+    "takeoverReason": {
+      "manualTakeover": "Manual takeover",
+      "customerRequest": "Customer request",
+      "phoneCall": "Phone call",
+      "orderIssue": "Order issue",
+      "other": "Other"
+    }
   },
   "products": {
     "title": "Products & Inventory",
@@ -2097,6 +2122,11 @@
         "help": "Any links you add will be shown in the \"Follow us\" section of the order-confirmation message. (optional)",
         "facebookPlaceholder": "https://facebook.com/yourpage",
         "websitePlaceholder": "https://yourshop.com"
+      },
+      "automationLink": {
+        "title": "Automation defaults",
+        "desc": "Reply mode, confidence and greeting now live on the business automation page.",
+        "cta": "Open automation defaults"
       }
     },
     "faqs": {
@@ -2371,11 +2401,15 @@
       "subtitle": "Manage your shop configuration",
       "businessInfo": {
         "name": "Business Info",
-        "desc": "Name, address, logo, operating details and AI reply mode"
+        "desc": "Name, address, logo and operating details"
       },
-      "chatSettings": {
-        "name": "Chat Settings",
-        "desc": "Connect Facebook Pages and manage Page labels"
+      "channels": {
+        "name": "Channels & Automation",
+        "desc": "Connect Facebook Pages and manage channel automation"
+      },
+      "automation": {
+        "name": "Automation defaults",
+        "desc": "Business-wide reply mode, confidence and greeting"
       },
       "deliverySettings": {
         "name": "Delivery Settings",
@@ -2397,6 +2431,124 @@
         "name": "Subscription",
         "desc": "Manage your plan, usage and invoices"
       }
+    },
+    "channels": {
+      "title": "Channels & Automation",
+      "subtitle": "Connect Pages and review each channel's effective automation.",
+      "loading": "Loading channels...",
+      "loadingDetail": "Loading channel settings...",
+      "loadError": "Channels could not load. Try again.",
+      "retry": "Retry",
+      "empty": {
+        "title": "No channels connected",
+        "desc": "Connect a Facebook Page to start receiving customer messages.",
+        "cta": "Connect a Page"
+      },
+      "manage": "Manage",
+      "effectiveMode": "Effective mode",
+      "modeSource": {
+        "emergencyStop": "Emergency stop",
+        "shopInactive": "Shop inactive",
+        "channelOverride": "Channel override",
+        "businessDefault": "Business default",
+        "failClosed": "Unavailable (safe default)"
+      },
+      "overrideCount": "{{count}} overrides",
+      "badge": {
+        "inherited": "Inherited",
+        "overridden": "Overridden",
+        "clamped": "Clamped by business",
+        "stopped": "Stopped",
+        "billingPaused": "Paused — billing"
+      },
+      "defaults": {
+        "title": "Business defaults",
+        "desc": "The business-wide reply mode is the ceiling. A channel can only narrow it.",
+        "ceiling": "Business ceiling",
+        "unavailable": "Business defaults unavailable",
+        "edit": "Edit defaults"
+      },
+      "connector": {
+        "platform": "Facebook Messenger"
+      },
+      "warnings": {
+        "tokenExpiry": "Page access token expires within 14 days. Reconnect to renew it.",
+        "clamped": "A stored channel override is clamped by the business default.",
+        "malformedHours": "Business hours cannot be parsed; automation is closed (fail-closed).",
+        "invalidOverride": "A stored override value is invalid and was ignored."
+      },
+      "days": {
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat",
+        "sun": "Sun"
+      },
+      "detail": {
+        "back": "Back to channels",
+        "tabsLabel": "Channel settings sections",
+        "tabs": {
+          "reply": "Reply behavior",
+          "ai": "AI behavior",
+          "orders": "Order handling",
+          "rules": "Operating rules",
+          "advanced": "Advanced"
+        },
+        "effective": "Effective",
+        "source": "Source",
+        "overridden": "Overridden",
+        "inherited": "Inherited",
+        "ownerOnly": "Only the shop owner can change channel automation. You can review the current settings here.",
+        "startOverride": "Override for this channel",
+        "revert": "Revert to default",
+        "saving": "Saving...",
+        "save": "Save",
+        "saveError": "Could not save channel settings. Try again.",
+        "modeLabel": "Reply mode",
+        "narrowOnly": "Only modes at or below the business ceiling are offered. A channel cannot be more automated than the business default.",
+        "confidenceLabel": "Confidence threshold",
+        "invalidThreshold": "Enter a confidence threshold between 0 and 100.",
+        "greetingLabel": "Greeting",
+        "greetingEnabled": "Send a greeting on the first AI reply",
+        "greetingPlaceholder": "Optional greeting text (max 500 characters)",
+        "greetingDisclosure": "The Meta AI-disclosure line is always added by EasyModerator and cannot be overridden.",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "unavailable": "Unavailable",
+        "language": "Primary language",
+        "closing": "Closing message",
+        "orderCreation": "Allow order creation",
+        "orderCreationDesc": "When enabled, the AI may take orders on this channel. A mid-turn disable is honoured before any order mutation.",
+        "maxAutoOrderValue": "Maximum auto-order value (legacy, not enforced)",
+        "deadSetting": "This legacy setting is stored but has no runtime consumer. It is not enforced at channel scope.",
+        "businessHours": "Business hours",
+        "businessHoursDesc": "Hours apply in the channel timezone. Both single-slot and multi-slot day shapes are supported; overnight ranges are allowed.",
+        "timezone": "Timezone",
+        "timezoneDefault": "Shop default",
+        "hoursFailClosed": "Invalid or unparseable hours are treated as CLOSED, so no automatic reply is sent.",
+        "alwaysActive": "Always active (clear hours)",
+        "purposeLabel": "Purpose label",
+        "connection": "Connection",
+        "deprecatedTitle": "Deprecated settings",
+        "deprecatedDesc": "These legacy confidence fields are accepted for old clients but are runtime-dead. The single confidence threshold above is authoritative.",
+        "handoff": "Handoff settings",
+        "escalation": "Escalation reply template",
+        "businessOnly": "Business only (read-only here)",
+        "editAtBusiness": "Edit at business defaults"
+      }
+    },
+    "automation": {
+      "title": "Automation defaults",
+      "subtitle": "Business-wide reply behavior. Each channel can only narrow these defaults.",
+      "loading": "Loading automation defaults...",
+      "errorLoad": "Automation defaults could not load. Refresh and try again.",
+      "backToChannels": "Back to channels",
+      "ownerOnly": "Only the shop owner can change automation defaults. You can review the current settings here.",
+      "billingStandingTitle": "Billing and automation",
+      "billingManage": "View billing",
+      "capabilityTitle": "What each mode can do"
     },
     "notifications": {
       "title": "Notifications",
@@ -2999,6 +3151,28 @@
         }
       }
     }
+  },
+  "emergencyStop": {
+    "title": "Emergency stop",
+    "subtitle": "Instantly stops all AI replies for every channel.",
+    "stopButton": "Stop all AI replies",
+    "resumeButton": "Resume AI replies",
+    "confirmTitle": "Stop all AI replies?",
+    "confirmDesc": "Stops AI replies. Your team can still reply. Messages already being delivered may complete.",
+    "confirm": "Yes, stop AI replies",
+    "cancel": "Cancel",
+    "activeTitle": "AI replies are stopped",
+    "activeDesc": "Your team can still reply manually. Automated messages already being delivered may complete.",
+    "resumeNote": "Resuming keeps the business mode at Manual. Choose a new reply mode afterwards.",
+    "priorMode": "Previous mode: {{mode}}",
+    "source": {
+      "merchant": "Stopped by you",
+      "admin": "Stopped by EasyModerator support"
+    },
+    "denyAdminSource": "Only EasyModerator support can resume this stop.",
+    "errorStop": "Could not stop AI replies. Try again.",
+    "errorResume": "Could not resume AI replies. Try again.",
+    "ownerOnly": "Only the shop owner can change the emergency stop."
   },
   "billingStanding": {
     "title": "Billing standing",

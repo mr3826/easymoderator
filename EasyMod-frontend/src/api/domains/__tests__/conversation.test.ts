@@ -221,6 +221,22 @@ describe('Conversation Domain API', () => {
 
       expect(httpClient.patch).toHaveBeenCalledWith('/api/conversation/c1', { hitl: true });
     });
+
+    it('forwards force and a manual handoff reason on takeover', async () => {
+      (httpClient.patch as any).mockResolvedValue({ data: { data: { id: 'c1', hitl: true } } });
+
+      await conversation.updateConversation('c1', {
+        hitl: true,
+        force: true,
+        handoff_reason: 'customer_request',
+      });
+
+      expect(httpClient.patch).toHaveBeenCalledWith('/api/conversation/c1', {
+        hitl: true,
+        force: true,
+        handoff_reason: 'customer_request',
+      });
+    });
   });
 
   describe('transcribeVoice', () => {

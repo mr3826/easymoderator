@@ -60,6 +60,41 @@ export function normalizeAiReplyMode(value: unknown): AiReplyMode {
   return AI_REPLY_MODE_ALIASES[value.trim()] ?? DEFAULT_AI_REPLY_MODE;
 }
 
+/**
+ * Which ownership layer produced the effective reply mode (ADR-0013 §4).
+ * Business automation defaults, narrow-only channel overrides, or a safety
+ * layer (emergency stop / inactive shop / fail-closed read).
+ */
+export type AiReplyModeSource =
+  | 'emergency_stop'
+  | 'shop_inactive'
+  | 'channel_override'
+  | 'business_default'
+  | 'fail_closed';
+
+/** Resolver warnings surfaced with an effective channel configuration. */
+export type ChannelAutomationWarning =
+  | 'override_clamped_by_business'
+  | 'invalid_override_value'
+  | (string & {});
+
+/** Business-wide emergency stop snapshot (ADR-0013 §6). */
+export interface EmergencyStopState {
+  active: boolean;
+  at: string | null;
+  by: string | null;
+  source: 'merchant' | 'admin' | null;
+  prior_mode: AiReplyMode | null;
+}
+
+/** Merchant-selected reason for a manual conversation takeover (ADR-0013 §8). */
+export type ManualHandoffReason =
+  | 'manual_takeover'
+  | 'customer_request'
+  | 'phone_call'
+  | 'order_issue'
+  | 'other';
+
 export type MessageSourceKind = 'rag' | 'faq' | 'product';
 
 export interface MessageSourceReference {
@@ -163,6 +198,14 @@ export interface Conversation {
   channel: 'telegram' | 'messenger' | 'facebook' | 'web';
   meta_channel_id?: string | null;
   metaChannel?: ConversationMetaChannel | null;
+  /**
+   * Channel-aware effective reply mode (stop-aware, clamped). ADR-0013 §6
+   * additive field; prefer this over `ai_reply_mode` for display.
+   */
+  effective_ai_reply_mode?: AiReplyMode | null;
+  mode_source?: AiReplyModeSource | null;
+  emergency_stop?: EmergencyStopState | null;
+  billing_ai_active?: boolean;
   title?: string;
   status: 'active' | 'closed' | 'archived';
   hitl?: boolean;

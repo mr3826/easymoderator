@@ -64,6 +64,46 @@ const displayTitle = (conversation: Conversation, fallback: string): string => {
   return conversation.customer?.name || fallback;
 };
 
+/**
+ * Literal display map for `needs_merchant_reply_reason` (ADR-0013 §9).
+ * Server codes are SCREAMING_SNAKE; the display keys are camelCase literals so
+ * the translation-coverage test can verify both locales. Never build a `t()`
+ * key by interpolation — that is the bug this map replaces.
+ */
+export const REPLY_REASON_LABEL_KEYS: Record<string, string> = {
+  HITL_REQUIRED: "inbox.replyReason.hitlRequired",
+  HUMAN_REQUIRED: "inbox.replyReason.humanRequired",
+  CUSTOMER_UNANSWERED: "inbox.replyReason.customerUnanswered",
+  AI_PAUSED: "inbox.replyReason.aiPaused",
+  PROVIDER_SEND_FAILED: "inbox.replyReason.providerSendFailed",
+  LOW_CONFIDENCE: "inbox.replyReason.lowConfidence",
+  SENTIMENT_NEGATIVE: "inbox.replyReason.sentimentNegative",
+  MANUAL_TAKEOVER: "inbox.replyReason.manualTakeover",
+  DRAFT_REVIEW_REQUIRED: "inbox.replyReason.draftReviewRequired",
+  AI_FAILED: "inbox.replyReason.aiFailed",
+  SEND_FAILED: "inbox.replyReason.sendFailed",
+  NO_REPLY_NEEDED: "inbox.replyReason.noReplyNeeded",
+  UNAVAILABLE: "inbox.replyReason.unavailable",
+  hitlRequired: "inbox.replyReason.hitlRequired",
+  humanRequired: "inbox.replyReason.humanRequired",
+  customerUnanswered: "inbox.replyReason.customerUnanswered",
+  aiPaused: "inbox.replyReason.aiPaused",
+  providerSendFailed: "inbox.replyReason.providerSendFailed",
+  lowConfidence: "inbox.replyReason.lowConfidence",
+  sentimentNegative: "inbox.replyReason.sentimentNegative",
+  manualTakeover: "inbox.replyReason.manualTakeover",
+};
+
+export function replyReasonLabel(t: TFunc, reason: string | null | undefined): string {
+  const key = REPLY_REASON_LABEL_KEYS[String(reason ?? "")];
+  return key ? t(key) : t("inbox.replyReason.needsReply");
+}
+
+/** True when the conversation is assigned to a named owner (or has an id). */
+function hasOwner(conversation: Conversation): boolean {
+  return Boolean(conversation.assignee_id || conversation.assignee?.name);
+}
+
 export function InboxThreadList({
   filteredConversations,
   selectedConversationId,
@@ -239,6 +279,20 @@ export function InboxThreadList({
                             <UserCheck className="w-3 h-3 text-amber-500 flex-shrink-0" />
                           </span>
                         )}
+                        {hasOwner(conversation) && (
+                          <span
+                            data-testid="inbox-owner-chip"
+                            title={t("inbox.owner.assigned", {
+                              name: conversation.assignee?.name || t("inbox.owner.teammate"),
+                            })}
+                            className="inline-flex max-w-[9rem] items-center gap-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
+                          >
+                            <UserCheck className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />
+                            <span className="truncate">
+                              {conversation.assignee?.name || t("inbox.owner.teammate")}
+                            </span>
+                          </span>
+                        )}
                         {conversation.open_opportunity && (
                           <span
                             data-testid="lead-chip"
@@ -287,10 +341,11 @@ export function InboxThreadList({
                   <p className="text-xs text-gray-500 truncate mt-0.5">{conversation.lastMessage}</p>
                 )}
                 {needsReply && conversation.needs_merchant_reply_reason && (
-                  <p className="mt-0.5 truncate text-xs font-medium text-amber-700">
-                    {t(`inbox.replyReason.${conversation.needs_merchant_reply_reason}`, {
-                      defaultValue: t("inbox.replyReason.needsReply"),
-                    })}
+                  <p
+                    data-testid="inbox-handoff-reason"
+                    className="mt-0.5 truncate text-xs font-medium text-amber-700"
+                  >
+                    {replyReasonLabel(t, conversation.needs_merchant_reply_reason)}
                   </p>
                 )}
                 <p className="text-xs text-gray-400 mt-1">

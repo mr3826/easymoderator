@@ -42,8 +42,13 @@ jest.mock('../../../utils/structured-logger', () => ({
     createLogger: jest.fn(() => ({ error: jest.fn(), info: jest.fn(), warn: jest.fn() })),
 }));
 jest.mock('../../shop/ai-reply-mode', () => ({
+    ...jest.requireActual('../../shop/ai-reply-mode'),
     getEffectiveAiReplyMode: jest.fn(async () => 'AUTO'),
-    AI_REPLY_MODES: { AUTO: 'AUTO', DRAFT: 'DRAFT', MANUAL: 'MANUAL' },
+}));
+// The effective-config display fields read the business settings once per
+// request; this suite pins the BUSINESS mode projection (AUTO).
+jest.mock('../../shop/shop.service', () => ({
+    getShopAiSettings: jest.fn(async () => ({ automation_mode: 'AUTO' })),
 }));
 
 const conversationService = require('../conversation.service');
@@ -107,6 +112,31 @@ beforeEach(() => {
 });
 
 describe('ConversationService delivery projection', () => {
+    it('adds the effective automation fields while keeping the business ai_reply_mode', async () => {
+        const row = {
+            id: 'conversation-1',
+            customer_id: 'customer-1',
+            channel: 'messenger',
+            metadata: {},
+            hitl: false,
+            customer: null,
+            metaChannel: null,
+            message: null,
+        };
+        mockConversationModel.findAndCountAll = jest.fn().mockResolvedValue({ rows: [row], count: 1 });
+        mockMessageModel.findAll.mockResolvedValue([]);
+
+        const result = await conversationService.getConversations('shop-a');
+
+        expect(result.ai_reply_mode).toBe('AUTO');
+        expect(result.conversations[0]).toEqual(expect.objectContaining({
+            effective_ai_reply_mode: 'AUTO',
+            mode_source: 'business_default',
+            emergency_stop: expect.objectContaining({ active: false }),
+            billing_ai_active: true,
+        }));
+    });
+
     it('projects customer identity instead of an internal intent enum', () => {
         const result = conversationService.mapConversation({
             id: 'conversation-1',

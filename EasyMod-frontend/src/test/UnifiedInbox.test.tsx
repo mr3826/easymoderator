@@ -1863,3 +1863,97 @@ describe('UnifiedInbox integration contracts', () => {
     expect(retryKey).toBe(firstKey)
   })
 })
+
+describe('ADR-0013 inbox contract (reasons, owner, effective mode, stop, takeover)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(apiClient.getResponseTemplates as any).mockResolvedValue([])
+    ;(apiClient.getMessages as any).mockResolvedValue({ messages: [], pagination: { page: 1, totalPages: 1 } })
+    ;(apiClient.getShopAgents as any).mockResolvedValue([])
+    ;(apiClient.getConversations as any).mockResolvedValue({ data: [], pagination: { page: 1, totalPages: 1 } })
+    ;(apiClient.updateConversation as any).mockResolvedValue({ id: 'conv-1', status: 'active', hitl: true, updated_at: new Date().toISOString() })
+  })
+
+  it('renders the reason through the literal display map, never a raw interpolated key', async () => {
+    setInboxData('AUTO', [], {
+      ...baseConversation,
+      needs_merchant_reply: true,
+      needs_merchant_reply_reason: 'HITL_REQUIRED',
+    })
+    render(<UnifiedInbox />)
+
+    expect(await screen.findByText('Human takeover required')).toBeInTheDocument()
+    expect(screen.queryByText(/inbox\.replyReason\.HITL_REQUIRED/)).not.toBeInTheDocument()
+  })
+
+  it('shows the owner/assignee chip in the thread list and detail header', async () => {
+    setInboxData('AUTO', [], {
+      ...baseConversation,
+      assignee_id: 'agent-1',
+      assignee: { id: 'agent-1', name: 'Nowrin Sultana' },
+      hitl: true,
+    })
+    render(<UnifiedInbox />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('inbox-owner-chip').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Nowrin Sultana').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('uses effective_ai_reply_mode for the inbox badge, falling back to the business mode', async () => {
+    setInboxData('AUTO', [], {
+      ...baseConversation,
+      effective_ai_reply_mode: 'DRAFT',
+      mode_source: 'channel_override',
+    })
+    render(<UnifiedInbox />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('inbox-ai-reply-mode')).toHaveTextContent('Drafts for review'),
+    )
+  })
+
+  it('shows the emergency-stop banner from the conversation payload', async () => {
+    setInboxData('AUTO', [], {
+      ...baseConversation,
+      emergency_stop: { active: true, at: null, by: null, source: 'merchant', prior_mode: 'AUTO' },
+    })
+    render(<UnifiedInbox />)
+
+    expect(await screen.findByTestId('emergency-stop-banner')).toHaveTextContent(
+      /AI replies are stopped for every channel/,
+    )
+  })
+
+  it('reacts to the emergency_stop_changed SSE event', async () => {
+    setInboxData('AUTO', [], baseConversation)
+    render(<UnifiedInbox />)
+    await screen.findByTestId('inbox-ai-reply-mode')
+
+    act(() => {
+      latestSSECallbacks().onEmergencyStopChanged?.({ active: true })
+    })
+
+    expect(await screen.findByTestId('emergency-stop-banner')).toBeInTheDocument()
+  })
+
+  it('collects an optional takeover reason and PATCHes handoff_reason with hitl', async () => {
+    setInboxData('AUTO', [], baseConversation)
+    render(<UnifiedInbox />)
+
+    const takeOverButtons = await screen.findAllByRole('button', { name: /^Take over$/i })
+    fireEvent.click(takeOverButtons[0])
+
+    const select = await screen.findByTestId('takeover-reason-select')
+    fireEvent.change(select, { target: { value: 'customer_request' } })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Take over$/i }))
+
+    await waitFor(() =>
+      expect(apiClient.updateConversation).toHaveBeenCalledWith('conv-1', {
+        hitl: true,
+        handoff_reason: 'customer_request',
+      }),
+    )
+  })
+})

@@ -32,6 +32,7 @@ router.patch('/shops/:shopId/billing', superOnly, ctrl.changePlan);
 router.post('/shops/:shopId/add-credits', superOnly, ctrl.addCredits);
 router.patch('/shops/:shopId/channels/:channelId/reconnect', superOnly, ctrl.markChannelReconnect);
 router.post('/shops/:shopId/ai/emergency-off', superOnly, ctrl.emergencyDisableAi);
+router.post('/shops/:shopId/ai/emergency-resume', superOnly, ctrl.emergencyResumeAi);
 // Pilot intelligence rollout control (ADR-0009). disable-all is the global kill switch.
 router.patch('/shops/:shopId/pilot-features', superOnly, ctrl.setPilotFeatures);
 router.post('/pilot-features/disable-all', superOnly, ctrl.disableAllPilotFeatures);

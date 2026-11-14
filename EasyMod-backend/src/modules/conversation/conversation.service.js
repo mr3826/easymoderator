@@ -17,7 +17,12 @@ const { AppError } = require('../../utils/AppError');
 const sseManager = require('../../utils/sse-manager');
 const { cacheRedis } = require('../../config/redis');
 const conversationLockService = require('./conversation-lock.service');
-const { getEffectiveAiReplyMode } = require('../shop/ai-reply-mode');
+const { getEffectiveAiReplyMode, normalizeAiReplyMode } = require('../shop/ai-reply-mode');
+const {
+    resolveChannelAutomation,
+    readEmergencyStopState,
+} = require('../channel-providers/channel-automation.resolver');
+const { DEFAULT_AI_SETTINGS } = require('../shop/shop-defaults');
 const { sequelize } = require('../../utils/database/database-setup');
 const {
     MESSAGE_DELIVERY_STATES,
@@ -100,6 +105,85 @@ const normalizeObject = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
     return value;
 };
+
+const EMPTY_EMERGENCY_STOP = Object.freeze({
+    active: false, at: null, by: null, source: null, prior_mode: null,
+});
+
+/**
+ * One batched read for conversation list/detail: shop AI settings + emergency
+ * stop + is_active + billing standing. A single Shop/Subscription pair per
+ * request — never per row (no N+1).
+ */
+async function loadShopAutomationContext(shopId) {
+    let shopAiSettings = null;
+    try {
+        const shopService = require('../shop/shop.service');
+        shopAiSettings = await shopService.getShopAiSettings(shopId);
+    } catch (_) {
+        shopAiSettings = null;
+    }
+
+    let emergencyStop = { ...EMPTY_EMERGENCY_STOP };
+    let shopIsActive = true;
+    let billingAiActive = true;
+    try {
+        const { Shop, Subscription } = require('../entities');
+        if (Shop && typeof Shop.findByPk === 'function') {
+            const shop = await Shop.findByPk(shopId, {
+                attributes: [
+                    'id',
+                    'is_active',
+                    'ai_emergency_stop',
+                    'ai_emergency_stop_at',
+                    'ai_emergency_stop_by',
+                    'ai_emergency_stop_source',
+                    'ai_emergency_stop_prior_mode',
+                ],
+            });
+            if (shop) {
+                emergencyStop = readEmergencyStopState(shop);
+                shopIsActive = shop.is_active !== false;
+            }
+        }
+        if (Subscription && typeof Subscription.findOne === 'function') {
+            const { isAiActive } = require('../subscription/subscription.access');
+            const subscription = await Subscription.findOne({
+                where: { shop_id: shopId },
+                attributes: ['status'],
+            }).catch(() => null);
+            billingAiActive = isAiActive(subscription);
+        }
+    } catch (_) { /* display-only fields; defaults stay fail-safe */ }
+
+    return {
+        shopAiSettings: shopAiSettings || { ...DEFAULT_AI_SETTINGS },
+        emergencyStop,
+        shopIsActive,
+        billingAiActive,
+    };
+}
+
+/**
+ * Resolve the effective display configuration per channel from one settings
+ * batch. Rows without a channel id use the business default (no stop bypass:
+ * emergency stop still wins).
+ */
+function buildAutomationByChannel(context, settingsRows) {
+    const byChannel = new Map(
+        (settingsRows || []).map((row) => [String(row.channel_id), row]),
+    );
+    const resolveFor = (channelId) => {
+        const channelSettings = channelId ? byChannel.get(String(channelId)) : null;
+        return resolveChannelAutomation({
+            shopAiSettings: context.shopAiSettings,
+            channelSettings: channelSettings || {},
+            emergencyStop: context.emergencyStop,
+            shopIsActive: context.shopIsActive,
+        });
+    };
+    return resolveFor;
+}
 
 const workflowTimestamp = (message) => {
     const value = message?.created_at ?? message?.createdAt;
@@ -652,7 +736,7 @@ class ConversationService {
                 }
             }
 
-            const [conversations, aiReplyMode] = await Promise.all([
+            const [conversations, automationContext] = await Promise.all([
                 Conversation.findAndCountAll({
                     where: whereClause,
                     order: [['updated_at', 'DESC']],
@@ -679,8 +763,23 @@ class ConversationService {
                     ]
                 }),
                 // One shop-level read for the envelope; never resolve this per row.
-                getEffectiveAiReplyMode(shopId),
+                loadShopAutomationContext(shopId),
             ]);
+            const aiReplyMode = normalizeAiReplyMode(automationContext.shopAiSettings.automation_mode);
+
+            // Effective per-channel configuration: ONE settings query for the
+            // whole page, then the pure resolver per row (no N+1).
+            const channelIds = [...new Set(conversations.rows
+                .map((row) => row.meta_channel_id)
+                .filter(Boolean)
+                .map(String))];
+            let channelSettingsRows = [];
+            if (channelIds.length > 0 && typeof MetaChannelSettings?.findAll === 'function') {
+                channelSettingsRows = await MetaChannelSettings.findAll({
+                    where: { channel_id: { [Op.in]: channelIds } },
+                }).catch(() => []);
+            }
+            const resolveAutomation = buildAutomationByChannel(automationContext, channelSettingsRows);
 
             const suggestionCounts = new Map();
             const messagesByConversation = new Map();
@@ -725,17 +824,26 @@ class ConversationService {
                 conversations.rows.map((row) => row.customer_id),
             );
 
-            const mappedConversations = conversations.rows.map((row) => ({
-                ...this.mapConversation(row),
-                suggestionCount: suggestionCounts.get(row.id) || 0,
-                hasAiSuggestion: suggestionCounts.has(row.id),
-                open_opportunity: opportunitiesByCustomer.get(row.customer_id) || null,
-                ...deriveWorkflowProjection(
-                    row,
-                    messagesByConversation.get(row.id) || [],
-                    aiReplyMode,
-                ),
-            }));
+            const mappedConversations = conversations.rows.map((row) => {
+                const automation = resolveAutomation(row.meta_channel_id);
+                return {
+                    ...this.mapConversation(row),
+                    suggestionCount: suggestionCounts.get(row.id) || 0,
+                    hasAiSuggestion: suggestionCounts.has(row.id),
+                    open_opportunity: opportunitiesByCustomer.get(row.customer_id) || null,
+                    // Additive effective fields (API_CONTRACT §6). `ai_reply_mode`
+                    // stays the business default for old clients.
+                    effective_ai_reply_mode: automation.mode,
+                    mode_source: automation.modeSource,
+                    emergency_stop: { ...automationContext.emergencyStop },
+                    billing_ai_active: automationContext.billingAiActive,
+                    ...deriveWorkflowProjection(
+                        row,
+                        messagesByConversation.get(row.id) || [],
+                        aiReplyMode,
+                    ),
+                };
+            });
             const assigneeNames = await this.loadAssigneeNames(mappedConversations.map((m) => m.assignee_id));
             for (const m of mappedConversations) m.assignee = assigneeNames.get(String(m.assignee_id)) || null;
 
@@ -781,8 +889,8 @@ class ConversationService {
                 throw new AppError('Conversation not found', 404, 'CONVERSATION_NOT_FOUND');
             }
 
-            const [aiReplyMode, messages] = await Promise.all([
-                getEffectiveAiReplyMode(shopId),
+            const [automationContext, messages] = await Promise.all([
+                loadShopAutomationContext(shopId),
                 typeof Message.findAll === 'function'
                     ? Message.findAll({
                         where: { conversation_id: conversationId },
@@ -799,11 +907,27 @@ class ConversationService {
                     })
                     : [],
             ]);
+            const aiReplyMode = normalizeAiReplyMode(automationContext.shopAiSettings.automation_mode);
+            let detailSettingsRow = null;
+            const detailChannelId = conversation.meta_channel_id || conversation.metaChannel?.id || null;
+            if (detailChannelId && typeof MetaChannelSettings?.findOne === 'function') {
+                detailSettingsRow = await MetaChannelSettings.findOne({
+                    where: { channel_id: detailChannelId },
+                }).catch(() => null);
+            }
+            const detailAutomation = buildAutomationByChannel(
+                automationContext,
+                detailSettingsRow ? [detailSettingsRow] : [],
+            )(detailChannelId);
             const opportunitiesByCustomer = await liveOpportunityMap(shopId, [conversation.customer_id]);
             const detail = {
                 ...this.mapConversation(conversation),
                 ...deriveWorkflowProjection(conversation, messages || [], aiReplyMode),
                 open_opportunity: opportunitiesByCustomer.get(conversation.customer_id) || null,
+                effective_ai_reply_mode: detailAutomation.mode,
+                mode_source: detailAutomation.modeSource,
+                emergency_stop: { ...automationContext.emergencyStop },
+                billing_ai_active: automationContext.billingAiActive,
             };
             if (detail.assignee_id) {
                 const names = await this.loadAssigneeNames([detail.assignee_id]);
@@ -1545,6 +1669,19 @@ class ConversationService {
                 fields.metadata = {
                     ...(fields.metadata || currentConversationMetadata),
                     [RESUME_BOUNDARY_METADATA_KEY]: resumeBoundary,
+                };
+            }
+            // ADR-0013 §8: manual takeover reason. `handoff_reason` only applies
+            // with hitl:true and is a fixed-list merchant reason, distinct from
+            // the SYSTEM handoff_reason. Merge into the SINGLE fields.metadata
+            // object AFTER the status/resume-boundary writes so no stale
+            // snapshot can clobber a concurrent metadata field.
+            if (updates.hitl === true && !closing) {
+                fields.metadata = {
+                    ...(fields.metadata || currentConversationMetadata),
+                    manual_handoff_reason: updates.handoff_reason || 'manual_takeover',
+                    manual_handoff_at: new Date().toISOString(),
+                    manual_handoff_by: actor?.userId || null,
                 };
             }
             if (updates.assignee_id !== undefined) fields.assignee_id = updates.assignee_id;

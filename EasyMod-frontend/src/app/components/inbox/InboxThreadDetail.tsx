@@ -568,9 +568,25 @@ export function InboxThreadDetail({
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0">
-              <h2 className="text-lg font-semibold text-gray-900 truncate">
-                {displayCustomerName(selectedConversation)}
-              </h2>
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <h2 className="text-lg font-semibold text-gray-900 truncate">
+                  {displayCustomerName(selectedConversation)}
+                </h2>
+                {(selectedConversation.assignee?.name || selectedConversation.assignee_id) && (
+                  <span
+                    data-testid="inbox-owner-chip"
+                    title={t("inbox.owner.assigned", {
+                      name: selectedConversation.assignee?.name || t("inbox.owner.teammate"),
+                    })}
+                    className="inline-flex max-w-[10rem] items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                  >
+                    <UserCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    <span className="truncate">
+                      {selectedConversation.assignee?.name || t("inbox.owner.teammate")}
+                    </span>
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2 text-sm text-gray-500 flex-wrap">
                 <span>{selectedConversation.channel}</span>
                 <span>•</span>

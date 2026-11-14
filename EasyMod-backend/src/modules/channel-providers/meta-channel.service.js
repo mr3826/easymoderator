@@ -21,10 +21,99 @@ const { AppError } = require('../../utils/AppError');
 const { createLogger } = require('../../utils/structured-logger');
 const { drainChannelJobs } = require('../../jobs/message-queue');
 const { VALID_STATUSES } = require('./meta-channel.statuses');
+const { normalizeAiReplyMode } = require('../shop/ai-reply-mode');
+const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
+const {
+    canonicalizeOverrideMode,
+    canonicalizeOverrideThreshold,
+    canonicalizeOverrideGreeting,
+    isModeWithinCeiling,
+} = require('./channel-automation.resolver');
 
 const logger = createLogger('MetaChannelService');
 
 const REASSIGNED_LAST_ERROR = 'reassigned_to_new_shop_after_fresh_meta_oauth';
+
+/** Channel-native (non-override) settings the PATCH endpoint may write. */
+const SETTINGS_ALLOWED_KEYS = Object.freeze([
+    'confidence_threshold_send',
+    'confidence_threshold_suggest',
+    'business_hours',
+    'allow_order_creation',
+    'purpose_label',
+]);
+
+/** The only keys accepted inside `overrides` (ADR-0013 §2). */
+const OVERRIDE_ALLOWED_KEYS = Object.freeze(['automation_mode', 'confidence_threshold', 'greeting']);
+
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
+
+const canonicalizeStoredOverrides = (raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    for (const key of OVERRIDE_ALLOWED_KEYS) {
+        if (!hasOwn(raw, key)) continue;
+        const value = raw[key];
+        if (value === null || value === undefined) continue;
+        const canonical = key === 'automation_mode'
+            ? canonicalizeOverrideMode(value)
+            : key === 'confidence_threshold'
+                ? canonicalizeOverrideThreshold(value)
+                : canonicalizeOverrideGreeting(value);
+        if (canonical !== null) out[key] = canonical;
+    }
+    return out;
+};
+
+/**
+ * Validate and canonicalize an incoming `overrides` object.
+ * Per-key `null` is preserved as a revert marker.
+ * @throws {AppError} OVERRIDE_KEY_FORBIDDEN / INVALID_OVERRIDE_VALUE
+ */
+const canonicalizeOverridePatch = (input) => {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        throw new AppError('overrides must be an object', 400, 'INVALID_OVERRIDE_VALUE');
+    }
+    const out = {};
+    for (const [key, value] of Object.entries(input)) {
+        if (!OVERRIDE_ALLOWED_KEYS.includes(key)) {
+            throw new AppError(`Override key "${key}" is not supported`, 400, 'OVERRIDE_KEY_FORBIDDEN');
+        }
+        if (value === null) {
+            out[key] = null;
+            continue;
+        }
+        const canonical = key === 'automation_mode'
+            ? canonicalizeOverrideMode(value)
+            : key === 'confidence_threshold'
+                ? canonicalizeOverrideThreshold(value)
+                : canonicalizeOverrideGreeting(value);
+        if (canonical === null) {
+            throw new AppError(`Invalid value for override "${key}"`, 400, 'INVALID_OVERRIDE_VALUE');
+        }
+        out[key] = canonical;
+    }
+    return out;
+};
+
+const emitChannelSettingsChanged = async (shopId, channelId, fallbackOverrides) => {
+    try {
+        const { loadEffectiveChannelAutomation } = require('./channel-automation.resolver');
+        const state = await loadEffectiveChannelAutomation(shopId, channelId);
+        const sseManager = require('../../utils/sse-manager');
+        sseManager.emit(shopId, 'channel_settings_changed', {
+            channel_id: channelId,
+            effective_mode: state?.mode ?? 'MANUAL',
+            mode_source: state?.modeSource ?? 'fail_closed',
+            override_keys: Object.keys(state?.overrides || fallbackOverrides || {}),
+        });
+    } catch (error) {
+        logger.warn('Failed to publish channel settings change', {
+            channelId,
+            error: error.message,
+        });
+    }
+};
 
 function sameId(a, b) {
     return a && b && String(a) === String(b);
@@ -537,12 +626,26 @@ class MetaChannelService {
     }
 
     /**
-     * Return MetaChannelSettings for a channel, creating default row if missing.
+     * Return MetaChannelSettings for a channel, creating a default row if missing.
+     *
+     * When `shopId` is supplied the channel's ownership is asserted
+     * (defense-in-depth behind the controller); a missing or cross-shop channel
+     * is a 404. Public API paths always supply it. Internal callers that have
+     * already resolved the channel through tenant-scoped routing may omit it.
      *
      * @param {string} channelId
+     * @param {{shopId?: string}} [options]
      * @returns {Promise<MetaChannelSettings>}
      */
-    async getSettings(channelId) {
+    async getSettings(channelId, { shopId = null } = {}) {
+        if (shopId) {
+            const channel = await MetaChannel.findByPk(channelId, {
+                attributes: ['id', 'shop_id'],
+            });
+            if (!channel || !sameId(channel.shop_id, shopId)) {
+                throw new AppError('Channel not found', 404);
+            }
+        }
         const [settings] = await MetaChannelSettings.findOrCreate({
             where: { channel_id: channelId },
             defaults: { channel_id: channelId }
@@ -552,33 +655,127 @@ class MetaChannelService {
 
     /**
      * Partially update MetaChannelSettings for a channel.
-     * Only known settings fields are allowed through (prevents arbitrary injection).
+     *
+     * Overrides are applied as a row-locked read-modify-write merge: per-key
+     * `null` reverts to inherit, sibling keys survive, stored values are
+     * canonical, and the object is never wholesale-replaced or stored with
+     * nulls. Automation-mode overrides are narrow-only versus the current
+     * business default.
      *
      * @param {string} channelId
-     * @param {Partial<MetaChannelSettings>} patch
+     * @param {object} patch - snake_case channel settings; may include `overrides`
+     * @param {{shopId: string, userId?: string}} options
      * @returns {Promise<MetaChannelSettings>}
      */
-    async updateSettings(channelId, patch) {
-        const settings = await this.getSettings(channelId);
-
-        const ALLOWED_KEYS = [
-            'confidence_threshold_send',
-            'confidence_threshold_suggest',
-            'business_hours',
-            'allow_order_creation',
-            'purpose_label'
-        ];
-
-        const sanitizedPatch = {};
-        for (const key of ALLOWED_KEYS) {
-            if (Object.prototype.hasOwnProperty.call(patch, key)) {
-                sanitizedPatch[key] = patch[key];
-            }
+    async updateSettings(channelId, patch = {}, { shopId = null, userId = null } = {}) {
+        if (!shopId) {
+            throw new AppError('shopId is required to update channel settings', 400);
+        }
+        const channel = await MetaChannel.findByPk(channelId, { attributes: ['id', 'shop_id'] });
+        if (!channel || !sameId(channel.shop_id, shopId)) {
+            throw new AppError('Channel not found', 404);
         }
 
-        await settings.update(sanitizedPatch);
-        logger.info('MetaChannelService.updateSettings', { channelId, keys: Object.keys(sanitizedPatch) });
-        return settings;
+        // `overrides: null` (or absent) means "no override changes".
+        const patchHasOverrides = hasOwn(patch, 'overrides') && patch.overrides !== null;
+        const canonicalPatch = patchHasOverrides ? canonicalizeOverridePatch(patch.overrides) : null;
+        const touchesMode = Boolean(
+            canonicalPatch && hasOwn(canonicalPatch, 'automation_mode') && canonicalPatch.automation_mode,
+        );
+
+        const legacyPatch = {};
+        for (const key of SETTINGS_ALLOWED_KEYS) {
+            if (hasOwn(patch, key)) legacyPatch[key] = patch[key];
+        }
+
+        const result = await sequelize.transaction(async (transaction) => {
+            const [created] = await MetaChannelSettings.findOrCreate({
+                where: { channel_id: channelId },
+                defaults: { channel_id: channelId },
+                transaction,
+            });
+            // Row lock serializes concurrent read-modify-write merges so sibling
+            // overrides from two PATCHes both survive.
+            const locked = await MetaChannelSettings.findByPk(channelId, {
+                transaction,
+                lock: transaction.LOCK?.UPDATE,
+            });
+            const settings = locked || created;
+
+            const oldOverrides = canonicalizeStoredOverrides(settings.overrides);
+            let nextOverrides = { ...oldOverrides };
+            let overridesChanged = false;
+
+            if (canonicalPatch !== null) {
+                for (const [key, value] of Object.entries(canonicalPatch)) {
+                    if (value === null) {
+                        if (hasOwn(nextOverrides, key)) {
+                            delete nextOverrides[key];
+                            overridesChanged = true;
+                        }
+                    } else if (nextOverrides[key] !== value) {
+                        nextOverrides[key] = value;
+                        overridesChanged = true;
+                    }
+                }
+            }
+
+            if (touchesMode) {
+                const { getShopAiSettings } = require('../shop/shop.service');
+                const aiSettings = await getShopAiSettings(shopId, { transaction });
+                const businessMode = normalizeAiReplyMode(aiSettings?.automation_mode);
+                if (!isModeWithinCeiling(canonicalPatch.automation_mode, businessMode)) {
+                    throw new AppError(
+                        `Channel automation mode cannot be less restrictive than the business default (${businessMode}); narrowing only`,
+                        400,
+                        'INVALID_OVERRIDE_WIDENING',
+                    );
+                }
+            }
+
+            const updatePayload = { ...legacyPatch };
+            if (overridesChanged) {
+                updatePayload.overrides = Object.keys(nextOverrides).length > 0
+                    ? nextOverrides
+                    : null;
+            }
+
+            if (Object.keys(updatePayload).length > 0) {
+                await settings.update(updatePayload, { transaction });
+            }
+
+            if (overridesChanged) {
+                const AuditService = require('../audit/audit.service');
+                await AuditService.logOperation({
+                    userId: userId || null,
+                    shopId,
+                    action: 'CHANNEL_AUTOMATION_OVERRIDE_CHANGED',
+                    resourceType: 'META_CHANNEL_SETTINGS',
+                    resourceId: channelId,
+                    oldValues: {
+                        overrides: Object.keys(oldOverrides).length > 0 ? oldOverrides : null,
+                    },
+                    newValues: {
+                        overrides: Object.keys(nextOverrides).length > 0 ? nextOverrides : null,
+                    },
+                    metadata: { shop_id: shopId, channel_id: channelId },
+                }, { transaction, required: true });
+            }
+
+            return { settings, nextOverrides, overridesChanged };
+        });
+
+        if (result.overridesChanged) {
+            void invalidateShopSettingsCaches(shopId).catch(() => {});
+            void emitChannelSettingsChanged(shopId, channelId, result.nextOverrides);
+        }
+
+        logger.info('MetaChannelService.updateSettings', {
+            channelId,
+            keys: Object.keys(legacyPatch),
+            overridesChanged: result.overridesChanged,
+        });
+        return result.settings;
     }
 }
 

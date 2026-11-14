@@ -145,6 +145,28 @@ exports.emergencyDisableAi = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+exports.emergencyResumeAi = async (req, res, next) => {
+  try {
+    const { shopId } = req.params;
+    const { sequelize } = require('../../utils/database/database-setup');
+    const after = await sequelize.transaction(async (transaction) => {
+      const state = await adminService.resumeAiEmergencyStop(
+        shopId,
+        req.user.userId,
+        { transaction },
+      );
+      await AuditService.logOperation({
+        userId: req.user.userId, shopId, action: 'admin:emergency_ai_resume',
+        resourceType: 'SHOP', resourceId: shopId,
+        oldValues: { active: true, prior_mode: state?.prior_mode ?? null },
+        newValues: state, ...auditCtx(req),
+      }, { transaction, required: true });
+      return state;
+    });
+    ok(res, after);
+  } catch (e) { next(e); }
+};
+
 // ── Pilot features (Customer 360 / Sales Opportunities / Order Confidence) ──
 // Platform-controlled per-shop flags (ADR-0009). Never writable by merchants.
 const Joi = require('joi');

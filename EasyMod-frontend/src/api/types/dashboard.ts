@@ -2,7 +2,7 @@
  * Dashboard and Analytics types
  */
 
-import type { AiReplyMode } from './conversation';
+import type { AiReplyMode, EmergencyStopState } from './conversation';
 
 export interface DashboardMetrics {
   metrics: {
@@ -84,4 +84,7 @@ export interface ShopAISettings {
   greeting?: { enabled: boolean; custom_text: string };
   // Appended to the order-confirmation message (thank-you + social links).
   closing?: { enabled: boolean; custom_text: string };
+  // Read-only business-wide safety state (ADR-0013 §6). Never editable through
+  // the business settings PUT.
+  emergency_stop?: EmergencyStopState;
 }

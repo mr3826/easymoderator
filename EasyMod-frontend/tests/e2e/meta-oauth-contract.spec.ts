@@ -193,7 +193,14 @@ async function loginAndGo(page: Page, path: string): Promise<void> {
 
 test('Connect Facebook Page opens a Login for Business dialog with config_id and no scope', async ({ page }) => {
   const fixture = await setupRoutes(page);
-  await loginAndGo(page, '/manage-shop/chat-settings');
+  // ADR-0013 §9: /manage-shop/chat-settings redirects to the channel
+  // workspace. With no connected Page the overview shows its empty-state CTA,
+  // which reveals the extracted connection manager (the connect flow under test).
+  await loginAndGo(page, '/manage-shop/channels');
+  await expect(page).toHaveURL(/\/manage-shop\/channels$/);
+
+  const reveal = page.getByRole('button', { name: 'Connect a Page' });
+  if (await reveal.count()) await reveal.click();
 
   const connect = page.getByRole('button', { name: /Connect Facebook Page/i }).first();
   await expect(connect).toBeVisible();

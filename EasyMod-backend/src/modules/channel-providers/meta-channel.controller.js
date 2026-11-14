@@ -17,6 +17,12 @@ const { Op } = require('sequelize');
 const MetaChannel = require('./meta-channel.entity');
 const MetaChannelSettings = require('./meta-channel-settings.entity');
 const MetaChannelConsentEvent = require('./meta-channel-consent-event.entity');
+const { DEFAULT_AI_SETTINGS } = require('../shop/shop-defaults');
+const {
+    resolveChannelAutomation,
+    loadEffectiveChannelAutomation,
+    readEmergencyStopState,
+} = require('./channel-automation.resolver');
 const metaChannelService = require('./meta-channel.service');
 const oauthService = require('./meta-oauth.service');
 const { getProvider } = require('./provider.registry');
@@ -35,13 +41,64 @@ async function assertChannelBelongsToShop(channelId, shopId) {
 
 /**
  * GET /api/channels/meta
- * Lists this shop's meta channels.
+ * Lists this shop's meta channels with the additive effective-mode fields.
+ * One batched resolver pass: a single Shop read + one settings findAll.
  */
 exports.list = async (req, res, next) => {
     try {
         const { shopId } = req.user;
         const channels = await metaChannelService.listByShop(shopId);
-        res.json({ success: true, data: channels.map(serializeChannel) });
+        const channelIds = (channels || []).map((channel) => channel.id);
+
+        // Lazy require keeps the controller loadable in tests that stub the
+        // model registry.
+        const { Shop, Subscription } = require('../entities');
+        const [settingsRows, shop, subscription] = await Promise.all([
+            channelIds.length > 0
+                ? MetaChannelSettings.findAll({ where: { channel_id: { [Op.in]: channelIds } } })
+                : Promise.resolve([]),
+            Shop.findByPk(shopId),
+            Subscription.findOne({ where: { shop_id: shopId }, attributes: ['status'] }).catch(() => null),
+        ]);
+
+        const settingsByChannel = new Map(
+            (settingsRows || []).map((row) => [String(row.channel_id), row]),
+        );
+        const emergencyStop = readEmergencyStopState(shop);
+        const shopAiSettings = shop
+            ? { ...DEFAULT_AI_SETTINGS, ...(shop.settings?.ai || {}) }
+            : null;
+        const { isAiActive } = require('../subscription/subscription.access');
+        const billingAiActive = isAiActive(subscription);
+
+        const data = (channels || []).map((channel) => {
+            const settingsRow = settingsByChannel.get(String(channel.id));
+            let resolved = null;
+            try {
+                resolved = resolveChannelAutomation({
+                    shopAiSettings,
+                    channelSettings: settingsRow || {
+                        business_hours: null,
+                        allow_order_creation: true,
+                        purpose_label: channel.settings?.purpose_label ?? null,
+                    },
+                    emergencyStop,
+                    shopIsActive: shop ? shop.is_active !== false : true,
+                });
+            } catch (_) {
+                resolved = null;
+            }
+            return {
+                ...serializeChannel(channel),
+                effective_mode: resolved?.mode ?? 'MANUAL',
+                mode_source: resolved?.modeSource ?? 'fail_closed',
+                override_count: Object.keys(resolved?.overrides || {}).length,
+                emergency_stop: serializeEmergencyStop(emergencyStop),
+                billing_ai_active: billingAiActive,
+            };
+        });
+
+        res.json({ success: true, data });
     } catch (err) {
         next(err);
     }
@@ -201,15 +258,63 @@ function assertNoUnsupportedPageSettings(body) {
     }
 }
 
-function serializeSettings(s) {
-    if (!s) return null;
+function serializeEmergencyStop(state) {
     return {
-        confidenceThresholdSend:    parseFloat(s.confidence_threshold_send),
-        confidenceThresholdSuggest: parseFloat(s.confidence_threshold_suggest),
-        businessHours:              s.business_hours ?? null,
-        allowOrderCreation:         s.allow_order_creation,
-        purposeLabel:               s.purpose_label ?? null,
+        active: state?.active === true,
+        at: state?.at ?? null,
+        by: state?.by ?? null,
+        source: state?.source ?? null,
+        prior_mode: state?.prior_mode ?? null,
     };
+}
+
+function fallbackEffective(settings) {
+    return {
+        automation_mode: 'MANUAL',
+        confidence_threshold: DEFAULT_AI_SETTINGS.confidence_threshold,
+        greeting: { ...DEFAULT_AI_SETTINGS.greeting },
+        business_hours: settings?.business_hours ?? null,
+        allow_order_creation: settings?.allow_order_creation !== false,
+        purpose_label: settings?.purpose_label ?? null,
+    };
+}
+
+function serializeSettings(settings, resolved) {
+    if (!settings) return null;
+    const effective = resolved?.effective || fallbackEffective(settings);
+    return {
+        confidenceThresholdSend:    parseFloat(settings.confidence_threshold_send),
+        confidenceThresholdSuggest: parseFloat(settings.confidence_threshold_suggest),
+        businessHours:              settings.business_hours ?? null,
+        allowOrderCreation:         settings.allow_order_creation,
+        purposeLabel:               settings.purpose_label ?? null,
+        // Additive effective-config fields (API_CONTRACT §2).
+        overrides:                  resolved?.overrides || {},
+        effective: {
+            automation_mode:      effective.automation_mode,
+            confidence_threshold: effective.confidence_threshold,
+            greeting:             effective.greeting,
+            business_hours:       effective.business_hours,
+            allow_order_creation: effective.allow_order_creation,
+            purpose_label:        effective.purpose_label,
+        },
+        mode_source:                resolved?.modeSource || 'fail_closed',
+        warnings:                   resolved?.warnings || [],
+        emergency_stop:             serializeEmergencyStop(resolved?.emergencyStop),
+        billing_ai_active:          resolved ? resolved.billingAiActive !== false : true,
+        // Legacy dead thresholds: accepted for old clients, never rendered by the new UI.
+        deprecated_fields:          ['confidenceThresholdSend', 'confidenceThresholdSuggest'],
+    };
+}
+
+async function loadSettingsState(shopId, channelId) {
+    try {
+        return await loadEffectiveChannelAutomation(shopId, channelId);
+    } catch (_) {
+        // Display reads never fail the request on a transient shop-read error;
+        // they surface fail-closed mode_source instead.
+        return null;
+    }
 }
 
 /**
@@ -220,8 +325,9 @@ exports.getSettings = async (req, res, next) => {
         const { channelId } = req.params;
         const { shopId } = req.user;
         await assertChannelBelongsToShop(channelId, shopId);
-        const settings = await metaChannelService.getSettings(channelId);
-        res.json({ success: true, data: serializeSettings(settings) });
+        const settings = await metaChannelService.getSettings(channelId, { shopId });
+        const resolved = await loadSettingsState(shopId, channelId);
+        res.json({ success: true, data: serializeSettings(settings, resolved) });
     } catch (err) {
         next(err);
     }
@@ -234,7 +340,7 @@ exports.getSettings = async (req, res, next) => {
 exports.updateChannelSettings = async (req, res, next) => {
     try {
         const { channelId } = req.params;
-        const { shopId } = req.user;
+        const { shopId, userId } = req.user;
         await assertChannelBelongsToShop(channelId, shopId);
         assertNoUnsupportedPageSettings(req.body);
 
@@ -254,14 +360,19 @@ exports.updateChannelSettings = async (req, res, next) => {
         for (const key of SETTINGS_WHITELIST) {
             if (req.body[key] !== undefined) patch[key] = req.body[key];
         }
+        // Overrides are merged server-side (never wholesale-replaced).
+        if (req.body.overrides !== undefined) patch.overrides = req.body.overrides;
 
         if (Object.keys(patch).length === 0) {
-            return res.json({ success: true, data: serializeSettings(await metaChannelService.getSettings(channelId)) });
+            const settings = await metaChannelService.getSettings(channelId, { shopId });
+            const resolved = await loadSettingsState(shopId, channelId);
+            return res.json({ success: true, data: serializeSettings(settings, resolved) });
         }
 
-        await metaChannelService.updateSettings(channelId, patch);
-        const updated = await metaChannelService.getSettings(channelId);
-        res.json({ success: true, data: serializeSettings(updated) });
+        await metaChannelService.updateSettings(channelId, patch, { shopId, userId });
+        const updated = await metaChannelService.getSettings(channelId, { shopId });
+        const resolved = await loadSettingsState(shopId, channelId);
+        res.json({ success: true, data: serializeSettings(updated, resolved) });
     } catch (err) {
         next(err);
     }
@@ -284,7 +395,7 @@ exports.updatePurposeLabel = async (req, res, next) => {
         const raw = req.body.purposeLabel;
         const normalized = (raw === '' || raw === undefined) ? null : raw;
 
-        await metaChannelService.updateSettings(channelId, { purpose_label: normalized });
+        await metaChannelService.updateSettings(channelId, { purpose_label: normalized }, { shopId });
 
         // Re-fetch the channel with settings JOIN so the response carries the
         // updated label in the same shape as GET /api/channels/meta.

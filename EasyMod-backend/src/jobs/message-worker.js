@@ -39,10 +39,14 @@ const { Op, literal } = require('sequelize');
 const { sequelize } = require('../utils/database/database-setup');
 const {
     AI_REPLY_MODES,
-    normalizeAiReplyMode,
-    getEffectiveAiReplyMode,
     isAutoSendMode,
 } = require('../modules/shop/ai-reply-mode');
+const {
+    resolveChannelAutomation,
+    loadEffectiveChannelAutomation,
+    readEmergencyStopState,
+    buildEffectiveWorkerAiSettings,
+} = require('../modules/channel-providers/channel-automation.resolver');
 const {
     MESSAGE_DELIVERY_STATES,
     SUGGESTION_VISIBILITY,
@@ -230,9 +234,72 @@ const getShopAISettings = async (shopId) => {
     }
 };
 
+// Worker send paths are forbidden from reading the business mode directly
+// (ADR-0013 §5 boundary test). These two helpers are the only seam: they load
+// fresh committed state and hand it to the single resolver.
+
+/**
+ * Fresh safety state for the shop: emergency stop columns + `is_active`.
+ * The Shop model is read directly so the provider-boundary transaction never
+ * takes a Shop row lock (plain committed read).
+ */
+const loadShopSafetyState = async (shopId) => {
+    const { Shop } = require('../modules/entities');
+    if (!Shop || typeof Shop.findByPk !== 'function') {
+        // Focused unit harnesses may stub the entity registry. Production always
+        // exposes Shop; callers that need strict safety must supply it.
+        return { emergencyStop: { active: false }, shopIsActive: true };
+    }
+    const shop = await Shop.findByPk(shopId, {
+        attributes: [
+            'id',
+            'is_active',
+            'timezone',
+            'ai_emergency_stop',
+            'ai_emergency_stop_at',
+            'ai_emergency_stop_by',
+            'ai_emergency_stop_source',
+            'ai_emergency_stop_prior_mode',
+        ],
+    });
+    if (!shop) {
+        const error = new Error(`SHOP_SETTINGS_UNAVAILABLE: shop ${shopId}`);
+        error.code = 'SHOP_SETTINGS_UNAVAILABLE';
+        error.retryable = true;
+        throw error;
+    }
+    return {
+        emergencyStop: readEmergencyStopState(shop),
+        shopIsActive: shop.is_active !== false,
+        shopTimezone: shop.timezone || null,
+    };
+};
+
+const resolveWorkerAutomation = ({
+    shopAiSettings,
+    channelSettings,
+    emergencyStop,
+    shopIsActive,
+}) => resolveChannelAutomation({
+    shopAiSettings,
+    channelSettings,
+    emergencyStop,
+    shopIsActive,
+});
+
+/** Fail-closed skip reason for a manual-equivalent effective mode. */
+const manualSkipReason = (resolved) => {
+    if (!resolved) return 'fail_closed';
+    if (resolved.modeSource === 'emergency_stop') return 'emergency_stop';
+    if (resolved.modeSource === 'shop_inactive') return 'shop_inactive';
+    return 'manual_mode';
+};
+
+const HUMAN_OWNED_STATUSES = Object.freeze(['closed', 'archived', 'needs_human']);
+
 const getAutomaticSendGuard = async (shopId, conversationId) => {
-    const [businessMode, conversation, manualPause, recentMessages] = await Promise.all([
-        getEffectiveAiReplyMode(shopId),
+    const [shopAISettings, conversation, manualPause, recentMessages] = await Promise.all([
+        getShopAISettings(shopId),
         Conversation.findOne({
             where: { id: conversationId, shop_id: shopId },
             attributes: ['id', 'customer_id', 'channel', 'meta_channel_id', 'hitl', 'status'],
@@ -250,20 +317,50 @@ const getAutomaticSendGuard = async (shopId, conversationId) => {
             : [],
     ]);
 
-    if (!isAutoSendMode(businessMode)) {
-        return { allowed: false, mode: businessMode, reason: 'mode_changed' };
+    let channelSettings = {};
+    if (conversation?.meta_channel_id) {
+        try {
+            channelSettings = await getChannelAISettings({ id: conversation.meta_channel_id });
+        } catch (_) {
+            return { allowed: false, mode: AI_REPLY_MODES.MANUAL, reason: 'channel_settings_unavailable' };
+        }
+    }
+
+    let resolved;
+    try {
+        const safety = await loadShopSafetyState(shopId);
+        resolved = resolveWorkerAutomation({
+            shopAiSettings: shopAISettings,
+            channelSettings,
+            emergencyStop: safety.emergencyStop,
+            shopIsActive: safety.shopIsActive,
+        });
+    } catch (_) {
+        // A safety read failure must never allow a send.
+        return { allowed: false, mode: AI_REPLY_MODES.MANUAL, reason: 'channel_settings_unavailable' };
+    }
+    const mode = resolved.mode;
+
+    if (resolved.modeSource === 'emergency_stop') {
+        return { allowed: false, mode, reason: 'emergency_stop' };
+    }
+    if (resolved.modeSource === 'shop_inactive') {
+        return { allowed: false, mode, reason: 'shop_inactive' };
+    }
+    if (!isAutoSendMode(mode)) {
+        return { allowed: false, mode, reason: 'mode_changed' };
     }
     if (!conversation) {
-        return { allowed: false, mode: businessMode, reason: 'conversation_unavailable' };
+        return { allowed: false, mode, reason: 'conversation_unavailable' };
     }
-    if (conversation.hitl === true) {
-        return { allowed: false, mode: businessMode, reason: 'human_active' };
+    if (conversation.hitl === true || conversation.status === 'needs_human') {
+        return { allowed: false, mode, reason: 'human_active' };
     }
-    if (['closed', 'archived'].includes(conversation.status)) {
-        return { allowed: false, mode: businessMode, reason: 'conversation_closed' };
+    if (HUMAN_OWNED_STATUSES.includes(conversation.status) && conversation.status !== 'needs_human') {
+        return { allowed: false, mode, reason: 'conversation_closed' };
     }
     if (manualPause) {
-        return { allowed: false, mode: businessMode, reason: 'ai_paused' };
+        return { allowed: false, mode, reason: 'ai_paused' };
     }
 
     // STOP/opt-out can arrive while the LLM or policy engine is running. Read
@@ -281,14 +378,14 @@ const getAutomaticSendGuard = async (shopId, conversationId) => {
                 attributes: ['id', 'shop_id', 'channel_type', 'meta_channel_id', 'messaging_consent'],
             });
             if (!customer || String(customer.shop_id) !== String(shopId)) {
-                return { allowed: false, mode: businessMode, reason: 'customer_context_unavailable' };
+                return { allowed: false, mode, reason: 'customer_context_unavailable' };
             }
             const consentPlatform = conversation.channel === 'instagram' ? 'instagram' : 'facebook';
             if (customer.messaging_consent?.[consentPlatform]?.opted_out_at) {
-                return { allowed: false, mode: businessMode, reason: 'opted_out' };
+                return { allowed: false, mode, reason: 'opted_out' };
             }
         } catch (_) {
-            return { allowed: false, mode: businessMode, reason: 'consent_state_unavailable' };
+            return { allowed: false, mode, reason: 'consent_state_unavailable' };
         }
     }
 
@@ -296,10 +393,10 @@ const getAutomaticSendGuard = async (shopId, conversationId) => {
     const latestBusiness = recentMessages?.find((item) => item.sender === 'business');
     if (latestBusiness && (!latestCustomer
         || new Date(latestBusiness.created_at).getTime() > new Date(latestCustomer.created_at).getTime())) {
-        return { allowed: false, mode: businessMode, reason: 'human_active' };
+        return { allowed: false, mode, reason: 'human_active' };
     }
 
-    return { allowed: true, mode: businessMode, reason: null };
+    return { allowed: true, mode, reason: null };
 };
 
 const matchesChannelScope = (channel, shopId, platform, metaAssetId = null) => (
@@ -430,15 +527,35 @@ const getChannelAISettings = async (channel) => {
     }
 };
 
-const buildWorkerAiSettings = (shopSettings = {}, channelSettings = {}, businessMode) => ({
-    business_hours: channelSettings.business_hours,
-    confidence_threshold_send: channelSettings.confidence_threshold_send,
-    confidence_threshold_suggest: channelSettings.confidence_threshold_suggest,
-    allow_order_creation: channelSettings.allow_order_creation,
-    purpose_label: channelSettings.purpose_label,
-    ...shopSettings,
-    automation_mode: businessMode,
-});
+/**
+ * Mutations are allowed only while the effective automation mode is AUTO and
+ * the channel's `allow_order_creation` is true. The channel is re-read fresh
+ * immediately before each mutation entry point so a mid-turn disable is honored
+ * at the Action Gate boundary (fail-closed on any read failure).
+ */
+const resolveMutationsAllowed = async (effectiveMode, channel) => {
+    if (!isAutoSendMode(effectiveMode)) return false;
+    try {
+        const latest = await getChannelAISettings(channel);
+        return latest.allow_order_creation !== false;
+    } catch (_) {
+        return false;
+    }
+};
+
+/**
+ * Thin delegate to the single resolver (ADR-0013 §5). `businessMode` here is
+ * already the resolved EFFECTIVE mode for the site. The resolver performs the
+ * whitelist merge: only explicit DEFAULT_AI_SETTINGS keys are copied from the
+ * business settings, so an unknown merchant JSON key such as
+ * `settings.ai.business_hours` or `settings.ai.allow_order_creation` can never
+ * shadow the channel-native value.
+ */
+const buildWorkerAiSettings = (shopSettings = {}, channelSettings = {}, businessMode, extra = {}) => {
+    const settings = buildEffectiveWorkerAiSettings(shopSettings, channelSettings, businessMode);
+    if (extra.shopTimezone) settings.shop_timezone = extra.shopTimezone;
+    return settings;
+};
 
 function hasExplicitDeliveryLifecycle(message) {
     const metadata = message?.metadata && typeof message.metadata === 'object'
@@ -698,8 +815,13 @@ async function claimAutomaticCandidate(message, idempotencyKey, shopId) {
  * conditional update is deliberately separate from the candidate claim: a
  * merchant reply can cancel a claimed-but-not-started send, while a provider
  * call that has actually started remains reconciliation-visible.
+ *
+ * The automation decision is a fresh resolver read against the channel pinned
+ * on the locked conversation. No INSERT/findOrCreate and no Shop row lock:
+ * the transaction only upgrades the conversation row lock it already holds.
+ * A resolver read failure holds the candidate (never a retry storm).
  */
-async function claimProviderSendBoundary(message, idempotencyKey, shopId) {
+async function claimProviderSendBoundary(message, idempotencyKey, shopId, fallbackChannelId = null) {
     if (!message?.id || !idempotencyKey) return { allowed: false, reason: 'candidate_invalidated' };
     if (typeof Message.update !== 'function') return { allowed: true, reason: null };
 
@@ -707,12 +829,14 @@ async function claimProviderSendBoundary(message, idempotencyKey, shopId) {
         const conversation = typeof Conversation.findOne === 'function'
             ? await Conversation.findOne({
                 where: { id: message.conversation_id, shop_id: shopId },
-                attributes: ['id', 'customer_id', 'channel', 'hitl', 'status', 'metadata'],
+                attributes: ['id', 'customer_id', 'channel', 'meta_channel_id', 'hitl', 'status', 'metadata'],
                 ...(transaction ? { transaction, lock: transaction.LOCK?.UPDATE } : {}),
             })
             : null;
         if (!conversation) return { allowed: false, reason: 'conversation_unavailable' };
-        if (conversation.hitl === true) return { allowed: false, reason: 'human_active' };
+        if (conversation.hitl === true || conversation.status === 'needs_human') {
+            return { allowed: false, reason: 'human_active' };
+        }
         if (['closed', 'archived'].includes(conversation.status)) {
             return { allowed: false, reason: 'conversation_closed' };
         }
@@ -728,8 +852,28 @@ async function claimProviderSendBoundary(message, idempotencyKey, shopId) {
             && isBeforeResumeBoundary(message, resumeBoundaryState.timestamp)) {
             return { allowed: false, reason: 'resume_obsolete' };
         }
-        const currentBusinessMode = await getEffectiveAiReplyMode(shopId);
-        if (!isAutoSendMode(currentBusinessMode)) {
+
+        const pinnedChannelId = conversation.meta_channel_id || fallbackChannelId;
+        if (!pinnedChannelId) {
+            // Page-pinned conversations always carry a channel; a missing pin is
+            // an unavailable configuration, not permission to use the business
+            // default.
+            return { allowed: false, reason: 'channel_settings_unavailable' };
+        }
+        let automation;
+        try {
+            automation = await loadEffectiveChannelAutomation(shopId, pinnedChannelId, { transaction });
+        } catch (_) {
+            return { allowed: false, reason: 'channel_settings_unavailable' };
+        }
+        if (!automation) return { allowed: false, reason: 'channel_settings_unavailable' };
+        if (automation.modeSource === 'emergency_stop') {
+            return { allowed: false, reason: 'emergency_stop' };
+        }
+        if (automation.modeSource === 'shop_inactive') {
+            return { allowed: false, reason: 'shop_inactive' };
+        }
+        if (!isAutoSendMode(automation.mode)) {
             return { allowed: false, reason: 'mode_changed' };
         }
         if (typeof cacheRedis.get === 'function' && await cacheRedis.get(`ai:pause:${message.conversation_id}`)) {
@@ -984,9 +1128,54 @@ function createRecoveryControl({
             return null;
         }
         // Recovery timers can outlive the initial Guard 4 read. Do not let a
-        // holding message bypass a later AUTO -> MANUAL change.
-        const latestBusinessMode = await getEffectiveAiReplyMode(shopId);
-        if (!isAutoSendMode(latestBusinessMode)) {
+        // holding message bypass a later mode change, emergency stop, or shop
+        // shutdown. Fresh resolver read; a loader failure holds (no retry loop).
+        let recoveryAutomation = null;
+        try {
+            recoveryAutomation = await loadEffectiveChannelAutomation(shopId, channel.id);
+        } catch (_) {
+            recoveryAutomation = null;
+        }
+        if (!recoveryAutomation) {
+            await transitionTo('RETRY_PENDING', {
+                retryState: 'HOLDING_SEND_FAILED',
+                recoveryKind,
+                outboundStatus: 'BLOCKED',
+                heldReason: 'channel_settings_unavailable',
+            });
+            return null;
+        }
+        if (recoveryAutomation.modeSource === 'emergency_stop') {
+            // Human agency is preserved: never touch hitl / conversation state.
+            // An already-created holding row is stamped HELD, never sent.
+            if (holdingMessage?.id && typeof Message.update === 'function') {
+                const metadata = {
+                    ...messageMetadata(holdingMessage),
+                    delivered: false,
+                    delivery_status: 'held',
+                    delivery_state: MESSAGE_DELIVERY_STATES.HELD,
+                    held_reason: 'emergency_stop',
+                    suggestion_visibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                };
+                await Message.update({ delivery_state: MESSAGE_DELIVERY_STATES.HELD, metadata }, {
+                    where: {
+                        id: holdingMessage.id,
+                        conversation_id: conversationId,
+                        provider_message_id: null,
+                        [Op.and]: [literal(`(metadata->>'provider_send_attempted') IS DISTINCT FROM 'true'`)],
+                    },
+                }).catch(() => {});
+                holdingMessage.metadata = metadata;
+            }
+            await transitionTo('RETRY_PENDING', {
+                retryState: 'HOLDING_SEND_FAILED',
+                recoveryKind,
+                outboundStatus: 'BLOCKED',
+                heldReason: 'emergency_stop',
+            });
+            return null;
+        }
+        if (!isAutoSendMode(recoveryAutomation.mode)) {
             await transitionTo('RETRY_PENDING', {
                 retryState: 'HOLDING_SEND_FAILED',
                 recoveryKind,
@@ -996,7 +1185,7 @@ function createRecoveryControl({
         }
         policySettings = {
             ...policySettings,
-            automation_mode: latestBusinessMode,
+            automation_mode: recoveryAutomation.mode,
         };
         if (closed || (hardTimeout
             ? recovery.isHardTimeoutSuppressed(currentState)
@@ -2092,6 +2281,12 @@ async function processMessageJob(job) {
     }
     await recoveryControl?.transitionTo('CONTEXT_BUILDING');
     if (conversation.hitl) return { skipped: true, reason: 'hitl_active' };
+    if (conversation.status === 'needs_human') {
+        // markForHumanHandoff (keyword fallback) historically set only the
+        // status. It now also sets hitl; this is defense-in-depth for rows that
+        // predate the fix.
+        return { skipped: true, reason: 'needs_human' };
+    }
     if (['closed', 'archived'].includes(conversation.status)) {
         return { skipped: true, reason: 'conversation_closed' };
     }
@@ -2100,17 +2295,30 @@ async function processMessageJob(job) {
     const paused = await cacheRedis.get(`ai:pause:${conversationId}`);
     if (paused) return { skipped: true, reason: 'ai_paused' };
 
-    // ── Guard 4: Automation mode ────────────────────────────────────────────
-    // Only the business mode controls whether the AI pipeline runs. Page mode
-    // fields are legacy data and cannot upgrade a MANUAL business.
-    const [shopAISettings, channelAISettings] = await Promise.all([
+    // ── Guard 4: Automation mode (single resolver, effective mode) ──────────
+    // Emergency stop > shop inactive > effective channel configuration
+    // (narrow-only clamped override else business default). Legacy Page mode
+    // columns are storage-only and never read here.
+    const [shopAISettings, channelAISettings, shopSafety] = await Promise.all([
         getShopAISettings(shopId),
         getChannelAISettings(jobChannel),
+        loadShopSafetyState(shopId),
     ]);
-    const businessMode = normalizeAiReplyMode(shopAISettings.automation_mode);
-    const aiSettings = buildWorkerAiSettings(shopAISettings, channelAISettings, businessMode);
+    const resolvedAutomation = resolveWorkerAutomation({
+        shopAiSettings: shopAISettings,
+        channelSettings: channelAISettings,
+        emergencyStop: shopSafety.emergencyStop,
+        shopIsActive: shopSafety.shopIsActive,
+    });
+    const guardEffectiveMode = resolvedAutomation.mode;
+    const aiSettings = buildWorkerAiSettings(
+        shopAISettings,
+        channelAISettings,
+        guardEffectiveMode,
+        { shopTimezone: shopSafety.shopTimezone },
+    );
     recoveryControl?.setPolicySettings(aiSettings);
-    if (businessMode === AI_REPLY_MODES.MANUAL) {
+    if (guardEffectiveMode === AI_REPLY_MODES.MANUAL) {
         try {
             const merchantNotificationService = require('../modules/notification/merchant-notification.service');
             const { NOTIFICATION_EVENTS } = require('../modules/notification/notification-events');
@@ -2130,7 +2338,12 @@ async function processMessageJob(job) {
         } catch {
             // notification failure must not fail the job
         }
-        return { skipped: true, reason: 'manual_mode', scope: 'shop' };
+        return {
+            skipped: true,
+            reason: manualSkipReason(resolvedAutomation),
+            scope: 'shop',
+            mode_source: resolvedAutomation.modeSource,
+        };
     }
 
 
@@ -2164,7 +2377,7 @@ async function processMessageJob(job) {
                     || Date.now() - claimedAtMs > STALE_PROVIDER_CLAIM_MS);
             let reusable = existingState === MESSAGE_DELIVERY_STATES.SEND_PENDING
                 && existingMetadata.provider_send_attempted !== true
-                && isAutoSendMode(businessMode)
+                && isAutoSendMode(guardEffectiveMode)
                 && (existingMetadata.provider_send_claimed !== true || claimIsStale);
             if (reusable && claimIsStale) {
                 reusable = await releaseStaleProviderClaim(foundAutomaticCandidate);
@@ -2382,6 +2595,8 @@ async function processMessageJob(job) {
             interactionTurn = true;
             try {
                 const interactions = require('../modules/interactions/interactions.service');
+                // Fresh channel re-read immediately before the mutation boundary.
+                const interactionsMutationsAllowed = await resolveMutationsAllowed(guardEffectiveMode, jobChannel);
                 const outcome = await interactions.resolveInteraction({
                     payload: payloadToResolve,
                     shopId,
@@ -2389,8 +2604,7 @@ async function processMessageJob(job) {
                     metaChannelId,
                     conversationId,
                     conversation,
-                    mutationsAllowed: isAutoSendMode(businessMode)
-                        && channelAISettings.allow_order_creation !== false,
+                    mutationsAllowed: interactionsMutationsAllowed,
                     platform,
                     recipientId,
                     turnId,
@@ -2441,6 +2655,9 @@ async function processMessageJob(job) {
             // retries may arrive as a new BullMQ job ID without mutating BullMQ's
             // own identity or delayed-job bookkeeping.
             const job = { ...workerJob, id: stableTraceId };
+            // Fresh channel re-read immediately before the order-flow mutation
+            // boundary so a mid-turn allow_order_creation disable is honored.
+            const orderFlowMutationsAllowed = await resolveMutationsAllowed(guardEffectiveMode, jobChannel);
             orderFlow = await handleOrderFlow({
                 shopId,
                 customerChannelId: recipientId,
@@ -2449,8 +2666,7 @@ async function processMessageJob(job) {
                 entities,
                 language: detectedLanguage,
                 imageUrls: effImageUrls,
-                mutationsAllowed: isAutoSendMode(businessMode)
-                    && channelAISettings.allow_order_creation !== false,
+                mutationsAllowed: orderFlowMutationsAllowed,
                 conversationId,
                 traceId: job.id || effExternalId || conversationId,
                 metaChannelId,
@@ -2954,11 +3170,19 @@ async function processMessageJob(job) {
             || String(customer.meta_channel_id) === String(metaChannelId));
     const channel = jobChannel;
     let channelSettings = aiSettings;
-    let latestChannelAISettings = channelAISettings;
+    let effectiveMode = guardEffectiveMode;
+    let latestResolvedAutomation = resolvedAutomation;
+    let latestEffectiveThreshold = aiSettings.confidence_threshold;
     if (channel) {
         let latestSettings;
+        let latestShopSafety;
+        let latestShopAISettings;
         try {
-            latestSettings = await getChannelAISettings(channel);
+            [latestSettings, latestShopSafety, latestShopAISettings] = await Promise.all([
+                getChannelAISettings(channel),
+                loadShopSafetyState(shopId),
+                getShopAISettings(shopId),
+            ]);
         } catch (settingsErr) {
             if (committedOrder) {
                 await recoveryControl?.close();
@@ -2973,8 +3197,20 @@ async function processMessageJob(job) {
             }
             throw settingsErr;
         }
-        latestChannelAISettings = { ...channelAISettings, ...latestSettings };
-        channelSettings = buildWorkerAiSettings(shopAISettings, latestChannelAISettings, businessMode);
+        latestResolvedAutomation = resolveWorkerAutomation({
+            shopAiSettings: latestShopAISettings,
+            channelSettings: latestSettings,
+            emergencyStop: latestShopSafety.emergencyStop,
+            shopIsActive: latestShopSafety.shopIsActive,
+        });
+        effectiveMode = latestResolvedAutomation.mode;
+        latestEffectiveThreshold = latestResolvedAutomation.effective.confidence_threshold;
+        channelSettings = buildWorkerAiSettings(
+            latestShopAISettings,
+            latestSettings,
+            effectiveMode,
+            { shopTimezone: latestShopSafety.shopTimezone },
+        );
     }
 
     // The channel can lose its token while the LLM is running. Keep the
@@ -3018,11 +3254,20 @@ async function processMessageJob(job) {
         direction: 'outbound',
     };
 
-    // Re-read the business mode after generation. An AUTO job must not send
-    // after the merchant changes the business mode to a non-delivering mode.
-    const latestBusinessMode = await getEffectiveAiReplyMode(shopId);
-    if (!isAutoSendMode(businessMode) || !isAutoSendMode(latestBusinessMode)) {
-        const heldReason = isAutoSendMode(businessMode) ? 'mode_changed' : 'draft_mode';
+    // Re-read the effective mode after generation (fresh resolver pass). An AUTO
+    // job must not send after the merchant narrows the channel/business mode,
+    // engages the emergency stop, or deactivates the shop.
+    if (!isAutoSendMode(guardEffectiveMode) || !isAutoSendMode(effectiveMode)) {
+        let heldReason;
+        if (!isAutoSendMode(guardEffectiveMode)) {
+            heldReason = 'draft_mode';
+        } else if (latestResolvedAutomation.modeSource === 'emergency_stop') {
+            heldReason = 'emergency_stop';
+        } else if (latestResolvedAutomation.modeSource === 'shop_inactive') {
+            heldReason = 'shop_inactive';
+        } else {
+            heldReason = 'mode_changed';
+        }
         const deliveryState = heldReason === 'draft_mode'
             ? MESSAGE_DELIVERY_STATES.DRAFT_READY
             : MESSAGE_DELIVERY_STATES.HELD;
@@ -3052,8 +3297,38 @@ async function processMessageJob(job) {
     }
     channelSettings = {
         ...channelSettings,
-        automation_mode: latestBusinessMode,
+        automation_mode: effectiveMode,
     };
+
+    // Last reversible point: re-check the confidence gate against the freshly
+    // resolved EFFECTIVE threshold. No second escalation/holding message — the
+    // candidate is simply held for human review.
+    if (!committedOrder && shouldHoldForLowConfidence({
+        confidence,
+        automationMode: effectiveMode,
+        confidenceThreshold: latestEffectiveThreshold,
+        orderFlowHandled: orderFlow.handled,
+    })) {
+        const heldMessage = (await storeAiResponse(rawResponse, false, {
+            deliveryState: MESSAGE_DELIVERY_STATES.HELD,
+            deliverySource: 'AUTO',
+            suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+        })).message;
+        await finalizeAiMessage(heldMessage, shopId, conversationId, {
+            delivered: false,
+            heldReason: 'low_confidence',
+            deliveryState: MESSAGE_DELIVERY_STATES.HELD,
+            deliverySource: 'AUTO',
+            suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+        });
+        return {
+            success: true,
+            conversationId,
+            confidence,
+            sent: false,
+            reason: 'low_confidence',
+        };
+    }
 
     let decision;
     try {
@@ -3111,22 +3386,22 @@ async function processMessageJob(job) {
         // Store the raw AI response as a held suggestion. Do not include the
         // automated-assistant disclosure in draft/manual suggestions.
         const aiMessage = (await storeAiResponse(rawResponse, false, {
-            deliveryState: latestBusinessMode === AI_REPLY_MODES.DRAFT
+            deliveryState: effectiveMode === AI_REPLY_MODES.DRAFT
                 ? MESSAGE_DELIVERY_STATES.DRAFT_READY
                 : MESSAGE_DELIVERY_STATES.HELD,
-            deliverySource: latestBusinessMode === AI_REPLY_MODES.DRAFT ? 'AI_DRAFT' : 'AUTO',
-            suggestionVisibility: latestBusinessMode === AI_REPLY_MODES.DRAFT
+            deliverySource: effectiveMode === AI_REPLY_MODES.DRAFT ? 'AI_DRAFT' : 'AUTO',
+            suggestionVisibility: effectiveMode === AI_REPLY_MODES.DRAFT
                 ? SUGGESTION_VISIBILITY.VISIBLE_DRAFT_REVIEW
                 : SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
         })).message;
         await finalizeAiMessage(aiMessage, shopId, conversationId, {
             delivered: false,
-            heldReason: latestBusinessMode === AI_REPLY_MODES.DRAFT ? 'draft_mode' : 'policy_blocked',
-            deliveryState: latestBusinessMode === AI_REPLY_MODES.DRAFT
+            heldReason: effectiveMode === AI_REPLY_MODES.DRAFT ? 'draft_mode' : 'policy_blocked',
+            deliveryState: effectiveMode === AI_REPLY_MODES.DRAFT
                 ? MESSAGE_DELIVERY_STATES.DRAFT_READY
                 : MESSAGE_DELIVERY_STATES.HELD,
-            deliverySource: latestBusinessMode === AI_REPLY_MODES.DRAFT ? 'AI_DRAFT' : 'AUTO',
-            suggestionVisibility: latestBusinessMode === AI_REPLY_MODES.DRAFT
+            deliverySource: effectiveMode === AI_REPLY_MODES.DRAFT ? 'AI_DRAFT' : 'AUTO',
+            suggestionVisibility: effectiveMode === AI_REPLY_MODES.DRAFT
                 ? SUGGESTION_VISIBILITY.VISIBLE_DRAFT_REVIEW
                 : SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
         });
@@ -3213,6 +3488,18 @@ async function processMessageJob(job) {
                         heldReason: 'mode_changed',
                         suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
                     },
+                    emergency_stop: {
+                        heldReason: 'emergency_stop',
+                        suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                    },
+                    shop_inactive: {
+                        heldReason: 'shop_inactive',
+                        suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                    },
+                    channel_settings_unavailable: {
+                        heldReason: 'channel_settings_unavailable',
+                        suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                    },
                 }[guard.reason];
                 if (terminal) {
                     await finalizeAiMessage(aiMessage, shopId, conversationId, {
@@ -3273,6 +3560,7 @@ async function processMessageJob(job) {
             aiMessage,
             automaticSendIdempotencyKey,
             shopId,
+            channel?.id || null,
         );
         if (!providerBoundary.allowed) {
             const terminal = {
@@ -3298,6 +3586,18 @@ async function processMessageJob(job) {
                 },
                 mode_changed: {
                     heldReason: 'mode_changed',
+                    suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                },
+                emergency_stop: {
+                    heldReason: 'emergency_stop',
+                    suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                },
+                shop_inactive: {
+                    heldReason: 'shop_inactive',
+                    suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                },
+                channel_settings_unavailable: {
+                    heldReason: 'channel_settings_unavailable',
                     suggestionVisibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
                 },
             }[providerBoundary.reason];
@@ -3727,6 +4027,10 @@ module.exports = {
         recoverAcceptedAutoReplyShadow,
         finishAlreadyClaimedAutomaticSend,
         getAutomaticSendGuard,
+        buildWorkerAiSettings,
+        resolveMutationsAllowed,
+        loadShopSafetyState,
+        claimProviderSendBoundary,
         revalidateProductEvidenceBeforeSend,
         revalidateKnowledgeEvidenceBeforeSend,
         revalidateOperatingContextBeforeSend,

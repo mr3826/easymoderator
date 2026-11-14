@@ -53,6 +53,8 @@ export type KnownSSEEvent =
   | 'channel_error'
   | 'channel_status_changed'
   | 'channel_action_required'
+  | 'channel_settings_changed'
+  | 'emergency_stop_changed'
   | 'llm_outage'
   | (string & Record<never, never>); // allow arbitrary strings for forward-compat
 
