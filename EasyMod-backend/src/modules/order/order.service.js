@@ -1614,6 +1614,17 @@ const cancelOrderInTransaction = async (userId, shopId, orderId, reason, transac
         { order_status: 'cancelled', note: reason ? `Cancelled: ${reason}` : order.note },
         { transaction }
     );
+
+    // ADR-0011: an explicitly cancelled order is an explicit BDT 0 line on the
+    // next invoice, written atomically with the cancellation itself.
+    await require('../commercial/delivered-order-billing.service').recordOutcomeLine({
+        shopId,
+        orderId,
+        outcome: 'CANCELLED',
+        occurredAt: new Date(),
+        source: 'ui_cancel',
+    }, transaction);
+
     await restoreOrderInventory(orderId, shopId, transaction);
     return order;
 };

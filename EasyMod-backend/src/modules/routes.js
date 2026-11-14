@@ -30,7 +30,9 @@ const router = express.Router();
 
 // Register routes
 router.use('/public', require('./public/public-stats.routes')); // unauthenticated marketing stats
-router.use('/subscription/plans', require('./public/subscription-plans.routes'));
+router.use('/public', require('./public/commercial-contract.routes')); // ADR-0011 sole price authority
+router.use('/subscription/plans', require('./public/subscription-plans.routes')); // 410 retirement tombstone
+router.use('/commercial', require('./commercial/commercial.routes')); // ADR-0011 authenticated claims
 router.use('/subscription/ai-reply-shadow-ledger', require('./subscription/ai-reply-shadow-ledger.routes'));
 router.use('/public/addons', require('./shop-addons/public-addon-catalog.routes'));
 router.use('/auth', authRoutes);

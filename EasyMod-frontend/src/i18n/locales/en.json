@@ -3217,5 +3217,151 @@
       "pageBlocked": "Customer may have blocked the page. You cannot send messages to them.",
       "fallback": "Message could not be sent. Check your connection or contact support."
     }
+  },
+  "claims": {
+    "billing": {
+      "delivered_order": {
+        "en": "৳10.00 per provider-confirmed delivered order. No subscription, no setup fee, and no monthly minimum.",
+        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে ৳১০.০০। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।"
+      },
+      "overdue_policy": {
+        "en": "If a bill is overdue, new courier bookings are blocked and automated replies pause. Your inbox and history stay readable, and nothing is deleted.",
+        "bn": "বিল বকেয়া হলে নতুন কুরিয়ার বুকিং বন্ধ থাকে এবং স্বয়ংক্রিয় রিপ্লাই বিরত থাকে। আপনার ইনবক্স ও হিস্টোরি পড়া যাবে, কিছুই মুছে ফেলা হয় না।"
+      }
+    },
+    "courier": {
+      "pathao": {
+        "booking_live": {
+          "en": "Courier booking through Pathao is available.",
+          "bn": "Pathao-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "Pathao courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "Pathao কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "Pathao integration code is present.",
+          "bn": "Pathao ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "Pathao COD settlement reconciliation is supported.",
+          "bn": "Pathao COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
+            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
+          }
+        }
+      },
+      "steadfast": {
+        "booking_live": {
+          "en": "Courier booking through Steadfast is available.",
+          "bn": "Steadfast-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "Steadfast courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "Steadfast কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "Steadfast integration code is present.",
+          "bn": "Steadfast ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "Steadfast COD settlement reconciliation is supported.",
+          "bn": "Steadfast COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
+            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
+      },
+      "redx": {
+        "booking_live": {
+          "en": "Courier booking through RedX is available.",
+          "bn": "RedX-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "RedX courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "RedX কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "RedX integration code is present.",
+          "bn": "RedX ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "RedX COD settlement reconciliation is supported.",
+          "bn": "RedX COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
+            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
+      },
+      "all_providers": {
+        "en": "Courier booking through {{providers}} is live-verified.",
+        "bn": "{{providers}}—এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Courier booking is implemented, but it is not yet live-verified for all three providers.",
+          "bn": "কুরিয়ার বুকিং তৈরি হয়েছে, তবে তিনটি প্রোভাইডারের জন্যই এখনো লাইভ যাচাই হয়নি।"
+        }
+      }
+    },
+    "voice": {
+      "transcription": {
+        "en": "Voice transcription is available.",
+        "bn": "ভয়েস ট্রান্সক্রিপশন পাওয়া যায়।",
+        "fallback": {
+          "en": "Voice transcription is a mock-only preview and is not live-verified.",
+          "bn": "ভয়েস ট্রান্সক্রিপশন শুধু মক প্রিভিউ, লাইভ যাচাইকৃত নয়।"
+        }
+      },
+      "auto_reply": {
+        "en": "Voice auto-reply is available.",
+        "bn": "ভয়েস অটো-রিপ্লাই পাওয়া যায়।",
+        "fallback": {
+          "en": "Voice auto-reply is not implemented.",
+          "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
+        }
+      }
+    },
+    "ai": {
+      "auto_reply": {
+        "en": "Automated AI replies are enabled for this shop.",
+        "bn": "এই শপের জন্য স্বয়ংক্রিয় AI রিপ্লাই চালু আছে।",
+        "fallback": {
+          "en": "Automated AI replies have not been proven live; replies stay in draft for review.",
+          "bn": "স্বয়ংক্রিয় AI রিপ্লাই লাইভ প্রমাণিত নয়; রিপ্লাই পর্যালোচনার জন্য ড্রাফটে থাকে।"
+        }
+      },
+      "draft_reply": {
+        "en": "AI-assisted draft replies are available for review before sending.",
+        "bn": "পাঠানোর আগে পর্যালোচনার জন্য AI-সহায়ক ড্রাফট রিপ্লাই পাওয়া যায়।"
+      },
+      "reply_shadow_meter": {
+        "en": "AI reply shadow meter is available internally.",
+        "bn": "AI রিপ্লাই শ্যাডো মিটার অভ্যন্তরীণভাবে পাওয়া যায়।"
+      }
+    },
+    "addons": {
+      "ads_studio": {
+        "pilot": {
+          "en": "Ads Studio is enabled for this shop as an approved pilot.",
+          "bn": "এই শপে অনুমোদিত পাইলট হিসেবে Ads Studio চালু আছে।",
+          "fallback": {
+            "en": "Ads Studio is an approval-only pilot and is not enabled for this shop.",
+            "bn": "Ads Studio শুধু অনুমোদনসাপেক্ষ পাইলট এবং এই শপে চালু নেই।"
+          }
+        }
+      },
+      "storefront": {
+        "pilot": {
+          "en": "Storefront is enabled for this shop as an approved pilot.",
+          "bn": "এই শপে অনুমোদিত পাইলট হিসেবে Storefront চালু আছে।",
+          "fallback": {
+            "en": "Storefront is an approval-only pilot and is not enabled for this shop.",
+            "bn": "Storefront শুধু অনুমোদনসাপেক্ষ পাইলট এবং এই শপে চালু নেই।"
+          }
+        }
+      }
+    }
   }
 }

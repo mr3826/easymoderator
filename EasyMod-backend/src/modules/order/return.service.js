@@ -10,7 +10,7 @@ const { AppError } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
 const { Op } = require('sequelize');
 const { invalidate: invalidateStock } = require('../product/stock-status-guard.service');
-const { getPartnerOrderTier } = require('../subscription/subscription.plans');
+const deliveredOrderBilling = require('../commercial/delivered-order-billing.service');
 
 /**
  * Verify user has access to the shop
@@ -70,8 +70,9 @@ const getInvoicePeriod = (invoice) => {
 };
 
 const isPartnerInvoice = (invoice) => {
-    if (invoice.invoice_type === 'partner_per_order') return true;
+    if (invoice.invoice_type === 'partner_per_order' || invoice.invoice_type === 'delivered_order') return true;
     const metadata = parseMetadata(invoice.metadata);
+    if (String(metadata.model || '').toUpperCase() === 'DELIVERED_ORDER') return true;
     return [metadata.plan_code, metadata.planCode, metadata.plan_name, metadata.planName, metadata.billing_model]
         .some(value => String(value || '').toUpperCase().includes('PARTNER')
             || String(value || '').toLowerCase() === 'per_order');
@@ -92,11 +93,28 @@ const calculateLegacyPartnerCharge = (deliveredOrders) => {
     return total;
 };
 
-const findPartnerInvoiceForOrder = async (shopId, order, transaction) => {
+/**
+ * Find the invoice that already charged this order's delivery.
+ *
+ * `invoiceIdHint` short-circuits the search when the billing line itself names
+ * the invoice (ADR-0011): the line is the authoritative link, and re-deriving
+ * it from dates could miss a boundary.
+ */
+const findPartnerInvoiceForOrder = async (shopId, order, transaction, invoiceIdHint = null) => {
+    if (invoiceIdHint && typeof Invoice.findByPk === 'function') {
+        const hinted = await Invoice.findByPk(invoiceIdHint, {
+            transaction,
+            ...(transaction?.LOCK?.UPDATE ? { lock: transaction.LOCK.UPDATE } : {}),
+        });
+        if (hinted && String(hinted.shop_id) === String(shopId)) return hinted;
+    }
+
     const where = {
         shop_id: shopId,
         status: { [Op.in]: ['pending', 'overdue', 'paid'] },
-        invoice_type: { [Op.in]: ['partner_per_order', 'monthly_subscription', 'yearly_subscription'] },
+        invoice_type: {
+            [Op.in]: ['partner_per_order', 'delivered_order', 'monthly_subscription', 'yearly_subscription'],
+        },
     };
     let invoices = [];
     if (typeof Invoice.findAll === 'function') {
@@ -132,6 +150,14 @@ const findPartnerInvoiceForOrder = async (shopId, order, transaction) => {
 
 const getPartnerRate = async (invoice, shopId, transaction) => {
     const metadata = parseMetadata(invoice.metadata);
+
+    // ADR-0011 invoices record the contract unit price in poisha. It is the
+    // exact price charged, so it wins over any legacy derivation.
+    const unitPriceMinor = Number(metadata.unit_price_minor ?? metadata.unitPriceMinor);
+    if (Number.isFinite(unitPriceMinor) && unitPriceMinor > 0) {
+        return unitPriceMinor / 100;
+    }
+
     const explicitRate = Number(
         metadata.rate_bdt
         ?? metadata.rateBdt
@@ -178,6 +204,7 @@ const getPartnerRate = async (invoice, shopId, transaction) => {
     if (deliveredOrders > 0) {
         return calculateLegacyPartnerCharge(deliveredOrders) / deliveredOrders;
     }
+    const { getPartnerOrderTier } = require('../subscription/subscription.legacy-plans');
     return getPartnerOrderTier(deliveredOrders)?.rateBdt || 0;
 };
 
@@ -276,14 +303,38 @@ const updateReturnStatus = async (shopId, orderId, status) => {
             returnStatusUpdatedAt: new Date()
         };
 
-        // A settled Partner invoice is immutable. Record one credit ledger row
-        // instead; the next Partner invoice can net it against new deliveries.
-        if ((status === 'approved' || status === 'refunded')
+        // ADR-0011 reversal rule. The billing line is the financial truth:
+        //   - before invoicing: convert it in place to an explicit BDT 0 line;
+        //   - after invoicing: leave the invoice alone and use the credit path
+        //     below (unpaid -> reduce in place, paid -> pending credit).
+        const isReversal = status === 'approved' || status === 'refunded';
+        let billingLine = null;
+        if (isReversal && deliveredOrderBilling
+            && typeof deliveredOrderBilling.findLineForOrder === 'function') {
+            billingLine = await deliveredOrderBilling.findLineForOrder({ shopId, orderId }, transaction);
+        }
+        const hasBillableLine = Boolean(billingLine) && billingLine.line_kind === 'billable';
+
+        if (isReversal && hasBillableLine && !billingLine.invoice_id) {
+            const reversal = await deliveredOrderBilling.reverseLineForReturn({ shopId, orderId }, transaction);
+            if (reversal.reversed) {
+                updatedMeta.partnerBillingReversalAt = updatedMeta.returnStatusUpdatedAt;
+            }
+        } else if (isReversal
+            && (!billingLine || hasBillableLine)
             && (order.delivered_at || order.updated_at)
             && !lockedMeta.partnerBillingAdjustmentId
             && Invoice && typeof Invoice.findOne === 'function'
             && PartnerBillingAdjustment && typeof PartnerBillingAdjustment.create === 'function') {
-            const settledInvoice = await findPartnerInvoiceForOrder(shopId, order, transaction);
+            // A settled invoice is immutable. Record one credit ledger row
+            // instead; the next delivered-order invoice nets it against new
+            // deliveries.
+            const settledInvoice = await findPartnerInvoiceForOrder(
+                shopId,
+                order,
+                transaction,
+                hasBillableLine ? billingLine.invoice_id : null,
+            );
             const existingAdjustment = PartnerBillingAdjustment && typeof PartnerBillingAdjustment.findOne === 'function'
                 ? await PartnerBillingAdjustment.findOne({
                     where: { shop_id: shopId, order_id: orderId },

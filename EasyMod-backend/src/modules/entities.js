@@ -25,6 +25,7 @@ const ShopPickupLocation = require('./delivery/shop-pickup-location.entity');
 const PaymentConfig = require('./payment/payment-config.entity');
 const Subscription = require('./subscription/subscription.entity');
 const Invoice = require('./subscription/invoice.entity');
+const BillingLine = require('./commercial/billing-line.entity');
 const PartnerApplication = require('./subscription/partner-application.entity');
 const UsageEvent = require('./subscription/usage-event.entity');
 const Keyword = require('./keyword/keyword.entity');
@@ -411,6 +412,15 @@ Invoice.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
 Subscription.hasMany(Invoice, { foreignKey: 'subscription_id', as: 'invoices' });
 Shop.hasMany(Invoice, { foreignKey: 'shop_id', as: 'invoices' });
 
+// ADR-0011 delivered-order ledger. tenant-scoped and invoice-linked.
+BillingLine.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
+BillingLine.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+BillingLine.belongsTo(Subscription, { foreignKey: 'subscription_id', as: 'subscription' });
+BillingLine.belongsTo(Invoice, { foreignKey: 'invoice_id', as: 'invoice' });
+Shop.hasMany(BillingLine, { foreignKey: 'shop_id', as: 'billing_lines' });
+Order.hasMany(BillingLine, { foreignKey: 'order_id', as: 'billing_lines' });
+Invoice.hasMany(BillingLine, { foreignKey: 'invoice_id', as: 'billing_lines' });
+
 // Define usage event relationships
 UsageEvent.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
 Shop.hasMany(UsageEvent, { foreignKey: 'shop_id', as: 'usage_events' });
@@ -623,6 +633,10 @@ module.exports = {
     Order,
     OrderReturn,
     PartnerBillingAdjustment,
+    // ADR-0011 name for the same credit ledger; the table keeps its historical
+    // partner_billing_adjustments name for existing rows.
+    BillingAdjustment: PartnerBillingAdjustment,
+    BillingLine,
     OrderItem,
     Conversation,
     Message,
@@ -637,6 +651,7 @@ module.exports = {
     PaymentConfig,
     Subscription,
     Invoice,
+    BillingLine,
     PartnerApplication,
     UsageEvent,
     Keyword,

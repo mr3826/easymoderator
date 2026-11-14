@@ -116,7 +116,15 @@ jest.mock('../../entities', () => ({
     PaymentConfig: { findOne: jest.fn() },
     Invoice: {
         create: jest.fn()
-    }
+    },
+    // ADR-0011 ledger used by the cancellation path.
+    BillingLine: {
+        findOne: jest.fn().mockResolvedValue(null),
+        findOrCreate: jest.fn().mockResolvedValue([{}, true]),
+        findAll: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue([1])
+    },
+    PartnerBillingAdjustment: { findOne: jest.fn(), create: jest.fn() }
 }));
 
 jest.mock('../../../utils/email.service', () => ({

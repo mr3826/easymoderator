@@ -87,7 +87,7 @@ describe('recurring invoice types', () => {
     it.each([
         ['yearly', 'yearly_subscription'],
         ['monthly', 'monthly_subscription'],
-        ['per_order', 'partner_per_order'],
+        ['per_order', 'delivered_order'],
     ])('maps the %s cycle to %s', (cycle, expected) => {
         expect(recurringInvoiceTypeFor(cycle)).toBe(expected);
     });

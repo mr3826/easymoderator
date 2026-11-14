@@ -1,81 +1,98 @@
 'use strict';
 
+/**
+ * Single-tier plan catalog tests (ADR-0011).
+ *
+ * The retired SHURU/GROWTH/PARTNER catalog must not be renderable: no display
+ * names, no subscription prices, no purchasable packs in this module.
+ */
+
 const {
     PlanCode,
     PRICING_TIERS,
-    PARTNER_ORDER_TIERS,
-    TOPUP_PACKS,
-    getTopupPack,
+    BASE_FEATURES,
+    InvoiceType,
+    RECURRING_INVOICE_TYPES,
+    recurringInvoiceTypeFor,
     normalizePlanCode,
-    calculatePartnerCharge,
+    getTierByCode,
+    planHasFeature,
+    PARTNER_ORDER_TIERS,
+    getTopupPack,
 } = require('../subscription.plans');
 
-describe('subscription plan catalog', () => {
-    it('defines Shuru, Growth, and Partner with the commercial entitlements', () => {
-        expect(Object.keys(PRICING_TIERS)).toEqual([PlanCode.SHURU, PlanCode.GROWTH, PlanCode.PARTNER]);
-        expect(PRICING_TIERS.SHURU).toEqual(expect.objectContaining({
-            priceBdtMonthly: 0,
-            conversationsLimit: 100,
-            billingModel: 'flat_monthly',
-            canPurchaseTopups: false,
-        }));
-        expect(PRICING_TIERS.GROWTH).toEqual(expect.objectContaining({
-            priceBdtMonthly: 999,
-            priceBdtYearly: 9990,
-            conversationsLimit: 500,
-            canPurchaseTopups: true,
-        }));
-        expect(PRICING_TIERS.PARTNER).toEqual(expect.objectContaining({
-            priceBdtMonthly: 0,
-            conversationsLimit: -1,
+describe('single MERCHANT tier', () => {
+    it('defines exactly one tier with the delivered-order entitlements', () => {
+        expect(Object.keys(PRICING_TIERS)).toEqual([PlanCode.MERCHANT]);
+        expect(PRICING_TIERS.MERCHANT).toEqual(expect.objectContaining({
+            code: 'MERCHANT',
             billingModel: 'per_order',
+            priceBdtMonthly: 0,
+            priceBdtYearly: 0,
+            conversationsLimit: -1,
+            ordersLimit: -1,
             canPurchaseTopups: false,
         }));
-        expect(PRICING_TIERS.SHURU.features).toEqual(PRICING_TIERS.GROWTH.features);
-        expect(PRICING_TIERS.GROWTH.features).toEqual(PRICING_TIERS.PARTNER.features);
     });
 
-    it('fails unknown and legacy plan codes closed to Shuru', () => {
-        expect(normalizePlanCode('FREE')).toBe(PlanCode.SHURU);
-        expect(normalizePlanCode('PACKAGE_1')).toBe(PlanCode.SHURU);
-        expect(normalizePlanCode('not-a-plan')).toBe(PlanCode.SHURU);
-        expect(normalizePlanCode('GROWTH')).toBe(PlanCode.GROWTH);
-        expect(normalizePlanCode('PARTNER')).toBe(PlanCode.PARTNER);
+    it('carries no display name or public price', () => {
+        // `name` exists only as a non-enumerable machine code so legacy writers
+        // cannot fall back to a retired persisted label. It never enumerates.
+        expect(Object.keys(PRICING_TIERS.MERCHANT)).not.toContain('name');
+        expect(PRICING_TIERS.MERCHANT.name).toBe('MERCHANT');
+        expect(PRICING_TIERS.MERCHANT).not.toHaveProperty('keyFeature');
+        // The only price authority is the commercial contract.
+        expect(PRICING_TIERS.MERCHANT.perOrderChargeBdt).toBeNull();
+    });
+
+    it('removes the never-verified voice transcription feature', () => {
+        expect(BASE_FEATURES).not.toHaveProperty('voice_note_transcription');
+        expect(planHasFeature('MERCHANT', 'voice_note_transcription')).toBe(false);
+    });
+
+    it('normalizes every historical code to MERCHANT', () => {
+        expect(normalizePlanCode('SHURU')).toBe(PlanCode.MERCHANT);
+        expect(normalizePlanCode('GROWTH')).toBe(PlanCode.MERCHANT);
+        expect(normalizePlanCode('PARTNER')).toBe(PlanCode.MERCHANT);
+        expect(normalizePlanCode('FREE')).toBe(PlanCode.MERCHANT);
+        expect(normalizePlanCode(undefined)).toBe(PlanCode.MERCHANT);
+    });
+
+    it('resolves legacy codes to the same entitlement set', () => {
+        expect(getTierByCode('SHURU')).toBe(PRICING_TIERS.MERCHANT);
+        expect(getTierByCode('GROWTH')).toBe(PRICING_TIERS.MERCHANT);
+        expect(getTierByCode(null)).toBeNull();
     });
 });
 
-describe('Partner flat rate bands', () => {
-    it.each([
-        [299, 0],
-        [300, 4500],
-        [999, 14985],
-        [1000, 12000],
-        [2999, 35988],
-        [3000, 30000],
-    ])('calculates %s delivered orders as %s BDT', (orders, total) => {
-        expect(calculatePartnerCharge(orders)).toBe(total);
-    });
-
-    it('publishes the expected band boundaries and rates', () => {
-        expect(PARTNER_ORDER_TIERS).toEqual([
-            { minOrders: 300, maxOrders: 999, rateBdt: 15 },
-            { minOrders: 1000, maxOrders: 2999, rateBdt: 12 },
-            { minOrders: 3000, maxOrders: null, rateBdt: 10 },
+describe('invoice typing', () => {
+    it('adds delivered_order as a recurring type', () => {
+        expect(InvoiceType.DELIVERED_ORDER).toBe('delivered_order');
+        expect(RECURRING_INVOICE_TYPES).toEqual([
+            'delivered_order',
+            'monthly_subscription',
+            'yearly_subscription',
+            'partner_per_order',
         ]);
     });
+
+    it('maps a per-order subscription to a delivered-order invoice', () => {
+        expect(recurringInvoiceTypeFor('per_order')).toBe(InvoiceType.DELIVERED_ORDER);
+        expect(recurringInvoiceTypeFor('yearly')).toBe(InvoiceType.YEARLY_SUBSCRIPTION);
+        expect(recurringInvoiceTypeFor('monthly')).toBe(InvoiceType.MONTHLY_SUBSCRIPTION);
+    });
 });
 
-describe('top-up pack catalog', () => {
-    it('publishes only the new codes and prices', () => {
-        expect(TOPUP_PACKS).toEqual({
-            PACK_100: { code: 'PACK_100', conversations: 100, priceBdt: 250 },
-            PACK_300: { code: 'PACK_300', conversations: 300, priceBdt: 500 },
-            PACK_700: { code: 'PACK_700', conversations: 700, priceBdt: 1000 },
-        });
+describe('historical resolution stays available', () => {
+    it('keeps the retired Partner band numbers for old invoices', () => {
+        expect(PARTNER_ORDER_TIERS.map((t) => [t.minOrders, t.maxOrders, t.rateBdt])).toEqual([
+            [300, 999, 15],
+            [1000, 2999, 12],
+            [3000, null, 10],
+        ]);
     });
 
-    it('still resolves historical codes at their original prices', () => {
+    it('still resolves a historical top-up pack code', () => {
         expect(getTopupPack('TOPUP_100')).toEqual({ code: 'TOPUP_100', conversations: 100, priceBdt: 150 });
-        expect(getTopupPack('PACK_100')).toEqual({ code: 'PACK_100', conversations: 100, priceBdt: 250 });
     });
 });

@@ -19,6 +19,9 @@ jest.mock('../../rto-shield/rto-shield.service', () => ({
     ...mockRtoShield,
 }));
 jest.mock('../../order-confidence/order-confidence.service', () => ({ ...mockOrderConfidence }));
+jest.mock('../../commercial/delivered-order-billing.service', () => ({
+    recordOutcomeLine: jest.fn().mockResolvedValue({ line: {}, created: true }),
+}));
 jest.mock('../../../utils/structured-logger', () => ({
     createLogger: () => mockLogger,
 }));

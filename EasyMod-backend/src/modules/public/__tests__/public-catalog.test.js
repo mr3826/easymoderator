@@ -12,60 +12,18 @@ function appFor(router) {
 }
 
 describe('public commercial catalogs', () => {
-    test('publishes the three founder package names and non-billable support targets without changing current conversation contracts', async () => {
+    test('retires the subscription catalog in favour of the delivered-order contract', async () => {
         const response = await request(appFor(planRoutes)).get('/');
 
-        expect(response.status).toBe(200);
-        expect(response.body.data).toHaveLength(3);
-        expect(response.body.data.map(({ code, public_name }) => [code, public_name])).toEqual([
-            ['SHURU', 'Get Your Moderator'],
-            ['GROWTH', 'Moderator Plus'],
-            ['PARTNER', 'Partnership'],
-        ]);
-        expect(response.body.data.every((plan) => (
-            typeof plan.description === 'string'
-            && typeof plan.description_bn === 'string'
-            && !/\b(100|500|999)\b/.test(plan.description)
-            && !/\b(100|500|999)\b/.test(plan.description_bn)
-        ))).toBe(true);
-        expect(response.body.data[0]).toMatchObject({
-            conversations_limit: 100,
-            support_reply_allowance: {
-                amount: 300,
-                unit: 'provider_accepted_ai_reply',
-                period: 'utc_calendar_month',
-                status: 'shadow_only',
-                billable: false,
-                enforced: false,
-            },
+        // ADR-0011 C1: the plan catalog is superseded in full. The endpoint must
+        // not answer with plans; it points old clients at the one price authority.
+        expect(response.status).toBe(410);
+        expect(response.body).toMatchObject({
+            success: false,
+            code: 'CATALOG_RETIRED',
+            successor: '/api/public/commercial-contract',
         });
-        expect(response.body.data[1]).toMatchObject({
-            conversations_limit: 500,
-            price_bdt_monthly: 999,
-            can_purchase_topups: true,
-            topup_packs: [
-                { code: 'PACK_100', conversations: 100, priceBdt: 250 },
-                { code: 'PACK_300', conversations: 300, priceBdt: 500 },
-                { code: 'PACK_700', conversations: 700, priceBdt: 1000 },
-            ],
-            support_reply_allowance: {
-                amount: 3000,
-                unit: 'provider_accepted_ai_reply',
-                period: 'utc_calendar_month',
-                status: 'shadow_only',
-                billable: false,
-                enforced: false,
-            },
-        });
-        expect(response.body.data[2]).toMatchObject({
-            billing_model: 'per_order',
-            support_reply_allowance: null,
-            partner_order_tiers: [
-                { minOrders: 300, maxOrders: 999, rateBdt: 15 },
-                { minOrders: 1000, maxOrders: 2999, rateBdt: 12 },
-                { minOrders: 3000, maxOrders: null, rateBdt: 10 },
-            ],
-        });
+        expect(response.body.data).toBeUndefined();
     });
 
     test('publishes exactly two separately priced-unset optional pilot add-ons and their operational limits', async () => {

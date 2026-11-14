@@ -1,104 +1,62 @@
 'use strict';
 
-process.env.APP_URL = 'https://app.easymod.tech';
-
-jest.mock('../../entities', () => ({
-    User: { findByPk: jest.fn() },
-    Shop: { findByPk: jest.fn() }
-}));
+/**
+ * Top-up endpoints are retired (ADR-0011). Purchase/checkout/catalog return
+ * 410 Gone; only the historical read remains.
+ */
 
 jest.mock('../topup.service', () => ({
     getTopupPacks: jest.fn(),
     initiateTopup: jest.fn(),
     completeTopup: jest.fn(),
-    getTopupHistory: jest.fn()
+    getTopupHistory: jest.fn(),
 }));
 
-const { User, Shop } = require('../../entities');
 const topupService = require('../topup.service');
 const topupController = require('../topup.controller');
 
-const makeReq = (body = {}) => ({
+const makeReq = (body = {}, query = {}) => ({
     user: { userId: 'user-1', shopId: 'shop-1' },
-    body
+    body,
+    query,
 });
 
 const makeRes = () => ({
     status: jest.fn().mockReturnThis(),
-    json: jest.fn()
+    json: jest.fn(),
 });
 
-beforeEach(() => {
-    jest.clearAllMocks();
-    topupService.initiateTopup.mockResolvedValue({
-        topup_id: 'topup-1',
-        bkash_url: 'https://bkash.example/pay',
-        payment_id: 'pay-1'
+beforeEach(() => jest.clearAllMocks());
+
+describe('retired purchase endpoints', () => {
+    it.each([
+        ['getPacks', {}],
+        ['initiateTopup', { pack_code: 'PACK_100' }],
+        ['completeTopup', { topup_id: 't-1', payment_id: 'p-1' }],
+    ])('%s returns 410 Gone and never calls the service', (handler, body) => {
+        const res = makeRes();
+        topupController[handler](makeReq(body), res);
+
+        expect(res.status).toHaveBeenCalledWith(410);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            success: false,
+            code: 'TOPUP_PROGRAMME_RETIRED',
+        }));
+        expect(topupService.initiateTopup).not.toHaveBeenCalled();
+        expect(topupService.completeTopup).not.toHaveBeenCalled();
     });
 });
 
-describe('topupController.initiateTopup', () => {
-    it('uses authenticated user contact when the browser omits payment phone/name', async () => {
-        User.findByPk.mockResolvedValueOnce({ full_name: 'Founder Owner', phone: '01711111111' });
-        Shop.findByPk.mockResolvedValueOnce({
-            shop_name: 'Founder Shop',
-            name: 'Founder Shop',
-            settings: { businessInfo: { phone: '01722222222', shopName: 'Business Shop' } }
-        });
-        const req = makeReq({ pack_code: 'PACK_100', callback_url: 'https://attacker.example/steal' });
+describe('historical read', () => {
+    it('still returns paginated top-up history for the authenticated shop', async () => {
+        topupService.getTopupHistory.mockResolvedValueOnce([{ id: 'old-1' }]);
         const res = makeRes();
         const next = jest.fn();
 
-        await topupController.initiateTopup(req, res, next);
+        await topupController.getHistory(makeReq({}, { limit: '5', offset: '2' }), res, next);
 
         expect(next).not.toHaveBeenCalled();
-        expect(topupService.initiateTopup).toHaveBeenCalledWith('shop-1', 'PACK_100', {
-            phone: '01711111111',
-            name: 'Founder Owner',
-            callbackUrl: 'https://app.easymod.tech/subscription'
-        });
-        expect(res.status).toHaveBeenCalledWith(201);
-        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
-    });
-
-    it('falls back to saved shop business info when the user has no phone', async () => {
-        User.findByPk.mockResolvedValueOnce({ full_name: null, phone: null });
-        Shop.findByPk.mockResolvedValueOnce({
-            shop_name: 'Fallback Shop',
-            name: 'Fallback Shop',
-            settings: { businessInfo: { phone: '01733333333', shopName: 'Saved Business Name' } }
-        });
-        const req = makeReq({ pack_code: 'PACK_300' });
-        const res = makeRes();
-        const next = jest.fn();
-
-        await topupController.initiateTopup(req, res, next);
-
-        expect(topupService.initiateTopup).toHaveBeenCalledWith('shop-1', 'PACK_300', {
-            phone: '01733333333',
-            name: 'Saved Business Name',
-            callbackUrl: 'https://app.easymod.tech/subscription'
-        });
-    });
-
-    it('keeps explicit payment contact fields when supplied by an authenticated user', async () => {
-        User.findByPk.mockResolvedValueOnce({ full_name: 'Founder Owner', phone: '01711111111' });
-        Shop.findByPk.mockResolvedValueOnce({ shop_name: 'Founder Shop', name: 'Founder Shop', settings: {} });
-        const req = makeReq({
-            pack_code: 'PACK_700',
-            callback_url: 'https://attacker.example/steal',
-            phone: '01799999999',
-            name: 'Billing Contact'
-        });
-        const res = makeRes();
-        const next = jest.fn();
-
-        await topupController.initiateTopup(req, res, next);
-
-        expect(topupService.initiateTopup).toHaveBeenCalledWith('shop-1', 'PACK_700', {
-            phone: '01799999999',
-            name: 'Billing Contact',
-            callbackUrl: 'https://app.easymod.tech/subscription'
-        });
+        expect(topupService.getTopupHistory).toHaveBeenCalledWith('shop-1', 5, 2);
+        expect(res.json).toHaveBeenCalledWith({ success: true, data: [{ id: 'old-1' }] });
     });
 });

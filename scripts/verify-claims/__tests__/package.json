@@ -1,0 +1,6 @@
+{
+  "name": "verify-claims-self-tests",
+  "private": true,
+  "description": "Compat shim so `node --test scripts/verify-claims/__tests__/` works on Node builds that treat a directory argument as a module instead of discovering *.test.js files.",
+  "main": "verify-claims.test.js"
+}

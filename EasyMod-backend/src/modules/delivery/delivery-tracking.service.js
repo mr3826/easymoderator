@@ -270,6 +270,34 @@ const applyStatus = async (transaction = null) => {
                     if (transaction) await RtoShieldService.trackDeliveryOutcome(...args, { transaction });
                     else await RtoShieldService.trackDeliveryOutcome(...args);
                 }
+
+                // ADR-0011 delivered-order ledger. Written in the same
+                // transaction as the status it describes, so the status and the
+                // financial outcome can never disagree: a billing failure rolls
+                // the status back too, and the invoice catch-up run heals it
+                // later from the courier-confirmed order state.
+                const billingOutcome = normalizedStatus === 'delivered'
+                    ? 'DELIVERED'
+                    : isReturnedStatus(normalizedStatus)
+                        ? 'RETURNED'
+                        : normalizedStatus === 'cancelled'
+                            ? 'CANCELLED'
+                            : null;
+                if (billingOutcome) {
+                    // Lazy require: the billing service imports the entity
+                    // registry, and keeping it out of module load avoids a
+                    // require cycle through the delivery stack.
+                    const deliveredOrderBilling = require('../commercial/delivered-order-billing.service');
+                    await deliveredOrderBilling.recordOutcomeLine({
+                        shopId: tracking.order.shop_id,
+                        orderId: tracking.order.id,
+                        outcome: billingOutcome,
+                        provider,
+                        occurredAt: now,
+                        source: 'courier_webhook',
+                    }, transaction);
+                }
+
                 statusChanged = true;
             };
 
