@@ -3,7 +3,8 @@
 The single record of **what is running in production** and **how it got there**.
 Update this file on every production deploy and on every infrastructure cutover.
 
-**Last verified:** 2026-11-14 by the post-cutover audit.
+**Last verified:** 2026-11-14 by the post-cutover audit, then re-verified by the
+`d427f143` batched deploy launch check (receipts below).
 **Verification method:** live probes against the public hosts — `https://api.easymod.tech/api/version`
 (git SHA and migration ledger), `https://api.easymod.tech/health/ready` (database and
 Redis readiness), public DNS resolvers for all five A records, and the served TLS
@@ -48,12 +49,12 @@ Two health-probe traps are recorded here because they have caused false passes:
 | Object Storage namespace | `bm1siqos8k1u` |
 | Deploy root | `/opt/easymod` (Docker Compose) |
 | Stack | `backend`, `worker`, `frontend`, `growth`, `postgres`, `redis`, `qdrant`, `caddy`; Caddy is the only public listener and terminates TLS |
-| Running commit | `90e66d65` — "ci: multi-arch (amd64+arm64) image builds…" (PR #246, merged 2026-11-12T22:13Z) |
-| Runtime identity | `/api/version` reports `gitSha=90e66d65…` (canonical API-origin path `/version`) |
-| Migrations | 72 applied; latest `20261103_001_courier_collection_recon_state` |
-| Readiness | `/health/ready` HTTP 200; database connected, Redis reported from per-client classification (`connected` / `degraded` / `not_configured`) |
-| Cutover deploy | Protected `workflow_dispatch` run `43353881466` — success 2026-11-13T02:48:55Z |
-| Image digests | backend `sha256:b8d9abc5…`, frontend `sha256:c1ed9d23…`, growth `sha256:4d0ceebc…` (digest-pinned GHCR pull) |
+| Running commit | `d427f143` — "feat(readiness): env-driven Caddy ACME contact + PING-verified Redis readiness" (PR #252, merged 2026-11-14T02:00:16Z) |
+| Runtime identity | `/api/version` reports `gitSha=d427f143…` (canonical API-origin path `/version`) |
+| Migrations | 72 applied at the 2026-11-13 cutover (latest `20261103_001_courier_collection_recon_state`); ledger not re-enumerated for `d427f143` |
+| Readiness | `/health/ready` HTTP 200; database `connected`; Redis `connected` verified by an actual PING from the readiness probe (no longer only per-client classification) |
+| Cutover deploy | Latest protected `workflow_dispatch` run `43543879447` — success 2026-11-14T02:19:28Z, deployed `d427f143` (previous cutover run `43353881466`, success 2026-11-13T02:48:55Z) |
+| Image digests | Deploy pulls digest-pinned GHCR images; per-image digests for `d427f143` are not recorded in this receipt (2026-11-13 cutover digests were backend `sha256:b8d9abc5…`, frontend `sha256:c1ed9d23…`, growth `sha256:4d0ceebc…`) |
 
 ## Domain and DNS authority
 
@@ -171,6 +172,7 @@ exist (NXDOMAIN) and must not be used in any production URL.
 | 2026-11-02 | DigitalOcean-era production runtime `91c0558e`. |
 | 2026-11-12/13 | `3dda3037` → `90e66d65` (multi-arch image builds, PR #246 merged 2026-11-12T22:13Z); OCI cutover deploy run `43353881466` succeeded 2026-11-13T02:48:55Z. |
 | 2026-11-13 ~10:27 UTC | DigitalOcean droplet `easymod-prod` destroyed on founder confirmation; OCI became the only production host. |
+| 2026-11-14 02:19Z | `6b367939` → `d427f143` (env-driven Caddy ACME contact + PING-verified Redis readiness, PR #252); protected deploy run `43543879447` succeeded. |
 
 ## Open founder actions
 
@@ -180,6 +182,7 @@ exist (NXDOMAIN) and must not be used in any production URL.
 | Add CAA record `0 issue "letsencrypt.org"` | No CAA record exists and Caddy uses Let's Encrypt. | Cloudflare DNS |
 | Consider DNSSEC + registry lock | Zone is not DNSSEC-signed; transfer lock is only `clientTransferProhibited`. | Cloudflare / Namecheap |
 | Meta Tech Provider Access Verification | Deadline **2026-11-21**. | Meta dashboard |
+| Restore Android device-proof evidence | The `mobile-e2e` production proof (`43545688253`) failed before the emulator steps: no `mobile-release-production-<sha>` artifact exists (newest successful `mobile-release.yml` run `37415393394` reports `total_count=0`). Until a signed artifact is republished, there is **no Android device proof** for the deployed SHA. | [run 43545688253](https://github.com/mr3826/easymoderator/actions/runs/43545688253) |
 | Close the DigitalOcean account | Only after the first green OCI off-site backup run, once the Spaces bucket and `DO_TOKEN` are deleted. | Pending run |
 
 ## Receipts
@@ -214,9 +217,55 @@ exist (NXDOMAIN) and must not be used in any production URL.
   reports `connected` / `degraded` / `not_configured` from per-client
   classification).
 
+### 2026-11-14 — batched deploy receipts (`d427f143`)
+
+- `DEPLOYED_SHA`: `d427f1431c68f6c16a398daa223961f3a0a28dd8` (PR #252), deployed
+  via protected `workflow_dispatch`.
+- `DEPLOY_RUN`: `43543879447` (`CI / CD`, `workflow_dispatch`, success — dispatched
+  `2026-11-14T02:00:47Z`, completed `2026-11-14T02:19:28Z`).
+- `SEED_RUN`: `43538146002` (`Seed Meta Review Merchant`, `workflow_dispatch`,
+  success `2026-11-14T01:31:47Z`, head `6b367939`).
+- `LAUNCH_CHECK`: **5/6 gates PASS**. `launch-readiness` exits 1 solely on the
+  expected pre-pilot activation gate:
+  - PASS — Infra up: `/health/ready` HTTP 200,
+    `commit=d427f1431c68f6c16a398daa223961f3a0a28dd8`.
+  - PASS — DB + Redis + vector store: `db=connected redis=connected
+    vector=available qdrant`.
+  - PASS — Auto-reply DLQ empty: `dlq=0`.
+  - PASS — Inbound webhook DLQ empty: `deadLettered=0 held=0`.
+  - PASS — Auto-reply canary fresh: last ok 45s ago.
+  - FAIL (expected, pilot-pending) — Activation >= 2 shops: unverified;
+    `/api/analytics/growth` returns 503 pre-pilot.
+- `REDIS_READINESS`: the readiness `redis` field now reflects an actual PING rather
+  than only per-client classification (PR #252); production reports `connected`.
+- `ACME_CONTACT`: **registered** — the Caddy ACME account contact is supplied from
+  the environment instead of being hard-coded (PR #252).
+- `WATCH`: `production-watch.yml` green for the deployed SHA.
+- `MOBILE_PROOF`: **FAIL — API half green, device half not run.** Run
+  `43545688253`.
+  - API checks: 50 total — 47 passed, 0 failed, 3 skipped (benign: "no order entity
+    on Home", "no conversation entity on Home", "second shop has no
+    order/conversation on Home"). The suite is **50 checks, not 18**. Production
+    `gitSha=d427f1431c68f6c16a398daa223961f3a0a28dd8` was confirmed via HTTP 200 on
+    the commit check; app on `https://api.easymod.tech`;
+    `database=connected redis=connected`.
+  - Device proof: **not run.** The job failed at step 6, "Locate the signed release
+    of the current mobile source" — `gh run download … -n
+    mobile-release-production-<sha>` printed "no valid artifacts found to
+    download". The newest successful `mobile-release.yml` run on `main` is
+    `37415393394` (head `981f8f74595e0c17f3e779b91708e9d5ba79facc`, 2026-10-06) and
+    its artifacts API reports `total_count=0`; repo-wide there are 61 artifacts and
+    none match `mobile-release-*`. Steps 7–10 (APK signature verify, Maestro
+    install, KVM, signed APK on API 34 emulator) and step 13 ("Signed APK against
+    production on API 34 (x86_64)") were skipped.
+  - Uploaded artifact `mobile-production-proof-43545688253` is only 2,794 bytes —
+    API proof only, **no device evidence**. This receipt records a failed mobile
+    proof; it is not evidence for the Android release.
+
 ## Verification limits
 
-The receipts above prove the deployed SHA, migration ledger, readiness, DNS
+The receipts above prove the deployed SHA, the migration ledger as of the
+2026-11-13 cutover, readiness, DNS
 ownership, TLS issuance and the off-site backup/restore path. They do **not** prove
 an authenticated operator walkthrough, a human-visible Sentry receipt, worker
 canary behavior, media restore, Qdrant recovery, Redis recovery, or a live
