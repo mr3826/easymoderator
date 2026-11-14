@@ -25,7 +25,7 @@ const INTENT_TOKEN_LIMITS = {
     return_query:       200,
     faq:                300,
     general:            512,  // Starter ceiling
-    complex:           1024,  // Growth+ ceiling
+    complex:           1024,  // upper tier ceiling
 };
 
 /**

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-// Selector updates for the founder-pilot package naming (unified V7 copy):
-// CTA "Create your Get Your Moderator account"; labels "Your name" / "Email" / "Mobile number";
+// Selector updates for the single delivered-order offer (ADR-0011):
+// CTA "Create your EasyModerator account"; labels "Your name" / "Email" / "Mobile number";
 // guidance "Consent is required to create your account.". Every behavior assertion
 // (consent gating, zero requests until consent, single-submit, aria wiring,
 // narrow-viewport usability) is preserved verbatim.
@@ -50,7 +50,7 @@ test('unchecked terms keep signup disabled without a request or browser error', 
 
   await page.goto('/signup');
 
-  const submit = page.getByRole('button', { name: /create your get your moderator account/i });
+  const submit = page.getByRole('button', { name: /create your easymoderator account/i });
   const terms = page.getByRole('checkbox', { name: /privacy policy/i });
   await expect(submit).toBeDisabled();
   await expect(terms).not.toBeChecked();

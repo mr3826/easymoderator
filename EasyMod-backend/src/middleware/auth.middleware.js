@@ -20,6 +20,11 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 // cannot use it to walk the rest of the web API.
 const NATIVE_READ_ROUTES = [
     /^\/api\/mobile(?:\/|$)/,
+    // ADR-0011 commercial claim reads: /contract, /claims and /billing-lines are
+    // GET-only and already shop-scoped by verifyShopAccess, so the mobile app
+    // can evaluate the same truth-gated claims as the web surface. Mutations
+    // still hit the read-only check above (these routes expose none).
+    /^\/api\/commercial(?:\/|$)/,
     new RegExp(`^/api/order/${UUID}$`, 'i'),
     new RegExp(`^/api/conversation/${UUID}$`, 'i'),
 ];
@@ -266,7 +271,7 @@ const authenticateRequest = async (
             exp: decoded.exp, // needed for logout/blacklist TTL
             // This claim is issued only after the TOTP login step. A signed
             // token without it is intentionally not sufficient for privileged
-            // Growth roles.
+            // Growth OS roles.
             mfaVerified: decoded.mfaVerified === true,
             bootstrapOperator: decoded.bootstrapOperator === true,
             passwordChangeRequired,

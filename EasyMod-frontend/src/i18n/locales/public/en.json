@@ -657,6 +657,32 @@
           "en": "Courier booking is implemented, but it is not yet live-verified for all three providers.",
           "bn": "কুরিয়ার বুকিং তৈরি হয়েছে, তবে তিনটি প্রোভাইডারের জন্যই এখনো লাইভ যাচাই হয়নি।"
         }
+      },
+      "cod_settlement": {
+        "pathao": {
+          "en": "Pathao COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Pathao COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
+            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
+          }
+        },
+        "steadfast": {
+          "en": "Steadfast COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Steadfast COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
+            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        },
+        "redx": {
+          "en": "RedX COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "RedX COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
+            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
       }
     },
     "voice": {

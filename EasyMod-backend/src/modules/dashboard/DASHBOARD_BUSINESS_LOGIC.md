@@ -65,7 +65,7 @@ dashboard/
 | `ordersToday` | Order.count({ created_at: today }) | Today's orders |
 | `ordersInPeriod` | Order.count({ created_at: >= startOfPeriod }) | Period orders |
 | `conversionRate` | ordersInPeriod / messagesInPeriod * 100 | Conversion % |
-| `weeklyChange` | (current - previous) / previous * 100 | Growth % |
+| `weeklyChange` | (current - previous) / previous * 100 | Weekly change % |
 
 **Caching Strategy**:
 - Cache Key: `dashboard:summary:{period}`

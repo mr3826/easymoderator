@@ -156,20 +156,20 @@ router.get('/confidence-distribution', authenticate, AnalyticsController.getConf
 
 /**
  * GET /api/analytics/growth — deprecated operational AI-reply + retention
- * report. Canonical Growth activation analytics live at the Growth workspace
- * prospect-ledger endpoint.
+ * report. Canonical Growth OS activation analytics live at the Growth OS
+ * workspace prospect-ledger endpoint.
  */
 router.get('/growth', growthAuthenticate, requireGrowthOsAccess('growth_os.reports.read_all'), async (req, res) => {
     try {
         const data = await growthMetrics.getGrowthMetrics();
         res.json({ success: true, data });
     } catch (err) {
-        console.error('Growth metrics error:', { name: err?.name, code: err?.code });
+        console.error('Growth OS metrics error:', { name: err?.name, code: err?.code });
         res.status(503).json({
             success: false,
             error: {
                 code: 'GROWTH_METRICS_ERROR',
-                message: 'Growth metrics are temporarily unavailable.',
+                message: 'Growth OS metrics are temporarily unavailable.',
             },
         });
     }

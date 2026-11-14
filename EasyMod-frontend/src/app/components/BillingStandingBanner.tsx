@@ -10,7 +10,7 @@ import { ClaimProvider, useRequiredClaimContext } from "./claims/ClaimProvider";
  * Billing standing notice (ADR-0011).
  *
  * The retired conversation-quota threshold banner is gone: there is no
- * conversation allowance to meter. What remains is the founder-approved
+ * conversation quota to meter. What remains is the founder-approved
  * overdue policy, rendered from the claim registry on the `usage-banner`
  * surface — block new courier bookings, pause automated replies, keep the
  * manual inbox and history readable, never delete data.

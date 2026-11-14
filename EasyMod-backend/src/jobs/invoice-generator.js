@@ -23,6 +23,7 @@ const {
     computeInvoiceFromLines,
     getCommercialCutoverAt,
     minorToBdt,
+    toDateOnly,
 } = require('../modules/commercial/delivered-order-billing.service');
 
 /**
@@ -193,6 +194,45 @@ class InvoiceGenerator extends BaseJob {
     }
 
     /**
+     * Charge-forward for late deliveries (ADR-0011 "reversal rule" symmetry).
+     *
+     * A courier callback can arrive after its period's invoice was already
+     * issued. Its billing line keeps the real `occurred_at` (the prior period)
+     * but was never attached to an invoice. Rewriting an issued invoice is
+     * forbidden, so the line is carried forward into the CURRENT invoice as a
+     * prior-period adjustment, exactly as a post-payment return produces a
+     * credit that nets forward.
+     *
+     * Only un-invoiced lines are eligible, and only at/after the persisted
+     * cutover instant. With no cutover state (migration 003 absent) this is a
+     * no-op: pre-cutover history is never manufactured into a charge.
+     *
+     * @param {string} shopId
+     * @param {Date} periodStart
+     * @param {Date|null} cutoverAt
+     * @returns {Promise<Array<object>>}
+     */
+    async priorPeriodUninvoicedLines(shopId, periodStart, cutoverAt) {
+        if (!shopId || !BillingLine || typeof BillingLine.findAll !== 'function') return [];
+        const start = periodStart instanceof Date ? periodStart : new Date(periodStart);
+        if (Number.isNaN(start.getTime())) return [];
+        const cutover = cutoverAt ? new Date(cutoverAt) : null;
+        if (!cutover || Number.isNaN(cutover.getTime())) return [];
+
+        const occurredAt = { [Op.lt]: toDateOnly(start) };
+        if (cutover.getTime() < start.getTime()) occurredAt[Op.gte] = toDateOnly(cutover);
+
+        return BillingLine.findAll({
+            where: {
+                shop_id: shopId,
+                invoice_id: null,
+                occurred_at: occurredAt,
+            },
+            order: [['occurred_at', 'ASC'], ['created_at', 'ASC']],
+        });
+    }
+
+    /**
      * Catch up missed terminal outcomes, aggregate the period's un-invoiced
      * lines, net pending credits, and issue one delivered-order invoice.
      */
@@ -230,9 +270,18 @@ class InvoiceGenerator extends BaseJob {
             cutoverAt,
         });
 
+        // Late courier callbacks whose `occurred_at` is in an ALREADY-INVOICED
+        // prior period. They are charge-forwarded, never written back into the
+        // issued document.
+        const priorLines = await this.priorPeriodUninvoicedLines(
+            subscription.shop_id, periodStart, cutoverAt,
+        );
+
+        const combinedLines = [...priorLines, ...lines];
+
         // No lines at all means nothing happened; a period containing only
         // zero-rated lines still invoices explicitly at BDT 0.
-        if (!lines.length) {
+        if (!combinedLines.length) {
             results.invoicesSkipped++;
             return;
         }
@@ -242,7 +291,21 @@ class InvoiceGenerator extends BaseJob {
             (total, adjustment) => total + Math.max(0, Math.round(Number(adjustment.amount_bdt) * 100)),
             0,
         );
-        const computed = computeInvoiceFromLines(lines, creditsMinor);
+        const computed = computeInvoiceFromLines(combinedLines, creditsMinor);
+
+        const priorLineIds = new Set(priorLines.map((line) => String(line.id)));
+        const priorOrderIds = new Set(priorLines.map((line) => String(line.order_id)));
+        const priorPeriodAdjustmentMinor = priorLines.reduce(
+            (total, line) => total + Math.max(0, Math.trunc(Number(line.amount_minor) || 0)),
+            0,
+        );
+        // The derivation is the invoice's metadata; flag every carried-forward
+        // line so a reader can tell current-period usage from a late arrival.
+        computed.priorPeriodAdjustmentMinor = priorPeriodAdjustmentMinor;
+        computed.lines = computed.lines.map((line) => ({
+            ...line,
+            priorPeriodAdjustment: priorOrderIds.has(String(line.orderId)),
+        }));
 
         const invoiceData = {
             shopId: subscription.shop_id,
@@ -254,7 +317,9 @@ class InvoiceGenerator extends BaseJob {
             totalAmount: minorToBdt(computed.netMinor),
             computed,
             adjustments,
-            lineIds: lines.map((line) => line.id),
+            lineIds: combinedLines.map((line) => line.id),
+            priorLineIds: [...priorLineIds],
+            priorPeriodAdjustmentMinor,
             cutoverAt,
         };
 
@@ -309,6 +374,12 @@ class InvoiceGenerator extends BaseJob {
                 grossMinor: computed.grossMinor,
                 creditMinor: computed.creditMinor,
                 netMinor: computed.netMinor,
+                // Late prior-period arrivals carried forward into this invoice.
+                // They are real charges, never a rewrite of the issued document.
+                priorPeriodAdjustmentMinor: invoiceData.priorPeriodAdjustmentMinor || 0,
+                priorPeriodAdjustmentCount: Array.isArray(invoiceData.priorLineIds)
+                    ? invoiceData.priorLineIds.length
+                    : 0,
                 lines: computed.lines,
                 // VAT stays 0 (all-in pricing); kept so it can be enabled centrally.
                 vatRate: 0,

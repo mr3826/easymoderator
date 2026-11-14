@@ -531,7 +531,7 @@ const main = async () => {
             REDIS_RATELIMIT_DB: '22',
             // Auth's production-config test uses only the app origin. Keep the
             // Growth OS switch disabled for this independent unit-suite pass;
-            // the real integration phase above opts into Growth explicitly.
+            // the real integration phase above opts into Growth OS explicitly.
             GROWTH_OS_ENABLED: 'false',
         };
         backendRegression = await run(nodeExe, [

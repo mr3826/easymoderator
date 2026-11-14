@@ -1201,7 +1201,7 @@ async function storeIncomingMessage(event) {
         // idempotency key. New conversations increment usage; later messages
         // reuse the original decision without incrementing again. Persisting the
         // decision on the conversation prevents a later message from bypassing
-        // an exhausted Shuru allowance after the burst job has completed.
+        // an exhausted legacy allowance after the burst job has completed.
         if (storedMessage?.conversation_id) {
             try {
                 const subscriptionService = require('../subscription/subscription.service');

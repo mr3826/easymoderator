@@ -304,7 +304,7 @@ const createUserWithShop = async (userData) => {
 /**
  * True when the user currently holds an active Growth OS internal role.
  * Used solely to allow shop-less sign-in/refresh for internal staff accounts.
- * This is NOT an authorization decision: Growth API requests are still
+ * This is NOT an authorization decision: Growth OS API requests are still
  * authorized per-request by the strict Growth OS middleware. Failing any
  * lookup returns an unavailable state and never grants a session.
  */
@@ -328,7 +328,7 @@ const getActiveGrowthOsRole = async (userId) => {
 // The one-time seed account must be able to complete password rotation and MFA
 // enrollment before it receives its first Growth OS role. This marker is set
 // only by the protected seed workflow and cleared transactionally by the
-// canonical first-role grant. It is not a Growth authorization decision.
+// canonical first-role grant. It is not a Growth OS authorization decision.
 const isInitialGrowthBootstrapUser = (user) => user?.settings?.internal_growth_bootstrap === true;
 
 const hasActiveGrowthOsRole = async (userId) => Boolean(await getActiveGrowthOsRole(userId));
@@ -734,7 +734,7 @@ const validateRefreshToken = async (refreshToken) => {
         const selectedShopId = user.last_logged_shop_id || null;
 
         // Refresh tokens can outlive a UserShop deactivation. Merchant data
-        // requires an active membership; an internal Growth role is not a
+        // requires an active membership; an internal Growth OS role is not a
         // substitute for merchant scope. Clean stale context and credentials
         // atomically before rejecting the refresh.
         if (selectedShopId) {

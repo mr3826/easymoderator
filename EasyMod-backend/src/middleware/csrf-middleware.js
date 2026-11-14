@@ -78,7 +78,7 @@ function isTrustedAuthOrigin(
     // Explicit origins are used by pure callers/tests as an isolated policy.
     // The request middleware passes no explicit origins and therefore uses the
     // deployed CORS configuration. This prevents a developer .env allowlist
-    // from contaminating a caller that supplied the production app/Growth
+    // from contaminating a caller that supplied the production app/Growth OS
     // origins directly.
     const configuredCorsOrigins = corsOrigins === undefined
         ? ((appOrigin !== undefined || growthOrigin !== undefined)

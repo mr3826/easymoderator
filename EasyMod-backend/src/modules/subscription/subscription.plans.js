@@ -106,7 +106,7 @@ const MERCHANT_TIER = {
 };
 
 // Legacy writers copy `tier.name` into subscription.plan_name, whose schema
-// default is the retired "Shuru" display string. Rather than let a new shop row
+// default is a retired free-tier display string. Rather than let a new shop row
 // persist retired copy, expose the machine CODE as a non-enumerable label: it is
 // never enumerated into any listing or API payload and it is not a display name.
 Object.defineProperty(MERCHANT_TIER, 'name', {

@@ -3,21 +3,132 @@ import AxeBuilder from '@axe-core/playwright';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+/**
+ * Public funnel V7 — the single delivered-order offer (ADR-0011).
+ *
+ * The shipped public surfaces no longer expose the retired three-package story
+ * (Shuru / Moderator Plus / Partnership), the ৳999 subscription, top-up packs or
+ * the Partnership review dialog. This spec pins the single offer instead:
+ * BDT 10.00 per provider-confirmed delivered order, read from the public
+ * commercial-contract endpoint, with no plan picker and no top-ups.
+ *
+ * All API traffic is mocked. The public contract payload must pass the same
+ * fail-closed validator the app uses, so a stale price would fail this spec.
+ */
+
 const screenshots = resolve(process.cwd(), 'test-results', 'v7-public-funnel');
 mkdirSync(screenshots, { recursive: true });
 
-const features = { image_understanding: true, advanced_ai: true, priority_support: true, custom_branding: false };
-const publicPlans = [
-  { code: 'SHURU', name: 'Shuru', public_name: 'Get Your Moderator', description: 'No monthly plan fee; the active allowance counts Messenger conversations.', description_bn: 'মাসিক প্ল্যান ফি নেই; সক্রিয় সীমায় Messenger কথোপকথন গণনা হয়।', billing_model: 'flat_monthly', price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: 100, orders_limit: -1, products_limit: -1, can_purchase_topups: false, per_order_charge_bdt: null, support_reply_allowance: { amount: 300, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false }, features },
-  { code: 'GROWTH', name: 'Growth', public_name: 'Moderator Plus', description: 'Monthly subscription with conversation-only top-ups.', description_bn: 'মাসিক সাবস্ক্রিপশন; top-up-এ কথোপকথন যোগ হয়।', billing_model: 'flat_monthly', price_bdt_monthly: 999, price_bdt_yearly: 9990, conversations_limit: 500, orders_limit: -1, products_limit: -1, can_purchase_topups: true, per_order_charge_bdt: null, support_reply_allowance: { amount: 3000, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false }, features, topup_packs: [{ code: 'PACK_100', conversations: 100, priceBdt: 250 }], partner_order_tiers: [] },
-  { code: 'PARTNER', name: 'Partner', public_name: 'Partnership', description: 'No upfront subscription; delivered-order billing.', description_bn: 'কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।', billing_model: 'per_order', price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: -1, orders_limit: -1, products_limit: -1, can_purchase_topups: false, per_order_charge_bdt: 15, support_reply_allowance: null, features, partner_order_tiers: [{ minOrders: 300, maxOrders: 999, rateBdt: 15 }, { minOrders: 1000, maxOrders: 2999, rateBdt: 12 }, { minOrders: 3000, maxOrders: null, rateBdt: 10 }] },
+const CONTRACT_VERSION = '1.0.0';
+const CONTRACT_HASH = `sha256:${'b'.repeat(64)}`;
+const REGISTRY_HASH = `sha256:${'a'.repeat(64)}`;
+
+const publicContract = {
+  contract_version: CONTRACT_VERSION,
+  contract_hash: CONTRACT_HASH,
+  model: 'DELIVERED_ORDER',
+  currency: 'BDT',
+  trigger: 'ORDER_DELIVERED_PROVIDER_CONFIRMED',
+  unit_price_minor: 1000,
+  unit_price_bdt: 10,
+  zero_rated_outcomes: ['RETURNED', 'CANCELLED', 'DRAFT', 'CONFIRMED', 'BOOKED', 'IN_TRANSIT', 'FAILED'],
+  subscription_fee_bdt: 0,
+  setup_fee_bdt: 0,
+  monthly_minimum_bdt: 0,
+  conversation_entitlement: null,
+  cycle: 'MONTHLY',
+  payment: 'POSTPAID',
+  due_days: 7,
+  on_overdue: {
+    blockCourierBooking: true,
+    pauseAutomatedAi: true,
+    keepInboxReadable: true,
+    keepHistoryReadable: true,
+    deleteData: false,
+  },
+  description: {
+    en: 'Pay BDT 10.00 per provider-confirmed delivered order. Returned or cancelled orders are billed at BDT 0.00.',
+    bn: 'প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে ৳১০.০০। রিটার্ন বা বাতিল অর্ডারে ৳০.০০ বিল হয়।',
+  },
+  registry_hash: REGISTRY_HASH,
+  claims: [
+    {
+      id: 'billing.delivered_order',
+      verified_scope: 'global',
+      surfaces: ['pricing', 'landing'],
+      i18n_key: { en: 'claims.billing.delivered_order.en', bn: 'claims.billing.delivered_order.bn' },
+      fallback_i18n_key: null,
+    },
+  ],
+};
+
+const publicAddons = [
+  {
+    code: 'ADS_STUDIO',
+    name: 'EasyModerator Ads Studio',
+    category: 'advertising',
+    availability: 'pilot_approval_required',
+    billing_terms: 'not_activated',
+    price_bdt_monthly: null,
+    summary: 'Import a Meta Ads CSV report, review grounded suggestions and save an explicitly approved draft.',
+    limits: ['No direct Meta Ads account connection is claimed.'],
+  },
+  {
+    code: 'STOREFRONT',
+    name: 'EasyModerator Storefront',
+    category: 'commerce',
+    availability: 'pilot_approval_required',
+    billing_terms: 'not_activated',
+    price_bdt_monthly: null,
+    summary: 'Publish selected products and receive validated COD orders in the existing workspace.',
+    limits: ['COD only; no online payment verification or courier automation is claimed.'],
+  },
 ];
 
-async function mockPublicApi(page: import('@playwright/test').Page) {
-  let authenticated = false;
+function claimsForSurface(surface: string | null) {
+  return {
+    success: true,
+    data: {
+      surface,
+      locale: 'en',
+      contractVersion: CONTRACT_VERSION,
+      registryHash: REGISTRY_HASH,
+      decisions: [
+        {
+          claimId: 'billing.delivered_order',
+          available: true,
+          render: 'claim',
+          textKey: 'claims.billing.delivered_order.en',
+          locale: 'en',
+          surface,
+          scope: { claimedProviders: null, verifiedProviders: null, match: true, text: null },
+          interpolation: {},
+          mode: 'enforce',
+          predicate: {
+            code_present: true,
+            merchant_enabled: true,
+            production_verified: true,
+            deprecated: false,
+            internal_only: false,
+            scope_match: true,
+          },
+          wouldBlock: false,
+          contractVersion: CONTRACT_VERSION,
+          registryHash: REGISTRY_HASH,
+        },
+      ],
+    },
+  };
+}
+
+/** Mock every API the public marketing surfaces reach. */
+async function mockPublicApi(page: Page, { contractUnavailable = false } = {}) {
   const user = { id: 'v7-preview-user', email: 'v7-preview@example.invalid', full_name: 'V7 Preview Merchant', role: 'MERCHANT', shop_id: 'v7-preview-shop' };
   const shop = { id: 'v7-preview-shop', code: 'V7TEST', shop_name: 'V7 Preview Shop' };
-  await page.route((url) => new URL(url).pathname.startsWith('/api/'), async (route) => {
+
+  // Pathname predicate, not `**/api/**`: the glob also matches Vite module URLs
+  // like /src/api/index.ts and would answer them with JSON.
+  await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const headers = {
@@ -28,47 +139,48 @@ async function mockPublicApi(page: import('@playwright/test').Page) {
     };
     const json = (status: number, body: unknown, extraHeaders: Record<string, string> = {}) =>
       route.fulfill({ status, contentType: 'application/json', headers: { ...headers, ...extraHeaders }, body: JSON.stringify(body) });
+
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (url.pathname === '/api/csrf') return json(200, { csrfToken: 'v7-preview-csrf' });
-    if (url.pathname === '/api/auth/me') {
-      return authenticated
-        ? json(200, { success: true, data: { user, shop, currentShop: shop, allShops: [shop] } })
-        : json(401, { success: false, error: { code: 'UNAUTHORIZED' } });
+    if (url.pathname === '/api/auth/me') return json(401, { success: false, error: { code: 'UNAUTHORIZED' } });
+    if (url.pathname === '/api/public/commercial-contract') {
+      return contractUnavailable
+        ? json(503, { success: false, error: { code: 'UNAVAILABLE', message: 'unavailable' } })
+        : json(200, { success: true, data: publicContract });
     }
-    if (url.pathname === '/api/subscription/plans') return json(200, { success: true, data: publicPlans });
-    if (url.pathname === '/api/public/addons') return json(200, { success: true, data: [
-      { code: 'ADS_STUDIO', name: 'EasyModerator Ads Studio', category: 'advertising', availability: 'pilot_approval_required', billing_terms: 'not_activated', price_bdt_monthly: null, summary: 'Import a Meta Ads CSV report, review grounded suggestions and save an explicitly approved draft.', limits: ['No direct Meta Ads account connection is claimed.', 'Draft approval does not publish campaigns or change spend.', 'No EasyModerator order attribution, ROAS or profit calculation.'] },
-      { code: 'STOREFRONT', name: 'EasyModerator Storefront', category: 'commerce', availability: 'pilot_approval_required', billing_terms: 'not_activated', price_bdt_monthly: null, summary: 'Publish selected products and receive validated COD orders in the existing workspace.', limits: ['COD only; no online payment verification or courier automation is claimed.'] },
-    ] });
+    if (url.pathname === '/api/public/addons') return json(200, { success: true, data: publicAddons });
+    if (url.pathname === '/api/commercial/claims') {
+      return json(200, claimsForSurface(url.searchParams.get('surface')));
+    }
     if (url.pathname === '/api/analytics/funnel') return json(200, { success: true, data: {} });
-    if (url.pathname === '/api/partner/apply' && request.method() === 'POST') {
-      return json(200, { success: true, application_id: 'v7-preview-application', eligibility: { delivered_orders_30d: 0, minimum_delivered_orders: 300, eligible: false, available: true } });
-    }
     if (url.pathname === '/api/auth/signup' && request.method() === 'POST') {
-      authenticated = true;
       return json(201, { success: true, data: { user, shop, currentShop: shop, allShops: [shop] } }, { 'set-cookie': 'v7-preview-session=1; Path=/; SameSite=Lax' });
     }
     if (url.pathname === '/api/auth/signin' && request.method() === 'POST') {
-      authenticated = true;
       return json(200, { success: true, data: { user, shop, currentShop: shop, allShops: [shop] } }, { 'set-cookie': 'v7-preview-session=1; Path=/; SameSite=Lax' });
     }
-    if (url.pathname === '/api/subscription' && request.method() === 'GET') return json(200, { success: true, data: {
-      subscription: { id: 'v7-subscription', shop_id: shop.id, plan_code: 'SHURU', plan_name: 'Shuru', plan_price: 0, billing_cycle: 'monthly', billing_model: 'flat_monthly', status: 'active', conversations_limit: 100, conversations_used: 0, orders_limit: -1, orders_used: 0, products_limit: -1, products_used: 0, topup_balance: 0, current_period_start: '2026-10-01T00:00:00.000Z', current_period_end: '2026-11-01T00:00:00.000Z', next_billing_date: '2026-11-01T00:00:00.000Z', features },
-      usage: { conversations: { used: 0, limit: 100, percentage: 0, status: 'safe' }, orders: { used: 0, limit: -1, percentage: 0, status: 'safe' }, products: { used: 0, limit: -1, percentage: 0, status: 'safe' } },
-      effective_conversation_limit: 100, conversation_quota_exhausted: false, period: { start: '2026-10-01T00:00:00.000Z', end: '2026-11-01T00:00:00.000Z' }, partner_eligibility: { delivered_orders_30d: 0, minimum_delivered_orders: 300, eligible: false, available: true }, extra_usage: { conversations: 0, charge: 0 },
-    } });
-    if (url.pathname === '/api/subscription/invoices' || /\/topup.*packs$/.test(url.pathname)) return json(200, { success: true, data: [] });
     return json(200, { success: true, data: {} });
   });
   await page.route('https://api.easymod.tech/**', (route) => route.abort('blockedbyclient'));
   await page.route('https://app.easymod.tech/**', (route) => route.abort('blockedbyclient'));
 }
 
-test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
+const RETIRED_COPY = [/৳\s*999/, /\btop-?ups?\b/i, /Moderator Plus/i, /Partnership/i, /Get Your Moderator/i, /\bShuru\b/i];
+
+async function expectNoRetiredOffer(page: Page) {
+  for (const pattern of RETIRED_COPY) {
+    await expect(page.getByText(pattern)).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: /request partnership review/i })).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+}
+
+test.describe('EasyModerator public funnel V7 — single delivered-order offer (mocked API only)', () => {
   test.beforeEach(async ({ page }) => {
     await mockPublicApi(page);
   });
-  test('explains the connected workflow and captures the responsive landing', async ({ page }) => {
+
+  test('renders the single delivered-order offer and keeps the responsive layout intact', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
 
@@ -77,15 +189,25 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
       await page.goto('/?lang=en');
       const heroHeading = page.getByRole('heading', { level: 1, name: 'From Messenger messages to orders, from ad reports to clearer decisions—all in one dashboard.' });
       await expect(heroHeading).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Get Your Moderator', exact: true })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Moderator Plus', exact: true })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Partnership', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Core tools today. Extra tools by approval.', exact: true })).toBeVisible();
+
+      // One offer. The contract price is read from the mocked public endpoint.
+      const offer = page.locator('#plans article[data-contract-version="1.0.0"]');
+      await expect(offer).toHaveCount(1);
+      await expect(offer.getByRole('heading', { name: 'Delivered-order billing', exact: true })).toBeVisible();
+      await expect(page.locator('[data-testid="landing-unit-price"]')).toHaveText('৳10.00');
+      await expect(page.locator('#plans')).toContainText(/provider-confirmed delivered order/i);
+      await expect(page.locator('#plans')).toContainText(/No subscription, setup fee or monthly minimum/i);
+      await expectNoRetiredOffer(page);
+
+      // Add-on pilots remain explicit and separately gated.
       await expect(page.getByRole('heading', { name: 'EasyModerator Ads Studio', exact: true })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'EasyModerator Storefront', exact: true })).toBeVisible();
-      await expect(page.locator('#plans article')).toHaveCount(5);
+      await expect(page.locator('#plans article')).toHaveCount(3); // offer + 2 add-on pilots
+
       await expect(page.getByText('Your Business. Our Technology. Forward, Together.')).toBeVisible();
       await expect(page.locator('#feature-bar')).toContainText(/Ads Studio \+ Storefront/i);
-      await expect(page.locator('#feature-bar')).toContainText(/approval is required/i);
+      await expect(page.locator('#feature-bar')).toContainText(/pilot approval is required/i);
       await expect(page.locator('#capabilities article')).toHaveCount(5);
       const painTitles = await page.locator('#capabilities article h3').allTextContents();
       expect(painTitles).toEqual([
@@ -101,12 +223,14 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
       await expect(page.locator('#capabilities article').nth(3)).toContainText(/ROAS\/profit\/order attribution/i);
       await expect(page.locator('#capabilities article').nth(4)).toContainText(/verify actual receipt manually/i);
       await expect(page.locator('#capabilities article').nth(4)).toContainText(/no online payment verification, courier automation or cash reconciliation/i);
+
       const sectionIndexes = await page.locator('#public-funnel-main').evaluate((main) =>
         ['.landing-v6-hero', '#feature-bar', '#workflow', '#capabilities', '.landing-v6-story']
           .map((selector) => Array.from(main.children).indexOf(main.querySelector(selector)!)),
       );
       expect(sectionIndexes.every((index) => index >= 0)).toBe(true);
       expect(sectionIndexes).toEqual([...sectionIndexes].sort((left, right) => left - right));
+
       const skip = page.getByRole('link', { name: /skip to content/i });
       await skip.focus();
       await page.keyboard.press('Enter');
@@ -117,26 +241,28 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
         page.locator('header.funnel-header').evaluate((element) => element.getBoundingClientRect().height),
       ]);
       expect(mainTop).toBeGreaterThanOrEqual(stickyHeaderHeight - 1);
+
       const workflowFigure = page.getByRole('figure', { name: /illustrative Messenger reply and order review workflow/i });
       await expect(workflowFigure).toContainText('AI-assisted reply');
       await expect(workflowFigure).toContainText(/draft.*not sent/i);
+
       const dimensions = await page.evaluate(() => ({
         viewport: document.documentElement.clientWidth,
         page: document.documentElement.scrollWidth,
       }));
       expect(dimensions.page, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(dimensions.viewport);
-      const path = resolve(screenshots, `landing-en-${width}.png`);
-      await page.screenshot({ path, fullPage: true });
+
+      await page.screenshot({ path: resolve(screenshots, `landing-en-${width}.png`), fullPage: true });
       await page.getByRole('link', { name: /see the three steps/i }).click();
       await expect(page).toHaveURL(/#workflow$/);
       await page.goto('/?lang=en');
-      await page.getByRole('link', { name: /create your Get Your Moderator account/i }).first().click();
+      await page.getByRole('link', { name: /create your easymoderator account/i }).first().click();
       await expect(page).toHaveURL(/\/signup\?lang=en/);
     }
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/?lang=en');
-    await page.getByRole('link', { name: /create your Get Your Moderator account/i }).first().click();
+    await page.getByRole('link', { name: /create your easymoderator account/i }).first().click();
     await expect(page).toHaveURL(/\/signup\?lang=en/);
     await expect(page.getByRole('heading', { name: /create your EasyModerator account/i })).toBeVisible();
 
@@ -145,12 +271,12 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
     await expect(page).toHaveURL(/#workflow$/);
     await page.getByRole('navigation', { name: /primary navigation/i }).getByRole('link', { name: /^plans$/i }).click();
     await expect(page).toHaveURL(/#plans$/);
-    await expect(page.locator('#plans article')).toHaveCount(5);
+    await expect(page.locator('#plans article[data-contract-version="1.0.0"]')).toHaveCount(1);
 
     await page.goto('/?lang=en');
-    const planFaq = page.locator('details').filter({ hasText: /Which plan does a new account get/i });
-    await planFaq.locator('summary').click();
-    await expect(planFaq).toContainText(/new accounts start on Get Your Moderator/i);
+    const billingFaq = page.locator('details').filter({ hasText: /How does a new account get billed\?/i });
+    await billingFaq.locator('summary').click();
+    await expect(billingFaq).toContainText(/billed per provider-confirmed delivered order/i);
     await page.getByRole('link', { name: /sign in/i }).first().click();
     await expect(page).toHaveURL(/\/signin\?lang=en/);
     await expect(page.getByRole('heading', { name: /sign in to EasyModerator/i })).toBeVisible();
@@ -183,17 +309,18 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
       await expect(page.locator('#capabilities article').nth(4)).toContainText(/cash reconciliation নেই/i);
       await expect(page.locator('#capabilities article').nth(3).getByRole('link')).toHaveAttribute('href', /\/signin\?lang=bn$/);
       await expect(page.locator('html')).toHaveAttribute('lang', 'bn');
+
       const commercialSection = page.locator('#plans');
-      await expect(commercialSection.locator('article')).toHaveCount(5);
-      for (const heading of ['Get Your Moderator', 'Moderator Plus', 'Partnership', 'EasyModerator Ads Studio', 'EasyModerator Storefront']) {
-        await expect(commercialSection.getByRole('heading', { name: heading, exact: true })).toBeVisible();
-      }
+      await expect(commercialSection.locator('article[data-contract-version="1.0.0"]')).toHaveCount(1);
+      await expect(commercialSection.getByRole('heading', { name: 'ডেলিভারি অর্ডার বিলিং', exact: true })).toBeVisible();
+      await expect(page.locator('[data-testid="landing-unit-price"]')).toContainText('৳১০.০০');
+      await expectNoRetiredOffer(page);
+
       await expect(menuToggle).toHaveAttribute('aria-expanded', 'true');
       await menuToggle.click();
       await expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
       await expect(controlledMenu).toBeHidden();
-      const path = resolve(screenshots, `landing-bn-${width}.png`);
-      await page.screenshot({ path, fullPage: true });
+      await page.screenshot({ path: resolve(screenshots, `landing-bn-${width}.png`), fullPage: true });
       const dimensions = await page.evaluate(() => ({
         viewport: document.documentElement.clientWidth,
         page: document.documentElement.scrollWidth,
@@ -202,145 +329,49 @@ test.describe('EasyModerator public funnel V7 (mocked API only)', () => {
     }
   });
 
-  test('loads published plans, explains quota and validates Partnership phone locally', async ({ page }) => {
+  test('pricing renders the contract price with no plan picker, top-ups or Partnership flow', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    let partnerPostCount = 0;
-    page.on('request', (request) => {
-      if (request.method() === 'POST' && new URL(request.url()).pathname.includes('partner')) partnerPostCount += 1;
-    });
-    const planResponsePromise = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/subscription/plans');
+    const contractResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/public/commercial-contract',
+    );
     await page.goto('/pricing?lang=en');
-    const planResponse = await planResponsePromise;
-    expect(planResponse.status(), await planResponse.text()).toBe(200);
-    await expect(page.getByRole('heading', { level: 1, name: /plans for your connected workflow/i })).toBeVisible();
-    const moderatorPlusCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moderator Plus' }) });
-    await expect(moderatorPlusCard).toContainText('৳999');
-    const activeConversationUnit = page.getByText(/one active Messenger thread for the same shop/i);
-    await expect(activeConversationUnit).toBeVisible();
-    await expect(activeConversationUnit).toContainText(/until 24 hours pass with no thread activity/i);
+    const contractResponse = await contractResponsePromise;
+    expect(contractResponse.status(), await contractResponse.text()).toBe(200);
+
+    await expect(page.getByRole('heading', { level: 1, name: /pay only for delivered orders/i })).toBeVisible();
+    const offer = page.locator('article[aria-labelledby="delivered-order-offer"]');
+    await expect(page.getByRole('heading', { name: 'Delivered-order billing', exact: true })).toBeVisible();
+    await expect(page.locator('[data-testid="commercial-unit-price"]')).toHaveText('৳10.00');
+    await expect(offer).toContainText(/per delivered order/i);
+    await expect(offer).toContainText(/No subscription, setup fee or monthly minimum/i);
+    await expect(offer).toContainText(/Returned or cancelled orders are billed at ৳0.00/i);
+    await expect(offer).toContainText(/due within 7 days/i);
+    await expect(page.getByText(/Contract version 1\.0\.0/)).toBeVisible();
+    await expect(page.locator('article[data-contract-version="1.0.0"]')).toHaveAttribute('data-contract-hash', CONTRACT_HASH);
+
+    await expectNoRetiredOffer(page);
+    // No plan-selection control remains on the public offer.
+    await expect(offer.getByRole('radio')).toHaveCount(0);
+    await expect(offer.getByRole('combobox')).toHaveCount(0);
+
+    await expect(page.getByRole('heading', { name: 'Choose only the pilot tools your shop needs', exact: true })).toBeVisible();
+    await expect(page.locator('section[aria-labelledby="optional-addons-title"] article')).toHaveCount(2);
+    await expect(page.getByRole('heading', { name: 'EasyModerator Ads Studio', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'EasyModerator Storefront', exact: true })).toBeVisible();
+
+    const cta = page.getByRole('link', { name: /create an easymoderator account/i });
+    await expect(cta).toHaveAttribute('href', /\/signup\?lang=en$/);
     await page.screenshot({ path: resolve(screenshots, 'pricing-en-1280.png'), fullPage: true });
-
-    await page.getByRole('button', { name: /request Partnership review/i }).click();
-    await expect(page.getByRole('dialog', { name: /Partnership application/i })).toBeVisible();
-    await page.getByLabel(/business name/i).fill('Sample shop');
-    await page.getByLabel(/phone/i).fill('12345');
-    await page.getByLabel(/Facebook Page/i).fill('https://facebook.com/sample-shop');
-    await page.getByRole('button', { name: /send application for review/i }).click();
-    await expect(page.getByText(/enter a valid Bangladesh mobile number/i)).toBeVisible();
-    expect(partnerPostCount).toBe(0);
   });
 
-  test('records a local Partnership review request without changing a subscription', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
+  test('shows an error and never substitutes a pinned price when the public contract is unavailable', async ({ page }) => {
+    await mockPublicApi(page, { contractUnavailable: true });
     await page.goto('/pricing?lang=en');
-    await page.getByRole('button', { name: /request Partnership review/i }).click();
-    await page.getByLabel(/business name/i).fill(`Local preview partnership ${Date.now()}`);
-    await page.getByLabel(/phone/i).fill('+880 1712-345678');
-    await page.getByLabel(/Facebook Page/i).fill('https://facebook.com/local-preview-only');
-
-    const applicationResponse = page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && new URL(response.url()).pathname === '/api/partner/apply',
-    );
-    await page.getByRole('button', { name: /send application for review/i }).click();
-    const response = await applicationResponse;
-    expect(response.status(), await response.text()).toBe(200);
-    const body = await response.json();
-    expect(body).toMatchObject({
-      success: true,
-      eligibility: { delivered_orders_30d: 0, minimum_delivered_orders: 300, eligible: false },
-    });
-    expect(body.application_id).toBeTruthy();
-    await expect(page.getByRole('heading', { name: /Partnership request received/i })).toBeVisible();
-    await expect(page.getByText(/delivered-order billing and eligibility will be confirmed before activation/i)).toBeVisible();
-    await page.screenshot({ path: resolve(screenshots, 'partner-application-received-en.png'), fullPage: true });
-  });
-
-  test('carries a Moderator Plus review request through local signup and keeps payment gated', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto('/pricing?lang=en');
-    const growthCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moderator Plus' }) });
-    const growthLink = growthCard.getByRole('link', { name: /review Moderator Plus/i });
-    await expect(growthLink).toHaveAttribute('href', /intent=growth-upgrade/);
-    await growthLink.click();
-    await expect(page).toHaveURL(/\/signup\?lang=en&intent=growth-upgrade$/);
-
-    await page.getByLabel('Your name').fill('Local Preview Merchant');
-    await page.getByLabel('Email').fill(`local-preview-${Date.now()}@example.invalid`);
-    await page.getByLabel('Mobile number').fill('01712345678');
-    await page.locator('input[name="password"]').fill('LocalPreview123!');
-    await page.getByRole('checkbox').click();
-    const signupResponse = page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && new URL(response.url()).pathname === '/api/auth/signup',
-    );
-    await page.getByRole('button', { name: /create your Get Your Moderator account/i }).click();
-    const response = await signupResponse;
-    expect(response.status(), await response.text()).toBe(201);
-    await expect(page).toHaveURL(/\/subscription\?intent=growth-upgrade&lang=en$/);
-    await expect(page.getByRole('status')).toContainText(/new accounts start on Get Your Moderator/i);
-    await expect(page.locator('#growth-plan').getByRole('button')).toBeDisabled();
-    await expect(page.locator('#growth-plan').getByRole('button')).toContainText(/bKash payment is not available/i);
-    await page.screenshot({ path: resolve(screenshots, 'growth-review-after-signup-en.png'), fullPage: true });
-  });
-
-  test('shows an error and never substitutes pinned plan values when the catalog is unavailable', async ({ page }) => {
-    await page.route('**/subscription/plans', (route) => route.abort());
-    await page.goto('/pricing?lang=en');
-    await expect(page.getByRole('alert')).toContainText(/current plan details are unavailable/i);
+    await expect(page.getByRole('alert')).toContainText(/current pricing is unavailable/i);
+    await expect(page.getByText('৳10.00')).toHaveCount(0);
     await expect(page.getByText('৳999')).toHaveCount(0);
     await page.getByRole('button', { name: /retry/i }).click();
-    await expect(page.getByRole('alert')).toContainText(/current plan details are unavailable/i);
-  });
-
-  test('linked legal pages do not assert an unverified Meta review status', async ({ page }) => {
-    await page.goto('/privacy-policy?lang=en');
-    await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible();
-    await expect(page.getByText(/Facebook Messenger features are available only when/i)).toBeVisible();
-    await expect(page.getByText(/Meta App Review is being completed/i)).toHaveCount(0);
-    await expect(page.getByText(/Google and OpenAI in the United States/i)).toHaveCount(0);
-    await expect(page.getByText(/Messages sent and received through connected Facebook Messenger Pages/i)).toBeVisible();
-    await expect(page.getByText(/or web chat/i)).toHaveCount(0);
-    const geminiRow = page.locator('tr').filter({ hasText: 'Google (Gemini)' });
-    await expect(geminiRow).toContainText(/payment screenshots for OCR if Gemini is configured and reached/i);
-    await expect(geminiRow).toContainText(/only if configured and used/i);
-    const openAiRow = page.locator('tr').filter({ hasText: 'OpenAI' });
-    await expect(openAiRow).toContainText(/payment screenshots if OCR fallback reaches OpenAI/i);
-    await expect(openAiRow).toContainText(/only if configured and used/i);
-    const bkashBillingRow = page.locator('tr').filter({ hasText: 'bKash subscription billing' });
-    await expect(bkashBillingRow).toContainText(/EasyModerator subscription invoices and conversation top-ups/i);
-    await expect(bkashBillingRow).toContainText(/only if platform billing is enabled/i);
-    await expect(page.getByText(/Not enabled: the bKash and Nagad online payment gateways/i)).toHaveCount(0);
-    await expect(page.getByText(/Online bKash processing depends on platform controls and per-shop configuration/i)).toHaveCount(0);
-    await expect(page.getByText(/not a per-shop gateway for customer orders/i)).toBeVisible();
-    await expect(page.getByText(/Direct bKash or Nagad transfers are verified by the merchant/i)).toBeVisible();
-    const operationsAlertRow = page.locator('tr').filter({ hasText: 'Configured operations-alert webhook' });
-    await expect(operationsAlertRow).toHaveCount(1);
-    await expect(operationsAlertRow).toContainText(/guardrail escalations/i);
-    await expect(operationsAlertRow).toContainText(/only if configured/i);
-    const generalAlertsRow = page.locator('tr').filter({ hasText: 'Configured Slack webhook / Sentry' });
-    await expect(generalAlertsRow).toHaveCount(1);
-    await expect(generalAlertsRow).toContainText(/error text/i);
-    await expect(generalAlertsRow).toContainText(/only where configured/i);
-
-    await page.goto('/?lang=bn');
-    const connectionFaq = page.locator('details').filter({ hasText: /Facebook Page যুক্ত করলে কী হয়/ });
-    await connectionFaq.locator('summary').click();
-    await expect(connectionFaq).toContainText(/আপনার অ্যাকাউন্ট ও Page অনুযায়ী কোন Page-এ প্রবেশাধিকার পাবেন/);
-
-    await page.goto('/terms?lang=en');
-    await expect(page.getByRole('heading', { name: 'Terms of Service' })).toBeVisible();
-    await expect(page.getByText(/Facebook Messenger features are available only when/i)).toBeVisible();
-    await expect(page.getByText(/Meta App Review is being completed/i)).toHaveCount(0);
-    const termsPayments = page.locator('li').filter({ hasText: 'Optional platform-level bKash processing' });
-    await expect(termsPayments).toHaveCount(1);
-    await expect(termsPayments).toContainText(/subscription invoices and conversation top-ups/i);
-    await expect(termsPayments).toContainText(/not a per-shop gateway for customer orders/i);
-    await expect(termsPayments).toContainText(/Direct bKash or Nagad transfers are merchant-verified/i);
-    await expect(page.getByText(/Online payment gateways are not currently enabled/i)).toHaveCount(0);
-    const termsCrossBorder = page.locator('p').filter({ hasText: 'AI request content may be sent to Google or OpenAI' });
-    await expect(termsCrossBorder).toHaveCount(1);
-    await expect(termsCrossBorder).toContainText(/only when the provider is configured and a request reaches it/i);
+    await expect(page.getByRole('alert')).toContainText(/current pricing is unavailable/i);
   });
 
   test('landing and pricing screens have no WCAG 2.1 A/AA violations in English or Bengali', async ({ page }) => {

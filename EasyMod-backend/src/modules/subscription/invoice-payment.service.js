@@ -11,8 +11,9 @@
  *   3. completeInvoicePayment()  — execute the bKash payment, mark the invoice paid,
  *                                  and (re)activate the subscription's AI if recurring
  *
- * Founder billing model: a monthly ৳999 invoice is auto-issued on renewal with a
- * 3-day due window; paying it (re)activates the subscription so the AI resumes.
+ * Historical subscription invoices (pre-ADR-0011) are settled here with a 3-day
+ * due window; paying one resumes the legacy subscription's AI. New merchant
+ * billing uses the delivered-order contract and its monthly invoices instead.
  * The bKash paymentID and checkout URL are persisted against the tenant-scoped
  * invoice so a cancelled or failed browser attempt can be resumed safely.
  */

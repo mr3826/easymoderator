@@ -151,7 +151,7 @@ describe('growth analytics authorization', () => {
             success: false,
             error: {
                 code: 'GROWTH_METRICS_ERROR',
-                message: 'Growth metrics are temporarily unavailable.',
+                message: 'Growth OS metrics are temporarily unavailable.',
             },
         });
         expect(JSON.stringify(response.body)).not.toContain('database connection details');

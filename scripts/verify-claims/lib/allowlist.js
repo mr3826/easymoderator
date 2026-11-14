@@ -46,10 +46,16 @@ const HISTORICAL_RECORD_PATHS = Object.freeze([
  * the named token on the named path, so the rest of the token set still scans
  * those files (a retired price in the Growth app is still flagged).
  *
- * The only entry is `name.growth`, whose `\bGrowth\b` source also matches the
- * internal "Growth OS" product/role identifiers. Growth OS is an internal
- * console (claim-registry mode `off`), not the retired GROWTH plan. Merchant
- * "Growth" plan copy in the frontend/backend is deliberately NOT excluded.
+ * The `name.growth` entries describe the internal "Growth OS" product/role
+ * identifiers. Growth OS is an internal console (claim-registry mode `off`),
+ * not the retired GROWTH plan. Merchant "Growth" plan copy in the
+ * frontend/backend is deliberately NOT excluded.
+ *
+ * The two `ai-cost-report.js` entries are a HISTORICAL cost fixture: that script
+ * reproduces the archived AI cost model and needs the pre-contract plan inputs
+ * to do so. It is an internal analysis script, never merchant-rendered, and is
+ * not a price authority. Each entry names only the one token it suppresses, so
+ * any other retired copy in the same file is still caught.
  */
 const TOKEN_PATH_EXCLUSIONS = Object.freeze([
     {
@@ -76,6 +82,16 @@ const TOKEN_PATH_EXCLUSIONS = Object.freeze([
         tokenId: 'name.growth',
         pattern: /^EasyMod-backend\/src\/scripts\/seed-initial-growth-admin\.js$/,
         reason: 'Growth OS staff seed script (internal identities, not plan copy)',
+    },
+    {
+        tokenId: 'price.yearly9990',
+        pattern: /^EasyMod-backend\/scripts\/ai-cost\/ai-cost-report\.js$/,
+        reason: 'historical cost fixture: pre-contract plan input retained to reproduce the archived AI cost model; never merchant-rendered',
+    },
+    {
+        tokenId: 'entitlement.topup_pack',
+        pattern: /^EasyMod-backend\/scripts\/ai-cost\/ai-cost-report\.js$/,
+        reason: 'historical cost fixture: retired credit-purchase inputs retained to reproduce the archived AI cost model; never merchant-rendered',
     },
 ]);
 

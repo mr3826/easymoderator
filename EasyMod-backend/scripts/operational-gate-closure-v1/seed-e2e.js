@@ -81,8 +81,8 @@ async function main() {
             where: { shop_id: shop.id },
             defaults: {
                 shop_id: shop.id,
-                plan_name: 'Growth',
-                plan_code: 'GROWTH',
+                plan_name: 'MERCHANT',
+                plan_code: 'MERCHANT',
                 plan_price: 0,
                 billing_cycle: 'monthly',
                 status: 'active',

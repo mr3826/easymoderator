@@ -197,17 +197,27 @@ Requested permissions (3, Messenger-only): `pages_show_list`, `pages_messaging`,
 
 ## Billing Model
 
-Source of truth: `src/modules/subscription/subscription.plans.js`.
+Source of truth: `src/modules/commercial/commercial.contract.js`. Every derived
+surface — API, invoice, email, landing, collateral, mobile and the internal
+Growth OS console — reads that module or its hand-mirrored frontend twin and
+renders `contractVersion`. The public payload is served at
+`GET /api/public/commercial-contract`.
 
-| Plan | Price | Limit | Notes |
-|---|---|---|---|
-| **Shuru** | ৳0 forever | 100 customer conversations/mo | Same core features; AI pauses at the allowance, manual inbox remains available. |
-| **Growth** | ৳999 / month (৳9,990 / year for existing annual rows) | 500 customer conversations/mo | Same core features; `PACK_100`, `PACK_300`, and `PACK_700` top-ups. |
-| **Partner** | ৳0 upfront | Unlimited conversations | Billed per **delivered order**, flat bands: 300–999 → ৳15, 1,000–2,999 → ৳12, 3,000+ → ৳10. Apply → admin approves. |
+- **Model:** `DELIVERED_ORDER`, BDT, postpaid, monthly cycle.
+- **Price:** a flat ৳10.00 per provider-confirmed delivered order, from order 1,
+  for every shop.
+- **Zero-rated outcomes:** `RETURNED`, `CANCELLED`, `DRAFT`, `CONFIRMED`,
+  `BOOKED`, `IN_TRANSIT`, `FAILED`.
+- **Due window:** 7 days.
+- **No subscription, no setup fee, no monthly minimum, no conversation
+  entitlement, and no top-up purchase.**
 
-**Top-up packs** (bKash): `PACK_100` 100/৳250, `PACK_300` 300/৳500, `PACK_700` 700/৳1,000. Historical `TOPUP_*` rows remain readable at their original sold values.
-
-Conversation-limit billing is tracked at the webhook chokepoint in `meta-webhook-events.handler.js`, which calls `subscriptionService.trackUsage(shopId, 'conversations', 1, conversationId)` idempotently for each conversation. Included allowance is consumed before `topup_balance`; when both are exhausted, only the automated reply pauses and the inbox stays usable. No overage charge is generated.
+`billing_lines` records one row per delivered order with the contract version and
+a deterministic idempotency key; `invoice-generator.js` aggregates uninvoiced
+lines into a monthly `delivered_order` invoice. Returned and cancelled orders
+still appear on the invoice as explicit ৳0.00 lines. Historical subscription and
+credit-purchase rows remain readable at their original sold values for audit;
+they are never re-rendered as an offer.
 
 **Payments: bKash only.** No other gateway is wired. Adding one requires implementing its full tokenized-checkout + webhook-verification path.
 
@@ -257,7 +267,7 @@ Operational requirements:
 | `burst-coalescer.js` | Helper | Debounce rapid message bursts into one reply |
 | `meta-token-refresh.job.js` | Cron | Re-auth Meta tokens nearing expiry |
 | `monthly-usage-reset.js` | Cron | Reset counters and advance expired periods daily |
-| `invoice-generator.js` | Cron | Generate paid renewal/Partner invoices from period and delivery data |
+| `invoice-generator.js` | Cron | Aggregate uninvoiced billing lines into monthly delivered-order invoices |
 | `failed-payment-reconciler.js` | Cron | Retry/flag failed bKash payments |
 | `customer-waiting-notifier.js` | BullMQ cron | Alert when a HITL customer waits too long |
 | `daily-sales-summary-notifier.js` | BullMQ cron | Send previous-24h merchant sales summary |
@@ -269,18 +279,15 @@ Operational requirements:
 
 ## Subscription model
 
-The public catalog is server-authoritative: Shuru is free forever with 100
-conversations/month, Growth is ৳999/month with 500 conversations/month and
-`PACK_100`/`PACK_300`/`PACK_700` top-ups, and Partner has no monthly fee with
-flat delivered-order bands (৳15 for 300–999, ৳12 for 1,000–2,999, ৳10 for
-3,000+). All plans share core features. Conversation metering consumes
-`topup_balance` after the included allowance and pauses only the automated
-reply when exhausted; no overage charge is generated.
+There is no subscription. The delivered-order contract above is the sole price
+authority, so `GET /api/subscription/plans`, `PUT /api/subscription/plan` and
+`POST /api/subscription/renew` are retired and return `410 Gone`.
+`GET /api/subscription` returns the active `MERCHANT` contract view
+(`contract_version`, usage and period) for admin and internal consumers.
 
-`GET /api/subscription/plans` is public. The payment completion endpoints bind
-the gateway payment ID to the server-created transaction/invoice, compare the
-gateway amount in minor units, and use a conditional database claim to make
-replays idempotent.
+Payment completion endpoints bind the gateway payment ID to the
+server-created transaction/invoice, compare the gateway amount in minor units,
+and use a conditional database claim to make replays idempotent.
 
 ---
 

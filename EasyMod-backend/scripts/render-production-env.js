@@ -212,7 +212,7 @@ function buildRenderedEnv(source = process.env) {
         // deployment render instead of silently enabling or disabling a path.
         AI_PHOTO_MATCH_ENABLED: strictBooleanFlag(source.AI_PHOTO_MATCH_ENABLED, 'AI_PHOTO_MATCH_ENABLED', 'false'),
         AI_VISION_ENABLED: source.AI_VISION_ENABLED || 'false',
-        // Growth remains authorization-gated, but it must still be explicitly
+        // Growth OS remains authorization-gated, but it must still be explicitly
         // enabled by the production operator. A missing repository variable
         // must not turn on a new internal surface during an unrelated deploy.
         GROWTH_OS_ENABLED: strictBooleanFlag(source.GROWTH_OS_ENABLED, 'GROWTH_OS_ENABLED', 'false'),

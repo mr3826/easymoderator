@@ -7,7 +7,7 @@ const validate = require('../../middleware/validate.middleware');
 
 const router = express.Router();
 
-// RAG stores merchant-domain data. Growth authentication alone is not merchant
+// RAG stores merchant-domain data. Growth OS authentication alone is not merchant
 // authorization, so require the JWT-selected shop membership before validation
 // or any controller can reach the vector store.
 router.use(authenticate);
