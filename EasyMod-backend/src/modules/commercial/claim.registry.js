@@ -92,6 +92,10 @@ const claim = ({
     surfaces,
     requiredEvidence,
     claimedProviders = null,
+    // Which per-provider capability facet proves scope: production_verified by
+    // default; courier.payout scopes on settlement_present so a non-payout
+    // provider is not counted as a coverage gap.
+    scopeEvidenceFacet = null,
     fallback = false,
     verifiedScope,
     internalOnly = false,
@@ -100,6 +104,7 @@ const claim = ({
     surfaces: Object.freeze([...surfaces]),
     requiredEvidence: Object.freeze([...requiredEvidence]),
     claimedProviders: claimedProviders ? Object.freeze([...claimedProviders]) : null,
+    scopeEvidenceFacet,
     i18nKey: i18nKeys(id),
     fallbackI18nKey: fallback ? fallbackKeys(id) : null,
     verifiedScope,
@@ -235,6 +240,118 @@ const CLAIM_REGISTRY = deepFreeze({
         verifiedScope: 'internal',
         internalOnly: true,
     }),
+
+    // ---- Landing-page claims (contract-derived marketing surface) ----------
+    // Prices derive from the contract; capabilities fail closed to a truthful
+    // fallback because production has never run the commercial lifecycle. None
+    // of these names a third party: the landing copy uses counts, never brand
+    // names, so courier.payout interpolates providerCount rather than
+    // {{providers}}.
+    'price.unit': claim({
+        id: 'price.unit',
+        surfaces: ['landing', 'pricing', 'signup', 'collateral'],
+        requiredEvidence: ['contract'],
+        verifiedScope: 'global',
+    }),
+    'price.zero': claim({
+        id: 'price.zero',
+        surfaces: ['landing', 'pricing', 'collateral'],
+        requiredEvidence: ['contract.zero_on_return'],
+        fallback: true,
+        verifiedScope: 'global (zero-rated on RETURNED and CANCELLED)',
+    }),
+    'price.nosub': claim({
+        id: 'price.nosub',
+        surfaces: ['landing', 'pricing', 'signup', 'collateral'],
+        requiredEvidence: ['contract.no_subscription'],
+        fallback: true,
+        verifiedScope: 'global (no subscription/setup/monthly minimum)',
+    }),
+    'courier.booking': claim({
+        id: 'courier.booking',
+        surfaces: ['landing', 'pricing', 'collateral'],
+        requiredEvidence: [
+            'courier.pathao.production_verified',
+            'courier.steadfast.production_verified',
+            'courier.redx.production_verified',
+        ],
+        claimedProviders: ['pathao', 'steadfast', 'redx'],
+        scopeEvidenceFacet: 'production_verified',
+        fallback: true,
+        verifiedScope: 'courier:booking (production_verified 0 of 3; ceiling IMPLEMENTED_NOT_LIVE_VERIFIED)',
+    }),
+    'courier.payout': claim({
+        id: 'courier.payout',
+        surfaces: ['landing', 'pricing', 'collateral'],
+        requiredEvidence: [
+            'courier.pathao.settlement_present',
+            'courier.steadfast.settlement_present',
+            'courier.redx.settlement_present',
+        ],
+        claimedProviders: ['pathao', 'steadfast', 'redx'],
+        scopeEvidenceFacet: 'settlement_present',
+        fallback: true,
+        verifiedScope: 'courier:payout (settlement_present 1 of 3; implemented-not-live-verified)',
+    }),
+    'rto.verify': claim({
+        id: 'rto.verify',
+        surfaces: ['landing', 'pricing'],
+        requiredEvidence: ['platform.rto.code_present', 'platform.rto.production_verified'],
+        fallback: true,
+        verifiedScope: 'global (implemented; production verification pending)',
+    }),
+    'voice.transcribe': claim({
+        id: 'voice.transcribe',
+        surfaces: ['landing', 'pricing'],
+        requiredEvidence: [
+            'platform.voice.transcription.code_present',
+            'platform.voice.transcription.production_verified',
+        ],
+        fallback: true,
+        verifiedScope: 'global (manual preview only; auto pipeline unwired)',
+    }),
+    'ai.notrain': claim({
+        id: 'ai.notrain',
+        surfaces: ['landing', 'pricing', 'signup'],
+        requiredEvidence: ['platform.ai.no_training_policy'],
+        fallback: true,
+        verifiedScope: 'policy (published privacy policy; no runtime audit receipt)',
+    }),
+    'order.fromchat': claim({
+        id: 'order.fromchat',
+        surfaces: ['landing', 'pricing'],
+        requiredEvidence: ['platform.order_from_chat.code_present', 'platform.order_from_chat.production_verified'],
+        fallback: true,
+        verifiedScope: 'global (implemented; no production order ever)',
+    }),
+    'customer.ledger': claim({
+        id: 'customer.ledger',
+        surfaces: ['landing', 'pricing'],
+        requiredEvidence: ['platform.customer_ledger.code_present', 'platform.customer_ledger.production_verified'],
+        fallback: true,
+        verifiedScope: 'global (computed timeline read model, not a financial ledger)',
+    }),
+    'knowledge.gaps': claim({
+        id: 'knowledge.gaps',
+        surfaces: ['landing', 'pricing'],
+        requiredEvidence: ['platform.knowledge_gaps.code_present', 'platform.knowledge_gaps.production_verified'],
+        fallback: true,
+        verifiedScope: 'global (implemented; no live traffic)',
+    }),
+    'queue.priority': claim({
+        id: 'queue.priority',
+        surfaces: ['landing', 'pricing'],
+        requiredEvidence: ['platform.queue_priority.code_present', 'platform.queue_priority.production_verified'],
+        fallback: true,
+        verifiedScope: 'global (deterministic bucket ordering, not AI ranking)',
+    }),
+    'handoff.human': claim({
+        id: 'handoff.human',
+        surfaces: ['landing', 'pricing'],
+        requiredEvidence: ['platform.human_handoff.code_present', 'platform.human_handoff.production_verified'],
+        fallback: true,
+        verifiedScope: 'global (implemented; no live conversation)',
+    }),
 });
 
 /**
@@ -289,6 +406,68 @@ const PLATFORM_EVIDENCE = deepFreeze({
     'platform.addons.code_present': platformEvidence(
         true,
         'docs/pilot-plus-v1/06-implementation-and-migrations.md',
+    ),
+
+    // Published-policy commitment (not a runtime lifecycle capability): the
+    // privacy policy states no merchant/conversation data trains AI models and
+    // no provider may train on it.
+    'platform.ai.no_training_policy': platformEvidence(
+        true,
+        'EasyMod-frontend/src/app/components/PrivacyPolicy.tsx and docs/pilot-deployment-rehearsal-v1/09-provider-cost-privacy-decision.md (published policy: no user or conversation data trains AI models; no provider permitted to train)',
+    ),
+
+    // Landing capability evidence. code_present=true where the code ships;
+    // production_verified=false for every capability because production has
+    // never run a commercial lifecycle. A claim with production_verified=false
+    // renders its truthful fallback, never an availability sentence. Every
+    // pointer below is a full repo-root path so check (d) resolves it.
+    'platform.rto.code_present': platformEvidence(
+        true,
+        'EasyMod-backend/src/modules/rto-shield/rto-shield.service.js and EasyMod-backend/src/modules/delivery/delivery-tracking.service.js (runs inside the delivery status transaction)',
+    ),
+    'platform.rto.production_verified': platformEvidence(
+        false,
+        'docs/adr/0011-delivered-order-commercial-contract.md (no live production outcome ever fed RTO)',
+    ),
+    'platform.order_from_chat.code_present': platformEvidence(
+        true,
+        'EasyMod-backend/src/modules/conversation/ai-chatbot.controller.js and EasyMod-backend/src/modules/order/order-session-standalone.service.js',
+    ),
+    'platform.order_from_chat.production_verified': platformEvidence(
+        false,
+        'docs/launch/PRODUCTION_TRUTH.md (no production order ever created)',
+    ),
+    'platform.customer_ledger.code_present': platformEvidence(
+        true,
+        'EasyMod-backend/src/modules/customer-intelligence/customer-360.service.js (computed 360 timeline read model, ADR-0005; not a financial ledger)',
+    ),
+    'platform.customer_ledger.production_verified': platformEvidence(
+        false,
+        'docs/launch/PRODUCTION_TRUTH.md (tested on seeded data only; no live production commercial traffic)',
+    ),
+    'platform.knowledge_gaps.code_present': platformEvidence(
+        true,
+        'EasyMod-backend/src/modules/knowledge/knowledge-gap-capture.service.js and EasyMod-backend/src/modules/conversation/ai-chatbot.controller.js',
+    ),
+    'platform.knowledge_gaps.production_verified': platformEvidence(
+        false,
+        'docs/launch/PRODUCTION_TRUTH.md (never run on live production traffic)',
+    ),
+    'platform.queue_priority.code_present': platformEvidence(
+        true,
+        'EasyMod-backend/src/modules/inbox/action-reasons.js and EasyMod-backend/src/modules/inbox/inbox-actions.service.js (deterministic risk-bucket ordering, not AI ranking)',
+    ),
+    'platform.queue_priority.production_verified': platformEvidence(
+        false,
+        'docs/launch/PRODUCTION_TRUTH.md (no live production conversation ever queued)',
+    ),
+    'platform.human_handoff.code_present': platformEvidence(
+        true,
+        'EasyMod-backend/src/modules/conversation/human-handoff.service.js and EasyMod-backend/src/modules/conversation/conversation.controller.js (manual reply is the default mode)',
+    ),
+    'platform.human_handoff.production_verified': platformEvidence(
+        false,
+        'docs/launch/PRODUCTION_TRUTH.md (never exercised by a live production conversation)',
     ),
 });
 
