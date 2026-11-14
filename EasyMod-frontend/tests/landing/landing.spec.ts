@@ -169,6 +169,8 @@ test('B7 — mock data carries a sample label at 360px and 1440px', async ({ pag
 });
 
 test('B8 — FAQ, calculator and sticky CTA are keyboard operable', async ({ page }) => {
+  // The sticky CTA is mobile-only by design (hidden at >=881px via CSS).
+  await page.setViewportSize({ width: 390, height: 820 });
   await openLanding(page);
   // FAQ toggles with the keyboard.
   const summary = page.locator('.lv7-faq summary').first();
@@ -181,10 +183,10 @@ test('B8 — FAQ, calculator and sticky CTA are keyboard operable', async ({ pag
   const before = await slider.inputValue();
   await page.keyboard.press('ArrowRight');
   await expect.poll(async () => slider.inputValue()).not.toBe(before);
-  // Sticky CTA exists and is a focusable link.
-  await page.mouse.wheel(0, 1600);
+  // Sticky CTA becomes visible after the hero and is a focusable link.
+  await page.mouse.wheel(0, 2400);
   const stickyLink = page.locator('.lv7-sticky a');
-  await expect(stickyLink).toHaveCount(1);
+  await expect(page.locator('.lv7-sticky')).not.toHaveAttribute('hidden', '');
   await stickyLink.focus();
   await expect(stickyLink).toBeFocused();
 });

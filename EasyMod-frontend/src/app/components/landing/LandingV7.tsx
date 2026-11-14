@@ -220,6 +220,11 @@ export function LandingV7Page() {
                   <p>{t(`landingV7.how.${key}Body`)}</p>
                 </div>
               ))}
+              <p className="lv7-neutral">
+                <Claim id="courier.booking" surface="landing" className="lv7-claim" />
+                {" · "}
+                <Claim id="courier.payout" surface="landing" className="lv7-claim" />
+              </p>
             </div>
             <div className="lv7-how-phone lv7-phone" role="img" aria-label={t("landingV7.hero.sampleLabel")}>
               <div className="lv7-phone-frame">
