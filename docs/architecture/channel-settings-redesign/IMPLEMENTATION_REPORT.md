@@ -28,7 +28,7 @@ Baseline: `origin/main` `8d477288` (PR #256). Branch: `feature/channel-settings-
 |---|---|---|
 | Backend unit+security (full, pre-fix-round) | `npm run test:backend` | 5192 pass / 7 fail → all 7 accounted: 3 deliberate amendments (since fixed), 1 untracked-files discovery guard (fixed by commit), 1 grounding local flake (classified below), 2 cascade |
 | Targeted post-fix batch (10 suites) | `npx jest <resolver/overrides/settings-contract/oauth/stop/ai-settings/webhook/perimeter/mutation-boundary/boundary-security>` | **179/179 PASS** |
-| Frontend unit (full) | `npm run test:frontend` | **881/881 PASS** (after page-test mock fix) |
+| Frontend unit (full, final, post-merge) | `vitest run --pool=threads` | **900/900 PASS, 104/104 files** (forks pool has a local Windows IPC failure — environmental; threads pool executes the identical suite; CI runs linux) |
 | Frontend fix-round targeted + channels dir | vitest | **PASS** (29 + 29 tests) |
 | Frontend typecheck / build | `tsc --noEmit` / `npm run build:frontend` | **PASS** |
 | Migration rehearsal | `npm run test:backend:migration-dryrun` | **PASS** (prod-shaped, 004/005, down/up round-trip, idempotency) |
@@ -40,7 +40,7 @@ Baseline: `origin/main` `8d477288` (PR #256). Branch: `feature/channel-settings-
 | Claims compliance | `npm run verify:claims` | **PASS** (6/6) |
 | Test discovery | `npm run test:discovery` | **PASS** (426 tracked files, one home each) |
 
-Pending final receipts: integration re-run (post-D3), meta-e2e re-run (post-fix-round), full backend re-run, independent review outcome — appended before merge.
+All lanes re-executed on the merged tree (origin/main incl. PR #257, merge `83a1eee5`): integration **262/262**, meta-e2e **57/57**, frontend **900/900** (threads pool), build + tsc clean, `verify:claims` PASS incl. the new landing check. Full backend unit+security final: **5220 pass / 2 fail** — both the classified `grounding-boundary` local Windows timing flake (passes in isolation; import graph untouched; main CI green at baseline; PR CI authoritative). Independent review complete (see below).
 
 ### grounding-boundary classification (local environmental flake, not a regression)
 
