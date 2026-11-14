@@ -3122,5 +3122,145 @@
   "featureGate": {
     "unavailable": "This capability is not available for this shop.",
     "viewBilling": "View billing"
+  },
+  "landingV7": {
+    "meta": {
+      "title": "EasyModerator — one ledger for messages, orders and delivery",
+      "description": "Messenger conversations, orders, courier and delivery in one ledger. Pay only per delivered order."
+    },
+    "hero": {
+      "eyebrow": "One ledger, not four tabs",
+      "title": "From Messenger messages to delivered orders — one ledger",
+      "subtitle": "Follow each customer from message to order to courier to delivery to cash, without copying between tabs.",
+      "ctaPrimary": "Create your account",
+      "ctaSecondary": "See how it works",
+      "sampleLabel": "Sample interface — not a real customer or order",
+      "threadLabel": "The commerce thread",
+      "nodes": {
+        "messages": "Message",
+        "orders": "Order",
+        "courier": "Courier",
+        "delivery": "Delivery",
+        "money": "Cash"
+      },
+      "ledgerNote": "Every step is recorded on the same ledger."
+    },
+    "scatter": {
+      "title": "Your day is scattered across four places",
+      "subtitle": "Inbox, order notes, courier book and a paper ledger — each holds a different piece.",
+      "resolve": "4 places → 1 ledger",
+      "inboxTitle": "Messages",
+      "inboxBody": "Customer questions arrive in Messenger.",
+      "ordersTitle": "Orders",
+      "ordersBody": "Order details live in a separate note.",
+      "parcelTitle": "Parcel",
+      "parcelBody": "The courier book tracks the parcel.",
+      "customerTitle": "Customer",
+      "customerBody": "The customer history is remembered by you, not the system."
+    },
+    "how": {
+      "title": "Three mechanisms hold it together",
+      "subtitle": "Not a list of features — three mechanisms that keep one truthful record.",
+      "oneTitle": "One conversation, one record",
+      "oneBody": "Each message and order stays attached to its customer.",
+      "twoTitle": "Neutral record matching",
+      "twoBody": "The courier report and your record are shown side by side, never blamed.",
+      "threeTitle": "Decisions stay yours",
+      "threeBody": "The system shows the record; a human makes the call."
+    },
+    "extras": {
+      "title": "Six everyday capabilities",
+      "subtitle": "Each is shown with its real status — verified, or pending live verification.",
+      "orderTitle": "Order from chat",
+      "ledgerTitle": "Customer history",
+      "gapsTitle": "Knowledge gaps",
+      "queueTitle": "Queue priority",
+      "handoffTitle": "Human handoff",
+      "rtoTitle": "RTO risk signals"
+    },
+    "price": {
+      "title": "One simple price",
+      "subtitle": "Delivered-order billing. Nothing else.",
+      "zeroWord": "ZERO",
+      "zeroCaption": "on returned and cancelled orders",
+      "perOrderLabel": "per delivered order",
+      "perOrderCaption": "Charged only when the courier confirms delivery.",
+      "zeroOnReturnLabel": "Returned or cancelled",
+      "zeroOnReturnNote": "Billed at the contract zero rate, shown as an explicit line.",
+      "noSubLabel": "No subscription, setup or monthly minimum",
+      "noSubNote": "Postpaid monthly, due within the contract window."
+    },
+    "calc": {
+      "title": "Work out your own month",
+      "subtitle": "Your inputs, your arithmetic. Not a promised result.",
+      "ordersLabel": "Orders per month",
+      "deliveredLabel": "Delivered %",
+      "returnedLabel": "Returned %",
+      "cancelledLabel": "Cancelled %",
+      "failedLabel": "Failed %",
+      "monthsLabel": "Months",
+      "avgValueLabel": "Average order value",
+      "feeHeading": "Your arithmetic",
+      "deliveredLine": "Delivered orders",
+      "zeroLine": "Returned + cancelled + failed (× zero rate)",
+      "feeLine": "Estimated bill",
+      "turnoverLine": "COD turnover (delivered × order value)",
+      "arithmeticNote": "These are your own numbers run through the contract rate, not a forecast.",
+      "resetLabel": "Reset"
+    },
+    "trust": {
+      "title": "What we will not promise",
+      "subtitle": "A record you can check beats a promise you cannot.",
+      "wont1": "No percentage uplift claim.",
+      "wont2": "No setup-duration guarantee.",
+      "wont3": "No invented savings total.",
+      "permissionsTitle": "Three permissions, nothing more",
+      "perm1": "pages_messaging — read and reply to Page messages.",
+      "perm2": "pages_manage_metadata — subscribe the Page to message webhooks.",
+      "perm3": "public_profile — identify the connected account.",
+      "neutralRecord": "We show the courier report next to your record. We never accuse a courier of error or fraud."
+    },
+    "start": {
+      "title": "Start with three connections",
+      "subtitle": "Outcome first: your messages and orders on one ledger.",
+      "step1": "Create your account",
+      "step2": "Connect your Facebook Page",
+      "step3": "Review the inbox and orders",
+      "noTime": "No setup-duration promise — the steps take as long as your Page allows.",
+      "cta": "Create your account"
+    },
+    "faq": {
+      "title": "Common questions",
+      "q1": "What exactly am I charged for?",
+      "a1": "Only delivered orders, at the contract rate. Returned and cancelled orders are zero-rated.",
+      "q2": "Is there a subscription?",
+      "a2": "No. No subscription, no setup fee, no monthly minimum.",
+      "q3": "Which channel is supported?",
+      "a3": "Facebook Page Messenger is the supported channel. No other platform is connected.",
+      "q4": "What happens if a bill is overdue?",
+      "a4": "New courier bookings pause and automated replies stop. Your inbox and history stay readable; nothing is deleted.",
+      "q5": "Do you train AI on my data?",
+      "a5": "See the Data & AI training terms in the Trust section."
+    },
+    "close": {
+      "title": "Start with one ledger",
+      "subtitle": "One price. One record. Your decisions.",
+      "cta": "Create your account"
+    },
+    "status": {
+      "title": "Capability status",
+      "subtitle": "Derived from the claim registry — not written by hand.",
+      "verified": "Verified",
+      "partial": "Partial — implemented, live verification pending",
+      "notLaunched": "Not launched",
+      "note": "Status reflects evidence flags, not marketing."
+    },
+    "sticky": {
+      "cta": "Create your account"
+    },
+    "footer": {
+      "capabilitiesTitle": "Capability status",
+      "versionLabel": "Pricing version"
+    }
   }
 }
