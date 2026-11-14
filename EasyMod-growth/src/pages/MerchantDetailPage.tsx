@@ -20,6 +20,7 @@ import {
 } from '@/api/client';
 import { usePermission } from '@/auth/usePermission';
 import { useGrowthAuth } from '@/auth/GrowthAuthProvider';
+import { planLabel } from '@/planLabel';
 
 type BusyAction = 'status' | 'credits' | 'reconnect' | 'note' | null;
 
@@ -436,7 +437,7 @@ export function MerchantDetailPage() {
           <dl className="detail-facts">
             <div><dt>Merchant</dt><dd>{insight.merchantName || 'Unnamed merchant'}</dd></div>
             <div><dt>Sign-up date</dt><dd>{formatDate(insight.signupDate)}</dd></div>
-            <div><dt>Plan</dt><dd>{insight.planName ? codeLabel(insight.planName) : 'No plan'}</dd></div>
+            <div><dt>Plan</dt><dd>{planLabel(insight.planName)}</dd></div>
             <div><dt>Subscription status</dt><dd>{insight.subscriptionStatus ? codeLabel(insight.subscriptionStatus) : 'Not provided'}</dd></div>
             <div><dt>Activation state</dt><dd>{codeLabel(insight.activation.state)}</dd></div>
             <div><dt>Activated at</dt><dd>{insight.activation.activatedAt ? formatDate(insight.activation.activatedAt) : 'Not activated'}</dd></div>
@@ -603,7 +604,7 @@ export function MerchantDetailPage() {
             ) : (
               <>
                 <dl className="detail-facts">
-                  <div><dt>Plan</dt><dd>{subscription.plan.name} ({subscription.plan.code})</dd></div>
+                  <div><dt>Plan</dt><dd>{planLabel(subscription.plan.name)}</dd></div>
                   <div><dt>Cycle / model</dt><dd>{subscription.plan.cycle} · {subscription.plan.model}</dd></div>
                   <div><dt>Status</dt><dd><span className={statusBadgeClass(subscription.status)}>{codeLabel(subscription.status)}</span></dd></div>
                   <div><dt>Current period</dt><dd>{formatDate(subscription.period.start)} – {formatDate(subscription.period.end)}</dd></div>

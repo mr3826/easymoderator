@@ -8,6 +8,7 @@
 
 const voiceProcessingService = require('./voice-processing.service');
 const { decodeAudioBase64 } = require('./voice-processing.limits');
+const claimGate = require('../commercial/claim-gate.service');
 
 class VoiceProcessingController {
   /**
@@ -58,16 +59,32 @@ class VoiceProcessingController {
   static async getConfig(req, res, next) {
     try {
       const shopId = req.user.shopId;
+      const locale = req.query?.locale === 'en' ? 'en' : 'bn';
 
-      // This would require a shop settings fetch
-      // For now, return default config
+      // Voice transcription has no live verification, so the claim gate keeps
+      // the capability unavailable until evidence is raised (ADR-0011). No
+      // per-minute charge exists under the delivered-order contract.
+      const transcription = claimGate.renderClaim('voice.transcription', {
+        surface: 'subscription',
+        locale,
+        shopId,
+      });
+
       res.status(200).json({
         success: true,
         data: {
-          voiceProcessingEnabled: process.env.GEMINI_API_KEY ? true : false,
+          voiceProcessingEnabled: transcription.available === true
+            && Boolean(process.env.GEMINI_API_KEY),
           supportedLanguages: ['bengali', 'english', 'banglish', 'auto'],
           model: 'gemini-1.5-flash',
-          transcriptionChargePerMinute: 0.02
+          claims: {
+            transcription: {
+              available: transcription.available,
+              render: transcription.render,
+              textKey: transcription.textKey,
+              contractVersion: transcription.contractVersion
+            }
+          }
         }
       });
     } catch (error) {

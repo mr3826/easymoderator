@@ -36,7 +36,7 @@ const qdrantFallbackCollection = String(process.env.QDRANT_FALLBACK_COLLECTION |
 const qdrantApiKey = process.env.QDRANT_API_KEY;
 const perTenantMode = process.env.QDRANT_PER_TENANT === 'true';
 
-// RAG collections contain merchant-domain data, not Growth administration data.
+// RAG collections contain merchant-domain data, not Growth OS administration data.
 // Every service path must have a selected merchant shop before touching Qdrant.
 const requireShopId = (shopId) => {
     if (!shopId) throw new AppError('No shop selected. Please login again.', 400);

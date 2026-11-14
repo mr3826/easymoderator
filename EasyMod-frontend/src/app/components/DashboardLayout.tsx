@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
-import ConversationAlertBanner from './ConversationAlertBanner';
+import BillingStandingBanner from './BillingStandingBanner';
 import {
   Home, MessageCircle, Grid3X3, ShoppingBag,
   Store, LogOut, Users,
@@ -307,7 +307,7 @@ export default function DashboardLayout() {
 
         {/* ─── Page content ──────────────────────────────────────────── */}
         <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
-          <ConversationAlertBanner />
+          <BillingStandingBanner />
           <Outlet />
         </main>
       </div>

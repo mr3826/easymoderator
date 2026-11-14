@@ -1,64 +1,44 @@
 /**
- * Partner billing + onboarding tests.
- *  - calculatePartnerCharge: flat per-delivered-order band math (pure).
- *  - partner.service.approvePartner: flips a shop's subscription to PARTNER.
+ * Partner programme tests after ADR-0011 retirement.
+ *  - historical band math still resolves for old invoices (pure);
+ *  - historical reads remain;
+ *  - apply/approve are refused with 410.
  */
 
 jest.mock('../../entities', () => ({
     PartnerApplication: { findOne: jest.fn(), create: jest.fn(), findAll: jest.fn() },
-    Subscription: { findOne: jest.fn(), create: jest.fn() },
-    Invoice: { update: jest.fn() },
     Order: { count: jest.fn() },
 }));
 
-jest.mock('../../../utils/database/database-setup', () => ({
-    sequelize: {
-        transaction: jest.fn(async () => ({
-            LOCK: { UPDATE: 'UPDATE' },
-            commit: jest.fn(),
-            rollback: jest.fn(),
-        })),
-    },
-}));
-jest.mock('../../../utils/cache.service', () => ({ clearForShop: jest.fn().mockResolvedValue(undefined) }));
-
-const { PartnerApplication, Subscription, Invoice, Order } = require('../../entities');
+const { PartnerApplication, Order } = require('../../entities');
 const { calculatePartnerCharge, PARTNER_ORDER_TIERS } = require('../subscription.plans');
 const partnerService = require('../partner.service');
 
-describe('calculatePartnerCharge — flat per-order bands', () => {
-    it('does not charge below the 300-order qualification threshold', () => {
-        expect(calculatePartnerCharge(299)).toBe(0);
-    });
-
+describe('calculatePartnerCharge — historical flat bands', () => {
     it.each([
+        [0, 0],
+        [299, 0],
         [300, 300 * 15],
         [999, 999 * 15],
         [1000, 1000 * 12],
-        [2999, 2999 * 12],
         [3000, 3000 * 10],
-    ])('charges every order at the rate for the %s band', (orders, expected) => {
+    ])('computes %s delivered orders as %s BDT', (orders, expected) => {
         expect(calculatePartnerCharge(orders)).toBe(expected);
     });
 
-    it('returns 0 for no delivered orders', () => {
-        expect(calculatePartnerCharge(0)).toBe(0);
-    });
-
-    it('keeps the flat band table as documented', () => {
+    it('keeps the retired band table for historical resolution', () => {
         expect(PARTNER_ORDER_TIERS.map((t) => [t.minOrders, t.maxOrders])).toEqual([
-            [300, 999], [1000, 2999], [3000, null]
+            [300, 999], [1000, 2999], [3000, null],
         ]);
         expect(PARTNER_ORDER_TIERS.map((t) => t.rateBdt)).toEqual([15, 12, 10]);
     });
 });
 
-describe('countRecentDeliveredOrders', () => {
-    it('counts only delivered orders in the rolling window', async () => {
-        Order.count.mockResolvedValueOnce(301);
-        const { countRecentDeliveredOrders } = partnerService;
+describe('historical reads', () => {
+    it('counts delivered orders in the rolling window without a qualification gate', async () => {
+        Order.count.mockResolvedValueOnce(5);
 
-        await expect(countRecentDeliveredOrders('shop-1')).resolves.toBe(301);
+        await expect(partnerService.countRecentDeliveredOrders('shop-1')).resolves.toBe(5);
         expect(Order.count).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({
                 shop_id: 'shop-1',
@@ -67,64 +47,27 @@ describe('countRecentDeliveredOrders', () => {
             }),
         }));
     });
+
+    it('lists preserved applications', async () => {
+        PartnerApplication.findAll.mockResolvedValueOnce([{ id: 'app-old' }]);
+        await expect(partnerService.listApplications({ status: 'approved' }))
+            .resolves.toEqual([{ id: 'app-old' }]);
+        expect(PartnerApplication.findAll).toHaveBeenCalledWith({
+            where: { status: 'approved' },
+            order: [['created_at', 'DESC']],
+        });
+    });
 });
 
-describe('partner.service.approvePartner', () => {
-    beforeEach(() => jest.clearAllMocks());
-
-    it('flips an existing subscription to PARTNER and marks the application approved', async () => {
-        const app = {
-            id: 'app-1', status: 'pending', shop_id: 'shop-1',
-            update: jest.fn().mockResolvedValue(undefined),
-        };
-        const sub = {
-            id: 'sub-1', shop_id: 'shop-1', plan_code: 'GROWTH',
-            update: jest.fn().mockResolvedValue(undefined),
-        };
-        PartnerApplication.findOne.mockResolvedValue(app);
-        Subscription.findOne.mockResolvedValue(sub);
-
-        const result = await partnerService.approvePartner('app-1', { reviewerId: 'cli' });
-
-        expect(sub.update).toHaveBeenCalledWith(expect.objectContaining({
-            plan_code: 'PARTNER', billing_model: 'per_order', status: 'active', conversations_limit: -1,
-        }), expect.anything());
-        expect(Invoice.update).toHaveBeenCalledWith(
-            expect.objectContaining({ status: 'cancelled' }),
-            expect.objectContaining({ where: expect.objectContaining({ subscription_id: 'sub-1' }) }),
-        );
-        expect(app.update).toHaveBeenCalledWith(expect.objectContaining({
-            status: 'approved', shop_id: 'shop-1', reviewed_by: 'cli',
-        }), expect.anything());
-        expect(result.subscription).toBe(sub);
+describe('retired write paths', () => {
+    it('refuses new applications with 410', async () => {
+        await expect(partnerService.applyForPartner({ businessName: 'x' }))
+            .rejects.toMatchObject({ status: 410, code: partnerService.RETIRED_CODE });
+        expect(PartnerApplication.create).not.toHaveBeenCalled();
     });
 
-    it('binds a shopId when the application has none (public form)', async () => {
-        const app = {
-            id: 'app-2', status: 'pending', shop_id: null,
-            update: jest.fn().mockResolvedValue(undefined),
-        };
-        const sub = { shop_id: 'shop-9', update: jest.fn().mockResolvedValue(undefined) };
-        PartnerApplication.findOne.mockResolvedValue(app);
-        Subscription.findOne.mockResolvedValue(sub);
-
-        await partnerService.approvePartner('app-2', { shopId: 'shop-9' });
-
-        expect(app.update).toHaveBeenCalledWith(expect.objectContaining({ shop_id: 'shop-9' }), expect.anything());
-    });
-
-    it('throws when no shop is linked and none provided', async () => {
-        PartnerApplication.findOne.mockResolvedValue({ id: 'app-3', status: 'pending', shop_id: null });
-        await expect(partnerService.approvePartner('app-3', {})).rejects.toThrow(/no shop/i);
-    });
-
-    it('throws when the application is already approved', async () => {
-        PartnerApplication.findOne.mockResolvedValue({ id: 'app-4', status: 'approved', shop_id: 'shop-1' });
-        await expect(partnerService.approvePartner('app-4', {})).rejects.toThrow(/already approved/i);
-    });
-
-    it('throws 404 when the application does not exist', async () => {
-        PartnerApplication.findOne.mockResolvedValue(null);
-        await expect(partnerService.approvePartner('missing', {})).rejects.toThrow(/not found/i);
+    it('refuses approvals with 410 and never switches a subscription', async () => {
+        await expect(partnerService.approvePartner('app-1', { shopId: 'shop-1' }))
+            .rejects.toMatchObject({ status: 410, code: partnerService.RETIRED_CODE });
     });
 });

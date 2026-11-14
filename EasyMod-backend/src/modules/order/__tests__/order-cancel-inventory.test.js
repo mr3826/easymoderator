@@ -91,7 +91,13 @@ jest.mock('../../entities', () => ({
     DeliveryTracking: { findOne: jest.fn() },
     Invoice: { create: jest.fn(), findOne: jest.fn() },
     Subscription: { findOne: jest.fn() },
-    PartnerBillingAdjustment: { create: jest.fn(), findOne: jest.fn() }
+    PartnerBillingAdjustment: { create: jest.fn(), findOne: jest.fn() },
+    BillingLine: {
+        findOne: jest.fn().mockResolvedValue(null),
+        findOrCreate: jest.fn().mockResolvedValue([{}, true]),
+        findAll: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue([1])
+    }
 }));
 
 // AppError is NOT mocked. The stub this replaced set `statusCode`, while the

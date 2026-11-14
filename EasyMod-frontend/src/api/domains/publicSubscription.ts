@@ -1,82 +1,58 @@
-import type { ApiResponse } from "../types/common";
-import { publicApiGet } from "@/shared/lib/http/public-client";
-import {
-  publicPlanToDefinition,
-  type PublicSubscriptionPlanPayload,
-  type SubscriptionPlanDefinition,
-} from "@/app/lib/subscriptionPlans";
+/**
+ * Public subscription catalog — RETIRED (ADR-0011).
+ *
+ * `GET /api/subscription/plans` now answers `410 CATALOG_RETIRED`: there is no
+ * subscription, no per-plan price and no prepaid credit product. Commercial
+ * truth is the single delivered-order contract, consumed through
+ * `@/api/domains/commercialContract` (re-exported here for the legacy import
+ * path).
+ *
+ * These functions are tombstones: they fail closed instead of returning any
+ * substituted or pinned price list.
+ */
 
-export type PublicSubscriptionCatalogSource = "live";
+export const SUBSCRIPTION_CATALOG_RETIRED = "SUBSCRIPTION_CATALOG_RETIRED";
 
-export interface PublicSubscriptionCatalog {
-  plans: SubscriptionPlanDefinition[];
-  source: PublicSubscriptionCatalogSource;
-}
+export class SubscriptionCatalogRetiredError extends Error {
+  readonly code = SUBSCRIPTION_CATALOG_RETIRED;
 
-const REQUIRED_PUBLIC_PLAN_CODES = ["SHURU", "GROWTH", "PARTNER"] as const;
-
-export function hasRequiredPublicPlans(plans: readonly SubscriptionPlanDefinition[]): boolean {
-  if (plans.length !== REQUIRED_PUBLIC_PLAN_CODES.length) return false;
-  const codes = new Set(plans.map(({ code }) => String(code).toUpperCase()));
-  if (codes.size !== REQUIRED_PUBLIC_PLAN_CODES.length || !REQUIRED_PUBLIC_PLAN_CODES.every((code) => codes.has(code))) {
-    return false;
+  constructor() {
+    super(
+      "The subscription plan catalog was retired by ADR-0011. "
+        + "Read the delivered-order commercial contract instead.",
+    );
+    this.name = "SubscriptionCatalogRetiredError";
   }
-
-  const expectedNames = {
-    SHURU: "Get Your Moderator",
-    GROWTH: "Moderator Plus",
-    PARTNER: "Partnership",
-  } as const;
-  const expectedShadowTargets = { SHURU: 300, GROWTH: 3000 } as const;
-
-  return plans.every((plan) => {
-    if (
-      plan.publicName !== expectedNames[plan.code] ||
-      typeof plan.description !== "string" ||
-      plan.description.trim().length === 0 ||
-      typeof plan.descriptionBn !== "string" ||
-      plan.descriptionBn.trim().length === 0 ||
-      !Number.isFinite(plan.monthlyPrice) ||
-      !Number.isFinite(plan.yearlyPrice) ||
-      !Number.isFinite(plan.limits.conversations)
-    ) return false;
-
-    if (plan.code === "PARTNER") {
-      return plan.billingModel === "per_order" && plan.supportReplyAllowance === null
-        && (plan.partnerOrderTiers?.length || 0) > 0;
-    }
-
-    const allowance = plan.supportReplyAllowance;
-    const target = expectedShadowTargets[plan.code];
-    if (!allowance || allowance.amount !== target
-      || allowance.unit !== "provider_accepted_ai_reply"
-      || allowance.period !== "utc_calendar_month"
-      || allowance.status !== "shadow_only"
-      || allowance.billable !== false
-      || allowance.enforced !== false) return false;
-
-    if (plan.code === "GROWTH") {
-      return plan.billingModel === "flat_monthly" && plan.canPurchaseTopups && (plan.topupPacks?.length || 0) > 0;
-    }
-    return plan.billingModel === "flat_monthly";
-  });
 }
 
-/** Fetch only the server-published catalog for public pricing surfaces. */
-export async function getCurrentPublicSubscriptionCatalog(): Promise<PublicSubscriptionCatalog> {
-  const response = await publicApiGet<ApiResponse<PublicSubscriptionPlanPayload[]>>(
-    "/api/subscription/plans",
-  );
-  if (!Array.isArray(response.data) || response.data.length === 0) {
-    throw new Error("The public subscription catalog is unavailable.");
-  }
-  const plans = response.data.map(publicPlanToDefinition);
-  if (!hasRequiredPublicPlans(plans)) {
-    throw new Error("The public subscription catalog is incomplete or does not include the approved shadow allowance contract.");
-  }
-  return { plans, source: "live" };
+/** Legacy shape kept only so callers compile during migration. */
+export interface PublicSubscriptionCatalog<TPlan = unknown> {
+  readonly plans: readonly TPlan[];
+  readonly source: "retired";
 }
 
-export async function getPublicSubscriptionCatalog(): Promise<PublicSubscriptionCatalog> {
-  return getCurrentPublicSubscriptionCatalog();
+/** @deprecated The public catalog is retired; there is no plan allowlist. */
+export function hasRequiredPublicPlans(_plans?: readonly unknown[]): false {
+  void _plans;
+  return false;
 }
+
+/** @deprecated Retired with the subscription model (ADR-0011). */
+export async function getCurrentPublicSubscriptionCatalog<TPlan = unknown>(): Promise<
+  PublicSubscriptionCatalog<TPlan>
+> {
+  throw new SubscriptionCatalogRetiredError();
+}
+
+/** @deprecated Retired with the subscription model (ADR-0011). */
+export async function getPublicSubscriptionCatalog<TPlan = unknown>(): Promise<
+  PublicSubscriptionCatalog<TPlan>
+> {
+  throw new SubscriptionCatalogRetiredError();
+}
+
+export {
+  getPublicCommercialContract,
+  useCommercialContract,
+  useClaimDecisions,
+} from "./commercialContract";

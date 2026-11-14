@@ -1841,7 +1841,7 @@ async function signalBillingPause({ shopId, conversationId, messageId, status, p
             shopId,
             NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE,
             {
-                issue: 'AI replies are paused because your subscription needs attention. '
+                issue: 'AI replies are paused because your billing needs attention. '
                     + 'Customer messages are arriving and waiting for a manual reply.',
                 subscriptionStatus: status || 'unknown',
                 conversationId,
@@ -1866,79 +1866,22 @@ async function signalBillingPause({ shopId, conversationId, messageId, status, p
 }
 
 /**
- * Make a hard conversation-quota pause visible to the merchant. The inbound
- * message remains in the manual inbox; only the automated reply is withheld.
- * Jobs from before the quota deploy do not carry this signal and are resolved
- * from the persisted conversation/subscription state instead of bypassing a
- * finite allowance.
+ * Legacy conversation-quota decision — RETIRED by ADR-0011.
+ *
+ * The commercial contract sets `conversationEntitlement = null`: no conversation
+ * is metered, capped or sold, and there is no monthly reset. Usage events
+ * remain non-gating telemetry. Automated replies are gated solely by billing
+ * status (Guard 4c / `isAiActive`), which runs before this decision.
+ *
+ * Kept as a function so pre-cutover jobs and callers keep resolving; it no
+ * longer reads `within_allowance`, conversation metadata or quota fields, so an
+ * exhausted historical counter can never silently withhold a reply again.
+ *
+ * @returns {boolean} true when the shop has a subscription row; false only when
+ *          no row exists (entitlement cannot be proven — fail closed).
  */
-async function signalUsageExhausted({ shopId, conversationId, messageId, platform }) {
-    try {
-        if (messageId) {
-            const inbound = await Message.findByPk(messageId);
-            if (inbound) {
-                await inbound.update({
-                    metadata: {
-                        ...(inbound.metadata || {}),
-                        ai_skipped_reason: 'usage_exhausted',
-                        ai_skipped_at: new Date().toISOString(),
-                    },
-                });
-            }
-        }
-    } catch (err) {
-        console.warn(`[worker] Could not record usage exhaustion on message ${messageId}: ${err.message}`);
-    }
-
-    try {
-        const merchantNotificationService = require('../modules/notification/merchant-notification.service');
-        const { NOTIFICATION_EVENTS } = require('../modules/notification/notification-events');
-        await merchantNotificationService.notifyShop(
-            shopId,
-            NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE,
-            {
-                issue: 'AI replies are paused because the conversation allowance is used. '
-                    + 'Upgrade to Growth or buy a top-up if available; otherwise wait for the next reset. '
-                    + 'Customer messages are still available for manual replies.',
-                conversationId,
-                platform,
-            },
-            {
-                dedupeKey: `usage_exhausted:${shopId}:${new Date().toISOString().split('T')[0]}`,
-                dedupeTtlSeconds: 24 * 60 * 60,
-            },
-        );
-    } catch (err) {
-        console.warn(`[worker] Could not queue usage-exhaustion alert for shop ${shopId}: ${err.message}`);
-    }
-
-    try {
-        sseManager.emit(shopId, 'ai_paused', {
-            conversation_id: conversationId,
-            reason: 'usage_exhausted',
-        });
-    } catch (_) { /* SSE is a convenience, never a requirement */ }
-}
-
-function resolveAllowanceDecision({ jobDecision, conversationMetadata, subscription }) {
-    if (subscription === null) return false;
-    if (typeof jobDecision === 'boolean') return jobDecision;
-
-    let metadata = conversationMetadata || {};
-    if (typeof metadata === 'string') {
-        try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
-    }
-    if (typeof metadata.within_allowance === 'boolean') return metadata.within_allowance;
-
-    if (subscription && Number.isFinite(Number(subscription.conversations_limit))) {
-        const { isConversationQuotaExhausted } = require('../modules/subscription/subscription.access');
-        return !isConversationQuotaExhausted(subscription);
-    }
-
-    // Real signups always have a subscription row with quota fields. A missing
-    // row cannot prove entitlement and must stop automated AI; old test-only
-    // status fixtures without quota fields retain their legacy behavior.
-    return subscription ? true : false;
+function resolveAllowanceDecision({ subscription } = {}) {
+    return Boolean(subscription);
 }
 
 /**
@@ -2278,24 +2221,14 @@ async function processMessageJob(job) {
         }
     }
 
-    // ── Guard 4d: Conversation allowance ────────────────────────────────────
-    // Metering decides this at the moment a fresh 24h conversation opens. Do
-    // not query usage here when the decision is present: a burst can contain
-    // many replies, all of which must follow the first conversation decision.
-    // Older jobs without the field are resolved from persisted state below.
-    const allowanceDecision = resolveAllowanceDecision({
-        jobDecision: jobWithinAllowance,
-        conversationMetadata: conversation.metadata,
-        subscription: billingSub,
-    });
+    // ── Guard 4d: Conversation quota — RETIRED (ADR-0011) ───────────────────
+    // conversationEntitlement is null; no conversation is metered, billed or
+    // blocked. Usage events stay as non-gating telemetry. This decision is kept
+    // only as a fail-closed "a shop must have a subscription row" check, and it
+    // can never withhold a reply for an exhausted historical counter.
+    const allowanceDecision = resolveAllowanceDecision({ subscription: billingSub });
     if (allowanceDecision === false) {
-        await signalUsageExhausted({
-            shopId,
-            conversationId,
-            messageId,
-            platform,
-        });
-        return { skipped: true, reason: 'usage_exhausted' };
+        return { skipped: true, reason: 'subscription_missing' };
     }
 
     // ── Guard 5: Sentiment — auto-escalate angry/frustrated customers ──────
@@ -3624,7 +3557,7 @@ async function processMessageJob(job) {
                 },
             })
             .catch((err) => {
-                console.error('Growth funnel event write failed:', {
+                console.error('Funnel event write failed:', {
                     name: err?.name,
                     code: err?.code,
                     statusCode: err?.statusCode,
@@ -3786,7 +3719,6 @@ module.exports = {
         wasAiMessageCustomerVisible,
         buildOrderFlowFailureResponse,
         signalBillingPause,
-        signalUsageExhausted,
         resolveAllowanceDecision,
         resolveChannelForJob,
         createRecoveryControl,

@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * UNIT lane — the retired catalog must answer with an explicit 410 and a
+ * successor pointer, never a plan list. The plan catalog was superseded in full
+ * by the delivered-order contract (ADR-0011).
+ */
+
 const express = require('express');
 const request = require('supertest');
 const router = require('../subscription-plans.routes');
@@ -7,17 +13,17 @@ const router = require('../subscription-plans.routes');
 const app = express();
 app.use('/api/subscription/plans', router);
 
-describe('public subscription plans endpoint', () => {
-    it('returns all commercial plans without authentication', async () => {
+describe('retired public subscription plans endpoint', () => {
+    it('answers 410 Gone with the commercial contract successor', async () => {
         const response = await request(app).get('/api/subscription/plans');
 
-        expect(response.status).toBe(200);
-        expect(response.body.success).toBe(true);
-        expect(response.body.data.map((plan) => plan.code)).toEqual(['SHURU', 'GROWTH', 'PARTNER']);
-        expect(response.body.data.find((plan) => plan.code === 'GROWTH')).toEqual(expect.objectContaining({
-            price_bdt_monthly: 999,
-            conversations_limit: 500,
-            can_purchase_topups: true,
-        }));
+        expect(response.status).toBe(410);
+        expect(response.body).toEqual({
+            success: false,
+            code: 'CATALOG_RETIRED',
+            message: 'The subscription catalog has been retired.',
+            successor: '/api/public/commercial-contract',
+        });
+        expect(response.body.data).toBeUndefined();
     });
 });

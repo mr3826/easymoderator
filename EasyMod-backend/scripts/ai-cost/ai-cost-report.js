@@ -33,7 +33,12 @@ const EMBED_MODEL = process.argv.find((a) => a.startsWith('--embeddings='))?.spl
     ? M.EMBED_OPENAI
     : M.EMBED_LOCAL;
 
-// ── Plan economics (subscription.plans.js) ──────────────────────────────────
+// ── HISTORICAL cost fixture (ADR-0011) ──────────────────────────────────────
+// These are the pre-2026-11-14 subscription inputs, retained so the archived AI
+// cost analysis can be reproduced exactly. They are internal cost-model inputs,
+// never a merchant-facing offer: the live price authority is the delivered-order
+// commercial contract. The two retired tokens here are allowlisted per path in
+// scripts/verify-claims/lib/allowlist.js with a matching reason.
 const PLAN = {
     code: 'GROWTH',
     priceBdtMonthly: 999,

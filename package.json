@@ -14,7 +14,10 @@
     "test:backend:integration": "npm run test:integration --workspace=easymod-backend",
     "test:backend:integration:docker": "node scripts/run-backend-integration.js",
     "test:backend:migration-dryrun": "node EasyMod-backend/scripts/prodshaped-migration-dryrun.js",
+    "test:backend:cutover-drill": "node scripts/run-backend-cutover-drill.js",
     "test:backend:meta:e2e:docker": "node scripts/run-backend-meta-e2e.js",
+    "test:integration": "npm run test:backend:integration:docker",
+    "test:meta:e2e": "npm run test:backend:meta:e2e:docker",
     "test:frontend": "npm run test:unit --workspace=easymod-frontend",
     "test:growthos": "npm run test --workspace=easymod-growth",
     "test:growthos:e2e": "node scripts/run-growth-e2e.js",
@@ -26,8 +29,10 @@
     "build:backend": "npm run build --workspace=easymod-backend",
     "build:frontend": "npm run build --workspace=easymod-frontend",
     "build:growthos": "npm run build --workspace=easymod-growth",
+    "build:collateral": "node scripts/build-collateral/index.js",
     "build:all": "npm run build:backend && npm run build:frontend && npm run build:growthos",
-    "recovery:gate": "node scripts/recovery-gate/index.js"
+    "recovery:gate": "node scripts/recovery-gate/index.js",
+    "verify:claims": "node scripts/verify-claims/index.js"
   },
   "overrides": {
     "@fastify/busboy": "3.2.2",

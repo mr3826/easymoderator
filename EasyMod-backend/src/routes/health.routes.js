@@ -271,6 +271,14 @@ router.get('/detailed', authenticate, async (req, res) => {
         checks.pilotIntelligence = null;
     }
 
+    // Commercial truth-gate counters (ADR-0011). Counts and a timestamp only —
+    // no shop, customer or order identifiers.
+    try {
+        checks.commercialTruthGate = require('../modules/commercial/commercial-metrics').snapshot();
+    } catch (_) {
+        checks.commercialTruthGate = null;
+    }
+
     try {
         checks.inboundEvents = typeof getInboundEventMetrics === 'function'
             ? getInboundEventMetrics()

@@ -20,12 +20,12 @@ const Subscription = sequelize.define('Subscription', {
     plan_code: {
         type: DataTypes.STRING(20),
         allowNull: true,
-        defaultValue: 'SHURU'
+        defaultValue: 'MERCHANT'
     },
     plan_name: {
         type: DataTypes.STRING,
         allowNull: false,
-        defaultValue: 'Shuru'
+        defaultValue: 'EasyModerator'
     },
     plan_price: {
         type: DataTypes.DECIMAL(10, 2),
@@ -60,29 +60,30 @@ const Subscription = sequelize.define('Subscription', {
         defaultValue: 0
     },
     status: {
-        // active         — current Shuru/Growth subscription or approved Partner
-        // past_due       — recurring invoice is overdue; billing dunning owns it
-        // suspended      — recurring invoice is materially overdue; AI paused
+        // active         — the single MERCHANT delivered-order model
+        // past_due       — a delivered-order invoice is overdue; billing dunning owns it
+        // suspended      — a delivered-order invoice is materially overdue; AI paused
         // trialing/trial_expired remain readable for pre-migration rows only
         type: DataTypes.ENUM('active', 'inactive', 'cancelled', 'suspended', 'trialing', 'trial_expired', 'past_due'),
         allowNull: false,
         defaultValue: 'active'
     },
-    // Usage limits
+    // Usage counters. There is no conversation or order entitlement under
+    // ADR-0011, so every limit defaults to the unlimited sentinel (-1).
     conversations_limit: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        defaultValue: 100
+        defaultValue: -1
     },
     orders_limit: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        defaultValue: 50
+        defaultValue: -1
     },
     products_limit: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        defaultValue: 100
+        defaultValue: -1
     },
     // Current usage (resets monthly/yearly)
     conversations_used: {
@@ -107,7 +108,8 @@ const Subscription = sequelize.define('Subscription', {
         type: DataTypes.DECIMAL(10, 2),
         defaultValue: 0
     },
-    // Conversation top-up packs purchased separately via bKash.
+    // Legacy conversation credit retained so historical rows remain readable.
+    // No new credit is sold; the top-up programme is retired.
     topup_balance: {
         type: DataTypes.INTEGER,
         allowNull: false,

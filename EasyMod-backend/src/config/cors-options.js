@@ -4,6 +4,7 @@ const { AppError } = require('../utils/AppError');
 
 const PUBLIC_CROSS_ORIGIN_PATHS = new Set([
     '/api/public/live-stats',
+    '/api/public/commercial-contract',
     '/api/subscription/plans',
     '/api/public/addons',
     '/api/analytics/funnel',

@@ -1,4 +1,9 @@
+<!-- HISTORICAL RECORD -->
 # Workstream L — V7 Landing Enhancement (V6 Surgical)
+
+> **Historical record.** ADR-0011 (2026-11-14) supersedes the commercial terms
+> referenced in this document. Keep it for audit; do not render or copy its
+> subscription/plan terms.
 
 Status at this checkpoint: IMPLEMENTED in isolated worktree; local gates pass; PR/merge/deploy pending.
 

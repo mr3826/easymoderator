@@ -10,8 +10,8 @@
     "meta": {
       "landingTitle": "EasyModerator | Messenger কাস্টমার সাপোর্ট ও অর্ডার পর্যালোচনা",
       "landingDescription": "Facebook Messenger-এ কাস্টমার সাপোর্ট দিন, সংরক্ষিত পণ্যের তথ্য দিয়ে রিপ্লাই দিন এবং পরের পদক্ষেপের আগে অর্ডারের তথ্য যাচাই করুন।",
-      "pricingTitle": "EasyModerator-এর মূল্য | Get Your Moderator, Moderator Plus ও Partnership",
-      "pricingDescription": "EasyModerator-এর বর্তমান প্ল্যান মূল্য, কথোপকথনের সীমা এবং Partner বিলিংয়ের তথ্য তুলনা করুন।",
+      "pricingTitle": "EasyModerator-এর মূল্য | ডেলিভারি অর্ডার বিলিং",
+      "pricingDescription": "প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারের জন্য বিল। রিটার্ন বা বাতিল অর্ডারে ৳০.০০। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।",
       "authTitle": "EasyModerator অ্যাকাউন্টে প্রবেশ",
       "authDescription": "EasyModerator মার্চেন্ট অ্যাকাউন্টে লগইন করুন অথবা নতুন অ্যাকাউন্ট তৈরি করুন।"
     },
@@ -19,7 +19,7 @@
       "heroEyebrow": "Messenger-এর কাজ আগে, pilot tool-এর সীমা স্পষ্ট",
       "heroTitle": "মেসেঞ্জারের মেসেজ থেকে অর্ডার, বিজ্ঞাপনের রিপোর্ট থেকে সিদ্ধান্ত—সব এক ড্যাশবোর্ডে",
       "heroBody": "EasyModerator-এর মূল কাজ Facebook Page Messenger কাস্টমার সাপোর্ট, সংরক্ষিত পণ্যের তথ্য ও অর্ডার পর্যালোচনা। Ads Studio ও Storefront সীমিত, অনুমোদনসাপেক্ষ pilot—ডিফল্টে সক্রিয় নয়, billing terms-ও চালু হয়নি।",
-      "primaryCta": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
+      "primaryCta": "EasyModerator অ্যাকাউন্ট তৈরি করুন",
       "secondaryCta": "শুরু করার তিন ধাপ দেখুন",
       "sampleLabel": "Messenger রিপ্লাই ও অর্ডার পর্যালোচনার উদাহরণ",
       "sampleInbox": "কাস্টমার সাপোর্ট",
@@ -68,7 +68,7 @@
           "title": "ব্যবসা বাড়ছে, কিন্তু কাজ কমছে না?",
           "solution": "সমর্থিত Facebook Page Messenger কথোপকথন, সংরক্ষিত পণ্যের তথ্য ও অর্ডার পর্যালোচনা EasyModerator ওয়ার্কস্পেসে রাখুন।",
           "limit": "কাস্টমার চ্যানেল হিসেবে শুধু Facebook Page Messenger সমর্থিত; কাস্টমারের অনুরোধ নিশ্চিত অর্ডার নয়।",
-          "action": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন"
+          "action": "EasyModerator অ্যাকাউন্ট তৈরি করুন"
         },
         "messages": {
           "title": "মেসেজে ডুবে যাচ্ছেন?",
@@ -114,8 +114,8 @@
       "workflowBody": "অ্যাকাউন্ট তৈরি করুন, আপনার পরিচালিত Page যুক্ত করুন, তারপর ইনবক্স ও অর্ডারের তথ্য দেখুন। Pilot tool-এর জন্য আলাদা অনুমোদন লাগে।",
       "steps": {
         "inquiry": {
-          "title": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
-          "body": "নতুন মার্চেন্ট অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। নিবন্ধনের জন্য পেমেন্টের তথ্য লাগে না।"
+          "title": "EasyModerator অ্যাকাউন্ট তৈরি করুন",
+          "body": "নতুন মার্চেন্ট অ্যাকাউন্ট ডেলিভারি অর্ডার বিলিং দিয়ে শুরু হয়। নিবন্ধনের জন্য পেমেন্টের তথ্য লাগে না।"
         },
         "context": {
           "title": "Facebook Page যুক্ত করুন",
@@ -135,7 +135,7 @@
       "trustEyebrow": "কাজের সীমা স্পষ্ট",
       "trustTitle": "সিদ্ধান্তের নিয়ন্ত্রণ মার্চেন্টের কাছেই থাকে।",
       "trustBody": "রিপ্লাই মোড ও অর্ডারের পদক্ষেপ শপের সেটিং এবং পণ্যে থাকা যাচাই অনুসারে চলে। প্রতিটি প্রশ্ন অর্ডারে পরিণত হবে—এমন প্রতিশ্রুতি নেই।",
-      "separateBoundary": "Get Your Moderator, Moderator Plus ও Partnership যথাক্রমে বিদ্যমান SHURU, GROWTH ও PARTNER প্ল্যান রেকর্ড ব্যবহার করে। Ads Studio ও Storefront আলাদা অনুমোদনসাপেক্ষ pilot; billing terms এখনো সক্রিয় নয়।",
+      "separateBoundary": "ডেলিভারি অর্ডার বিলিং-ই একমাত্র মার্চেন্ট বিলিং মডেল। Ads Studio ও Storefront আলাদা অনুমোদনসাপেক্ষ pilot; তাদের billing terms সক্রিয় নয়।",
       "faqTitle": "মার্চেন্টদের সাধারণ প্রশ্ন",
       "faq": {
         "channel": {
@@ -151,16 +151,16 @@
           "answer": "আপনি Manual, Draft বা Auto বেছে নেন। অনুমোদিত মার্চেন্ট বা টিম সদস্য না পাঠানো পর্যন্ত Draft পাঠানো হয় না। Auto শুধু শপের safety check এবং Meta-র messaging rules পাস করা রিপ্লাই পাঠায়; অন্যথায় সেটি যাচাইয়ের জন্য আটকে যেতে পারে। Meta-র messaging window সব সময় প্রযোজ্য।"
         },
         "plans": {
-          "question": "নতুন অ্যাকাউন্টে কোন প্ল্যান থাকে?",
-          "answer": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। বর্তমান কথোপকথনের সীমা ও দাম প্রকাশিত প্ল্যান ক্যাটালগ থেকে আসে; AI-গৃহীত রিপ্লাইয়ের লক্ষ্য আলাদা shadow measurement মাত্র।"
+          "question": "নতুন অ্যাকাউন্টের বিল কীভাবে হয়?",
+          "answer": "নতুন অ্যাকাউন্ট প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারের জন্য বিল হয়। রিটার্ন বা বাতিল অর্ডারে ৳০.০০; কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।"
         },
         "separate": {
-          "question": "সাবস্ক্রিপশনে কি অন্য পণ্যও অন্তর্ভুক্ত?",
-          "answer": "Ads Studio ও Storefront ঐচ্ছিক pilot; শপ অনুমোদিত ও opt-in করলেই ব্যবহার করা যাবে। এদের billing terms সক্রিয় নয় এবং মূল প্ল্যানের বিলিংও বদলায় না।"
+          "question": "ডেলিভারি অর্ডার মূল্যে কি অন্য পণ্য অন্তর্ভুক্ত?",
+          "answer": "Ads Studio ও Storefront ঐচ্ছিক pilot; শপ অনুমোদিত ও opt-in করলেই ব্যবহার করা যায়। তাদের billing terms সক্রিয় নয় এবং মূল ডেলিভারি অর্ডার বিলিং দেখে বদলায় না।"
         }
       },
       "closingTitle": "কাস্টমার সাপোর্ট ও অর্ডারের কাজ সামলানোর আরও পরিষ্কার উপায়।",
-      "closingBody": "Get Your Moderator (SHURU)-তে EasyModerator অ্যাকাউন্ট তৈরি করে ড্যাশবোর্ডে সেটআপ চালিয়ে যান। নিবন্ধনের জন্য পেমেন্টের তথ্য লাগে না।"
+      "closingBody": "EasyModerator অ্যাকাউন্ট তৈরি করে ড্যাশবোর্ডে সেটআপ চালিয়ে যান। প্রথম প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডার থেকে বিল শুরু হয়; নিবন্ধনের জন্য পেমেন্টের তথ্য লাগে না।"
     },
     "nav": {
       "primary": "প্রধান নেভিগেশন",
@@ -185,7 +185,7 @@
       "title": "কাস্টমারের রিপ্লাই ও অর্ডারের কাজ গুছিয়ে চালান।",
       "body": "Facebook Messenger-এর মেসেজ, পণ্যের তথ্য, অর্ডার পর্যালোচনা ও যোগ্য অর্ডারের কুরিয়ার হ্যান্ডঅফ এক ওয়ার্কস্পেসে সামলান। AI-এর সাহায্য নিন, প্রতিটি সিদ্ধান্ত নিজের নিয়ন্ত্রণে রাখুন।",
       "primaryCta": "অ্যাকাউন্ট তৈরি করুন",
-      "signupNote": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। প্রকাশিত ক্যাটালগে বর্তমান কথোপকথনের সীমা ও বিলিং শর্ত দেখুন।",
+      "signupNote": "নতুন অ্যাকাউন্ট প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারের জন্য বিল হয়। প্রকাশিত কনট্র্যাক্টের শর্ত মূল্য পাতায় দেখুন।",
       "sampleFlowLabel": "Messenger কাজের নমুনা যাত্রা",
       "sampleFlowCaption": "একটি কাস্টমার অনুরোধ, ধাপে ধাপে",
       "sampleFlowNote": "শুধু নমুনা · কোনো কাস্টমার ডেটা নয়",
@@ -249,16 +249,16 @@
           "boundary": "বুকিং, কুরিয়ারের সম্মতি, ডেলিভারি ও সেটেলমেন্ট আলাদা অবস্থা।"
         }
       },
-      "commercialBoundary": "Get Your Moderator, Moderator Plus ও Partnership তুলনা করুন; সঙ্গে বর্তমান entitlement এবং আলাদা shadow measurement লক্ষ্য দেখুন।",
-      "pricingEyebrow": "পরিষ্কার প্ল্যান পছন্দ",
-      "pricingTitle": "আপনার কাজের সঙ্গে মানানসই প্ল্যান বেছে নিন",
-      "pricingBody": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। Moderator Plus (GROWTH) ও Partnership (PARTNER)-এর বিদ্যমান সাবস্ক্রিপশন ও delivered-order billing রেকর্ড অপরিবর্তিত থাকে।",
+      "commercialBoundary": "ডেলিভারি অর্ডার বিলিংয়ের শর্ত দেখুন, যেখানে রিটার্ন বা বাতিল অর্ডারে BDT 0।",
+      "pricingEyebrow": "পরিষ্কার মূল্য",
+      "pricingTitle": "একটি অফার, ডেলিভারি অর্ডার অনুযায়ী বিল",
+      "pricingBody": "EasyModerator প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে নির্দিষ্ট পরিমাণ বিল করে। কোনো সাবস্ক্রিপশন, সেটআপ ফি, মাসিক ন্যূনতম বা কথোপকথনের entitlement নেই।",
       "closingTitle": "কাস্টমারের কাজ আরও সহজে গুছিয়ে নিন।",
-      "closingBody": "মার্চেন্ট ওয়ার্কস্পেসে যেতে অ্যাকাউন্ট তৈরি করুন। শুরু হবে Get Your Moderator-এ; প্ল্যান পরিবর্তন নিশ্চিত না হওয়া পর্যন্ত বিলিং বদলাবে না।",
+      "closingBody": "মার্চেন্ট ওয়ার্কস্পেসে যেতে অ্যাকাউন্ট তৈরি করুন। প্রথম প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডার থেকে বিল শুরু হয়।",
       "brandPromise": "আপনার উদ্যোগ, আমাদের প্রযুক্তি—এগিয়ে চলি একসাথে।",
-      "viewPricing": "প্ল্যান তুলনা করুন",
-      "catalogLoading": "বর্তমান প্ল্যানের তথ্য লোড হচ্ছে…",
-      "catalogUnavailable": "এখন বর্তমান প্ল্যানের তথ্য পাওয়া যাচ্ছে না। প্রকাশিত ক্যাটালগ লোড করতে আবার চেষ্টা করুন।",
+      "viewPricing": "মূল্য দেখুন",
+      "catalogLoading": "বর্তমান মূল্য লোড হচ্ছে…",
+      "catalogUnavailable": "এখন বর্তমান মূল্য পাওয়া যাচ্ছে না। আবার চেষ্টা করুন।",
       "retryCatalog": "আবার চেষ্টা করুন",
       "faqTitle": "মার্চেন্টদের সাধারণ প্রশ্ন",
       "faq": {
@@ -271,72 +271,31 @@
           "answer": "না। Draft পর্যালোচনার জন্য সংরক্ষিত থাকে, পাঠানো হয় না। শপে চালু থাকলে Manual, Draft ও Auto মোড পাওয়া যায়; মেসেজ পাঠানো ও অর্ডারের সিদ্ধান্ত শপের অনুমতি এবং প্রযোজ্য মেসেজিং নিয়ম মেনে হয়।"
         },
         "quota": {
-          "question": "কথোপকথন কীভাবে গণনা হয়?",
-          "answer": "একই শপ, কাস্টমার ও Page-এর একই Messenger thread সক্রিয় থাকা পর্যন্ত তার মেসেজগুলো একটি কথোপকথন হিসেবে গণনা হয়। ওই thread-এ ২৪ ঘণ্টা কোনো কার্যকলাপ না থাকলে নতুন কথোপকথন শুরু হয়।"
+          "question": "একটি Messenger thread কীভাবে গঠিত হয়?",
+          "answer": "একই শপ, কাস্টমার ও Page-এর একই Messenger thread সক্রিয় থাকা পর্যন্ত মেসেজগুলো একসঙ্গে থাকে। ওই thread-এ ২৪ ঘণ্টা কোনো কার্যকলাপ না থাকলে নতুন thread শুরু হয়।"
         },
         "signup": {
           "question": "অ্যাকাউন্ট তৈরি করলে কী হবে?",
-          "answer": "নতুন অ্যাকাউন্ট Shuru-তে শুরু হয়। এই পাতা থেকে Growth বেছে নিলে সেটি কেনা বা চালু হয় না; Partner আবেদন আলাদাভাবে পর্যালোচনা করা হয়।"
+          "answer": "আপনি মার্চেন্ট ওয়ার্কস্পেসে প্রবেশাধিকার পাবেন, এবং প্রথম প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডার থেকে বিল শুরু হবে। সাইন আপে বেছে নেওয়ার কোনো সাবস্ক্রিপশন নেই।"
         }
       }
     },
     "pricing": {
-      "eyebrow": "বর্তমান পাবলিক প্ল্যান ক্যাটালগ",
-      "title": "আপনার ব্যবসার কাজ সামলানোর প্ল্যান",
-      "subtitle": "প্রকাশিত মূল্য, বর্তমান Messenger কথোপকথনের সীমা ও Partnership-এর শর্ত তুলনা করুন। আলাদা reply target কেবল shadow measurement; বর্তমান বিলিং বদলায় না।",
-      "catalogLoading": "বর্তমান প্ল্যানের তথ্য লোড হচ্ছে…",
-      "catalogUnavailable": "এখন বর্তমান প্ল্যানের তথ্য পাওয়া যাচ্ছে না। প্রকাশিত ক্যাটালগ লোড করতে আবার চেষ্টা করুন।",
+      "eyebrow": "ডেলিভারি অর্ডার বিলিং",
+      "title": "শুধু ডেলিভারি হওয়া অর্ডারের জন্য বিল",
+      "subtitle": "প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPrice}}। রিটার্ন বা বাতিল অর্ডারে ৳০.০০। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।",
+      "catalogLoading": "বর্তমান মূল্য লোড হচ্ছে…",
+      "catalogUnavailable": "এখন বর্তমান মূল্য পাওয়া যাচ্ছে না। আবার চেষ্টা করুন।",
       "retryCatalog": "আবার চেষ্টা করুন",
-      "perMonth": "/ মাস",
-      "perDeliveredOrder": "প্রতি ডেলিভারি সম্পন্ন হওয়া অর্ডারে",
-      "partnerNoMonthlyFee": "মাসিক সাবস্ক্রিপশন ফি নেই; অনুমোদনের পর ডেলিভারি সম্পন্ন হওয়া প্রতিটি অর্ডারের জন্য বিল হয়।",
-      "conversationsPerMonth": "প্রতি মাসে {{amount}}টি Messenger কথোপকথন",
-      "conversationCountNote": "একই শপ, কাস্টমার, চ্যানেল ও Page-এর একটি সক্রিয় Messenger thread একবার গণনা হয়। ওই thread-এ ২৪ ঘণ্টা কোনো কার্যকলাপ না হওয়া পর্যন্ত মেসেজগুলো একই কথোপকথন।",
-      "unlimitedConversations": "সীমাহীন কথোপকথন",
-      "unlimitedOrders": "সীমাহীন অর্ডার",
-      "unlimitedProducts": "সীমাহীন পণ্য",
-      "includedLimits": "প্রকাশিত প্ল্যান সীমা",
-      "shuruAction": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
-      "growthAction": "Moderator Plus দেখুন",
-      "getModeratorAction": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
-      "moderatorPlusAction": "Moderator Plus দেখুন",
-      "moderatorPlusNewAccountsNote": "নতুন শপ Get Your Moderator দিয়ে শুরু হয়। Moderator Plus দেখলেই upgrade চালু হয় না।",
-      "partnershipAction": "Partnership পর্যালোচনার অনুরোধ",
-      "partnershipReviewNote": "Partnership আবেদন পর্যালোচনার জন্য জমা হয়; delivered-order billing চালু হয় না।",
-      "partnershipApplicationTitle": "Partnership আবেদন",
-      "partnershipApplicationDescription": "পর্যালোচনার জন্য ব্যবসার তথ্য দিন। এই ফর্মে প্রকৃত আবেদন জমা হয়, প্ল্যান বদলায় না।",
-      "partnershipSuccessTitle": "Partnership অনুরোধ পাওয়া গেছে",
-      "partnershipSuccessBody": "আপনার অনুরোধ পর্যালোচনার জন্য নথিভুক্ত হয়েছে। চালুর আগে delivered-order billing ও যোগ্যতা নিশ্চিত করা হবে।",
-      "growthMonthlyNote": "Growth-এর মাসিক মূল্য দেখানো হয়েছে। নতুন বার্ষিক নির্বাচন পাওয়া যাচ্ছে না।",
-      "coreFeatureParity": "Get Your Moderator, Moderator Plus ও Partnership বিদ্যমান SHURU, GROWTH ও PARTNER রেকর্ড ব্যবহার করে। বর্তমান কথোপকথনের entitlement এবং Partnership delivered-order billing-ই কার্যকর থাকবে।",
-      "topupsTitle": "Moderator Plus (GROWTH) কথোপকথন প্যাক",
-      "topupsCaveat": "শুধু যোগ্য Moderator Plus (GROWTH) অ্যাকাউন্টের জন্য। প্রতিটি প্যাক আলাদা এককালীন কেনাকাটা; মাসিক প্ল্যান ফি-এর অংশ নয়। bKash checkout চালু থাকলে সফল পেমেন্টে কথোপকথনের credit যোগ হয়। অব্যবহৃত ব্যালেন্স পরের billing period-এ থাকে। প্ল্যানের কথোপকথন সীমা ও top-up balance—দুটিই শেষ হলে AI reply থামে; নিজে লিখে reply দেওয়া চালু থাকে।",
-      "partnerQualification": "Partnership আবেদন যাচাই করে অনুমোদন করা হয়। যোগ্য হতে গত ৩০ দিনের চলমান হিসাবে অন্তত ৩০০টি ডেলিভারি সম্পন্ন হওয়া অর্ডার থাকতে হবে।",
-      "partnerRateTitle": "Partnership-এ অর্ডার বিলের হিসাব",
-      "partnerBillingNote": "Partnership অ্যাকাউন্টের প্রতিটি বিলিং সময়ে ০–২৯৯টি ডেলিভারি সম্পন্ন অর্ডার হলে প্রতি অর্ডারে কোনো ফি নেই। ৩০০ বা বেশি হলে ওই সময়ের নির্ধারিত রেট প্রতিটি ডেলিভারি সম্পন্ন অর্ডারে প্রযোজ্য। সময়সীমা আপনার অ্যাকাউন্টের বিলিং তারিখ অনুযায়ী, ক্যালেন্ডার মাস অনুযায়ী নয়। আবেদনের যোগ্যতা আলাদা চলমান ৩০ দিনের হিসাবে যাচাই হয়।",
-      "partnerThresholdExample": "{{belowThresholdOrders}}টি ডেলিভারি সম্পন্ন অর্ডারে প্রতি-অর্ডার ফি ৳০। {{orders}}টিতে: {{orders}} × ৳{{rate}} = ওই বিলিং পিরিয়ডে ৳{{total}}।",
-      "partnerAction": "Partnership পর্যালোচনার অনুরোধ",
-      "partnerReviewNote": "আবেদন জমা দিলে পর্যালোচনা হয়; Partnership billing চালু হয় না।",
-      "topupPack": "{{amount}}টি কথোপকথন · প্রতি প্যাক ৳{{price}}",
-      "catalogUnitNote": "বর্তমান সীমা ও top-up অ্যাকাউন্টের billing period-এ Messenger কথোপকথন গণনা করে। আলাদা ৩০০/৩,০০০ Meta-তে গৃহীত AI-generated reply লক্ষ্য শুধু UTC calendar-month shadow measurement: কোনো ফি বা enforcement নেই, কথোপকথনের credit-ও রূপান্তর হয় না।",
-      "separateBoundary": "Get Your Moderator, Moderator Plus ও Partnership যথাক্রমে SHURU, GROWTH ও PARTNER রেকর্ড ব্যবহার করে। Ads Studio ও Storefront ঐচ্ছিক pilot, শপ অনুমোদন লাগে এবং billing terms সক্রিয় নয়।",
-      "shadowAllowanceLabel": "বিলযোগ্য নয় এমন support reply measurement",
-      "shadowAllowanceTitle": "প্রতি UTC calendar মাসে {{amount}}টি Meta-তে গৃহীত AI-generated reply (shadow লক্ষ্য)",
-      "shadowAllowanceNote": "শুধু shadow measurement—ফি নেই, quota enforce হয় না। সক্রিয় সীমা {{conversations}}টি Messenger কথোপকথনই থাকবে; Moderator Plus top-up-এ কথোপকথনই যোগ হয়।",
-      "applicationTitle": "Partnership আবেদন",
-      "applicationDescription": "পর্যালোচনার জন্য আপনার ব্যবসার তথ্য দিন। এই ফর্মে আবেদন জমা হবে, আপনার প্ল্যান বদলাবে না।",
-      "businessName": "ব্যবসার নাম",
-      "phone": "ফোন নম্বর",
-      "phoneFormatNote": "বাংলাদেশি মোবাইল নম্বর 017XXXXXXXX লিখুন। +880 ফরম্যাটেও দিতে পারেন।",
-      "phoneInvalid": "সঠিক বাংলাদেশি মোবাইল নম্বর লিখুন, যেমন 017XXXXXXXX।",
-      "facebookPage": "Facebook Page-এর URL",
-      "applicationSubmit": "পর্যালোচনার জন্য আবেদন পাঠান",
-      "applicationSending": "পাঠানো হচ্ছে…",
-      "applicationSuccessTitle": "আবেদন পাওয়া গেছে",
-      "applicationSuccessBody": "আপনার Partnership আবেদন পর্যালোচনার জন্য নথিভুক্ত হয়েছে। আপনার বর্তমান প্ল্যান বদলায়নি।",
-      "applicationClose": "বন্ধ করুন",
-      "applicationError": "আবেদন পাঠানো যায়নি। পরে আবার চেষ্টা করুন।",
-      "fieldRequired": "এই ঘরটি পূরণ করুন।"
+      "perDeliveredOrder": "প্রতি ডেলিভারি অর্ডারে",
+      "separateBoundary": "ডেলিভারি অর্ডার বিলিং-ই একমাত্র মার্চেন্ট বিলিং মডেল। Ads Studio ও Storefront ঐচ্ছিক pilot, শপ অনুমোদন লাগে এবং তাদের billing terms সক্রিয় নয়।",
+      "offerTitle": "ডেলিভারি অর্ডার বিলিং",
+      "zeroRatedNote": "রিটার্ন বা বাতিল অর্ডারে ৳০.০০ বিল হয়।",
+      "noFeesNote": "কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।",
+      "dueNote": "মাসিক পোস্টপেইড বিল, {{dueDays}} দিনের মধ্যে পরিশোধ।",
+      "capabilitiesTitle": "কনট্র্যাক্টে যা অন্তর্ভুক্ত",
+      "contractVersionLabel": "কনট্র্যাক্ট সংস্করণ {{version}}",
+      "cta": "EasyModerator অ্যাকাউন্ট তৈরি করুন"
     },
     "addons": {
       "eyebrow": "ঐচ্ছিক add-on",
@@ -496,7 +455,7 @@
         "coreCta": "মূল ওয়ার্কফ্লো দেখুন",
         "optionalLabel": "ঐচ্ছিক সমাধান",
         "optionalTitle": "ঐচ্ছিক সমাধান, প্রতিটির পরিসর আলাদা।",
-        "optionalBody": "স্টোর, ব্র্যান্ড, কাস্টমার ইনসাইট ও ক্যাম্পেইন মাপা আলাদা কাজ; এগুলো Shuru, Growth ও Partner সাবস্ক্রিপশন থেকে আলাদা।",
+        "optionalBody": "স্টোর, ব্র্যান্ড, কাস্টমার ইনসাইট ও ক্যাম্পেইন মাপা আলাদা কাজ; এগুলো ডেলিভারি অর্ডার বিলিং থেকে আলাদা।",
         "detailsCta": "দেখুন",
         "exploreNeed": "{{name}} দেখুন",
         "scope": {
@@ -507,17 +466,11 @@
         }
       },
       "plans": {
-        "eyebrow": "বাণিজ্যিক প্ল্যান",
-        "title": "আপনার ব্যবসার ধরন অনুযায়ী প্ল্যান।",
-        "body": "Get Your Moderator (SHURU), Moderator Plus (GROWTH) অথবা Partnership (PARTNER) বেছে নিন। বর্তমান দাম ও কথোপকথনের সীমা লাইভ ক্যাটালগ থেকে আসে; ৩০০/৩,০০০ accepted AI reply লক্ষ্য শুধু shadow mode-এ মাপা হয়। Ads Studio ও Storefront আলাদা অনুমোদনসাপেক্ষ pilot; billing terms সক্রিয় নয়।",
-        "partnerBilling": "কোনো upfront subscription নেই; delivered-order billing",
-        "topupBoundary": "শুধু Moderator Plus (GROWTH)-এ: যোগ্য অ্যাকাউন্টে bKash checkout চালু থাকলে কথোপকথনের credit pack আলাদাভাবে কেনা যায়।",
-        "growthIntentNote": "নতুন অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হয়। সাইন আপের পর Moderator Plus দেখতে পারবেন; নিবন্ধন করলেই পেইড প্ল্যান চালু হয় না।",
-        "catalogNote": "বর্তমান সীমা ও top-up অ্যাকাউন্টের billing period-এ Messenger কথোপকথন গণনা করে। আলাদা ৩০০/৩,০০০ Meta-তে গৃহীত AI-generated reply লক্ষ্য শুধু UTC calendar-month shadow measurement: কোনো ফি বা enforcement নেই, কথোপকথনের credit-ও রূপান্তর হয় না।",
+        "eyebrow": "মূল্য",
+        "title": "সব শপের জন্য একটি অফার",
+        "body": "প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPrice}}। রিটার্ন বা বাতিল অর্ডারে ৳০.০০। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই। Ads Studio ও Storefront আলাদা অনুমোদনসাপেক্ষ pilot; তাদের billing terms সক্রিয় নয়।",
         "actions": {
-          "shuru": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
-          "growth": "Moderator Plus দেখুন",
-          "partner": "Partnership পর্যালোচনার অনুরোধ"
+          "offer": "EasyModerator অ্যাকাউন্ট তৈরি করুন"
         }
       },
       "trust": {
@@ -540,18 +493,17 @@
       }
     },
     "auth": {
-      "createAccount": "Shuru অ্যাকাউন্ট তৈরি করুন",
+      "createAccount": "অ্যাকাউন্ট তৈরি করুন",
       "createAccountHeading": "আপনার অ্যাকাউন্টের তথ্য",
-      "createShuruButton": "Get Your Moderator অ্যাকাউন্ট তৈরি করুন",
+      "createShuruButton": "EasyModerator অ্যাকাউন্ট তৈরি করুন",
       "creatingAccount": "অ্যাকাউন্ট তৈরি হচ্ছে…",
       "email": "ইমেইল",
       "emailPlaceholder": "you@example.com",
       "forgotPassword": "পাসওয়ার্ড ভুলে গেছেন?",
-      "growthReviewOnShuru": "আপনার অ্যাকাউন্ট Get Your Moderator (SHURU)-তে শুরু হবে। সাইন আপের পর Moderator Plus দেখতে পারবেন; অ্যাকাউন্ট তৈরি করলেই পেইড প্ল্যান চালু হয় না।",
       "haveAccount": "আপনার কি EasyModerator অ্যাকাউন্ট আছে?",
       "hidePassword": "অক্ষর লুকান",
       "nameHelper": "আপনার নাম অ্যাকাউন্ট ও প্রথম শপে ব্যবহার হবে। পরে ব্যবসার তথ্য থেকে শপের নাম বদলাতে পারবেন।",
-      "newAccountsStartOnShuru": "অ্যাকাউন্টের সঙ্গে Get Your Moderator (SHURU) সাবস্ক্রিপশন তৈরি হয়। অন্য বর্তমান প্ল্যান আলাদাভাবে দেখতে পারবেন।",
+      "newAccountsStartOnShuru": "অ্যাকাউন্ট ডেলিভারি অর্ডার বিলিং দিয়ে শুরু হয়: প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে নির্দিষ্ট ফি, কোনো সাবস্ক্রিপশন বা সেটআপ ফি নেই।",
       "noAccount": "EasyModerator-এ নতুন?",
       "noPaidSubscriptionOnSignup": "অ্যাকাউন্ট তৈরির জন্য পেমেন্টের তথ্য প্রয়োজন নেই।",
       "panelKicker": "অ্যাকাউন্টে প্রবেশ",
@@ -570,7 +522,7 @@
       "privacyPolicy": "গোপনীয়তা নীতি",
       "rememberMe": "এই ডিভাইসে আমাকে সাইন-ইন রাখুন",
       "showPassword": "অক্ষর দেখান",
-      "shuruPlanLabel": "শুরুর প্ল্যান · Get Your Moderator",
+      "shuruPlanLabel": "শুরুর মডেল · ডেলিভারি অর্ডার বিলিং",
       "signInButton": "লগইন",
       "signInKicker": "আবার স্বাগতম",
       "signInPanelBody": "EasyModerator ড্যাশবোর্ড থেকে কাস্টমার সাপোর্ট, রিপ্লাই ও অর্ডারের কাজ চালিয়ে যান।",
@@ -601,7 +553,8 @@
       "twoFactorVerify": "যাচাই করুন",
       "twoFactorVerifying": "যাচাই হচ্ছে…",
       "yourName": "আপনার নাম",
-      "yourNamePlaceholder": "আপনার পূর্ণ নাম"
+      "yourNamePlaceholder": "আপনার পূর্ণ নাম",
+      "startingPrice": "প্রতিটি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPrice}}।"
     },
     "validation": {
       "emailInvalid": "সঠিক ইমেইল ঠিকানা লিখুন।",
@@ -619,124 +572,179 @@
       "termsRequired": "শর্তাবলীতে সম্মতি দিতে হবে।"
     }
   },
-  "pricing": {
-    "label": "প্রাইসিং",
-    "mostPopular": "সবচেয়ে জনপ্রিয়",
-    "perMonth": "/মাস",
-    "partnerApplyNote": "গত ৩০ দিনের চলমান হিসাবে ৩০০+ ডেলিভারি সম্পন্ন অর্ডার থাকলে আবেদন করুন",
-    "partnerPriceUnit": "আগাম",
-    "partnerEligibleBadge": "৩০০+ ডেলিভারি সম্পন্ন অর্ডার",
-    "partnerRateBandsTitle": "প্রতি ডেলিভারি সম্পন্ন অর্ডারের হার",
-    "partnerRateBand": "{{min}}–{{max}}টি অর্ডার: প্রতিটি ৳{{rate}}",
-    "applyNow": "আবেদন করুন",
-    "limits": {
-      "unlimitedConversations": "আনলিমিটেড কথোপকথন",
-      "conversationsPerMonth": "প্রতি মাসে {{count}}টি customer conversation",
-      "deliveredOrders": "যোগ্য হতে গত ৩০ দিনের চলমান হিসাবে ৩০০+ ডেলিভারি সম্পন্ন অর্ডার",
-      "manualInbox": "Manual reply সবসময় চালু",
-      "unlimitedOrders": "আনলিমিটেড অর্ডার",
-      "ordersPerMonth": "{{count}}টি অর্ডার/মাস",
-      "unlimitedProducts": "আনলিমিটেড প্রোডাক্ট",
-      "products": "{{count}}টি প্রোডাক্ট"
-    },
-    "features": {
-      "imageUnderstanding": "Product photo বুঝে",
-      "advancedAi": "Better reply accuracy",
-      "prioritySupport": "Priority Support",
-      "customBranding": "Custom Branding (White-label)",
-      "facebookInbox": "Facebook sales inbox"
-    },
-    "planFeatures": {
-      "shuru": [
-        "প্রতি মাসে ১০০টি customer conversation",
-        "Facebook Messenger ইনবক্স",
-        "অর্ডার ক্যাপচার ও COD risk checks",
-        "Manual reply সবসময় চালু"
-      ],
-      "growth": [
-        "প্রতি মাসে ৫০০টি customer conversation",
-        "Facebook Messenger ইনবক্স",
-        "অর্ডার ক্যাপচার ও COD risk checks",
-        "কথোপকথনের সীমা অনুযায়ী AI রিপ্লাই চলে"
-      ],
-      "partner": [
-        "যোগ্য হতে ৩০ দিনে ৩০০+ delivered order",
-        "কোনো মাসিক ফি নেই",
-        "আনলিমিটেড customer conversation",
-        "Delivered-order band অনুযায়ী flat rate"
-      ]
-    },
-    "plans": {
-      "shuru": {
-        "name": "Shuru",
-        "description": "মাসিক প্ল্যান ফি নেই; প্রকাশিত কথোপকথন সীমার মধ্যে মূল কাস্টমার সাপোর্ট ও অর্ডার সুবিধা।",
-        "priceNote": "চিরদিন ফ্রি",
-        "cta": "ফ্রি অ্যাকাউন্ট তৈরি করুন"
+  "claims": {
+    "billing": {
+      "delivered_order": {
+        "en": "{{unitPrice}} per provider-confirmed delivered order. No subscription, no setup fee, and no monthly minimum.",
+        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPriceBn}}। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।"
       },
-      "growth": {
-        "name": "Growth",
-        "description": "একই মূল কাস্টমার সাপোর্ট ও কমার্স টুল, সঙ্গে বেশি কথোপকথন সীমা।",
-        "priceNote": "সহজ মাসিক বিল",
-        "cta": "Growth দিয়ে শুরু করুন"
-      },
-      "partner": {
-        "name": "Partner",
-        "description": "প্রতি বিলিং সময়ে ০–২৯৯টি ডেলিভারি সম্পন্ন অর্ডারে অর্ডার-প্রতি ফি নেই। ৩০০+ হলে ওই সময়ের রেট প্রতিটি ডেলিভারি সম্পন্ন অর্ডারে প্রযোজ্য।",
-        "priceNote": "ডেলিভারি সম্পন্ন অর্ডারের সংখ্যার ভিত্তিতে নির্ধারিত প্রতি-অর্ডার হার",
-        "cta": "Partner-এর জন্য আবেদন"
+      "overdue_policy": {
+        "en": "If a bill is overdue, new courier bookings are blocked and automated replies pause. Your inbox and history stay readable, and nothing is deleted.",
+        "bn": "বিল বকেয়া হলে নতুন কুরিয়ার বুকিং বন্ধ থাকে এবং স্বয়ংক্রিয় রিপ্লাই বিরত থাকে। আপনার ইনবক্স ও হিস্টোরি পড়া যাবে, কিছুই মুছে ফেলা হয় না।"
       }
     },
-    "hero": {
-      "heading": "মসৃণ ও সৎ মূল্য নির্ধারণ",
-      "subheading": "Shuru দিয়ে ফ্রি শুরু করুন, Growth-এ বাড়ুন, অথবা Partner path বেছে নিন।",
-      "badge1": "Messenger-only launch scope",
-      "badge2": "চিরদিন ফ্রি",
-      "badge3": "কোনো hidden fee নেই"
+    "courier": {
+      "pathao": {
+        "booking_live": {
+          "en": "Courier booking through Pathao is available.",
+          "bn": "Pathao-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "Pathao courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "Pathao কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "Pathao integration code is present.",
+          "bn": "Pathao ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "Pathao COD settlement reconciliation is supported.",
+          "bn": "Pathao COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
+            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
+          }
+        }
+      },
+      "steadfast": {
+        "booking_live": {
+          "en": "Courier booking through Steadfast is available.",
+          "bn": "Steadfast-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "Steadfast courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "Steadfast কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "Steadfast integration code is present.",
+          "bn": "Steadfast ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "Steadfast COD settlement reconciliation is supported.",
+          "bn": "Steadfast COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
+            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
+      },
+      "redx": {
+        "booking_live": {
+          "en": "Courier booking through RedX is available.",
+          "bn": "RedX-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "RedX courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "RedX কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "RedX integration code is present.",
+          "bn": "RedX ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "RedX COD settlement reconciliation is supported.",
+          "bn": "RedX COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
+            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
+      },
+      "all_providers": {
+        "en": "Courier booking through {{providers}} is live-verified.",
+        "bn": "{{providers}}—এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Courier booking is implemented, but it is not yet live-verified for all three providers.",
+          "bn": "কুরিয়ার বুকিং তৈরি হয়েছে, তবে তিনটি প্রোভাইডারের জন্যই এখনো লাইভ যাচাই হয়নি।"
+        }
+      },
+      "cod_settlement": {
+        "pathao": {
+          "en": "Pathao COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Pathao COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
+            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
+          }
+        },
+        "steadfast": {
+          "en": "Steadfast COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Steadfast COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
+            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        },
+        "redx": {
+          "en": "RedX COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "RedX COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
+            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
+      }
     },
-    "partnerTeaser": {
-      "question": "৩০ দিনে ৩০০+ delivered order আছে?",
-      "link": "Partner Plan সম্পর্কে জানুন →"
+    "voice": {
+      "transcription": {
+        "en": "Voice transcription is available.",
+        "bn": "ভয়েস ট্রান্সক্রিপশন পাওয়া যায়।",
+        "fallback": {
+          "en": "Voice transcription is a mock-only preview and is not live-verified.",
+          "bn": "ভয়েস ট্রান্সক্রিপশন শুধু মক প্রিভিউ, লাইভ যাচাইকৃত নয়।"
+        }
+      },
+      "auto_reply": {
+        "en": "Voice auto-reply is available.",
+        "bn": "ভয়েস অটো-রিপ্লাই পাওয়া যায়।",
+        "fallback": {
+          "en": "Voice auto-reply is not implemented.",
+          "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
+        }
+      }
     },
-    "included": {
-      "heading": "সব শপের জন্য একই core feature",
-      "subheading": "Feature lock নয়, আপনার scale অনুযায়ী plan বেছে নিন। Growth ৳{{price}}/মাস।"
+    "ai": {
+      "auto_reply": {
+        "en": "Automated AI replies are enabled for this shop.",
+        "bn": "এই শপের জন্য স্বয়ংক্রিয় AI রিপ্লাই চালু আছে।",
+        "fallback": {
+          "en": "Automated AI replies have not been proven live; replies stay in draft for review.",
+          "bn": "স্বয়ংক্রিয় AI রিপ্লাই লাইভ প্রমাণিত নয়; রিপ্লাই পর্যালোচনার জন্য ড্রাফটে থাকে।"
+        }
+      },
+      "draft_reply": {
+        "en": "AI-assisted draft replies are available for review before sending.",
+        "bn": "পাঠানোর আগে পর্যালোচনার জন্য AI-সহায়ক ড্রাফট রিপ্লাই পাওয়া যায়।",
+        "fallback": {
+          "en": "AI draft replies are implemented; production verification is pending.",
+          "bn": "AI ড্রাফট রিপ্লাই তৈরি হয়েছে; প্রোডাকশনে যাচাই বাকি।"
+        }
+      },
+      "reply_shadow_meter": {
+        "en": "AI reply shadow meter is available internally.",
+        "bn": "AI রিপ্লাই শ্যাডো মিটার অভ্যন্তরীণভাবে পাওয়া যায়।"
+      }
     },
-    "faq": {
-      "heading": "সাধারণ জিজ্ঞাসা",
-      "q1": "Shuru কি সত্যিই ফ্রি?",
-      "a1": "হ্যাঁ — Shuru চিরদিন ফ্রি, প্রতি মাসে ১০০টি customer conversation সহ। কোনো কার্ড লাগবে না।",
-      "q2": "Growth কী?",
-      "a2": "Growth হলো ৳{{price}}/মাস, প্রতি বিলিং পিরিয়ডে ৫০০টি customer conversation সহ।",
-      "q3": "মাসে কতগুলো customer conversation পাব?",
-      "a3": "Shuru-তে প্রতি বিলিং পিরিয়ডে ১০০টি এবং Growth-এ ৫০০টি conversation আছে।",
-      "q4": "Conversation limit শেষ হলে কী হবে?",
-      "a4": "Included conversation allowance শেষ হলে AI reply pause হবে। Manual reply চালু থাকবে।",
-      "q5": "Partner প্লানে কীভাবে আবেদন করব?",
-      "a5": "৩০ দিনে ৩০০+ delivered order হলে Pricing page থেকে আবেদন করুন। Partner-এ মাসিক ফি নেই; delivered-order band অনুযায়ী ৳১৫, ৳১২ বা ৳১০।"
-    },
-    "cta": {
-      "heading": "আরও message-কে order বানাতে ready?",
-      "subheading": "Shuru দিয়ে ফ্রি শুরু করুন। Messenger volume বাড়লে upgrade করুন।",
-      "button": "এখনই শুরু করুন"
-    },
-    "partnerModal": {
-      "title": "Partner হতে আবেদন করুন",
-      "subtitle": "৩০ দিনে ৩০০+ delivered order আছে? কোনো মাসিক ফি নেই; delivered-order band অনুযায়ী flat rate।",
-      "businessNameLabel": "Business Name",
-      "businessNamePlaceholder": "আপনার শপের নাম",
-      "phoneLabel": "Phone Number",
-      "pageLinkLabel": "Facebook Page Link",
-      "submit": "আবেদন পাঠান",
-      "submitting": "পাঠানো হচ্ছে...",
-      "successTitle": "আবেদন পাঠানো হয়েছে!",
-      "successMessage": "আমরা আপনার আবেদন পর্যালোচনা করব এবং শীঘ্রই যোগাযোগ করব।",
-      "successMessageEn": "আপনার আবেদন পাওয়া গেছে। আমরা শীঘ্রই যোগাযোগ করব।",
-      "ok": "ঠিক আছে",
-      "errors": {
-        "businessNameRequired": "ব্যবসার নাম আবশ্যক",
-        "phoneRequired": "ফোন নম্বর আবশ্যক",
-        "pageLinkRequired": "পেজ লিঙ্ক আবশ্যক",
-        "submitFailed": "আবেদন পাঠানো যায়নি। আবার চেষ্টা করুন।"
+    "addons": {
+      "ads_studio": {
+        "pilot": {
+          "en": "Ads Studio is enabled for this shop as an approved pilot.",
+          "bn": "এই শপে অনুমোদিত পাইলট হিসেবে Ads Studio চালু আছে।",
+          "fallback": {
+            "en": "Ads Studio is an approval-only pilot and is not enabled for this shop.",
+            "bn": "Ads Studio শুধু অনুমোদনসাপেক্ষ পাইলট এবং এই শপে চালু নেই।"
+          }
+        }
+      },
+      "storefront": {
+        "pilot": {
+          "en": "Storefront is enabled for this shop as an approved pilot.",
+          "bn": "এই শপে অনুমোদিত পাইলট হিসেবে Storefront চালু আছে।",
+          "fallback": {
+            "en": "Storefront is an approval-only pilot and is not enabled for this shop.",
+            "bn": "Storefront শুধু অনুমোদনসাপেক্ষ পাইলট এবং এই শপে চালু নেই।"
+          }
+        }
       }
     }
   }

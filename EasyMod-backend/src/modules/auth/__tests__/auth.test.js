@@ -209,7 +209,7 @@ describe('Auth API', () => {
     // ── Signup ──────────────────────────────────────────────────────────
 
     describe('POST /api/auth/signup', () => {
-        it('creates the free Shuru subscription in the signup transaction', async () => {
+        it('creates the delivered-order MERCHANT subscription in the signup transaction', async () => {
             const user = {
                 ...mockUser,
                 id: 'signup-user',
@@ -241,10 +241,9 @@ describe('Auth API', () => {
 
             expect(Subscription.create).toHaveBeenCalledWith(expect.objectContaining({
                 shop_id: shop.id,
-                plan_code: 'SHURU',
-                plan_name: 'Shuru',
+                plan_code: 'MERCHANT',
                 plan_price: 0,
-                conversations_limit: 100,
+                conversations_limit: -1,
                 status: 'active',
             }), expect.objectContaining({ transaction: expect.any(Object) }));
         });

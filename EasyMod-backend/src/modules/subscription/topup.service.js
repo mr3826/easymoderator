@@ -61,7 +61,7 @@ const recordFunnelEventSafe = (event, values) => {
 };
 
 /**
- * List available top-up packs.
+ * List legacy top-up products (historical catalog; purchasing is retired).
  */
 const getTopupPacks = () => Object.values(TOPUP_PACKS);
 
@@ -70,20 +70,20 @@ const getTopupPacks = () => Object.values(TOPUP_PACKS);
  * Creates a topup_transaction record (status=pending) and starts BKash checkout.
  *
  * @param {string} shopId
- * @param {string} packCode  - e.g. 'PACK_100'
+ * @param {string} packCode  - legacy catalog code
  * @param {{ phone: string, name: string, callbackUrl: string }} customerInfo
  * @returns {{ topupId, bkashUrl, paymentId, pack }}
  */
 const initiateTopup = async (shopId, packCode, { phone, name, callbackUrl, idempotencyKey }) => {
     const pack = TOPUP_PACKS[packCode];
-    if (!pack) throw new AppError(`Invalid top-up pack: ${packCode}`, 400);
+    if (!pack) throw new AppError(`Invalid top-up code: ${packCode}`, 400);
 
     const subscription = await Subscription.findOne({
         where: { shop_id: shopId },
         attributes: ['plan_code']
     });
     if (!subscription || String(subscription.plan_code || '').toUpperCase() !== 'GROWTH') {
-        throw new AppError('Conversation top-ups are available on the Growth plan only', 403);
+        throw new AppError('Top-up purchases are retired; billing is per delivered order', 403);
     }
 
     if (!phone) throw new AppError('phone is required for BKash payment', 400);
@@ -316,7 +316,7 @@ const completeTopup = async (shopId, topupId, bkashPaymentId) => {
     const conversationsToAdd = rows.pack_conversations || pack?.conversations || 0;
 
     if (!(Number(conversationsToAdd) > 0)) {
-        throw new AppError('Top-up pack is not valid', 400);
+        throw new AppError('Top-up credit amount is not valid', 400);
     }
 
     // Claim and credit in one database transaction. Gateway verification happens

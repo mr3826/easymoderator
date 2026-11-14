@@ -44,7 +44,7 @@ vi.mock('../../../features/auth/AuthProvider', () => ({
   }),
 }))
 
-vi.mock('../ConversationAlertBanner', () => ({ default: () => null }))
+vi.mock('../BillingStandingBanner', () => ({ default: () => null }))
 vi.mock('../InstallPrompt', () => ({ default: () => null }))
 vi.mock('../BrandLogo', () => ({ default: () => <span>EasyModerator</span> }))
 vi.mock('../LanguageToggle', () => ({ default: () => null }))

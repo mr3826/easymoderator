@@ -57,7 +57,7 @@ async function main() {
             await E.Subscription.findOrCreate({
                 where: { shop_id: shop.id },
                 defaults: {
-                    id: uuidv4(), shop_id: shop.id, plan_name: 'Growth', plan_code: 'GROWTH',
+                    id: uuidv4(), shop_id: shop.id, plan_name: 'MERCHANT', plan_code: 'MERCHANT',
                     plan_price: 999, billing_cycle: 'monthly', status: 'active',
                     conversations_limit: 500, conversations_used: 0, topup_balance: 0, threshold_debt: 0,
                     current_period_start: new Date(), current_period_end: new Date(Date.now() + 30 * 86400_000),

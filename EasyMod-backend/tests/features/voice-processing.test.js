@@ -730,21 +730,27 @@ describe('Voice Processing - GET /config [Unit Tests]', () => {
     expect(response.body.data.supportedLanguages).toContain('banglish');
     expect(response.body.data.supportedLanguages).toContain('auto');
     expect(response.body.data.model).toBe('gemini-1.5-flash');
-    expect(response.body.data.transcriptionChargePerMinute).toBe(0.02);
+    // ADR-0011: no per-minute charge exists under the delivered-order contract;
+    // transcription is a gated claim, not a priced feature.
+    expect(response.body.data.transcriptionChargePerMinute).toBeUndefined();
+    expect(response.body.data.claims.transcription.available).toBe(false);
   });
 
-  // Check voiceProcessingEnabled flag based on GEMINI_API_KEY
-  it('should reflect voiceProcessingEnabled based on API key', async () => {
+  // ADR-0011: voiceProcessingEnabled is fail-closed on the transcription claim.
+  // Even with a GEMINI_API_KEY present, transcription is not live-verified, so
+  // the claim is unavailable and voice processing stays disabled.
+  it('keeps voice processing disabled until the transcription claim is live-verified', async () => {
     const originalKey = process.env.GEMINI_API_KEY;
-    
+
     try {
       process.env.GEMINI_API_KEY = 'test-key-123';
-      
+
       const response = await request(app)
         .get('/api/voice/config')
         .set('Authorization', mockToken);
-      
-      expect(response.body.data.voiceProcessingEnabled).toBe(true);
+
+      expect(response.body.data.claims.transcription.available).toBe(false);
+      expect(response.body.data.voiceProcessingEnabled).toBe(false);
     } finally {
       process.env.GEMINI_API_KEY = originalKey;
     }

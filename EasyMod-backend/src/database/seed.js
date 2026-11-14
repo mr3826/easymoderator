@@ -25,6 +25,8 @@ async function main() {
     const { User, Shop, UserShop, Tenant, Subscription } = require('../modules/entities');
     const { hashPassword } = require('../utils/password.util');
     const { v4: uuidv4 } = require('uuid');
+    const { PlanCode, getTierByCode } = require('../modules/subscription/subscription.plans');
+    const { COMMERCIAL_CONTRACT } = require('../modules/commercial/commercial.contract');
 
     const SEED_EMAIL    = process.env.SEED_EMAIL    || 'work.evan.ahmed@gmail.com';
     const SEED_PASSWORD = process.env.SEED_PASSWORD || 'EasyMod@Dev2026!';
@@ -98,30 +100,35 @@ async function main() {
             console.log(`[seed] Created shop: ${shop.id} (${SEED_SHOP})`);
         }
 
-        // 4. Find or create subscription (GROWTH, active, for dev — full features)
+        // 4. Find or create the single MERCHANT delivered-order subscription.
+        // Price authority stays in the commercial contract; this row carries no
+        // subscription fee or conversation entitlement.
+        const merchantTier = getTierByCode(PlanCode.MERCHANT);
+        const periodStart = new Date();
+        const periodEnd = new Date(periodStart);
+        periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
         const [sub, subCreated] = await Subscription.findOrCreate({
             where: { shop_id: shop.id },
             defaults: {
                 id: uuidv4(),
                 shop_id: shop.id,
-                plan_name: 'Growth',
-                plan_code: 'GROWTH',
-                plan_price: 999,
+                plan_name: merchantTier.name,
+                plan_code: merchantTier.code,
+                plan_price: 0,
                 billing_cycle: 'monthly',
+                billing_model: merchantTier.billingModel,
+                per_order_charge_bdt: COMMERCIAL_CONTRACT.unitPriceMinor / 100,
                 status: 'active',
-                conversations_limit: 500,
+                conversations_limit: merchantTier.conversationsLimit,
+                orders_limit: merchantTier.ordersLimit,
+                products_limit: merchantTier.productsLimit,
                 conversations_used: 0,
                 topup_balance: 0,
                 threshold_debt: 0,
-                features: {
-                    ai_replies: true,
-                    order_management: true,
-                    delivery_tracking: true,
-                    bd_lite: true
-                },
-                current_period_start: new Date(),
-                current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                features: { ...merchantTier.features },
+                current_period_start: periodStart,
+                current_period_end: periodEnd,
+                next_billing_date: periodEnd
             }
         });
         console.log(`[seed] Subscription: ${sub.id} (${sub.plan_code}) — ${subCreated ? 'created' : 'exists'}`);

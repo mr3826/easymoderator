@@ -43,29 +43,19 @@ describe('subscription.access · isTrialing', () => {
     });
 });
 
-describe('subscription.access · conversation quota', () => {
-    it('includes top-up balance without allowing negative credits', () => {
-        expect(effectiveConversationLimit({ conversations_limit: 100, topup_balance: 25 })).toBe(125);
-        expect(effectiveConversationLimit({ conversations_limit: 100, topup_balance: -5 })).toBe(100);
-    });
-
-    it('marks the 100th conversation as the boundary and the next as exhausted', () => {
-        expect(isConversationQuotaExhausted({ conversations_limit: 100, conversations_used: 99 })).toBe(false);
-        expect(isConversationQuotaExhausted({ conversations_limit: 100, conversations_used: 100 })).toBe(true);
-        expect(isConversationQuotaExhausted({ conversations_limit: 100, conversations_used: 101 })).toBe(true);
-    });
-
-    it('honors top-ups, unlimited plans, and missing rows', () => {
-        expect(isConversationQuotaExhausted({ conversations_limit: 100, topup_balance: 1, conversations_used: 100 })).toBe(false);
-        expect(isConversationQuotaExhausted({ conversations_limit: -1, conversations_used: 100000 })).toBe(false);
-        expect(isConversationQuotaExhausted(null)).toBe(false);
+describe('subscription.access · retired conversation quota (ADR-0011)', () => {
+    it('reports unlimited for every row, including exhausted legacy counters', () => {
+        expect(effectiveConversationLimit({ conversations_limit: 100, conversations_used: 100 })).toBe(-1);
+        expect(effectiveConversationLimit({ conversations_limit: 500, conversations_used: 600, topup_balance: 0 })).toBe(-1);
+        expect(effectiveConversationLimit(null)).toBe(-1);
         expect(effectiveConversationLimit(undefined)).toBe(-1);
     });
 
-    it('preserves the original allowance after partially consuming top-up credits', () => {
-        const partiallyConsumed = { conversations_limit: 500, conversations_used: 550, topup_balance: 50 };
-        expect(effectiveConversationLimit(partiallyConsumed)).toBe(600);
-        expect(isConversationQuotaExhausted(partiallyConsumed)).toBe(false);
-        expect(isConversationQuotaExhausted({ conversations_limit: 500, conversations_used: 600, topup_balance: 0 })).toBe(true);
+    it('never reports exhaustion, whatever the historical counter says', () => {
+        expect(isConversationQuotaExhausted({ conversations_limit: 100, conversations_used: 99 })).toBe(false);
+        expect(isConversationQuotaExhausted({ conversations_limit: 100, conversations_used: 100 })).toBe(false);
+        expect(isConversationQuotaExhausted({ conversations_limit: 100, conversations_used: 101 })).toBe(false);
+        expect(isConversationQuotaExhausted({ conversations_limit: -1, conversations_used: 100000 })).toBe(false);
+        expect(isConversationQuotaExhausted(null)).toBe(false);
     });
 });

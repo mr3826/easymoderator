@@ -45,8 +45,10 @@ const NOTIFICATION_EVENT_META = Object.freeze({
         defaultEnabled: true
     },
     [NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE]: {
-        label: 'Payment or subscription issue',
-        labelBn: 'পেমেন্ট বা সাবস্ক্রিপশন সমস্যা',
+        // Event key stays `payment_subscription_issue` (historical record
+        // vocabulary); the merchant-facing label is the delivered-order model.
+        label: 'Delivered-order billing issue',
+        labelBn: 'ডেলিভারি-ভিত্তিক বিল সমস্যা',
         defaultEnabled: true
     },
     [NOTIFICATION_EVENTS.DAILY_SALES_SUMMARY]: {

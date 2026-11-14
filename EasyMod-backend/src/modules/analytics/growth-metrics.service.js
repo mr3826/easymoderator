@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Growth metrics — operational AI milestones & retention.
+ * Growth OS metrics — operational AI milestones & retention.
  *
- * First successful AI reply is an operational milestone, not Growth activation.
+ * First successful AI reply is an operational milestone, not Growth OS activation.
  * It is recorded once per shop into shop.settings.first_ai_reply. Redis uses a temporary NX claim
  * while the database write is in flight and persists it only after activation
  * is confirmed, so a failed DB write can never poison the shop permanently.
@@ -151,7 +151,7 @@ const recordActivation = async (shopId, conversationId = null, actorUserId = nul
     } catch (err) {
         // Best-effort — swallow so a reply is never blocked by metrics
         // bookkeeping, but retain a sanitized operational signal.
-        console.error('Growth activation write failed:', { name: err?.name, code: err?.code });
+        console.error('Growth OS activation write failed:', { name: err?.name, code: err?.code });
     } finally {
         if (claimed) {
             try {
@@ -169,8 +169,8 @@ const recordActivation = async (shopId, conversationId = null, actorUserId = nul
 };
 
 /**
- * Deprecated operational AI-reply + retention report. Canonical Growth
- * activation is served by the Growth workspace prospect-ledger report.
+ * Deprecated operational AI-reply + retention report. Canonical Growth OS
+ * activation is served by the Growth OS workspace prospect-ledger report.
  * @param {{ now?: Date|string }} [opts]
  * @returns {Promise<object>} { generatedAt, totals, shops[] }
  */

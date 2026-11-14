@@ -88,7 +88,7 @@ if (!workflow.includes('candidate_backend_image="${GHCR_BACKEND}@${BACKEND_DIGES
 
 if (!runbook.includes('GROWTH_BOOTSTRAP_DIGEST')
     || !workflow.includes('GROWTH_BOOTSTRAP_DIGEST')) {
-    throw new Error('Growth first-rollout bootstrap contract is not documented in both the workflow and the runbook.');
+    throw new Error('Growth OS first-rollout bootstrap contract is not documented in both the workflow and the runbook.');
 }
 if (/GHCR_IMAGE_GROWTH[^\n]*\.env\.prod|\.env\.prod[^\n]*GHCR_IMAGE_GROWTH/.test(runbook)) {
     throw new Error('Runbook still directs operators to pin GHCR_IMAGE_GROWTH in .env.prod, which the deploy regenerates.');

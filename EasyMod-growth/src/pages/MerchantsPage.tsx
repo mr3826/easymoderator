@@ -9,6 +9,7 @@ import {
 } from '@/api/client';
 import { usePermission } from '@/auth/usePermission';
 import { useGrowthAuth } from '@/auth/GrowthAuthProvider';
+import { planLabel } from '@/planLabel';
 
 const PAGE_SIZE = 25;
 
@@ -245,7 +246,7 @@ export function MerchantsPage() {
                           </Link>
                         </th>
                         <td>{formatDate(row.signupDate)}</td>
-                        <td>{row.planName ? codeLabel(row.planName) : 'No plan'}</td>
+                        <td>{planLabel(row.planName)}</td>
                         <td>{row.activatedAt ? formatDate(row.activatedAt) : 'Not activated'}</td>
                         <td>
                           <StatusBadge value={row.facebookConnected ? 'connected' : 'not-connected'} />

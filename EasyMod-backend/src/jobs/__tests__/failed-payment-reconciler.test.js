@@ -1,11 +1,13 @@
 /**
- * FailedPaymentReconciler — 3-day-grace dunning logic (DB + email mocked).
+ * FailedPaymentReconciler — contract due-window dunning logic (DB + email mocked).
  *
- * Policy under test (founder spec):
- *   - A recurring invoice (monthly_subscription / partner_per_order) past its due
- *     date → SUSPEND the subscription (AI auto-pauses) + send a dunning email.
- *   - A one-off invoice (proration / add-on) past due → reminder email only, never
+ * Policy under test (ADR-0011 C1/C5):
+ *   - A recurring invoice (delivered_order, plus residual legacy recurring
+ *     types) past its due date → SUSPEND the subscription (automated AI pauses;
+ *     manual inbox + history stay readable) + send the overdue-policy email.
+ *   - A one-off invoice (proration) past due → reminder email only, never
  *     touches subscription status.
+ *   - There is no free plan: a legacy zero-price row is dunned like any other.
  */
 
 jest.mock('../../modules/entities', () => ({
@@ -72,10 +74,74 @@ describe('FailedPaymentReconciler.run', () => {
             NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE,
             expect.objectContaining({
                 invoiceNumber: inv.invoice_number,
-                issue: expect.stringMatching(/suspended/i)
+                issue: expect.stringMatching(/paused until payment/i)
             }),
             expect.objectContaining({ dedupeTtlSeconds: 24 * 60 * 60 })
         );
+    });
+
+    it('duns a delivered_order invoice (the only merchant bill) as recurring', async () => {
+        const inv = makeInvoice({ invoice_type: 'delivered_order', amount: 10 });
+        Invoice.findAll.mockResolvedValueOnce([inv]);
+
+        const res = await new FailedPaymentReconciler().run({ dryRun: false, runDate: new Date() });
+
+        expect(inv.subscription.update).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'suspended' })
+        );
+        expect(res.subscriptionsSuspended).toBe(1);
+        expect(emailService.sendEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it('carries the C5 policy copy in the dunning email — pause, readable, nothing deleted', async () => {
+        const inv = makeInvoice({ invoice_type: 'delivered_order', amount: 10 });
+        Invoice.findAll.mockResolvedValueOnce([inv]);
+
+        await new FailedPaymentReconciler().run({ dryRun: false, runDate: new Date() });
+
+        const { html, subject } = emailService.sendEmail.mock.calls[0][0];
+        expect(subject).toMatch(/overdue/i);
+        expect(html).toContain('New courier bookings and automated AI replies are paused until payment.');
+        expect(html).toContain('Your manual inbox and full history remain available.');
+        expect(html).toContain('No data is deleted.');
+        // No retired plan/price language in merchant copy (the billing URL
+        // path is not copy).
+        expect(html).not.toMatch(/Growth|top-up|conversations|per month/i);
+        expect(html).not.toMatch(/subscription has been suspended/i);
+    });
+
+    it('formats the amount through the contract formatter', async () => {
+        const inv = makeInvoice({ invoice_type: 'delivered_order', amount: 10 });
+        Invoice.findAll.mockResolvedValueOnce([inv]);
+
+        await new FailedPaymentReconciler().run({ dryRun: false, runDate: new Date() });
+
+        const { html } = emailService.sendEmail.mock.calls[0][0];
+        expect(html).toContain('৳10.00');
+    });
+
+    it('A9 — merchant alert payload carries amountMinor so the Amount line renders', async () => {
+        const inv = makeInvoice({ invoice_type: 'delivered_order', amount: 10 });
+        Invoice.findAll.mockResolvedValueOnce([inv]);
+
+        await new FailedPaymentReconciler().run({ dryRun: false, runDate: new Date() });
+
+        expect(merchantNotificationService.notifyShop).toHaveBeenCalledWith(
+            inv.shop_id,
+            NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE,
+            expect.objectContaining({ amount: 10, amountMinor: 1000 }),
+            expect.any(Object),
+        );
+
+        // The telegram formatter reads payload.amountMinor; without it the
+        // Amount line is silently omitted.
+        const { formatTelegramAlert } = require('../../modules/notification/telegram-alert.formatter');
+        const alert = formatTelegramAlert(NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE, {
+            invoiceNumber: inv.invoice_number,
+            amountMinor: 1000,
+            issue: 'Invoice payment is overdue',
+        });
+        expect(alert.body).toContain('Amount: ৳10.00');
     });
 
     it('suspends for a partner_per_order recurring invoice too', async () => {
@@ -91,10 +157,10 @@ describe('FailedPaymentReconciler.run', () => {
         expect(res.subscriptionsSuspended).toBe(1);
     });
 
-    it('does not suspend or notify a free Shuru subscription for a legacy invoice', async () => {
+    it('does not exempt a legacy zero-price plan — no free tier exists', async () => {
         const inv = makeInvoice({
             subscription: {
-                id: 'sub-shuru',
+                id: 'sub-legacy-zero',
                 shop_id: 'shop-1',
                 plan_code: 'SHURU',
                 plan_price: 0,
@@ -107,10 +173,11 @@ describe('FailedPaymentReconciler.run', () => {
 
         const res = await new FailedPaymentReconciler().run({ dryRun: false, runDate: new Date() });
 
-        expect(inv.subscription.update).not.toHaveBeenCalled();
-        expect(res.subscriptionsSuspended).toBe(0);
-        expect(res.remindersSent).toBe(0);
-        expect(res.details[0].action).toBe('ignored_free_plan');
+        expect(inv.subscription.update).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'suspended' })
+        );
+        expect(res.subscriptionsSuspended).toBe(1);
+        expect(res.details[0].action).toBe('suspended');
     });
 
     it('does not suspend or notify when invoice and subscription tenants disagree', async () => {
@@ -148,7 +215,7 @@ describe('FailedPaymentReconciler.run', () => {
     });
 
     it('only reminds (never suspends) for a one-off / discretionary invoice', async () => {
-        const inv = makeInvoice({ invoice_type: 'Proration (upgrade to Growth)' });
+        const inv = makeInvoice({ invoice_type: 'Proration (creator add-on)' });
         Invoice.findAll.mockResolvedValueOnce([inv]);
 
         const job = new FailedPaymentReconciler();

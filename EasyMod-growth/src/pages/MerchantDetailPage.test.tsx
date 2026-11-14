@@ -163,6 +163,17 @@ describe('MerchantDetailPage', () => {
     expect(screen.getByRole('link', { name: 'North Star Retail' })).toHaveAttribute('href', '/prospects/prospect-1');
   });
 
+  it('renders the single MERCHANT tier, never a retired plan name', async () => {
+    permissionMock.mockReturnValue(true);
+    vi.spyOn(merchantsApi, 'detail').mockResolvedValue(makeMerchant360());
+
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Luna Tech' })).toBeInTheDocument();
+    expect(screen.getAllByText('MERCHANT').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Growth')).not.toBeInTheDocument();
+  });
+
   it('requires a reason and second confirm click before suspending a merchant', async () => {
     const user = userEvent.setup();
     permissionMock.mockReturnValue(true);

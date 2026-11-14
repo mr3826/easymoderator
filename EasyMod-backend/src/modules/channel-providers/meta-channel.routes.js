@@ -67,7 +67,7 @@ const channelSettingsPatchBody = Joi.object({
 
 router.use(authenticate);
 
-// Meta channel state is merchant data. A Growth role or authenticated JWT alone
+// Meta channel state is merchant data. A Growth OS role or authenticated JWT alone
 // does not authorize it; every route below requires active membership for the
 // shop selected by the JWT, never a body or header shop identifier.
 router.use(verifyShopAccess);

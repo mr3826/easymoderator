@@ -140,7 +140,15 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
     if (path === '/api/setup/status') return route.fulfill(json({ isComplete: true, completedCount: 4, totalCount: 4, progressPercent: 100, tasks: [] }));
     if (path === '/api/dashboard/metrics') return route.fulfill(json({ metrics: { totalMessages: 0, activeProducts: 0, ordersToday: 0, weeklyChange: 0, conversionRate: 0 }, analytics: { llm_calls: 0 } }));
     if (path === '/api/dashboard/queue') return route.fulfill(json({ unread_count: 0, pending_payment_count: 0, at_risk_orders: [] }));
-    if (path === '/api/subscription') return route.fulfill(json({ subscription: { plan_code: 'GROWTH', plan_name: 'Growth', conversations_limit: -1, features: { image_understanding: true, advanced_ai: true } }, effective_conversation_limit: -1, usage: { conversations: { used: 0, limit: -1 } }, period: { start: iso(-86400000) } }));
+    if (path === '/api/subscription') return route.fulfill(json({
+      subscription: { plan_code: 'MERCHANT', status: 'active', billing_model: 'per_order', current_period_start: iso(-86400000) },
+      plan: { code: 'MERCHANT', name: 'Merchant', billing_model: 'per_order' },
+      contract: 'DELIVERED_ORDER',
+      contract_version: '1.0.0',
+      contract_hash: `sha256:${'b'.repeat(64)}`,
+      usage: { conversations: { used: 0, limit: -1 } },
+      period: { start: iso(-86400000) },
+    }));
     if (path === '/api/notifications/in-app') return route.fulfill(json([]));
     if (path === '/api/notifications/telegram') return route.fulfill(json({ connected: false }));
     if (path === '/api/rto-shield/settings') return route.fulfill(json({ contribute: true, enforce: true }));
@@ -239,6 +247,49 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
     if (path === '/api/channels/meta') return route.fulfill(json([]));
     if (path === '/api/shop/ai-settings') return route.fulfill(json({ automation_mode: 'MANUAL' }));
     if (path === '/api/audit' && method === 'POST') return route.fulfill(json({ id: 'audit-1' }, 201));
+
+    // ADR-0011: the authenticated app mounts the billing-standing banner, whose
+    // ClaimProvider evaluates usage-banner claims, and resolves the public
+    // contract. Empty decisions are fail-closed (the banner renders nothing).
+    if (path === '/api/commercial/claims' && method === 'GET') {
+      return route.fulfill(json({
+        surface: searchParams.get('surface') ?? 'usage-banner',
+        locale: 'en',
+        contractVersion: '1.0.0',
+        registryHash: `sha256:${'a'.repeat(64)}`,
+        decisions: [],
+      }));
+    }
+    if (path === '/api/public/commercial-contract' && method === 'GET') {
+      return route.fulfill(json({
+        contract_version: '1.0.0',
+        contract_hash: `sha256:${'b'.repeat(64)}`,
+        model: 'DELIVERED_ORDER',
+        currency: 'BDT',
+        trigger: 'ORDER_DELIVERED_PROVIDER_CONFIRMED',
+        unit_price_minor: 1000,
+        unit_price_bdt: 10,
+        zero_rated_outcomes: ['RETURNED', 'CANCELLED', 'DRAFT', 'CONFIRMED', 'BOOKED', 'IN_TRANSIT', 'FAILED'],
+        subscription_fee_bdt: 0,
+        setup_fee_bdt: 0,
+        monthly_minimum_bdt: 0,
+        conversation_entitlement: null,
+        cycle: 'MONTHLY',
+        payment: 'POSTPAID',
+        due_days: 7,
+        on_overdue: {
+          blockCourierBooking: true,
+          pauseAutomatedAi: true,
+          keepInboxReadable: true,
+          keepHistoryReadable: true,
+          deleteData: false,
+        },
+        description: { en: 'Pay BDT 10.00 per provider-confirmed delivered order.', bn: 'প্রতি ডেলিভারি অর্ডারে ৳১০.০০।' },
+        registry_hash: `sha256:${'a'.repeat(64)}`,
+        claims: [],
+        decisions: [],
+      }));
+    }
 
     fixture.unexpected.push(`${method} ${path}`);
     return route.fulfill(json([]));

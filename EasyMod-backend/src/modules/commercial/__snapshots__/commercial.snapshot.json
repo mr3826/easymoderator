@@ -1,0 +1,67 @@
+{
+  "contractVersion": "1.0.0",
+  "contractHash": "sha256:207a8d899d14f0375a88a2c962f3db7c842ffd3483a27984402c5aef194713d6",
+  "registryHash": "sha256:ad51d4020d699b0c8eb993350181d8b345da8b43a05770ff5ab8313186793d14",
+  "forbiddenTokenIds": [
+    "name.get_your_moderator",
+    "name.moderator_plus",
+    "name.partnership",
+    "name.shuru",
+    "name.growth",
+    "price.bdt999",
+    "price.999_per_month",
+    "price.any_per_month",
+    "price.yearly9990",
+    "price.bn999",
+    "price.bn9990",
+    "price.legacy_annual",
+    "band.retired_rate_15",
+    "band.retired_rate_12",
+    "band.range_300_999",
+    "band.range_1000_2999",
+    "band.range_3000_plus",
+    "band.qualification",
+    "band.phrase",
+    "entitlement.conv100",
+    "entitlement.conv500",
+    "entitlement.bn_conv",
+    "entitlement.allowance",
+    "entitlement.topup_pack"
+  ],
+  "publicContract": {
+    "contract_version": "1.0.0",
+    "contract_hash": "sha256:207a8d899d14f0375a88a2c962f3db7c842ffd3483a27984402c5aef194713d6",
+    "model": "DELIVERED_ORDER",
+    "currency": "BDT",
+    "trigger": "ORDER_DELIVERED_PROVIDER_CONFIRMED",
+    "unit_price_bdt": 10,
+    "unit_price_minor": 1000,
+    "zero_rated_outcomes": [
+      "RETURNED",
+      "CANCELLED",
+      "DRAFT",
+      "CONFIRMED",
+      "BOOKED",
+      "IN_TRANSIT",
+      "FAILED"
+    ],
+    "subscription_fee_bdt": 0,
+    "setup_fee_bdt": 0,
+    "monthly_minimum_bdt": 0,
+    "conversation_entitlement": null,
+    "cycle": "MONTHLY",
+    "payment": "POSTPAID",
+    "due_days": 7,
+    "on_overdue": {
+      "blockCourierBooking": true,
+      "pauseAutomatedAi": true,
+      "keepInboxReadable": true,
+      "keepHistoryReadable": true,
+      "deleteData": false
+    },
+    "description": {
+      "en": "৳10.00 per delivered order. ৳0.00 on returned or cancelled orders. No subscription, no setup fee, no monthly minimum. Monthly postpaid, due within 7 days.",
+      "bn": "৳১০.০০ প্রতি ডেলিভারি করা অর্ডার। রিটার্ন বা বাতিল অর্ডারে ৳০.০০। কোনো সাবস্ক্রিপশন নেই, সেটআপ ফি নেই, মাসিক ন্যূনতম নেই। মাসিক পোস্টপেইড, 7 দিনের মধ্যে পরিশোধ।"
+    }
+  }
+}

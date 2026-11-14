@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import Signup from '../Signup';
 
+const { mockContractQuery } = vi.hoisted(() => ({ mockContractQuery: vi.fn() }));
+
+vi.mock('@/api/domains/commercialContract', () => ({
+  useCommercialContract: mockContractQuery,
+}));
+
 const mockSignup = vi.fn();
 
 vi.mock('@/features/auth/AuthProvider', () => ({
@@ -37,6 +43,22 @@ async function fillValidFields(user: ReturnType<typeof userEvent.setup>) {
 
 describe('Signup terms consent', () => {
   beforeEach(() => {
+    mockContractQuery.mockReturnValue({
+      data: {
+        contract_version: '1.0.0',
+        contract_hash: `sha256:${'b'.repeat(64)}`,
+        registry_hash: `sha256:${'a'.repeat(64)}`,
+        unit_price_minor: 1000,
+        due_days: 7,
+        description: {
+          en: '৳10.00 per delivered order. ৳0.00 on returned or cancelled orders.',
+          bn: 'প্রতি ডেলিভারি অর্ডারে ৳১০.০০।',
+        },
+      },
+      isPending: false,
+      error: null,
+      refetch: vi.fn(),
+    });
     mockSignup.mockReset();
     mockSignup.mockResolvedValue(undefined);
   });
@@ -52,7 +74,7 @@ describe('Signup terms consent', () => {
     expect(screen.getByLabelText('Email')).toHaveAttribute('aria-required', 'true');
     expect(screen.getByLabelText('Password')).toHaveAttribute('aria-required', 'true');
     expect(screen.getByRole('checkbox', { name: /privacy policy/i })).toHaveAttribute('aria-required', 'true');
-    expect(screen.getByRole('button', { name: /create your Get Your Moderator account/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /create your EasyModerator account/i })).toBeDisabled();
     expect(screen.getByText(/required to create your account/i)).toBeInTheDocument();
     expect(screen.getByText(/8 or more characters/i)).toBeInTheDocument();
     expect(screen.getAllByText(/first shop/i).length).toBeGreaterThan(0);
@@ -61,8 +83,8 @@ describe('Signup terms consent', () => {
     expect(screen.getByText(/to connect Messenger, go to Settings → Chat, complete Facebook Login, then choose an eligible Page/i)).toBeInTheDocument();
     expect(screen.getByText(/under Business information/i)).toBeInTheDocument();
     expect(screen.getByText(/we use your name for your account and first shop/i)).toBeInTheDocument();
-    expect(screen.queryByText(/your new account starts on Shuru/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/a Get Your Moderator \(SHURU\) subscription is created with your account/i)).toBeInTheDocument();
+    expect(screen.getByText(/accounts start on delivered-order billing/i)).toBeInTheDocument();
+    expect(screen.getByText(/৳10\.00 per provider-confirmed delivered order/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/mobile number/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/mobile number/i)).toHaveAttribute('aria-required', 'true');
     expect(screen.getAllByRole('link', { name: /privacy policy/i }).every((link) => link.getAttribute('href')?.includes('/privacy-policy?lang=en'))).toBe(true);
@@ -75,7 +97,7 @@ describe('Signup terms consent', () => {
     renderSignup();
     await fillValidFields(user);
 
-    const submit = screen.getByRole('button', { name: /create your Get Your Moderator account/i });
+    const submit = screen.getByRole('button', { name: /create your EasyModerator account/i });
     const form = submit.closest('form');
     expect(form).not.toBeNull();
     fireEvent.submit(form!);
@@ -84,7 +106,7 @@ describe('Signup terms consent', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/accept the terms/i);
     });
     expect(mockSignup).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: /create your Get Your Moderator account/i })).not.toHaveTextContent(/creating account/i);
+    expect(screen.getByRole('button', { name: /create your EasyModerator account/i })).not.toHaveTextContent(/creating account/i);
     expect(consoleError).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('checkbox', { name: /privacy policy/i }));
@@ -101,7 +123,7 @@ describe('Signup terms consent', () => {
     await fillValidFields(user);
 
     const terms = screen.getByRole('checkbox', { name: /privacy policy/i });
-    const submit = screen.getByRole('button', { name: /create your Get Your Moderator account/i });
+    const submit = screen.getByRole('button', { name: /create your EasyModerator account/i });
     expect(submit).toBeDisabled();
     await user.click(terms);
     expect(submit).toBeEnabled();
@@ -125,12 +147,12 @@ describe('Signup terms consent', () => {
     await firstSubmit;
   });
 
-  it('continues a Growth review request to the fixed subscription path after signup', async () => {
+  it('continues the fixed subscription path after signup', async () => {
     const user = userEvent.setup();
     renderSignup('/signup?lang=en&intent=growth-upgrade&returnTo=https%3A%2F%2Fevil.invalid');
     await fillValidFields(user);
     await user.click(screen.getByRole('checkbox', { name: /privacy policy/i }));
-    await user.click(screen.getByRole('button', { name: /create your Get Your Moderator account/i }));
+    await user.click(screen.getByRole('button', { name: /create your EasyModerator account/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('current-location')).toHaveTextContent(
@@ -146,7 +168,7 @@ describe('Signup terms consent', () => {
     renderSignup();
     await fillValidFields(user);
     await user.click(screen.getByRole('checkbox', { name: /privacy policy/i }));
-    const submit = screen.getByRole('button', { name: /create your Get Your Moderator account/i });
+    const submit = screen.getByRole('button', { name: /create your EasyModerator account/i });
 
     await user.click(submit);
 
@@ -164,7 +186,7 @@ describe('Signup terms consent', () => {
     await fillValidFields(user);
     await user.click(screen.getByRole('checkbox', { name: /privacy policy/i }));
 
-    const submit = screen.getByRole('button', { name: /create your Get Your Moderator account/i });
+    const submit = screen.getByRole('button', { name: /create your EasyModerator account/i });
     const form = submit.closest('form');
     expect(form).not.toBeNull();
     form!.requestSubmit();

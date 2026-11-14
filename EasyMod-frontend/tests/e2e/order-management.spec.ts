@@ -200,12 +200,23 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
       return fulfillJson(route, { success: true, data: [] });
     }
     if (path === '/api/subscription' && method === 'GET') {
+      // ADR-0011: the retired plan envelope is gone. getSubscription now returns
+      // the delivered-order contract summary, not a plan with a conversation
+      // allowance; there is no plan code other than MERCHANT.
       return fulfillJson(route, {
         success: true,
         data: {
-          subscription: { plan_code: 'SHURU', plan_name: 'Shuru', conversations_limit: 100, features: {} },
-          effective_conversation_limit: 100,
-          usage: { conversations: { used: 0, limit: 100 } },
+          subscription: {
+            plan_code: 'MERCHANT',
+            status: 'active',
+            billing_model: 'per_order',
+            current_period_start: '2026-11-01T00:00:00.000Z',
+          },
+          plan: { code: 'MERCHANT', name: 'Merchant', billing_model: 'per_order' },
+          contract: 'DELIVERED_ORDER',
+          contract_version: '1.0.0',
+          contract_hash: `sha256:${'b'.repeat(64)}`,
+          usage: { conversations: { used: 0, limit: -1 } },
           period: { start: '2026-11-01T00:00:00.000Z' },
         },
       });
@@ -338,6 +349,59 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
     }
     if (path === '/api/conversation' && method === 'GET') {
       return fulfillJson(route, { success: true, data: [], total: 0, page: 1, pageSize: 1 });
+    }
+    // ADR-0011: the dashboard billing-standing banner mounts a ClaimProvider that
+    // evaluates claims for the usage-banner surface. Mock it with an empty
+    // decision set (fail-closed: the banner renders nothing) so the strict
+    // unmocked-request guard does not flag the new commercial endpoint.
+    if (path === '/api/commercial/claims' && method === 'GET') {
+      const surface = new URL(route.request().url()).searchParams.get('surface') ?? 'usage-banner';
+      return fulfillJson(route, {
+        success: true,
+        data: {
+          surface,
+          locale: 'en',
+          contractVersion: '1.0.0',
+          registryHash: `sha256:${'a'.repeat(64)}`,
+          decisions: [],
+        },
+      });
+    }
+    // The dashboard also resolves the public commercial contract (price/terms).
+    // Mock a complete, validator-passing payload so the strict unmocked-request
+    // guard does not flag it (empty decisions: fail-closed, no capability nodes).
+    if (path === '/api/public/commercial-contract' && method === 'GET') {
+      return fulfillJson(route, {
+        success: true,
+        data: {
+          contract_version: '1.0.0',
+          contract_hash: `sha256:${'b'.repeat(64)}`,
+          model: 'DELIVERED_ORDER',
+          currency: 'BDT',
+          trigger: 'ORDER_DELIVERED_PROVIDER_CONFIRMED',
+          unit_price_minor: 1000,
+          unit_price_bdt: 10,
+          zero_rated_outcomes: ['RETURNED', 'CANCELLED', 'DRAFT', 'CONFIRMED', 'BOOKED', 'IN_TRANSIT', 'FAILED'],
+          subscription_fee_bdt: 0,
+          setup_fee_bdt: 0,
+          monthly_minimum_bdt: 0,
+          conversation_entitlement: null,
+          cycle: 'MONTHLY',
+          payment: 'POSTPAID',
+          due_days: 7,
+          on_overdue: {
+            blockCourierBooking: true,
+            pauseAutomatedAi: true,
+            keepInboxReadable: true,
+            keepHistoryReadable: true,
+            deleteData: false,
+          },
+          description: { en: 'Pay BDT 10.00 per provider-confirmed delivered order.', bn: 'প্রতি ডেলিভারি অর্ডারে ৳১০.০০।' },
+          registry_hash: `sha256:${'a'.repeat(64)}`,
+          claims: [],
+          decisions: [],
+        },
+      });
     }
 
     unexpectedApiRequests.push(`${method} ${path}`);

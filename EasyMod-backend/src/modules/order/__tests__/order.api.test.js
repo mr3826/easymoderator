@@ -125,6 +125,14 @@ jest.mock('src/modules/entities', () => ({
     // the real schema always exposes this entity.
     DeliveryTracking: { findOne: jest.fn(), findAll: jest.fn() },
     Invoice: { create: jest.fn() },
+    // ADR-0011 ledger used by the cancellation path.
+    BillingLine: {
+        findOne: jest.fn().mockResolvedValue(null),
+        findOrCreate: jest.fn().mockResolvedValue([{}, true]),
+        findAll: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue([1])
+    },
+    PartnerBillingAdjustment: { findOne: jest.fn(), create: jest.fn() },
     Campaign: { findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() },
     PushSubscription: { create: jest.fn(), findOne: jest.fn(), destroy: jest.fn() }
 }));

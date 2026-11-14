@@ -1,12 +1,12 @@
 /**
- * InvoiceGenerator — a subscription is billed when its paid period ends, not
- * when the calendar month turns (DB mocked).
+ * InvoiceGenerator unit tests (DB mocked).
  *
- * The defect these cover: the generator billed every `status:'active'`
- * subscription on the 1st of the month with no reference to its own billing
- * period, so a yearly subscriber was charged the full annual amount a month
- * into a year they had already paid for, given three days to pay, and then
- * suspended by the failed-payment reconciler.
+ * Two behaviours are covered:
+ *  1. Legacy flat subscriptions are billed when their paid period ends, not
+ *     when the calendar month turns (BILLING-YEARLY-*).
+ *  2. ADR-0011: every per-order/MERCHANT subscription aggregates `billing_lines`
+ *     over the previous UTC calendar month and issues one delivered-order
+ *     invoice, with credits, dedupe and zero-rated-only periods.
  */
 
 jest.mock('../../utils/database/database-setup', () => ({
@@ -19,16 +19,33 @@ jest.mock('../../modules/entities', () => ({
     Subscription: { findAll: jest.fn() },
     Invoice: { findOne: jest.fn(), create: jest.fn() },
     Shop: {},
-    Order: { count: jest.fn().mockResolvedValue(0) },
+    BillingLine: { update: jest.fn(), findAll: jest.fn() },
     PartnerBillingAdjustment: { findAll: jest.fn().mockResolvedValue([]) },
 }));
 
-const { Subscription, Invoice } = require('../../modules/entities');
-const { Order, PartnerBillingAdjustment } = require('../../modules/entities');
+// Keep the real pure derivation, stub only the DB-touching lookups.
+jest.mock('../../modules/commercial/delivered-order-billing.service', () => ({
+    ...jest.requireActual('../../modules/commercial/delivered-order-billing.service'),
+    getCommercialCutoverAt: jest.fn(),
+    catchUpLines: jest.fn(),
+    aggregateUninvoicedLines: jest.fn(),
+    // Unit tests have no transaction: hand the candidate rows straight back as
+    // the "locked" set. Integration tests exercise the real FOR UPDATE read.
+    lockLinesForInvoice: jest.fn(async ({ lines }) => lines),
+}));
+
+const {
+    Subscription,
+    Invoice,
+    BillingLine,
+    PartnerBillingAdjustment,
+} = require('../../modules/entities');
+const billing = require('../../modules/commercial/delivered-order-billing.service');
 const InvoiceGenerator = require('../invoice-generator');
 
 const MONTHLY_PRICE = 999;
 const YEARLY_PRICE = 9990;
+const CUTOVER = new Date('2026-09-01T00:00:00.000Z');
 
 const addMonths = (d, n) => { const x = new Date(d); x.setMonth(x.getMonth() + n); return x; };
 const addYears = (d, n) => { const x = new Date(d); x.setFullYear(x.getFullYear() + n); return x; };
@@ -72,6 +89,31 @@ const monthlySubscription = (paidAt, overrides = {}) => makeSubscription({
     ...overrides,
 });
 
+/** The single MERCHANT / per-order subscription (ADR-0011). */
+const merchantSubscription = (overrides = {}) => makeSubscription({
+    plan_code: 'MERCHANT',
+    plan_name: 'Merchant',
+    plan_price: '0',
+    billing_model: 'per_order',
+    billing_cycle: 'per_order',
+    next_billing_date: null,
+    current_period_start: null,
+    current_period_end: null,
+    ...overrides,
+});
+
+const billingLine = (overrides = {}) => ({
+    id: 'line-1',
+    shop_id: 'shop-1',
+    order_id: 'order-1',
+    line_kind: 'billable',
+    outcome: 'DELIVERED',
+    amount_minor: 1000,
+    occurred_at: '2026-10-05',
+    invoice_id: null,
+    ...overrides,
+});
+
 const runWith = async (subscriptions, runDate = RUN_DATE) => {
     Subscription.findAll.mockResolvedValueOnce(subscriptions);
     const job = new InvoiceGenerator();
@@ -82,12 +124,17 @@ beforeEach(() => {
     jest.clearAllMocks();
     Invoice.findOne.mockResolvedValue(null);
     Invoice.create.mockImplementation(async (v) => ({ id: 'inv-1', ...v }));
+    BillingLine.update.mockResolvedValue([1]);
+    BillingLine.findAll.mockResolvedValue([]);
     PartnerBillingAdjustment.findAll.mockResolvedValue([]);
+    billing.getCommercialCutoverAt.mockResolvedValue(CUTOVER);
+    billing.catchUpLines.mockResolvedValue({ considered: 0, created: 0, skipped: 0, wouldCreate: 0 });
+    billing.aggregateUninvoicedLines.mockResolvedValue([]);
+    billing.lockLinesForInvoice.mockImplementation(async ({ lines }) => lines);
 });
 
 describe('BILLING-YEARLY-002 — one month into a paid year', () => {
     it('issues no invoice while the annual entitlement is still valid', async () => {
-        // Paid 2026-08-10, entitled to 2027-08-10. The cron runs on 2026-09-01.
         const sub = yearlySubscription(new Date('2026-08-10T11:40:39.602Z'));
 
         const res = await runWith([sub]);
@@ -158,9 +205,6 @@ describe('BILLING-YEARLY-004 — annual amount', () => {
 });
 
 describe('BILLING-YEARLY-005 — dunning waits for the entitlement to expire', () => {
-    // The reconciler can only dun an invoice that exists. Before the annual
-    // boundary the generator writes none, so there is nothing to fall past due
-    // and nothing to suspend on.
     it('creates no dunnable invoice at any point inside the paid year', async () => {
         const paidAt = new Date('2026-08-10T11:40:39.602Z');
         const dayBeforeBoundary = new Date(addYears(paidAt, 1).getTime() - 1);
@@ -205,11 +249,9 @@ describe('BILLING-IDEMPOTENCY — re-running the job for the same boundary', () 
         const paidAt = new Date('2026-08-10T11:40:39.602Z');
         const atBoundary = addYears(paidAt, 1);
 
-        // First run writes the invoice.
         const first = await runWith([yearlySubscription(paidAt)], atBoundary);
         expect(first.invoicesGenerated).toBe(1);
 
-        // Second run for the same boundary finds it.
         jest.clearAllMocks();
         Invoice.findOne.mockResolvedValue({ id: 'inv-1', invoice_number: 'INV-1' });
         const second = await runWith([yearlySubscription(paidAt)], atBoundary);
@@ -255,76 +297,319 @@ describe('SHURU tier', () => {
     });
 });
 
-describe('PARTNER delivery derivation', () => {
-    it('uses delivered_at and records the flat rate band in invoice metadata', async () => {
-        const sub = makeSubscription({
-            plan_code: 'PARTNER',
-            plan_name: 'Partner',
-            plan_price: '0',
-            billing_model: 'per_order',
-            billing_cycle: 'per_order',
-            next_billing_date: null,
+describe('ADR-0011 delivered-order aggregation', () => {
+    const runDate = new Date('2026-11-01T01:00:00.000Z');
+    const octoberStart = new Date(Date.UTC(2026, 9, 1));
+    const novemberStart = new Date(Date.UTC(2026, 10, 1));
+
+    it('aggregates the previous UTC month and issues one delivered-order invoice', async () => {
+        const lines = [
+            ...Array.from({ length: 10 }, (_, i) => billingLine({ id: `b-${i}`, order_id: `o-${i}` })),
+            billingLine({ id: 'z-1', order_id: 'r-1', line_kind: 'zero_rated', outcome: 'RETURNED', amount_minor: 0 }),
+            billingLine({ id: 'z-2', order_id: 'c-1', line_kind: 'zero_rated', outcome: 'CANCELLED', amount_minor: 0 }),
+        ];
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce(lines);
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        expect(billing.catchUpLines).toHaveBeenCalledWith({
+            shopId: 'shop-1',
+            periodStart: octoberStart,
+            periodEnd: novemberStart,
+            cutoverAt: CUTOVER,
         });
-        Order.count.mockResolvedValueOnce(1000);
+        expect(billing.aggregateUninvoicedLines).toHaveBeenCalledWith({
+            shopId: 'shop-1',
+            periodStart: octoberStart,
+            periodEnd: novemberStart,
+            cutoverAt: CUTOVER,
+        });
 
-        await runWith([sub], new Date('2026-09-01T01:00:00.000Z'));
+        expect(Invoice.create).toHaveBeenCalledTimes(1);
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created).toMatchObject({
+            invoice_type: 'delivered_order',
+            amount: 100,
+            base_amount: 0,
+            extra_usage_amount: 100,
+            status: 'pending',
+            billing_period_start: octoberStart,
+            billing_period_end: novemberStart,
+            due_date: new Date(runDate.getTime() + 7 * 24 * 60 * 60 * 1000),
+        });
+        expect(created.metadata).toMatchObject({
+            contractVersion: '1.0.0',
+            model: 'DELIVERED_ORDER',
+            unitPriceMinor: 1000,
+            deliveredCount: 10,
+            zeroRatedCount: 2,
+            grossMinor: 10000,
+            creditMinor: 0,
+            netMinor: 10000,
+        });
+        expect(created.metadata.lines).toHaveLength(12);
+        expect(created.metadata).not.toHaveProperty('customerName');
 
-        expect(Order.count).toHaveBeenCalledWith(expect.objectContaining({
-            where: expect.objectContaining({
-                order_status: 'delivered',
-                delivered_at: expect.any(Object),
+        expect(BillingLine.update).toHaveBeenCalledWith(
+            { invoice_id: 'inv-1' },
+            expect.objectContaining({
+                where: expect.objectContaining({ shop_id: 'shop-1', invoice_id: null }),
             }),
-        }));
-        expect(Invoice.create).toHaveBeenCalledWith(expect.objectContaining({
-            amount: 12000,
-            metadata: expect.objectContaining({
-                delivered_orders: 1000,
-                rate_band: '1000-2999',
-                rate_bdt: 12,
-                computed_total: 12000,
-            }),
-        }), expect.anything());
+        );
+        expect(res.invoicesGenerated).toBe(1);
+        expect(res.totalInvoiceAmount).toBe(100);
     });
 
-    it('nets a settled-return credit into the next Partner invoice', async () => {
-        const sub = makeSubscription({
-            plan_code: 'PARTNER',
-            plan_name: 'Partner',
-            plan_price: '0',
-            billing_model: 'per_order',
-            billing_cycle: 'per_order',
-            next_billing_date: null,
+    it('issues an explicit BDT 0 invoice when the period only has zero-rated lines', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([
+            billingLine({ line_kind: 'zero_rated', outcome: 'RETURNED', amount_minor: 0 }),
+        ]);
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        expect(Invoice.create).toHaveBeenCalledTimes(1);
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(0);
+        expect(created.metadata).toMatchObject({
+            grossMinor: 0,
+            netMinor: 0,
+            deliveredCount: 0,
+            zeroRatedCount: 1,
         });
-        const adjustment = { amount_bdt: '15.00', update: jest.fn().mockResolvedValue(undefined) };
-        Order.count.mockResolvedValueOnce(300);
+        expect(res.invoicesGenerated).toBe(1);
+    });
+
+    it('nets pending reversal credits against the delivered total', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([billingLine()]);
+        const adjustment = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
         PartnerBillingAdjustment.findAll.mockResolvedValueOnce([adjustment]);
 
-        await runWith([sub], new Date('2026-09-01T01:00:00.000Z'));
+        await runWith([merchantSubscription()], runDate);
 
-        expect(Invoice.create).toHaveBeenCalledWith(expect.objectContaining({
-            amount: 4485,
-            metadata: expect.objectContaining({ adjustment_credit: 15, computed_total: 4485 }),
-        }), expect.anything());
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(0);
+        expect(created.metadata).toMatchObject({ grossMinor: 1000, creditMinor: 1000, netMinor: 0 });
         expect(adjustment.update).toHaveBeenCalledWith(expect.objectContaining({
             status: 'applied', invoice_id: 'inv-1',
         }), expect.anything());
     });
+
+    it('skips when the period has no lines at all', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([]);
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        expect(Invoice.create).not.toHaveBeenCalled();
+        expect(res.invoicesSkipped).toBe(1);
+        expect(res.invoicesGenerated).toBe(0);
+    });
+
+    it('dedupes on an existing delivered-order invoice before aggregating', async () => {
+        Invoice.findOne.mockResolvedValueOnce({ id: 'inv-existing', invoice_number: 'INV-X' });
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        expect(Invoice.create).not.toHaveBeenCalled();
+        expect(billing.aggregateUninvoicedLines).not.toHaveBeenCalled();
+        expect(res.invoicesSkipped).toBe(1);
+    });
+
+    it('recovers from a concurrent unique-violation as an existing invoice', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([billingLine()]);
+        const existing = { id: 'inv-existing', invoice_number: 'INV-X' };
+        Invoice.findOne
+            .mockResolvedValueOnce(null)     // pre-check
+            .mockResolvedValueOnce(existing); // unique-constraint recovery
+        Invoice.create.mockRejectedValueOnce(Object.assign(new Error('duplicate'), {
+            name: 'SequelizeUniqueConstraintError',
+        }));
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        expect(res.invoicesSkipped).toBe(1);
+        expect(res.invoicesGenerated).toBe(0);
+    });
+
+    it('does not write catch-up or an invoice in dry-run mode', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([billingLine()]);
+        Subscription.findAll.mockResolvedValueOnce([merchantSubscription()]);
+
+        const job = new InvoiceGenerator();
+        await job.run({ dryRun: true, runDate });
+
+        expect(billing.catchUpLines).not.toHaveBeenCalled();
+        expect(Invoice.create).not.toHaveBeenCalled();
+    });
+});
+describe('ADR-0011 late-delivery charge-forward', () => {
+    const runDate = new Date('2026-11-01T01:00:00.000Z');
+    const octoberStart = new Date(Date.UTC(2026, 9, 1));
+
+    it('carries an un-invoiced prior-period line into the current invoice and flags it', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([
+            billingLine({ id: 'oct-1', order_id: 'o-oct', occurred_at: '2026-10-05' }),
+        ]);
+        BillingLine.findAll.mockResolvedValueOnce([
+            billingLine({ id: 'sep-1', order_id: 'o-sep', occurred_at: '2026-09-15' }),
+        ]);
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        // Prior-period query is an un-invoiced, pre-periodStart read.
+        expect(BillingLine.findAll).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                shop_id: 'shop-1',
+                invoice_id: null,
+            }),
+        }));
+
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(20);
+        expect(created.metadata).toMatchObject({
+            grossMinor: 2000,
+            netMinor: 2000,
+            deliveredCount: 2,
+            priorPeriodAdjustmentMinor: 1000,
+            priorPeriodAdjustmentCount: 1,
+        });
+        const lateLine = created.metadata.lines.find((line) => line.orderId === 'o-sep');
+        expect(lateLine).toMatchObject({
+            kind: 'billable',
+            amountMinor: 1000,
+            occurredAt: '2026-09-15',
+            priorPeriodAdjustment: true,
+        });
+        const currentLine = created.metadata.lines.find((line) => line.orderId === 'o-oct');
+        expect(currentLine.priorPeriodAdjustment).toBe(false);
+
+        // Both lines are claimed by the new invoice; no issued invoice is rewritten.
+        const [updateValues, updateOptions] = BillingLine.update.mock.calls[0];
+        expect(updateValues).toEqual({ invoice_id: 'inv-1' });
+        expect(updateOptions.where).toMatchObject({ shop_id: 'shop-1', invoice_id: null });
+        expect(res.invoicesGenerated).toBe(1);
+    });
+
+    it('A5 — defers the whole period when no cutover instant is persisted', async () => {
+        billing.getCommercialCutoverAt.mockResolvedValueOnce(null);
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        // Fail closed: no aggregation, no catch-up, no invoice. Billing a
+        // period without the cutover would charge pre-cutover history.
+        expect(billing.aggregateUninvoicedLines).not.toHaveBeenCalled();
+        expect(billing.catchUpLines).not.toHaveBeenCalled();
+        expect(BillingLine.findAll).not.toHaveBeenCalled();
+        expect(Invoice.create).not.toHaveBeenCalled();
+        expect(res.invoicesGenerated).toBe(0);
+        expect(res.invoicesSkipped).toBe(1);
+    });
+
+    it('charges forward when the current period itself has no usage', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([]);
+        BillingLine.findAll.mockResolvedValueOnce([
+            billingLine({ id: 'sep-2', order_id: 'o-sep-2', occurred_at: '2026-09-20' }),
+        ]);
+
+        const res = await runWith([merchantSubscription()], runDate);
+
+        expect(Invoice.create).toHaveBeenCalledTimes(1);
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(10);
+        expect(created.metadata).toMatchObject({
+            grossMinor: 1000,
+            priorPeriodAdjustmentMinor: 1000,
+            priorPeriodAdjustmentCount: 1,
+        });
+        expect(res.invoicesGenerated).toBe(1);
+    });
 });
 
-describe('daily reset/invoice handoff', () => {
-    it('invoices the period that reset just advanced past', async () => {
-        const sub = monthlySubscription(new Date('2026-02-28T12:00:00.000Z'), {
-            current_period_start: new Date('2026-02-28T12:00:00.000Z'),
-            current_period_end: new Date('2026-03-28T12:00:00.000Z'),
-            next_billing_date: new Date('2026-03-28T12:00:00.000Z'),
-            usage_reset_at: new Date('2026-01-31T12:00:00.000Z'),
+describe('ADR-0011 cutover floor (A4)', () => {
+    it('applies occurred_at >= cutoverAt even when the cutover is inside the period', async () => {
+        const job = new InvoiceGenerator();
+        const periodStart = new Date(Date.UTC(2026, 9, 1));
+        const midMonthCutover = new Date(Date.UTC(2026, 9, 15));
+
+        BillingLine.findAll.mockResolvedValueOnce([]);
+        await job.priorPeriodUninvoicedLines('shop-1', periodStart, midMonthCutover);
+
+        const { where } = BillingLine.findAll.mock.calls[0][0];
+        const floorValues = Object.getOwnPropertySymbols(where.occurred_at)
+            .map((symbol) => where.occurred_at[symbol]);
+        // The floor is present, so a pre-cutover line cannot leak forward even
+        // though `cutoverAt` is not earlier than periodStart.
+        expect(floorValues).toContain('2026-10-15');
+        expect(floorValues).toContain('2026-10-01');
+    });
+});
+
+describe('ADR-0011 credit carry-forward (A1)', () => {
+    const runDate = new Date('2026-11-01T01:00:00.000Z');
+
+    it('applies only credits that fit the gross and leaves the surplus pending', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([billingLine()]); // gross 1000
+        const first = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        const second = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        PartnerBillingAdjustment.findAll.mockResolvedValueOnce([first, second]);
+
+        await runWith([merchantSubscription()], runDate);
+
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(0);
+        expect(created.metadata).toMatchObject({
+            grossMinor: 1000,
+            creditMinor: 1000,
+            netMinor: 0,
         });
-
-        await runWith([sub], new Date('2026-03-01T01:00:00.000Z'));
-
-        expect(Invoice.create).toHaveBeenCalledWith(expect.objectContaining({
-            billing_period_start: new Date('2026-01-31T12:00:00.000Z'),
-            billing_period_end: new Date('2026-02-28T12:00:00.000Z'),
+        // Exactly one whole credit is consumed; the second is NOT destroyed —
+        // it stays pending and carries forward to the next invoice.
+        expect(first.update).toHaveBeenCalledWith(expect.objectContaining({
+            status: 'applied', invoice_id: 'inv-1',
         }), expect.anything());
+        expect(second.update).not.toHaveBeenCalled();
+    });
+
+    it('applies no credit at all on a zero-gross period', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([
+            billingLine({ line_kind: 'zero_rated', outcome: 'RETURNED', amount_minor: 0 }),
+        ]);
+        const adjustment = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        PartnerBillingAdjustment.findAll.mockResolvedValueOnce([adjustment]);
+
+        await runWith([merchantSubscription()], runDate);
+
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(0);
+        expect(created.metadata).toMatchObject({
+            grossMinor: 0,
+            creditMinor: 0,
+            netMinor: 0,
+        });
+        expect(adjustment.update).not.toHaveBeenCalled();
+    });
+
+    it('applies multiple credits while they fit under the gross', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([
+            billingLine({ id: 'b-1', order_id: 'o-1' }),
+            billingLine({ id: 'b-2', order_id: 'o-2' }),
+            billingLine({ id: 'b-3', order_id: 'o-3' }), // gross 3000
+        ]);
+        const first = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        const second = { amount_bdt: '15.00', update: jest.fn().mockResolvedValue(undefined) };
+        const third = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        PartnerBillingAdjustment.findAll.mockResolvedValueOnce([first, second, third]);
+
+        await runWith([merchantSubscription()], runDate);
+
+        const [[created]] = Invoice.create.mock.calls;
+        // 1000 + 1500 fit; the remaining 500 blocks the third credit entirely.
+        expect(created.metadata).toMatchObject({
+            grossMinor: 3000,
+            creditMinor: 2500,
+            netMinor: 500,
+        });
+        expect(first.update).toHaveBeenCalled();
+        expect(second.update).toHaveBeenCalled();
+        expect(third.update).not.toHaveBeenCalled();
     });
 });

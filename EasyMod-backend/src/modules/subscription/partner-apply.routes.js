@@ -1,48 +1,22 @@
 'use strict';
 
+/**
+ * Partner application route — RETIRED (ADR-0011).
+ *
+ * The tiered Partner programme no longer exists: every shop is on the single
+ * delivered-order model, so there is nothing to apply for. The endpoint stays
+ * mounted so old clients receive an explicit 410 instead of a silent 404, and
+ * the partner_applications table is preserved for historical reads.
+ */
+
 const express = require('express');
-const rateLimit = require('express-rate-limit');
-const { body, validationResult } = require('express-validator');
-const partnerService = require('./partner.service');
 
 const router = express.Router();
-const publicPartnerWriteLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 5,
-    standardHeaders: true,
-    legacyHeaders: false,
-});
 
-const validate = [
-    body('businessName').trim().notEmpty().withMessage('businessName is required'),
-    body('phone')
-        .matches(/^01[3-9]\d{8}$/)
-        .withMessage('Invalid Bangladesh phone number'),
-    body('pageLink').trim().notEmpty().withMessage('pageLink is required'),
-];
-
-router.post('/apply', publicPartnerWriteLimiter, validate, async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(422).json({ success: false, errors: errors.array() });
-    }
-
-    const { businessName, phone, pageLink } = req.body;
-    // shopId is optional — present only when an authenticated in-app shop applies.
-    const shopId = req.user?.shopId || null;
-
-    try {
-        const result = await partnerService.applyForPartner({ businessName, phone, pageLink, shopId });
-        return res.status(200).json({
-            success: true,
-            application_id: result.application.id,
-            eligibility: result.eligibility
-        });
-    } catch (err) {
-        // Never leak internals to the public form; the email is best-effort and
-        // persistence failure is the only real error path.
-        return res.status(500).json({ success: false, message: 'Could not submit application' });
-    }
-});
+router.post('/apply', (req, res) => res.status(410).json({
+    success: false,
+    code: 'PARTNER_PROGRAMME_RETIRED',
+    message: 'The Partner programme is retired. All shops are billed per delivered order.',
+}));
 
 module.exports = router;

@@ -3,13 +3,18 @@
 /**
  * Subscription access helpers — pure, dependency-free predicates used by the
  * AI auto-reply path, jobs and middleware to decide whether *automated* AI
- * replies should run for a shop. Quota predicates are kept pure here so the
- * worker, jobs, and API serializers share the same entitlement calculation.
+ * replies should run for a shop.
+ *
+ * ADR-0011 retired every conversation entitlement: `conversationEntitlement`
+ * is null on the commercial contract and no conversation is metered, capped or
+ * sold. The quota predicates below are kept ONLY for backward compatibility
+ * with serializers that still read them; they now always report unlimited, so
+ * no caller can gate automated replies on a counter that no longer exists.
  *
  * Design: fail OPEN. Consistent with the rest of the codebase (the rate
- * limiter, getShopPlanCode and the conversation-limit middleware all fail
- * open), AI is blocked ONLY for explicitly inactive billing states. A missing
- * subscription row or an unknown status never locks a shop out of AI.
+ * limiter and getShopPlanCode all fail open), AI is blocked ONLY for explicitly
+ * inactive billing states. A missing subscription row or an unknown status
+ * never locks a shop out of AI.
  */
 
 // Billing states in which automated AI replies must be paused.
@@ -29,38 +34,21 @@ const isAiActive = (sub) => {
 const isTrialing = (sub) => !!sub && String(sub.status || '').toLowerCase() === 'trialing';
 
 /**
- * Effective conversation allowance for the current period.
- * Missing subscriptions fail open as unlimited, matching isAiActive().
- * @param {{conversations_limit?: number, topup_balance?: number, conversations_used?: number}|null|undefined} sub
- * @returns {number} -1 means unlimited
+ * RETIRED by ADR-0011. Every shop has an unlimited conversation entitlement
+ * (there is none), so this always returns the unlimited sentinel.
+ *
+ * Kept exported because API serializers still publish the field; consumers must
+ * treat -1 as unlimited and never gate on it.
+ * @returns {number} -1 = unlimited
  */
-const effectiveConversationLimit = (sub) => {
-    if (!sub) return -1;
-
-    const baseLimit = Number(sub.conversations_limit);
-    if (!Number.isFinite(baseLimit) || baseLimit < 0) return -1;
-
-    const topupBalance = Math.max(0, Number(sub.topup_balance) || 0);
-    // conversations_used includes credits drawn from topup_balance. Add those
-    // already-consumed credits back so the allowance remains the original
-    // included limit plus the purchased/bonus amount.
-    const used = Math.max(0, Number(sub.conversations_used) || 0);
-    const consumedTopup = Math.max(0, used - baseLimit);
-    return baseLimit + topupBalance + consumedTopup;
-};
+const effectiveConversationLimit = (_sub) => -1;
 
 /**
- * Whether the subscription has no allowance left for a new conversation.
- * A missing row and unlimited plans fail open.
- * @param {{conversations_limit?: number, topup_balance?: number, conversations_used?: number}|null|undefined} sub
- * @returns {boolean}
+ * RETIRED by ADR-0011. No conversation quota exists, so exhaustion is
+ * impossible. Kept exported for serializers that still publish the boolean.
+ * @returns {boolean} always false
  */
-const isConversationQuotaExhausted = (sub) => {
-    if (!sub) return false;
-    const limit = effectiveConversationLimit(sub);
-    if (limit < 0) return false;
-    return Math.max(0, Number(sub.conversations_used) || 0) >= limit;
-};
+const isConversationQuotaExhausted = (_sub) => false;
 
 module.exports = {
     isAiActive,

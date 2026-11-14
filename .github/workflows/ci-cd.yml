@@ -351,6 +351,10 @@ jobs:
         working-directory: ./EasyMod-frontend
         run: npm run test:e2e:public
 
+      - name: Run truth-gate commercial claims browser proof
+        working-directory: ./EasyMod-frontend
+        run: npm run test:e2e:truth-gate
+
       - name: Upload frontend Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -853,6 +857,16 @@ jobs:
           DATABASE_URL: postgres://e2e:e2e@127.0.0.1:5432/easymod_integration_test
           REDIS_URL: redis://127.0.0.1:6379
         run: npm run test:integration
+
+      # Cutover drill: proves the delivered-order billing engine against the
+      # migrated schema before it is allowed to cut over. Deferred script lands
+      # in Phase 3; the alias is wired here so the gate cannot forget it.
+      - name: Backend cutover drill
+        if: needs.changes.outputs.backend == 'true'
+        env:
+          DATABASE_URL: postgres://e2e:e2e@127.0.0.1:5432/easymod_integration_test
+          REDIS_URL: redis://127.0.0.1:6379
+        run: npm run test:backend:cutover-drill
 
       # Known-broken tracked tests (EasyMod-backend/tests/quarantine.json). These
       # do NOT count as coverage and do NOT gate the build — they are run so the
@@ -1956,6 +1970,12 @@ jobs:
           else
             node scripts/pr-docs-check.js "${changed[@]}"
           fi
+
+      # Commercial truth gate: frozen-contract hashes, claim registry, evidence
+      # authorities, collateral drift and the forbidden-token worklist. Runs
+      # without `npm ci` because the scanner is dependency-free.
+      - name: Verify commercial claims
+        run: node scripts/verify-claims/index.js
 
       - name: Report the gate verdict
         env:

@@ -27,7 +27,6 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Stat label="Total shops" value={d.shops.total} />
         <Stat label="Active" value={d.shops.active} />
-        <Stat label="Shuru" value={d.shops.shuru} />
         <Stat label="Suspended" value={d.shops.suspended} />
         <Stat label="Messages today" value={d.today.messages} />
         <Stat label="AI replies today" value={d.today.aiAutoReplies} />

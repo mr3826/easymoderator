@@ -49,6 +49,9 @@ const PROVIDER_CAPABILITIES = Object.freeze({
         // implemented, and Pathao's merchant API surface used here has none.
         cancel: unsupported('NO_PROVIDER_API', 'CANCEL_IN_PROVIDER_PORTAL'),
         edit: unsupported('NO_PROVIDER_API', 'EDIT_IN_PROVIDER_PORTAL'),
+        // Phase 1 (ADR-0011): Pathao exposes no payout/reconciliation API to
+        // this integration; merchants reconcile COD in the Pathao portal.
+        settlement: unsupported('NO_PAYOUT_API', 'RECONCILE_IN_PROVIDER_PORTAL'),
         last_verified_at: null,
     }),
     steadfast: Object.freeze({
@@ -62,6 +65,9 @@ const PROVIDER_CAPABILITIES = Object.freeze({
         tracking: notImplemented('TRACKING_API', null),
         cancel: unsupported('NO_PROVIDER_API', 'CANCEL_IN_PROVIDER_PORTAL'),
         edit: unsupported('NO_PROVIDER_API', 'EDIT_IN_PROVIDER_PORTAL'),
+        // steadfast.provider.js exposes GET /payments, but COD settlement has
+        // never been exercised against a live account.
+        settlement: notImplemented(),
         last_verified_at: null,
     }),
     redx: Object.freeze({
@@ -72,6 +78,12 @@ const PROVIDER_CAPABILITIES = Object.freeze({
         // redx.provider.js: cancelParcel() and updateParcel() exist.
         cancel: notImplemented('CANCEL_PARCEL_API', null),
         edit: notImplemented('UPDATE_PARCEL_API', null),
+        // RedX returns a paid status, but redx.provider.js discards it after the
+        // parcel is delivered, so settlement cannot be evidenced either way.
+        settlement: level('UNKNOWN', {
+            reason_code: 'PAID_STATUS_DISCARDED',
+            manual_step_code: 'RECONCILE_IN_PROVIDER_PORTAL',
+        }),
         last_verified_at: null,
     }),
 });

@@ -181,6 +181,8 @@ function isKnownApiPath(path: string): boolean {
     '/api/inbox/actions',
     '/api/channels/meta',
     '/api/audit',
+    '/api/commercial/claims',
+    '/api/public/commercial-contract',
   ].includes(path) || isConversationMessagesPath(path) || isConversationReadPath(path) || isConversationPath(path);
 }
 
@@ -307,17 +309,15 @@ async function setupRoutes(page: Page, options: RouteOptions = {}): Promise<Rout
       if (path === '/api/subscription' && method === 'GET') {
         return route.fulfill(jsonResponse({
           subscription: {
-            plan_code: 'GROWTH',
-            plan_name: 'Growth',
-            conversations_limit: -1,
-            features: {
-              image_understanding: true,
-              advanced_ai: true,
-              priority_support: false,
-              custom_branding: false,
-            },
+            plan_code: 'MERCHANT',
+            status: 'active',
+            billing_model: 'per_order',
+            current_period_start: '2026-09-01T00:00:00.000Z',
           },
-          effective_conversation_limit: -1,
+          plan: { code: 'MERCHANT', name: 'Merchant', billing_model: 'per_order' },
+          contract: 'DELIVERED_ORDER',
+          contract_version: '1.0.0',
+          contract_hash: `sha256:${'b'.repeat(64)}`,
           usage: { conversations: { used: 0, limit: -1 } },
           period: { start: '2026-09-01T00:00:00.000Z' },
         }));
@@ -440,6 +440,84 @@ async function setupRoutes(page: Page, options: RouteOptions = {}): Promise<Rout
 
       if (path === '/api/audit' && method === 'POST') {
         return route.fulfill(jsonResponse({ id: 'audit-1' }, 201));
+      }
+
+      // ADR-0011: the authenticated dashboard mounts the billing-standing banner,
+      // whose ClaimProvider evaluates claims for the usage-banner surface. An
+      // empty decision set is fail-closed: the banner renders nothing.
+      //
+      // The inbox's AI controls (draft suggestion, "AI is replying", Take over)
+      // are gated by useSubscriptionFeatures, which now resolves the
+      // `ai.draft_reply` claim on the `subscription` surface rather than the
+      // retired plan's advanced_ai feature flag. This suite exercises a shop
+      // whose AI draft capability is available, so the subscription surface
+      // returns that one claim; every other surface stays fail-closed.
+      if (path === '/api/commercial/claims' && method === 'GET') {
+        const surface = new URL(request.url()).searchParams.get('surface') ?? 'usage-banner';
+        const registryHash = `sha256:${'a'.repeat(64)}`;
+        const decisions = surface === 'subscription'
+          ? [{
+              claimId: 'ai.draft_reply',
+              available: true,
+              render: 'claim',
+              textKey: 'claims.ai.draft_reply.en',
+              locale: 'en',
+              surface,
+              scope: { claimedProviders: null, verifiedProviders: null, match: true, text: null },
+              interpolation: {},
+              mode: 'enforce',
+              predicate: {
+                code_present: true,
+                merchant_enabled: true,
+                production_verified: true,
+                deprecated: false,
+                internal_only: false,
+                scope_match: true,
+              },
+              wouldBlock: false,
+              contractVersion: '1.0.0',
+              registryHash,
+            }]
+          : [];
+        return route.fulfill(jsonResponse({
+          surface,
+          locale: 'en',
+          contractVersion: '1.0.0',
+          registryHash,
+          decisions,
+        }));
+      }
+
+      // The dashboard also resolves the public commercial contract (terms/price).
+      if (path === '/api/public/commercial-contract' && method === 'GET') {
+        return route.fulfill(jsonResponse({
+          contract_version: '1.0.0',
+          contract_hash: `sha256:${'b'.repeat(64)}`,
+          model: 'DELIVERED_ORDER',
+          currency: 'BDT',
+          trigger: 'ORDER_DELIVERED_PROVIDER_CONFIRMED',
+          unit_price_minor: 1000,
+          unit_price_bdt: 10,
+          zero_rated_outcomes: ['RETURNED', 'CANCELLED', 'DRAFT', 'CONFIRMED', 'BOOKED', 'IN_TRANSIT', 'FAILED'],
+          subscription_fee_bdt: 0,
+          setup_fee_bdt: 0,
+          monthly_minimum_bdt: 0,
+          conversation_entitlement: null,
+          cycle: 'MONTHLY',
+          payment: 'POSTPAID',
+          due_days: 7,
+          on_overdue: {
+            blockCourierBooking: true,
+            pauseAutomatedAi: true,
+            keepInboxReadable: true,
+            keepHistoryReadable: true,
+            deleteData: false,
+          },
+          description: { en: 'Pay BDT 10.00 per provider-confirmed delivered order.', bn: 'প্রতি ডেলিভারি অর্ডারে ৳১০.০০।' },
+          registry_hash: `sha256:${'a'.repeat(64)}`,
+          claims: [],
+          decisions: [],
+        }));
       }
 
       state.unexpectedApiRequests.push(`${method} ${path}`);
