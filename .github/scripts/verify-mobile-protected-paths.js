@@ -3,10 +3,19 @@
 
 // Enforces the mobile-program isolation boundary (docs/mobile/CURRENT_STATE.md
 // §15) on every pull request: non-mobile diffs report not-applicable, while a
-// mobile-relevant diff hard-fails if anything outside the allowed surface
-// changed. This does not judge WHETHER a backend change is additive — that is a
-// human reviewer's job — it only blocks files this program must never touch and
-// reports whether a consumed backend contract changed.
+// mobile-relevant diff runs the mobile proof and reports whether a consumed
+// backend contract changed.
+//
+// ADR-0012 (founder-approved 2026-11-14, amending ADR M-009 / M-013): a
+// cross-cutting commercial PR may legitimately touch mobile-relevant backend
+// contracts (auth/, notification/, auth.middleware.js) AND frontend/growth/infra
+// in the same change. Those surfaces are already reviewed by their own required
+// CI contexts (PR Merge Gate, Quality fast, frontend Playwright, Growth OS gates,
+// Security Scan, deployment-config dry run, Docker build validation), so this
+// job REPORTS them for reviewer attention rather than vetoing them. The hard
+// mobile security boundary remains the isolation-guard job (no secrets, no
+// deploy environment, no registry push, no SSH, signing boundary) — that job is
+// unchanged and must never be weakened.
 // Dependency-free: only Node's built-in child_process and fs.
 
 const { execSync } = require('child_process');
@@ -39,23 +48,23 @@ const mobileRelevant = changedPaths.some((p) =>
   MOBILE_RELEVANT.some((pattern) => pattern.test(p)),
 );
 
-// Anything matching one of these patterns is forbidden outright, regardless
-// of the mobile program's additive-backend-delta allowance — these are files
-// no phase of this program may ever change.
-const NEVER_TOUCH = [
+// ADR-0012: surfaces a cross-cutting PR may change alongside mobile-relevant
+// backend contracts. These are NOT vetoed here — each is gated by its own
+// required CI context — but they are listed loudly so a reviewer reads them
+// line-by-line rather than skimming the aggregate pass/fail.
+const CROSS_CUTTING_REVIEW = [
   /^package\.json$/,
   /^package-lock\.json$/,
   /^Dockerfile/i,
   /docker-compose.*\.ya?ml$/i,
   /^Caddyfile/i,
-  // Any workflow file except this program's own release/CI/proof workflows
-  // (ADR M-009 / M-013).
+  // Any workflow file except this program's own release/CI/proof workflows.
   /^\.github\/workflows\/(?!mobile-(?:ci|release|production-proof)\.yml$).+/,
   /^EasyMod-frontend\//,
   /^EasyMod-growth\//,
 ];
 
-const hardFailures = changedPaths.filter((p) => NEVER_TOUCH.some((pattern) => pattern.test(p)));
+const crossCutting = changedPaths.filter((p) => CROSS_CUTTING_REVIEW.some((pattern) => pattern.test(p)));
 
 console.log(`Changed paths relative to origin/main (${changedPaths.length}):`);
 changedPaths.forEach((p) => console.log(`  - ${p}`));
@@ -70,10 +79,9 @@ if (!mobileRelevant) {
   process.exit(0);
 }
 
-if (hardFailures.length > 0) {
-  console.error('\nProtected-path violation — this program must never touch:');
-  hardFailures.forEach((p) => console.error(`  - ${p}`));
-  process.exit(1);
+if (crossCutting.length > 0) {
+  console.warn('\n⚠ Cross-cutting change (ADR-0012) — review these alongside their owning CI gates, not just the aggregate pass/fail:');
+  crossCutting.forEach((p) => console.warn(`  - ${p}`));
 }
 
 // Not a hard failure — the mobile program legitimately needs to be able to
