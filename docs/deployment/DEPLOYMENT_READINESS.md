@@ -66,7 +66,7 @@ docker compose --env-file /dev/null -f docker-compose.prod.yml config >/dev/null
 docker logs easymod-caddy-1 2>&1 | grep -i "acme" | grep -i "account"
 
 # Live renewal schedule (ARI) per certificate:
-docker exec easymod-caddy-1 sh -c 'ls /data/caddy/certificates/*/*/' 
+docker exec easymod-caddy-1 sh -c 'ls /data/caddy/certificates/*/*/'
 ```
 
 Renewal itself is Caddy-managed (no certbot, no cron). External monitoring:
