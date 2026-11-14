@@ -5,6 +5,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChannelsOverview from '@/app/components/channels/ChannelsOverview';
 import type { MetaChannel } from '@/api/domains/meta-channels';
+import type { ChannelAutomationWarning } from '@/api/types/conversation';
+
+type ListedChannel = MetaChannel & { warnings?: ChannelAutomationWarning[] };
 
 const metaApi = vi.hoisted(() => ({
   listMetaChannels: vi.fn(),
@@ -54,7 +57,7 @@ vi.mock('@/app/components/channels/useMetaChannelConnection', () => ({
   }),
 }));
 
-const baseChannel = (id: string, over: Partial<MetaChannel> = {}): MetaChannel => ({
+const baseChannel = (id: string, over: Partial<ListedChannel> = {}): ListedChannel => ({
   id,
   shopId: 'shop-1',
   platform: 'facebook',
@@ -82,29 +85,6 @@ const baseChannel = (id: string, over: Partial<MetaChannel> = {}): MetaChannel =
   ...over,
 });
 
-const settingsFor = (_channelId: string, over: Record<string, unknown> = {}) => ({
-  confidenceThresholdSend: 0.75,
-  confidenceThresholdSuggest: 0.5,
-  businessHours: null,
-  allowOrderCreation: true,
-  purposeLabel: null,
-  overrides: {},
-  effective: {
-    automation_mode: 'MANUAL',
-    confidence_threshold: 80,
-    greeting: { enabled: false, custom_text: '' },
-    business_hours: null,
-    allow_order_creation: true,
-    purpose_label: null,
-  },
-  mode_source: 'business_default',
-  warnings: [],
-  emergency_stop: { active: false, at: null, by: null, source: null, prior_mode: null },
-  billing_ai_active: true,
-  deprecated_fields: ['confidenceThresholdSend', 'confidenceThresholdSuggest'],
-  ...over,
-});
-
 const renderOverview = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -124,38 +104,18 @@ describe('ChannelsOverview', () => {
       automation_mode: 'AUTO',
       emergency_stop: { active: false, at: null, by: null, source: null, prior_mode: null },
     });
-    metaApi.getMetaChannelSettings.mockImplementation((id: string) => Promise.resolve(settingsFor(id)));
   });
 
   it('shows the Inherited / Overridden / Clamped / STOPPED / PAUSED-billing badges', async () => {
     metaApi.listMetaChannels.mockResolvedValue([
       baseChannel('inherit'),
       baseChannel('override', { mode_source: 'channel_override', override_count: 1 }),
-      baseChannel('clamped'),
+      baseChannel('clamped', { warnings: ['override_clamped_by_business'] }),
       baseChannel('stopped', {
         emergency_stop: { active: true, at: null, by: null, source: 'merchant', prior_mode: 'AUTO' },
       }),
       baseChannel('billing', { billing_ai_active: false }),
     ]);
-    metaApi.getMetaChannelSettings.mockImplementation((id: string) => {
-      if (id === 'clamped') {
-        return Promise.resolve(settingsFor(id, { warnings: ['override_clamped_by_business'] }));
-      }
-      if (id === 'stopped') {
-        return Promise.resolve(
-          settingsFor(id, {
-            emergency_stop: { active: true, at: null, by: null, source: 'merchant', prior_mode: 'AUTO' },
-          }),
-        );
-      }
-      if (id === 'billing') return Promise.resolve(settingsFor(id, { billing_ai_active: false }));
-      if (id === 'override') {
-        return Promise.resolve(
-          settingsFor(id, { mode_source: 'channel_override', overrides: { automation_mode: 'DRAFT' } }),
-        );
-      }
-      return Promise.resolve(settingsFor(id));
-    });
 
     renderOverview();
 
@@ -166,6 +126,11 @@ describe('ChannelsOverview', () => {
       expect(screen.getByTestId('channel-badge-stopped')).toHaveTextContent('Stopped');
       expect(screen.getByTestId('channel-badge-billing')).toHaveTextContent('Paused');
     });
+    // Warnings come from the list payload; no per-channel settings GET.
+    expect(screen.getByTestId('channel-card-clamped')).toHaveTextContent(
+      'A stored channel override is clamped by the business default.',
+    );
+    expect(metaApi.getMetaChannelSettings).not.toHaveBeenCalled();
   });
 
   it('renders an empty state with a connect call to action', async () => {

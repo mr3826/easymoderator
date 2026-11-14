@@ -161,6 +161,40 @@ describe('shop.service emergency stop', () => {
         );
     });
 
+    test('business defaults cannot raise AUTO while the stop is active (409 EMERGENCY_STOP_ACTIVE)', async () => {
+        const shop = makeShop({
+            ai_emergency_stop: true,
+            ai_emergency_stop_source: 'merchant',
+            ai_emergency_stop_prior_mode: 'AUTO',
+            settings: { ai: { automation_mode: 'MANUAL', confidence_threshold: 80 } },
+        });
+        Shop.findByPk.mockResolvedValue(shop);
+
+        await expect(shopService.updateShopAiSettings('shop-1', 'user-1', { automation_mode: 'AUTO' }))
+            .rejects.toMatchObject({ status: 409, code: 'EMERGENCY_STOP_ACTIVE' });
+        expect(shop.update).not.toHaveBeenCalled();
+    });
+
+    test('business defaults may still narrow to DRAFT/MANUAL while the stop is active', async () => {
+        const shop = makeShop({
+            ai_emergency_stop: true,
+            ai_emergency_stop_source: 'merchant',
+            settings: { ai: { automation_mode: 'MANUAL', confidence_threshold: 80 } },
+        });
+        Shop.findByPk.mockResolvedValue(shop);
+
+        await shopService.updateShopAiSettings('shop-1', 'user-1', { automation_mode: 'DRAFT' });
+
+        expect(shop.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                settings: expect.objectContaining({
+                    ai: expect.objectContaining({ automation_mode: 'DRAFT' }),
+                }),
+            }),
+            expect.any(Object),
+        );
+    });
+
     test('repeat engage is idempotent and preserves prior_mode/source/actor', async () => {
         const shop = makeShop({
             ai_emergency_stop: true,

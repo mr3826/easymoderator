@@ -703,6 +703,17 @@ const updateShopAiSettings = async (
         normalizedUpdates.automation_mode = normalizeAiReplyMode(updates.automation_mode);
         // Reply mode is the source of truth for this legacy derived flag.
         normalizedUpdates.auto_reply_enabled = isAutoSendMode(normalizedUpdates.automation_mode);
+        // ADR-0013 §6: while the emergency stop is active the MANUAL rollback
+        // belt must hold. Raising the business default to AUTO would defeat the
+        // belt for old-code rollback and contradict the stopped state; the owner
+        // must resume the stop first (resume keeps MANUAL; re-choice is explicit).
+        if (shop.ai_emergency_stop === true && normalizedUpdates.automation_mode === 'AUTO') {
+            throw new AppError(
+                'Emergency stop is active — automation mode cannot be raised to AUTO. Resume the stop first.',
+                409,
+                'EMERGENCY_STOP_ACTIVE',
+            );
+        }
     }
 
     const currentSettings = shop.settings || {};

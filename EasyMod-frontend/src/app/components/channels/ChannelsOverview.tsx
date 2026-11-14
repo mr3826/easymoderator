@@ -3,15 +3,16 @@
  * PROPOSED_ARCHITECTURE §4).
  *
  * Every connected Page is shown with its identity, health and effective
- * automation state. Effective mode/warnings come from the resolver-backed
- * settings endpoint so the badge never invents a state.
+ * automation state. Effective mode and warnings come from the resolver-backed
+ * list endpoint so the badge never invents a state.
  */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ArrowRight, Link2 } from "lucide-react";
-import { getMetaChannelSettings, listMetaChannels } from "@/api/domains/meta-channels";
+import { listMetaChannels, type MetaChannel } from "@/api/domains/meta-channels";
+import type { ChannelAutomationWarning } from "@/api/types/conversation";
 import { authService } from "@/app/lib/auth";
 import ChannelConnectionManager, {
   ChannelHealthGrid,
@@ -20,12 +21,28 @@ import ChannelConnectionManager, {
 import EmergencyStopCard from "./EmergencyStopCard";
 import BusinessDefaultsSummaryCard from "./BusinessDefaultsSummaryCard";
 import { useChannelSettingsSSE } from "./useChannelSettingsSSE";
-import {
-  BADGE_LABEL_KEYS,
-  MODE_LABEL_KEYS,
-  deriveChannelBadge,
-  hoursLookMalformed,
-} from "./channelAutomation";
+import { BADGE_LABEL_KEYS, MODE_LABEL_KEYS, deriveChannelBadge } from "./channelAutomation";
+
+/**
+ * The list endpoint carries warnings additively (API_CONTRACT §2). Until the
+ * backend change lands the field may be absent, so read it defensively.
+ */
+type ListedChannel = MetaChannel & { warnings?: ChannelAutomationWarning[] };
+
+/**
+ * Read warnings from the list row. `warnings` is additive and lands with the
+ * backend change in parallel; until it is present, a stored override that
+ * resolves to the business default is reported as clamped (the only mode
+ * override the current resolver would not honour). Detail remains the place
+ * for the full warning set.
+ */
+function warningsFromList(channel: ListedChannel): ChannelAutomationWarning[] {
+  if (Array.isArray(channel.warnings)) return channel.warnings;
+  if ((channel.override_count ?? 0) > 0 && channel.mode_source === "business_default") {
+    return ["override_clamped_by_business"];
+  }
+  return [];
+}
 
 export default function ChannelsOverview() {
   const { t } = useTranslation();
@@ -38,29 +55,9 @@ export default function ChannelsOverview() {
     queryFn: listMetaChannels,
   });
 
-  const channels = (channelsQuery.data ?? []).filter(
+  const channels = ((channelsQuery.data ?? []) as ListedChannel[]).filter(
     (channel) => channel.platform === "facebook" && channel.status !== "DISCONNECTED",
   );
-
-  // The list endpoint carries effective mode, stop and billing. Warnings
-  // (clamped override / malformed hours) live on the per-channel settings
-  // payload; fetch them batched through react-query's shared cache.
-  const settingsQueries = useQueries({
-    queries: channels.map((channel) => ({
-      queryKey: ["channel-settings", channel.id],
-      queryFn: () => getMetaChannelSettings(channel.id),
-      staleTime: 30_000,
-    })),
-  });
-
-  const warningsByChannel = useMemo(() => {
-    const map: Record<string, string[]> = {};
-    channels.forEach((channel, index) => {
-      const settings = settingsQueries[index]?.data;
-      map[channel.id] = settings?.warnings ?? [];
-    });
-    return map;
-  }, [channels, settingsQueries]);
 
   return (
     <div className="ca-scope min-h-full bg-[var(--ca-surface-muted)] p-4 md:p-8">
@@ -142,20 +139,15 @@ export default function ChannelsOverview() {
 
         {channels.length > 0 && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {channels.map((channel, index) => {
-              const settings = settingsQueries[index]?.data;
-              const warnings = warningsByChannel[channel.id] ?? [];
+            {channels.map((channel) => {
+              const warnings = warningsFromList(channel);
               const badge = deriveChannelBadge({
-                emergencyStop: settings?.emergency_stop ?? channel.emergency_stop,
-                billingAiActive:
-                  settings?.billing_ai_active ?? channel.billing_ai_active,
-                modeSource: settings?.mode_source ?? channel.mode_source,
+                emergencyStop: channel.emergency_stop,
+                billingAiActive: channel.billing_ai_active,
+                modeSource: channel.mode_source,
                 warnings,
               });
-              const effectiveMode =
-                settings?.effective?.automation_mode ??
-                channel.effective_mode ??
-                "MANUAL";
+              const effectiveMode = channel.effective_mode ?? "MANUAL";
               const tokenExpiryWarning =
                 channel.tokenExpiresAt &&
                 new Date(channel.tokenExpiresAt).getTime() - Date.now() < 14 * 86_400_000;
@@ -215,8 +207,7 @@ export default function ChannelsOverview() {
                   <ChannelHealthGrid channel={channel} className="mt-3" />
 
                   {(tokenExpiryWarning ||
-                    warnings.includes("override_clamped_by_business") ||
-                    hoursLookMalformed(settings?.businessHours)) && (
+                    warnings.includes("override_clamped_by_business")) && (
                     <ul className="mt-3 space-y-1 text-xs text-amber-700">
                       {tokenExpiryWarning && (
                         <li className="flex items-start gap-1.5">
@@ -230,21 +221,13 @@ export default function ChannelsOverview() {
                           {t("manageShop.channels.warnings.clamped")}
                         </li>
                       )}
-                      {hoursLookMalformed(settings?.businessHours) && (
-                        <li className="flex items-start gap-1.5">
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                          {t("manageShop.channels.warnings.malformedHours")}
-                        </li>
-                      )}
                     </ul>
                   )}
 
                   <div className="mt-4 flex items-center justify-between">
                     <span className="text-xs text-[var(--ca-ink-soft)]">
                       {t("manageShop.channels.overrideCount", {
-                        count: settings
-                          ? Object.keys(settings.overrides ?? {}).length
-                          : channel.override_count ?? 0,
+                        count: channel.override_count ?? 0,
                       })}
                     </span>
                     <Link

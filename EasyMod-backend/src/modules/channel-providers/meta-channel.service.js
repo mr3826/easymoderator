@@ -765,10 +765,11 @@ class MetaChannelService {
             return { settings, nextOverrides, overridesChanged };
         });
 
-        if (result.overridesChanged) {
-            void invalidateShopSettingsCaches(shopId).catch(() => {});
-            void emitChannelSettingsChanged(shopId, channelId, result.nextOverrides);
-        }
+        // API_CONTRACT §8: every settings write propagates (overrides AND
+        // channel-native hours/order/label edits) so other open channel pages
+        // and the inbox converge without a refresh.
+        void invalidateShopSettingsCaches(shopId).catch(() => {});
+        void emitChannelSettingsChanged(shopId, channelId, result.nextOverrides);
 
         logger.info('MetaChannelService.updateSettings', {
             channelId,

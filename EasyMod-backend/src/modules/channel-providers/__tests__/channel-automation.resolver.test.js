@@ -338,7 +338,31 @@ describe('loadEffectiveChannelAutomation', () => {
         expect(result.modeSource).toBe('business_default');
         expect(result.effective.confidence_threshold).toBe(DEFAULT_AI_SETTINGS.confidence_threshold);
         expect(result.shopIsActive).toBe(true);
-        expect(result.billingAiActive).toBe(true);
+        // Missing subscription row: the worker blocks (subscription_missing), so
+        // the display field fails closed (ADR-0011 C5).
+        expect(result.billingAiActive).toBe(false);
+    });
+
+    test('missing subscription row reports billing_ai_active=false (fail-closed display)', async () => {
+        mockMetaChannel.findByPk.mockResolvedValue({ id: 'channel-1', shop_id: 'shop-1' });
+        mockEntities.Shop.findByPk.mockResolvedValue(shopRow());
+        mockMetaChannelSettings.findByPk.mockResolvedValue(baseChannel());
+        mockEntities.Subscription.findOne.mockResolvedValue(null);
+
+        const result = await loadEffectiveChannelAutomation('shop-1', 'channel-1');
+
+        expect(result.billingAiActive).toBe(false);
+    });
+
+    test('subscription read error reports billing_ai_active=false (fail-closed display)', async () => {
+        mockMetaChannel.findByPk.mockResolvedValue({ id: 'channel-1', shop_id: 'shop-1' });
+        mockEntities.Shop.findByPk.mockResolvedValue(shopRow());
+        mockMetaChannelSettings.findByPk.mockResolvedValue(baseChannel());
+        mockEntities.Subscription.findOne.mockRejectedValue(new Error('db unavailable'));
+
+        const result = await loadEffectiveChannelAutomation('shop-1', 'channel-1');
+
+        expect(result.billingAiActive).toBe(false);
     });
 
     test('missing channel settings row returns null unless createIfMissing', async () => {

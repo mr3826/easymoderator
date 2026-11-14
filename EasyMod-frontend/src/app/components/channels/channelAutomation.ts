@@ -73,61 +73,79 @@ export const BADGE_LABEL_KEYS: Record<ChannelAutomationBadge, string> = {
 export const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type DayKey = (typeof DAYS)[number];
 
-export interface EditableDaySlot {
-  enabled: boolean;
+export interface EditableHourSlot {
   open: string;
   close: string;
 }
 
-export type EditableHours = Record<DayKey, EditableDaySlot>;
-
-/** Flatten either `{day:{open,close}}` or `{day:[{open,close},…]}` to one slot. */
-export function firstSlot(
-  value: { open: string; close: string } | { open: string; close: string }[] | undefined,
-): { open: string; close: string } | null {
-  if (!value) return null;
-  const slot = Array.isArray(value) ? value[0] : value;
-  if (!slot || typeof slot.open !== "string" || typeof slot.close !== "string") return null;
-  return slot;
+export interface EditableDaySlots {
+  enabled: boolean;
+  slots: EditableHourSlot[];
 }
 
-export function hoursToEditable(hours: unknown): { timezone: string; days: EditableHours } {
-  const record = (hours && typeof hours === "object" ? hours : {}) as Record<string, unknown>;
-  const defaults: EditableHours = {
-    mon: { enabled: false, open: "09:00", close: "18:00" },
-    tue: { enabled: false, open: "09:00", close: "18:00" },
-    wed: { enabled: false, open: "09:00", close: "18:00" },
-    thu: { enabled: false, open: "09:00", close: "18:00" },
-    fri: { enabled: false, open: "09:00", close: "18:00" },
-    sat: { enabled: false, open: "09:00", close: "18:00" },
-    sun: { enabled: false, open: "09:00", close: "18:00" },
-  };
-  if (!hours) return { timezone: "", days: defaults };
-  const days = { ...defaults };
-  for (const day of DAYS) {
-    const slot = firstSlot(record[day] as never);
-    if (slot) {
-      days[day] = { enabled: true, open: slot.open, close: slot.close };
+export type EditableHours = Record<DayKey, EditableDaySlots>;
+
+export const DEFAULT_HOUR_SLOT: EditableHourSlot = { open: "09:00", close: "18:00" };
+
+export type SerializedHours = { timezone?: string } & Partial<
+  Record<DayKey, EditableHourSlot | EditableHourSlot[]>
+>;
+
+/** Normalize either `{day:{open,close}}` or `{day:[{open,close},…]}` to an array. */
+function normalizeSlots(value: unknown): EditableHourSlot[] {
+  if (value === undefined || value === null) return [];
+  const rawSlots = Array.isArray(value) ? value : [value];
+  const slots: EditableHourSlot[] = [];
+  for (const raw of rawSlots) {
+    if (!raw || typeof raw !== "object") continue;
+    const open = (raw as { open?: unknown }).open;
+    const close = (raw as { close?: unknown }).close;
+    if (typeof open === "string" && typeof close === "string") {
+      slots.push({ open, close });
     }
   }
+  return slots;
+}
+
+/**
+ * Load stored hours into the editor without dropping slots. Every day keeps
+ * its full slot array (a single-slot day is just an array of length one), so a
+ * saved multi-slot merchant never loses the second window.
+ */
+export function hoursToEditable(hours: unknown): { timezone: string; days: EditableHours } {
+  const record = (hours && typeof hours === "object" ? hours : {}) as Record<string, unknown>;
+  const days = {} as EditableHours;
+  for (const day of DAYS) {
+    const slots = normalizeSlots(record[day]);
+    days[day] = slots.length > 0
+      ? { enabled: true, slots }
+      : { enabled: false, slots: [{ ...DEFAULT_HOUR_SLOT }] };
+  }
+  if (!hours) return { timezone: "", days };
   return {
     timezone: typeof record.timezone === "string" ? record.timezone : "",
     days,
   };
 }
 
-/** Serialize the editor back to the canonical `{day:{open,close}}` shape. */
-export function editableToHours(
-  timezone: string,
-  days: EditableHours,
-): { timezone?: string } & Record<DayKey, { open: string; close: string }> {
-  const out: { timezone?: string } & Record<string, { open: string; close: string }> = {};
+/**
+ * Serialize the editor back to the canonical shape. One slot uses the
+ * `{day:{open,close}}` object form; multiple slots use `{day:[…]}`. The
+ * runtime accepts both, so single-slot merchants keep the existing payload.
+ */
+export function editableToHours(timezone: string, days: EditableHours): SerializedHours {
+  const out: Record<string, string | EditableHourSlot | EditableHourSlot[]> = {};
   if (timezone.trim()) out.timezone = timezone.trim();
   for (const day of DAYS) {
-    const slot = days[day];
-    if (slot.enabled) out[day] = { open: slot.open, close: slot.close };
+    const dayValue = days[day];
+    if (!dayValue?.enabled) continue;
+    const slots = dayValue.slots
+      .map((slot) => ({ open: slot.open, close: slot.close }))
+      .filter((slot) => slot.open !== "" && slot.close !== "");
+    if (slots.length === 0) continue;
+    out[day] = slots.length === 1 ? slots[0] : slots;
   }
-  return out as { timezone?: string } & Record<DayKey, { open: string; close: string }>;
+  return out as SerializedHours;
 }
 
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;

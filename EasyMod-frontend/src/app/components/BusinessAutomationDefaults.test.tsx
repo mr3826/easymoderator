@@ -197,6 +197,26 @@ describe('BusinessAutomationDefaults', () => {
     });
   });
 
+  it('disables the automation form and explains why while the emergency stop is active', async () => {
+    mockGetShopAISettings.mockResolvedValue({
+      ...mockAISettings,
+      emergency_stop: {
+        active: true,
+        at: '2026-11-15T00:00:00.000Z',
+        by: 'user-1',
+        source: 'merchant',
+        prior_mode: 'DRAFT',
+      },
+    });
+    renderPage();
+
+    const notice = await screen.findByTestId('automation-emergency-stop-notice');
+    expect(notice).toHaveTextContent(/locked to Manual until the emergency stop is resumed/i);
+    expect(screen.getByTestId('automation-settings-fieldset')).toBeDisabled();
+    // The stop card itself stays usable so the owner can resume.
+    expect(screen.getByTestId('emergency-stop-card-mock')).toBeInTheDocument();
+  });
+
   it('shows a read-only notice for non-owners and disables writes', async () => {
     mockGetCurrentShop.mockReturnValue({ role: 'manager' });
     renderPage();

@@ -83,14 +83,14 @@ Semantics:
 
 ### `GET /api/channels/meta` (list, any active member)
 
-Each channel gains additive fields: `effective_mode`, `mode_source`, `override_count` (number of explicit override keys), `emergency_stop` (shop-level block, same shape), `billing_ai_active`. One batched resolver pass (single Shop read + `MetaChannelSettings.findAll` for the shop's channels) — no N+1. Existing fields unchanged.
+Each channel gains additive fields: `effective_mode`, `mode_source`, `override_count` (number of explicit override keys), `warnings` (resolver warnings, e.g. `override_clamped_by_business`), `emergency_stop` (shop-level block, same shape), `billing_ai_active` (fail-closed: false when the subscription row is missing or unreadable — the worker blocks those cases). One batched resolver pass (single Shop read + `MetaChannelSettings.findAll` for the shop's channels) — no N+1. Existing fields unchanged.
 
 ### `PATCH /api/channels/meta/:channelId/purpose-label` — unchanged (any member; cosmetic).
 
 ## 3. Business defaults (unchanged semantics)
 
 - `GET /api/shop/ai-settings` (any member): existing payload **plus** read-only `emergency_stop {active,at,by,source,prior_mode}`.
-- `PUT /api/shop/ai-settings` (OWNER): unchanged whitelist/validation. This is the **business defaults editor**; it cannot clobber channel overrides (different table). Mode normalization + `ai_reply_mode_changed` SSE + cache invalidation unchanged.
+- `PUT /api/shop/ai-settings` (OWNER): unchanged whitelist/validation, with one addition — while the emergency stop is active, raising `automation_mode` to `AUTO` is rejected with `409 EMERGENCY_STOP_ACTIVE` (the MANUAL rollback belt must hold; DRAFT/MANUAL writes remain allowed). This is the **business defaults editor**; it cannot clobber channel overrides (different table). Mode normalization + `ai_reply_mode_changed` SSE + cache invalidation unchanged.
 - `POST /shop/update`: unchanged strip list (`automation_mode` stripped; emergency columns unreachable via settings JSON).
 
 ## 4. Emergency stop
@@ -191,7 +191,10 @@ Write controls (defaults save, overrides, stop/resume) visible/enabled for **OWN
 | `OVERRIDE_KEY_FORBIDDEN` | 400 | unknown key in overrides |
 | `INVALID_OVERRIDE_VALUE` | 400 | value shape/range invalid |
 | `EMERGENCY_STOP_ADMIN_SOURCE` | 403 | merchant resume of admin-source stop |
+| `EMERGENCY_STOP_ACTIVE` | 409 | business-defaults PUT raises AUTO while the stop is active |
 | `CHANNEL_SETTINGS_UNAVAILABLE` | worker hold | channel row missing at boundary |
 | `SHOP_SETTINGS_UNAVAILABLE` | worker retryable | shop row missing/unreadable (existing) |
 
 Existing codes unchanged: `HUMAN_TAKEOVER_CONFLICT`, `HANDOFF_RESOLUTION_CONFLICT`, `VALIDATION_ERROR` (top-level mode keys), 404 cross-shop.
+
+Note: override shape/key rejections enforced by route-level Joi surface as `VALIDATION_ERROR` (400); `OVERRIDE_KEY_FORBIDDEN` / `INVALID_OVERRIDE_VALUE` are the service-layer codes for direct callers. Status and fail-closed behavior are identical either way.

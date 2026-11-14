@@ -227,7 +227,9 @@ describe('meta-oauth.controller', () => {
                 body: { aiAutoReply: false },
             }, mkRes(), next);
 
-            expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+            // API_CONTRACT §2 / ADR-0013: cross-shop is a 404 (never reveal another
+            // shop's channel exists); rejection still precedes any service mutation.
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
             expect(channelService.updateSettings).not.toHaveBeenCalled();
         });
     });
@@ -287,7 +289,7 @@ describe('meta-oauth.controller', () => {
                     emergency_stop: {
                         active: false, at: null, by: null, source: null, prior_mode: null,
                     },
-                    billing_ai_active: true,
+                    billing_ai_active: false,
                     deprecated_fields: [
                         'confidenceThresholdSend',
                         'confidenceThresholdSuggest',

@@ -230,4 +230,79 @@ describe('ChannelDetail', () => {
       expect(patch.businessHours.mon).toEqual({ open: '09:00', close: '02:00' });
     });
   });
+
+  it('renders every stored slot, adds a slot, and saves the canonical array shape', async () => {
+    metaApi.getMetaChannelSettings.mockResolvedValue(
+      makeSettings({
+        businessHours: {
+          timezone: 'Asia/Dhaka',
+          mon: [
+            { open: '09:00', close: '12:00' },
+            { open: '14:00', close: '18:00' },
+          ],
+        },
+      }),
+    );
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Operating rules' }));
+
+    expect(screen.getByLabelText('Opening time for Mon, slot 1')).toHaveValue('09:00');
+    expect(screen.getByLabelText('Opening time for Mon, slot 2')).toHaveValue('14:00');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add time slot for Mon' }));
+    fireEvent.change(screen.getByLabelText('Opening time for Mon, slot 3'), {
+      target: { value: '19:00' },
+    });
+    fireEvent.change(screen.getByLabelText('Closing time for Mon, slot 3'), {
+      target: { value: '21:00' },
+    });
+    fireEvent.click(screen.getByTestId('channel-hours-save'));
+
+    await waitFor(() => {
+      const patch = metaApi.updateMetaChannelSettings.mock.calls[
+        metaApi.updateMetaChannelSettings.mock.calls.length - 1
+      ]?.[1] as { businessHours: Record<string, unknown> };
+      expect(patch.businessHours).toEqual({
+        timezone: 'Asia/Dhaka',
+        mon: [
+          { open: '09:00', close: '12:00' },
+          { open: '14:00', close: '18:00' },
+          { open: '19:00', close: '21:00' },
+        ],
+      });
+    });
+  });
+
+  it('removes a slot with the accessible remove control', async () => {
+    metaApi.getMetaChannelSettings.mockResolvedValue(
+      makeSettings({
+        businessHours: {
+          mon: [
+            { open: '09:00', close: '12:00' },
+            { open: '14:00', close: '18:00' },
+          ],
+        },
+      }),
+    );
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Operating rules' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove time slot 2 for Mon' }));
+    expect(screen.queryByLabelText('Opening time for Mon, slot 2')).not.toBeInTheDocument();
+    // The last remaining slot cannot be removed (an empty day is "closed").
+    expect(screen.getByRole('button', { name: 'Remove time slot 1 for Mon' })).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('channel-hours-save'));
+
+    await waitFor(() => {
+      const patch = metaApi.updateMetaChannelSettings.mock.calls[
+        metaApi.updateMetaChannelSettings.mock.calls.length - 1
+      ]?.[1] as { businessHours: Record<string, unknown> };
+      expect(patch.businessHours).toEqual({
+        mon: { open: '09:00', close: '12:00' },
+      });
+    });
+  });
 });

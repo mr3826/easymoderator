@@ -2529,6 +2529,10 @@
         "timezoneDefault": "Shop default",
         "hoursFailClosed": "Invalid or unparseable hours are treated as CLOSED, so no automatic reply is sent.",
         "alwaysActive": "Always active (clear hours)",
+        "addSlot": "Add time slot for {{day}}",
+        "removeSlot": "Remove time slot {{index}} for {{day}}",
+        "openTime": "Opening time for {{day}}, slot {{index}}",
+        "closeTime": "Closing time for {{day}}, slot {{index}}",
         "purposeLabel": "Purpose label",
         "connection": "Connection",
         "deprecatedTitle": "Deprecated settings",
@@ -2548,7 +2552,8 @@
       "ownerOnly": "Only the shop owner can change automation defaults. You can review the current settings here.",
       "billingStandingTitle": "Billing and automation",
       "billingManage": "View billing",
-      "capabilityTitle": "What each mode can do"
+      "capabilityTitle": "What each mode can do",
+      "emergencyStopNotice": "AI replies are stopped for this business. Automation is locked to Manual until the emergency stop is resumed; resume it below before choosing a new default."
     },
     "notifications": {
       "title": "Notifications",

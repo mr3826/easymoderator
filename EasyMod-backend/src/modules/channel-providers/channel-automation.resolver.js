@@ -327,7 +327,11 @@ async function loadEffectiveChannelAutomation(shopId, channelId, { transaction =
         shopIsActive: shop.is_active !== false,
     });
 
-    let billingAiActive = true;
+    // Display honesty (ADR-0011 C5): fail CLOSED. The worker blocks sends when
+    // the subscription row is missing (subscription_missing) or inactive, so the
+    // UI must not present AUTO as effective in those cases. A read error also
+    // resolves to false rather than optimistically true.
+    let billingAiActive = false;
     try {
         const { isAiActive } = require('../subscription/subscription.access');
         const billingSub = await Subscription.findOne({
@@ -335,9 +339,9 @@ async function loadEffectiveChannelAutomation(shopId, channelId, { transaction =
             attributes: ['status'],
             ...readOptions,
         }).catch(() => null);
-        billingAiActive = isAiActive(billingSub);
+        billingAiActive = billingSub ? isAiActive(billingSub) : false;
     } catch (_) {
-        billingAiActive = true;
+        billingAiActive = false;
     }
 
     return {

@@ -304,6 +304,27 @@ describe('sendMessage (webhook shim — exact routing)', () => {
         expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
+    test('transactional post-mutation facts proceed when the resolver throws (committed-mutation rule)', async () => {
+        loadEffectiveChannelAutomation.mockRejectedValueOnce(new Error('shop unavailable'));
+        mockSendMessage.mockResolvedValueOnce({});
+
+        await expect(sendMessage(buildChannel(), 'psid', 'order confirmed', { messageType: 'transactional' }))
+            .resolves.toEqual(expect.objectContaining({ sent: true }));
+        expect(policyEngine.evaluateOutbound).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.objectContaining({ settings: expect.objectContaining({ automation_mode: 'MANUAL' }) }),
+        );
+    });
+
+    test('transactional post-mutation facts proceed when the resolver returns null (missing channel row)', async () => {
+        loadEffectiveChannelAutomation.mockResolvedValueOnce(null);
+        mockSendMessage.mockResolvedValueOnce({});
+
+        await expect(sendMessage(buildChannel(), 'psid', 'payment receipt', { messageType: 'transactional' }))
+            .resolves.toEqual(expect.objectContaining({ sent: true }));
+        expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
     test('emergency stop suppresses a non-transactional automatic send', async () => {
         loadEffectiveChannelAutomation.mockResolvedValueOnce({
             mode: 'MANUAL',

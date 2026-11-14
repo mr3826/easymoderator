@@ -66,6 +66,10 @@ export default function BusinessAutomationDefaults() {
   // Write controls are OWNER-only (ADR-0013 §9, matches the server's
   // requireOwner). The server stays the authority; this is UX only.
   const isOwner = authService.getCurrentShop()?.role?.toLowerCase() === "owner";
+  // While the emergency stop is active the backend locks automation to MANUAL
+  // and rejects AUTO writes (409 EMERGENCY_STOP_ACTIVE), so the editor is
+  // disabled until the owner resumes it from the card below.
+  const emergencyStopActive = aiSettings?.emergency_stop?.active === true;
 
   return (
     <div className="ca-scope min-h-full bg-[var(--ca-surface-muted)] p-4 md:p-8">
@@ -125,6 +129,16 @@ export default function BusinessAutomationDefaults() {
 
           {!isLoading && !loadError && (
             <>
+              {emergencyStopActive && (
+                <div
+                  role="status"
+                  data-testid="automation-emergency-stop-notice"
+                  className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+                >
+                  {t("manageShop.automation.emergencyStopNotice")}
+                </div>
+              )}
+
               {!isOwner && (
                 <div className="rounded-xl border border-[var(--ca-border)] bg-white p-4 text-sm text-[var(--ca-ink-muted)]">
                   {t("manageShop.automation.ownerOnly")}
@@ -132,7 +146,11 @@ export default function BusinessAutomationDefaults() {
               )}
 
               <div className="rounded-xl border border-[var(--ca-border)] bg-white p-4 md:p-6">
-                <fieldset disabled={!isOwner} className="min-w-0 border-0 p-0 disabled:opacity-70">
+                <fieldset
+                  data-testid="automation-settings-fieldset"
+                  disabled={!isOwner || emergencyStopActive}
+                  className="min-w-0 border-0 p-0 disabled:opacity-70"
+                >
                   <AISettingsForm
                     initialData={aiSettings}
                     onSave={handleSaveAISettings}

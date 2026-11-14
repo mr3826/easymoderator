@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Unplug } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Plus, Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import {
   channelQueryKeys,
@@ -32,6 +32,7 @@ import { useMetaChannelConnection } from "./useMetaChannelConnection";
 import {
   BADGE_LABEL_KEYS,
   DAYS,
+  DEFAULT_HOUR_SLOT,
   MODE_LABEL_KEYS,
   MODE_SOURCE_LABEL_KEYS,
   allowedOverrideModes,
@@ -603,59 +604,141 @@ export default function ChannelDetail() {
               </select>
             </label>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {DAYS.map((day: DayKey) => {
-                const slot = hours.days[day];
+                const dayHours = hours.days[day];
+                const dayLabel = t(`manageShop.channels.days.${day}`);
+                const dayDisabled = !isOwner || mutation.isPending;
                 return (
-                  <div key={day} className="flex flex-wrap items-center gap-2 text-xs">
-                    <label className="flex w-20 items-center gap-1.5 font-medium uppercase text-[var(--ca-ink-muted)]">
-                      <input
-                        type="checkbox"
-                        checked={slot.enabled}
-                        disabled={!isOwner || mutation.isPending}
-                        onChange={(event) =>
+                  <div
+                    key={day}
+                    className="rounded-lg border border-[var(--ca-border)] px-2.5 py-1.5 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="flex w-20 items-center gap-1.5 font-medium uppercase text-[var(--ca-ink-muted)]">
+                        <input
+                          type="checkbox"
+                          checked={dayHours.enabled}
+                          disabled={dayDisabled}
+                          onChange={(event) =>
+                            setHours((prev) => ({
+                              ...prev,
+                              days: {
+                                ...prev.days,
+                                [day]: { ...prev.days[day], enabled: event.target.checked },
+                              },
+                            }))
+                          }
+                        />
+                        {dayLabel}
+                      </label>
+                      <button
+                        type="button"
+                        aria-label={t("manageShop.channels.detail.addSlot", { day: dayLabel })}
+                        disabled={dayDisabled}
+                        onClick={() =>
                           setHours((prev) => ({
                             ...prev,
                             days: {
                               ...prev.days,
-                              [day]: { ...prev.days[day], enabled: event.target.checked },
+                              [day]: {
+                                enabled: true,
+                                slots: [...prev.days[day].slots, { ...DEFAULT_HOUR_SLOT }],
+                              },
                             },
                           }))
                         }
-                      />
-                      {t(`manageShop.channels.days.${day}`)}
-                    </label>
-                    <input
-                      type="time"
-                      value={slot.open}
-                      disabled={!slot.enabled || !isOwner || mutation.isPending}
-                      onChange={(event) =>
-                        setHours((prev) => ({
-                          ...prev,
-                          days: {
-                            ...prev.days,
-                            [day]: { ...prev.days[day], open: event.target.value },
-                          },
-                        }))
-                      }
-                      className="rounded border border-[var(--ca-border)] px-2 py-1"
-                    />
-                    <span className="text-[var(--ca-ink-soft)]">→</span>
-                    <input
-                      type="time"
-                      value={slot.close}
-                      disabled={!slot.enabled || !isOwner || mutation.isPending}
-                      onChange={(event) =>
-                        setHours((prev) => ({
-                          ...prev,
-                          days: {
-                            ...prev.days,
-                            [day]: { ...prev.days[day], close: event.target.value },
-                          },
-                        }))
-                      }
-                      className="rounded border border-[var(--ca-border)] px-2 py-1"
-                    />
+                        className="inline-flex items-center rounded border border-[var(--ca-border)] p-1 text-[var(--ca-violet-deep)] disabled:opacity-50"
+                      >
+                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <div className="mt-1 space-y-1">
+                      {dayHours.slots.map((slot, index) => (
+                        <div key={index} className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="time"
+                            aria-label={t("manageShop.channels.detail.openTime", {
+                              day: dayLabel,
+                              index: index + 1,
+                            })}
+                            value={slot.open}
+                            disabled={!dayHours.enabled || dayDisabled}
+                            onChange={(event) =>
+                              setHours((prev) => ({
+                                ...prev,
+                                days: {
+                                  ...prev.days,
+                                  [day]: {
+                                    ...prev.days[day],
+                                    slots: prev.days[day].slots.map((current, slotIndex) =>
+                                      slotIndex === index
+                                        ? { ...current, open: event.target.value }
+                                        : current,
+                                    ),
+                                  },
+                                },
+                              }))
+                            }
+                            className="rounded border border-[var(--ca-border)] px-2 py-1"
+                          />
+                          <span className="text-[var(--ca-ink-soft)]" aria-hidden="true">
+                            →
+                          </span>
+                          <input
+                            type="time"
+                            aria-label={t("manageShop.channels.detail.closeTime", {
+                              day: dayLabel,
+                              index: index + 1,
+                            })}
+                            value={slot.close}
+                            disabled={!dayHours.enabled || dayDisabled}
+                            onChange={(event) =>
+                              setHours((prev) => ({
+                                ...prev,
+                                days: {
+                                  ...prev.days,
+                                  [day]: {
+                                    ...prev.days[day],
+                                    slots: prev.days[day].slots.map((current, slotIndex) =>
+                                      slotIndex === index
+                                        ? { ...current, close: event.target.value }
+                                        : current,
+                                    ),
+                                  },
+                                },
+                              }))
+                            }
+                            className="rounded border border-[var(--ca-border)] px-2 py-1"
+                          />
+                          <button
+                            type="button"
+                            aria-label={t("manageShop.channels.detail.removeSlot", {
+                              day: dayLabel,
+                              index: index + 1,
+                            })}
+                            disabled={dayHours.slots.length <= 1 || dayDisabled}
+                            onClick={() =>
+                              setHours((prev) => ({
+                                ...prev,
+                                days: {
+                                  ...prev.days,
+                                  [day]: {
+                                    ...prev.days[day],
+                                    slots: prev.days[day].slots.filter(
+                                      (_current, slotIndex) => slotIndex !== index,
+                                    ),
+                                  },
+                                },
+                              }))
+                            }
+                            className="inline-flex items-center rounded border border-[var(--ca-border)] p-1 text-red-600 disabled:opacity-40"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })}

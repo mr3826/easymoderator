@@ -270,7 +270,7 @@ describe('MetaChannelService overrides contract', () => {
         });
     });
 
-    test('does not audit or emit when no override value actually changed', async () => {
+    test('does not audit or rewrite when no override value actually changed (still propagates)', async () => {
         const row = makeRow({ overrides: { automation_mode: 'DRAFT' } });
         primeRow(row);
 
@@ -281,7 +281,27 @@ describe('MetaChannelService overrides contract', () => {
 
         expect(row.update).not.toHaveBeenCalled();
         expect(mockAuditService.logOperation).not.toHaveBeenCalled();
-        expect(mockSseEmit).not.toHaveBeenCalled();
+        // API_CONTRACT §8: every settings PATCH propagates so other open pages
+        // converge, even when the stored values did not change.
+        expect(mockInvalidateCaches).toHaveBeenCalledWith('shop-1');
+        expect(mockSseEmit).toHaveBeenCalledWith('shop-1', 'channel_settings_changed',
+            expect.objectContaining({ channel_id: 'channel-1' }));
+    });
+
+    test('channel-native-only writes (hours/order/label) propagate SSE + cache invalidation', async () => {
+        const row = makeRow();
+        primeRow(row);
+
+        await metaChannelService.updateSettings('channel-1', {
+            business_hours: { mon: { open: '09:00', close: '18:00' } },
+            allow_order_creation: false,
+        }, { shopId: 'shop-1' });
+        await flushAsync();
+
+        expect(row.update).toHaveBeenCalled();
+        expect(mockInvalidateCaches).toHaveBeenCalledWith('shop-1');
+        expect(mockSseEmit).toHaveBeenCalledWith('shop-1', 'channel_settings_changed',
+            expect.objectContaining({ channel_id: 'channel-1' }));
     });
 
     test('legacy channel-native keys still write alongside overrides', async () => {

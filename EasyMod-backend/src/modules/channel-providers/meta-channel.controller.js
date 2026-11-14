@@ -35,7 +35,9 @@ const logger = createLogger('MetaChannelController');
 async function assertChannelBelongsToShop(channelId, shopId) {
     const row = await MetaChannel.findByPk(channelId);
     if (!row) throw new AppError('Channel not found', 404);
-    if (row.shop_id !== shopId) throw new AppError('Channel does not belong to this shop', 403);
+    // Cross-shop access is a 404 (API_CONTRACT §2): never reveal that another
+    // shop's channel exists. Matches the service/loader fail-closed convention.
+    if (row.shop_id !== shopId) throw new AppError('Channel not found', 404);
     return row;
 }
 
@@ -69,7 +71,9 @@ exports.list = async (req, res, next) => {
             ? { ...DEFAULT_AI_SETTINGS, ...(shop.settings?.ai || {}) }
             : null;
         const { isAiActive } = require('../subscription/subscription.access');
-        const billingAiActive = isAiActive(subscription);
+        // Fail closed (ADR-0011 C5): a missing subscription row blocks AI at the
+        // worker (subscription_missing), so the UI must not show AUTO effective.
+        const billingAiActive = subscription ? isAiActive(subscription) : false;
 
         const data = (channels || []).map((channel) => {
             const settingsRow = settingsByChannel.get(String(channel.id));
@@ -93,6 +97,7 @@ exports.list = async (req, res, next) => {
                 effective_mode: resolved?.mode ?? 'MANUAL',
                 mode_source: resolved?.modeSource ?? 'fail_closed',
                 override_count: Object.keys(resolved?.overrides || {}).length,
+                warnings: resolved?.warnings || [],
                 emergency_stop: serializeEmergencyStop(emergencyStop),
                 billing_ai_active: billingAiActive,
             };
@@ -301,7 +306,7 @@ function serializeSettings(settings, resolved) {
         mode_source:                resolved?.modeSource || 'fail_closed',
         warnings:                   resolved?.warnings || [],
         emergency_stop:             serializeEmergencyStop(resolved?.emergencyStop),
-        billing_ai_active:          resolved ? resolved.billingAiActive !== false : true,
+        billing_ai_active:          resolved ? resolved.billingAiActive === true : false,
         // Legacy dead thresholds: accepted for old clients, never rendered by the new UI.
         deprecated_fields:          ['confidenceThresholdSend', 'confidenceThresholdSuggest'],
     };
