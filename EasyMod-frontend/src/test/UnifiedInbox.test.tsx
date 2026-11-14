@@ -1914,6 +1914,20 @@ describe('ADR-0013 inbox contract (reasons, owner, effective mode, stop, takeove
     )
   })
 
+  it('shows the PAUSED-billing badge when the conversation payload is billing-inactive', async () => {
+    setInboxData('AUTO', [], {
+      ...baseConversation,
+      effective_ai_reply_mode: 'AUTO',
+      billing_ai_active: false,
+    })
+    render(<UnifiedInbox />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('inbox-ai-reply-mode')).toHaveTextContent('Paused — billing'),
+    )
+    expect(screen.getByTestId('inbox-ai-reply-mode')).not.toHaveTextContent('Automatic replies')
+  })
+
   it('shows the emergency-stop banner from the conversation payload', async () => {
     setInboxData('AUTO', [], {
       ...baseConversation,

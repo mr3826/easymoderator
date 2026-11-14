@@ -37,6 +37,7 @@ import {
   MODE_SOURCE_LABEL_KEYS,
   allowedOverrideModes,
   deriveChannelBadge,
+  editableHoursAreClosed,
   editableToHours,
   hoursLookMalformed,
   hoursToEditable,
@@ -123,6 +124,12 @@ export default function ChannelDetail() {
   const [hours, setHours] = useState<{ timezone: string; days: EditableHours }>(() =>
     hoursToEditable(null),
   );
+  const [confirmingClosedHours, setConfirmingClosedHours] = useState(false);
+
+  // Any edit to the schedule invalidates a pending "save anyway" confirmation.
+  useEffect(() => {
+    setConfirmingClosedHours(false);
+  }, [hours]);
 
   useEffect(() => {
     if (!settings) return;
@@ -159,6 +166,30 @@ export default function ChannelDetail() {
   const modeOverridden = overrides.automation_mode !== undefined;
   const confidenceOverridden = overrides.confidence_threshold !== undefined;
   const greetingOverridden = overrides.greeting !== undefined;
+
+  const emergencyStopActive =
+    settings?.emergency_stop?.active === true || channel?.emergency_stop?.active === true;
+  const forcedModeSource = modeSource === "emergency_stop" || modeSource === "shop_inactive";
+  // A forced source (stop / inactive shop) must never seed a stored override:
+  // the override would persist after the forced state ends. Existing overrides
+  // stay editable/revertable; only starting a new one is blocked.
+  const modeSeedBlocked = forcedModeSource && !modeOverridden;
+  const hoursClosed = useMemo(() => editableHoursAreClosed(hours.days), [hours.days]);
+
+  const saveHoursNow = () => {
+    mutation.mutate(
+      { businessHours: editableToHours(hours.timezone, hours.days) },
+      { onSuccess: () => setConfirmingClosedHours(false) },
+    );
+  };
+
+  const handleHoursSave = () => {
+    if (hoursClosed) {
+      setConfirmingClosedHours(true);
+      return;
+    }
+    saveHoursNow();
+  };
 
   const saveOverride = (override: ChannelAutomationOverridesPatch, onDone?: () => void) => {
     mutation.mutate(
@@ -318,6 +349,16 @@ export default function ChannelDetail() {
           </p>
         )}
 
+        {emergencyStopActive && (
+          <p
+            role="status"
+            data-testid="channel-overrides-locked-by-stop"
+            className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+          >
+            {t("manageShop.channels.detail.emergencyStopLocksOverrides")}
+          </p>
+        )}
+
         <div role="tablist" aria-label={t("manageShop.channels.detail.tabsLabel")} className="flex gap-1 overflow-x-auto">
           {TABS.map((tab) => (
             <button
@@ -349,12 +390,21 @@ export default function ChannelDetail() {
               ref={modeSectionRef}
               label={t("manageShop.channels.detail.modeLabel")}
               overridden={modeOverridden}
-              canEdit={isOwner}
+              canEdit={isOwner && !emergencyStopActive && !modeSeedBlocked}
+              readOnlyReason={
+                isOwner && emergencyStopActive
+                  ? t("manageShop.channels.detail.emergencyStopLocksOverrides")
+                  : isOwner && modeSeedBlocked
+                    ? t("manageShop.channels.detail.modeForcedNoSeed")
+                    : undefined
+              }
               effective={t(MODE_LABEL_KEYS[effectiveMode])}
               source={t(MODE_SOURCE_LABEL_KEYS[modeSource])}
-              onStartOverride={() =>
-                saveOverride({ automation_mode: effectiveMode })
-              }
+              onStartOverride={() => {
+                // Never persist a stop-forced effective mode as an override.
+                if (forcedModeSource) return;
+                saveOverride({ automation_mode: effectiveMode });
+              }}
               onRevert={() =>
                 saveOverride({ automation_mode: null }, () => modeSectionRef.current?.focus())
               }
@@ -398,7 +448,12 @@ export default function ChannelDetail() {
               ref={confidenceSectionRef}
               label={t("manageShop.channels.detail.confidenceLabel")}
               overridden={confidenceOverridden}
-              canEdit={isOwner}
+              canEdit={isOwner && !emergencyStopActive}
+              readOnlyReason={
+                isOwner && emergencyStopActive
+                  ? t("manageShop.channels.detail.emergencyStopLocksOverrides")
+                  : undefined
+              }
               effective={`${settings.effective.confidence_threshold}%`}
               source={t(MODE_SOURCE_LABEL_KEYS[modeSource])}
               onStartOverride={() =>
@@ -450,7 +505,12 @@ export default function ChannelDetail() {
               ref={greetingSectionRef}
               label={t("manageShop.channels.detail.greetingLabel")}
               overridden={greetingOverridden}
-              canEdit={isOwner}
+              canEdit={isOwner && !emergencyStopActive}
+              readOnlyReason={
+                isOwner && emergencyStopActive
+                  ? t("manageShop.channels.detail.emergencyStopLocksOverrides")
+                  : undefined
+              }
               effective={
                 settings.effective.greeting?.enabled
                   ? settings.effective.greeting.custom_text ||
@@ -748,15 +808,55 @@ export default function ChannelDetail() {
               {t("manageShop.channels.detail.hoursFailClosed")}
             </p>
 
+            {isOwner && hoursClosed && (
+              <p
+                role="alert"
+                data-testid="channel-hours-closed-warning"
+                className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] font-medium text-amber-800"
+              >
+                {t("manageShop.channels.detail.hoursClosedWarning")}
+              </p>
+            )}
+
+            {isOwner && hoursClosed && confirmingClosedHours && (
+              <div
+                role="alertdialog"
+                aria-labelledby="channel-hours-closed-title"
+                data-testid="channel-hours-closed-confirm"
+                className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+              >
+                <p id="channel-hours-closed-title" className="font-semibold">
+                  {t("manageShop.channels.detail.hoursClosedConfirmTitle")}
+                </p>
+                <p>{t("manageShop.channels.detail.hoursClosedConfirm")}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingClosedHours(false)}
+                    className="rounded-lg border border-[var(--ca-border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--ca-ink)]"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="channel-hours-closed-confirm-save"
+                    disabled={mutation.isPending}
+                    onClick={saveHoursNow}
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                  >
+                    {t("manageShop.channels.detail.hoursClosedSaveAnyway")}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {isOwner ? (
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   data-testid="channel-hours-save"
                   disabled={mutation.isPending}
-                  onClick={() =>
-                    mutation.mutate({ businessHours: editableToHours(hours.timezone, hours.days) })
-                  }
+                  onClick={handleHoursSave}
                   className="rounded-lg bg-[var(--ca-violet)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   {t("manageShop.channels.detail.save")}

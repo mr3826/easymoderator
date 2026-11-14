@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { editableToHours, hoursToEditable } from '../channelAutomation';
+import { editableHoursAreClosed, editableToHours, hoursToEditable } from '../channelAutomation';
 
 describe('channelAutomation business hours', () => {
   it('round-trips a multi-slot day without dropping slots or the timezone', () => {
@@ -88,5 +88,48 @@ describe('channelAutomation business hours', () => {
       slots: [{ open: '09:00', close: '18:00' }],
     });
     expect(editableToHours('', editable.days)).toEqual({});
+  });
+});
+
+describe('channelAutomation hours-closed detection', () => {
+  it('flags an all-disabled schedule as closed (what editableToHours serializes)', () => {
+    const editable = hoursToEditable(null);
+
+    expect(editableHoursAreClosed(editable.days)).toBe(true);
+    expect(editableToHours('', editable.days)).toEqual({});
+  });
+
+  it('flags a timezone-only schedule as closed', () => {
+    const editable = hoursToEditable({ timezone: 'Asia/Dhaka', mon: [] });
+
+    expect(editableHoursAreClosed(editable.days)).toBe(true);
+    expect(editableToHours(editable.timezone, editable.days)).toEqual({
+      timezone: 'Asia/Dhaka',
+    });
+  });
+
+  it('flags an enabled day whose only slot has empty times as closed', () => {
+    const editable = hoursToEditable({});
+    editable.days.mon = { enabled: true, slots: [{ open: '', close: '' }] };
+
+    expect(editableHoursAreClosed(editable.days)).toBe(true);
+  });
+
+  it('does not flag a normal single-slot schedule', () => {
+    const editable = hoursToEditable({ mon: { open: '09:00', close: '18:00' } });
+
+    expect(editableHoursAreClosed(editable.days)).toBe(false);
+  });
+
+  it('does not flag a multi-slot schedule with an empty trailing slot', () => {
+    const editable = hoursToEditable({
+      mon: [
+        { open: '09:00', close: '12:00' },
+        { open: '14:00', close: '18:00' },
+      ],
+    });
+    editable.days.mon.slots.push({ open: '', close: '' });
+
+    expect(editableHoursAreClosed(editable.days)).toBe(false);
   });
 });

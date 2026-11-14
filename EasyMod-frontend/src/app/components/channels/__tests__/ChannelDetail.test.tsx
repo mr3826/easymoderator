@@ -305,4 +305,122 @@ describe('ChannelDetail', () => {
       });
     });
   });
+
+  it('warns about a closed-hours save and requires explicit confirmation', async () => {
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Operating rules' }));
+
+    expect(screen.getByTestId('channel-hours-closed-warning')).toHaveTextContent(
+      /automatic AI replies will be paused at all times/i,
+    );
+
+    fireEvent.click(screen.getByTestId('channel-hours-save'));
+    expect(metaApi.updateMetaChannelSettings).not.toHaveBeenCalled();
+    expect(screen.getByTestId('channel-hours-closed-confirm')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByTestId('channel-hours-closed-confirm')).not.toBeInTheDocument();
+    expect(metaApi.updateMetaChannelSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('channel-hours-save'));
+    fireEvent.click(screen.getByTestId('channel-hours-closed-confirm-save'));
+
+    await waitFor(() =>
+      expect(metaApi.updateMetaChannelSettings).toHaveBeenCalledWith('c1', { businessHours: {} }),
+    );
+  });
+
+  it('saves a normal day-enabled schedule without a confirmation step', async () => {
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Operating rules' }));
+
+    // Stored hours are NULL (always active); saving this all-disabled editor
+    // state would instead save CLOSED every day, so the warning is honest.
+    expect(screen.getByTestId('channel-hours-closed-warning')).toBeInTheDocument();
+    const mondayLabel = screen.getByText('Mon').closest('label');
+    fireEvent.click(mondayLabel!.querySelector('input')!);
+    expect(screen.queryByTestId('channel-hours-closed-warning')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('channel-hours-save'));
+    expect(screen.queryByTestId('channel-hours-closed-confirm')).not.toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(metaApi.updateMetaChannelSettings).toHaveBeenCalledWith('c1', {
+        businessHours: { mon: { open: '09:00', close: '18:00' } },
+      }),
+    );
+  });
+
+  it('locks override editing while the emergency stop is active', async () => {
+    metaApi.getMetaChannelSettings.mockResolvedValue(
+      makeSettings({
+        overrides: {},
+        mode_source: 'emergency_stop',
+        effective: { ...makeSettings().effective, automation_mode: 'MANUAL' },
+        emergency_stop: {
+          active: true,
+          at: new Date().toISOString(),
+          by: 'user-1',
+          source: 'merchant',
+          prior_mode: 'DRAFT',
+        },
+      }),
+    );
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+
+    expect(screen.getByTestId('channel-overrides-locked-by-stop')).toHaveTextContent(
+      /Automation is locked while the emergency stop is active/i,
+    );
+    expect(screen.queryByRole('button', { name: 'Override for this channel' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('channel-read-only-reason')).toHaveTextContent(
+      /emergency stop is active/i,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'AI behavior' }));
+    expect(screen.queryByRole('button', { name: 'Override for this channel' })).not.toBeInTheDocument();
+    expect(metaApi.updateMetaChannelSettings).not.toHaveBeenCalled();
+  });
+
+  it('hides a stored override editor while the emergency stop is active', async () => {
+    metaApi.getMetaChannelSettings.mockResolvedValue(
+      makeSettings({
+        mode_source: 'emergency_stop',
+        effective: { ...makeSettings().effective, automation_mode: 'MANUAL' },
+        emergency_stop: {
+          active: true,
+          at: new Date().toISOString(),
+          by: 'user-1',
+          source: 'merchant',
+          prior_mode: 'DRAFT',
+        },
+      }),
+    );
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+
+    expect(screen.queryByTestId('channel-mode-override')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('channel-override-revert-automation_mode')).not.toBeInTheDocument();
+    expect(metaApi.updateMetaChannelSettings).not.toHaveBeenCalled();
+  });
+
+  it('never seeds a channel override from a forced mode source', async () => {
+    metaApi.getMetaChannelSettings.mockResolvedValue(
+      makeSettings({
+        overrides: {},
+        mode_source: 'shop_inactive',
+        effective: { ...makeSettings().effective, automation_mode: 'MANUAL' },
+      }),
+    );
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+
+    expect(screen.queryByRole('button', { name: 'Override for this channel' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('channel-read-only-reason')).toHaveTextContent(
+      /cannot be started from it/i,
+    );
+    expect(metaApi.updateMetaChannelSettings).not.toHaveBeenCalled();
+  });
 });

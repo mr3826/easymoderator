@@ -148,6 +148,20 @@ export function editableToHours(timezone: string, days: EditableHours): Serializ
   return out as SerializedHours;
 }
 
+/**
+ * True when the editor would serialize no day slot at all (every day disabled,
+ * or enabled with only empty times). The backend hours rule evaluates such a
+ * schedule as CLOSED every day, which pauses all automatic replies — saving it
+ * must therefore be an explicit merchant decision (ADR-0013 §7).
+ */
+export function editableHoursAreClosed(days: EditableHours): boolean {
+  return DAYS.every((day) => {
+    const dayValue = days[day];
+    if (!dayValue?.enabled) return true;
+    return dayValue.slots.every((slot) => slot.open === "" || slot.close === "");
+  });
+}
+
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**

@@ -442,4 +442,35 @@ describe('loadEffectiveChannelAutomation', () => {
 
         expect(result.billingAiActive).toBe(false);
     });
+
+    test('skips the display-only subscription read inside a boundary transaction', async () => {
+        mockMetaChannel.findByPk.mockResolvedValue({ id: 'channel-1', shop_id: 'shop-1' });
+        mockEntities.Shop.findByPk.mockResolvedValue(shopRow());
+        mockMetaChannelSettings.findByPk.mockResolvedValue(baseChannel());
+        mockEntities.Subscription.findOne.mockClear();
+
+        const result = await loadEffectiveChannelAutomation('shop-1', 'channel-1', {
+            transaction: { LOCK: { UPDATE: 'UPDATE' } },
+        });
+
+        // A failed display SELECT would abort the Postgres transaction; the
+        // boundary must not issue it (worker Guard 4c enforces billing).
+        expect(mockEntities.Subscription.findOne).not.toHaveBeenCalled();
+        expect(result.mode).toBeDefined();
+    });
+
+    test('passes a long business greeting through verbatim (byte-identical behavior)', async () => {
+        const longText = 'ক'.repeat(600); // business validator allows up to 1000
+        mockMetaChannel.findByPk.mockResolvedValue({ id: 'channel-1', shop_id: 'shop-1' });
+        mockEntities.Shop.findByPk.mockResolvedValue(shopRow({
+            settings: { ai: { automation_mode: 'AUTO', greeting: { enabled: true, custom_text: longText } } },
+        }));
+        mockMetaChannelSettings.findByPk.mockResolvedValue(baseChannel());
+        mockEntities.Subscription.findOne.mockResolvedValue({ status: 'active' });
+
+        const result = await loadEffectiveChannelAutomation('shop-1', 'channel-1');
+
+        expect(result.effective.greeting.custom_text).toBe(longText);
+        expect(result.warnings).not.toContain('invalid_override_value');
+    });
 });

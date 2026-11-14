@@ -124,9 +124,12 @@ async function loadShopAutomationContext(shopId) {
         shopAiSettings = null;
     }
 
-    let emergencyStop = { ...EMPTY_EMERGENCY_STOP };
+    // Fail CLOSED (ADR-0013 §9 / ADR-0011 C5): when the safety state cannot be
+    // read, the UI must not present AI as active. The worker independently
+    // blocks these cases; the display must agree.
+    let emergencyStop = { ...EMPTY_EMERGENCY_STOP, active: true };
     let shopIsActive = true;
-    let billingAiActive = true;
+    let billingAiActive = false;
     try {
         const { Shop, Subscription } = require('../entities');
         if (Shop && typeof Shop.findByPk === 'function') {
@@ -152,9 +155,9 @@ async function loadShopAutomationContext(shopId) {
                 where: { shop_id: shopId },
                 attributes: ['status'],
             }).catch(() => null);
-            billingAiActive = isAiActive(subscription);
+            billingAiActive = subscription ? isAiActive(subscription) : false;
         }
-    } catch (_) { /* display-only fields; defaults stay fail-safe */ }
+    } catch (_) { /* fail-closed defaults above stay in effect */ }
 
     return {
         shopAiSettings: shopAiSettings || { ...DEFAULT_AI_SETTINGS },

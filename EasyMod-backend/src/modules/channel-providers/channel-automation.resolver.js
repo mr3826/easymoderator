@@ -117,7 +117,12 @@ const normalizeBusinessGreeting = (value) => {
     if (!isPlainObject(value)) return { ...base };
     const out = { ...base };
     if (typeof value.enabled === 'boolean') out.enabled = value.enabled;
-    if (typeof value.custom_text === 'string' && value.custom_text.length <= 500) {
+    // Business values are already validated at write time (the business
+    // validator allows up to 1000 chars). Pass them through VERBATIM — the
+    // 500-char bound applies to channel overrides only. Substituting the
+    // default here would silently rewrite existing merchants' greetings
+    // (ADR-0013 §10 byte-identical behavior).
+    if (typeof value.custom_text === 'string') {
         out.custom_text = value.custom_text;
     }
     return out;
@@ -331,17 +336,23 @@ async function loadEffectiveChannelAutomation(shopId, channelId, { transaction =
     // the subscription row is missing (subscription_missing) or inactive, so the
     // UI must not present AUTO as effective in those cases. A read error also
     // resolves to false rather than optimistically true.
+    //
+    // Inside a provider-boundary transaction this display-only read is SKIPPED:
+    // a failed SELECT would abort the Postgres transaction even if caught,
+    // turning a display concern into a failed send. The boundary never consumes
+    // billingAiActive (the worker's own Guard 4c enforces billing).
     let billingAiActive = false;
-    try {
-        const { isAiActive } = require('../subscription/subscription.access');
-        const billingSub = await Subscription.findOne({
-            where: { shop_id: shopId },
-            attributes: ['status'],
-            ...readOptions,
-        }).catch(() => null);
-        billingAiActive = billingSub ? isAiActive(billingSub) : false;
-    } catch (_) {
-        billingAiActive = false;
+    if (!transaction) {
+        try {
+            const { isAiActive } = require('../subscription/subscription.access');
+            const billingSub = await Subscription.findOne({
+                where: { shop_id: shopId },
+                attributes: ['status'],
+            }).catch(() => null);
+            billingAiActive = billingSub ? isAiActive(billingSub) : false;
+        } catch (_) {
+            billingAiActive = false;
+        }
     }
 
     return {

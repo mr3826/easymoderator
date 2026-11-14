@@ -60,6 +60,10 @@ const buildDisclosure = (shopName, language) => {
  */
 const buildGreeting = ({ shopName, language, greeting } = {}) => {
     const disclosure = buildDisclosure(shopName, language);
+    // ADR-0013: greeting.enabled (business default or channel override) controls
+    // the owner's custom welcome only. The AI disclosure is mandatory (Meta
+    // compliance) and is always present.
+    if (greeting?.enabled === false) return disclosure;
     const custom = (greeting?.custom_text || '').trim();
     return custom ? `${disclosure}\n\n${custom}` : disclosure;
 };

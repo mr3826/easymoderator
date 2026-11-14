@@ -29,6 +29,7 @@ import { InboxThreadList } from "./inbox/InboxThreadList";
 import { InboxThreadDetail } from "./inbox/InboxThreadDetail";
 import CustomerContextPanel from "./inbox/CustomerContextPanel";
 import { ActionQueuePanel } from "./inbox/ActionQueuePanel";
+import { BADGE_LABEL_KEYS } from "./channels/channelAutomation";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1477,11 +1478,13 @@ export default function UnifiedInbox() {
           className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm whitespace-nowrap"
         >
           {t("inbox.modeLabel")}:{" "}
-          {t(
-            AI_REPLY_MODE_LABEL_KEYS[
-              selectedConversation?.effective_ai_reply_mode ?? aiReplyMode
-            ],
-          )}
+          {selectedConversation?.billing_ai_active === false
+            ? t(BADGE_LABEL_KEYS.billingPaused)
+            : t(
+                AI_REPLY_MODE_LABEL_KEYS[
+                  selectedConversation?.effective_ai_reply_mode ?? aiReplyMode
+                ],
+              )}
         </span>
       </div>
 

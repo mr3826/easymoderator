@@ -55,8 +55,15 @@ describe('ai-messaging · buildGreeting', () => {
     const base = { shopName: 'Rina Saree', language: 'en' };
     const DISCLAIMER = "Hi, I'm the AI assistant from Rina Saree.";
 
-    it('always includes the mandatory disclaimer even if legacy-"disabled"', () => {
-        expect(buildGreeting({ ...base, greeting: { enabled: false, custom_text: 'hi' } })).toBe(
+    // ADR-0013 §2: greeting.enabled (business default or channel override)
+    // controls the owner's custom welcome. The mandatory AI disclosure is
+    // always present regardless. Deliberate amendment of the legacy no-op pin.
+    it('keeps the mandatory disclaimer but drops the custom text when enabled=false', () => {
+        expect(buildGreeting({ ...base, greeting: { enabled: false, custom_text: 'hi' } })).toBe(DISCLAIMER);
+    });
+
+    it('sends the custom text when enabled=true', () => {
+        expect(buildGreeting({ ...base, greeting: { enabled: true, custom_text: 'hi' } })).toBe(
             `${DISCLAIMER}\n\nhi`
         );
     });
