@@ -61,6 +61,10 @@ ACME_EMAIL=ops@example.com docker run --rm \
 # Compose interpolation guard (must FAIL with a clear message when unset):
 docker compose --env-file /dev/null -f docker-compose.prod.yml config >/dev/null
 # → error: required variable ACME_EMAIL is missing a value
+# The CI "Deployment configuration dry run" job supplies a synthetic
+# placeholder (ops@example.com) in its disposable env file — the guard
+# stays fail-closed for real deploys, where the renderer requires the
+# ACME_EMAIL repository variable.
 
 # On the production host after a deploy — contact registered with the CA:
 docker logs easymod-caddy-1 2>&1 | grep -i "acme" | grep -i "account"

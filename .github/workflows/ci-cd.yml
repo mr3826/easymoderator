@@ -497,6 +497,7 @@ jobs:
           DB_USER=e2e
           DB_PASSWORD=synthetic-dry-run-password
           DB_NAME=easymod_dry_run
+          ACME_EMAIL=ops@example.com
           EOF
           cp _tmp/.env.prod .env.prod
           trap 'rm -f .env.prod' EXIT
