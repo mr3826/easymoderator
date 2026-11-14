@@ -134,6 +134,9 @@ async function openLanding(page: Page, overrides: Record<string, Partial<Plan>> 
 test('renders every price from the contract and gates capability claims', async ({ page }) => {
   await openLanding(page);
   await expect(page.getByTestId('lv7-unit-price')).toHaveText('৳10.00');
+  // B2: the same contract price renders in the hero and the close too.
+  await expect(page.getByTestId('lv7-hero-price')).toContainText('৳10.00');
+  await expect(page.getByTestId('lv7-close-price')).toContainText('৳10.00');
   await expect(page.locator('[data-claim-id="price.unit"]')).toHaveCount(1);
   await expect(page.locator('[data-claim-id="price.unit"]')).toHaveAttribute('data-contract-version', CONTRACT_VERSION);
   // B5: payout scoped to one verified provider, brand-free count copy.

@@ -154,6 +154,9 @@ export function LandingV7Page() {
             <p className="lv7-eyebrow">{t("landingV7.hero.eyebrow")}</p>
             <h1 id="lv7-hero-title">{t("landingV7.hero.title")}</h1>
             <p className="lv7-sub">{t("landingV7.hero.subtitle")}</p>
+            <p className="lv7-ledger-note" data-testid="lv7-hero-price">
+              <strong>{perOrder}</strong> · {t("landingV7.price.perOrderLabel")}
+            </p>
             <div className="lv7-hero-actions">
               <a className="lv7-btn lv7-btn--onDark" href={signupHref} onClick={() => onCta("hero")}>
                 {t("landingV7.hero.ctaPrimary")}
@@ -202,6 +205,7 @@ export function LandingV7Page() {
             ))}
           </div>
           <p className="lv7-resolve">{t("landingV7.scatter.resolve")}</p>
+          <p className="lv7-neutral">{t("landingV7.scatter.notYourFault")}</p>
         </div>
       </section>
 
@@ -356,6 +360,9 @@ export function LandingV7Page() {
           </p>
           <h2 id="lv7-close-title">{t("landingV7.close.title")}</h2>
           <p className="lv7-sub">{t("landingV7.close.subtitle")}</p>
+          <p className="lv7-ledger-note" data-testid="lv7-close-price">
+            <strong>{perOrder}</strong> · {t("landingV7.price.perOrderLabel")}
+          </p>
           <div style={{ marginTop: "1.5rem" }}>
             <a className="lv7-btn lv7-btn--onDark" href={signupHref} onClick={() => onCta("close")}>
               {t("landingV7.close.cta")}

@@ -895,7 +895,8 @@
       "parcelTitle": "Parcel",
       "parcelBody": "The courier book tracks the parcel.",
       "customerTitle": "Customer",
-      "customerBody": "The customer history is remembered by you, not the system."
+      "customerBody": "The customer history is remembered by you, not the system.",
+      "notYourFault": "It is not your fault — the work is scattered, not you."
     },
     "how": {
       "title": "Three mechanisms hold it together",
