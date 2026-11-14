@@ -1,59 +1,41 @@
 import { describe, expect, it } from "vitest";
+import * as planModule from "../subscriptionPlans";
 import {
-  subscriptionPlans,
-  TOPUP_PACK_FALLBACK,
-  PARTNER_ORDER_TIERS_FALLBACK,
-  publicPlanToDefinition,
+  COMMERCIAL_CONTRACT,
+  COMMERCIAL_CONTRACT_VERSION,
+  formatBdt,
+  formatBdtBn,
+  formatContractMoney,
+  unitPriceDisplay,
 } from "../subscriptionPlans";
 
-describe("internal subscription plan metadata", () => {
-  it("keeps internal compatibility IDs and feature-gate metadata", () => {
-    expect(subscriptionPlans.map((plan) => plan.code)).toEqual(["SHURU", "GROWTH", "PARTNER"]);
-    expect(subscriptionPlans[0]).toMatchObject({ monthlyPrice: 0, yearlyPrice: 0 });
-    expect(subscriptionPlans[0].limits.conversations).toBe(100);
-    expect(subscriptionPlans[1]).toMatchObject({ monthlyPrice: 999, yearlyPrice: 9990 });
-    expect(subscriptionPlans[1].limits.conversations).toBe(500);
-    expect(subscriptionPlans[2].limits.conversations).toBe(-1);
-    expect(subscriptionPlans[2].partnerOrderTiers).toEqual(PARTNER_ORDER_TIERS_FALLBACK);
-    expect(subscriptionPlans[0].features).toEqual(subscriptionPlans[1].features);
-    expect(subscriptionPlans[1].features).toEqual(subscriptionPlans[2].features);
+describe("commercial billing metadata is contract-derived", () => {
+  it("re-exports the single price authority", () => {
+    expect(COMMERCIAL_CONTRACT.unitPriceMinor).toBe(1000);
+    expect(COMMERCIAL_CONTRACT.currency).toBe("BDT");
+    expect(COMMERCIAL_CONTRACT.model).toBe("DELIVERED_ORDER");
+    expect(COMMERCIAL_CONTRACT.subscriptionFeeMinor).toBe(0);
+    expect(COMMERCIAL_CONTRACT.setupFeeMinor).toBe(0);
+    expect(COMMERCIAL_CONTRACT.monthlyMinimumMinor).toBe(0);
+    expect(COMMERCIAL_CONTRACT.conversationEntitlement).toBeNull();
+    expect(COMMERCIAL_CONTRACT.dueDays).toBe(7);
+    expect(COMMERCIAL_CONTRACT_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it("keeps the internal feature-gate snapshot separate from the live public catalog", () => {
-    expect(subscriptionPlans.find((plan) => plan.code === "GROWTH")?.topupPacks).toEqual(TOPUP_PACK_FALLBACK);
+  it("renders money only through the contract formatters", () => {
+    expect(formatBdt(1000)).toBe("৳10.00");
+    expect(formatBdtBn(1000)).toBe("৳১০.০০");
+    expect(unitPriceDisplay("en")).toBe("৳10.00");
+    expect(unitPriceDisplay("bn")).toBe("৳১০.০০");
+    expect(formatContractMoney(0, "en")).toBe("৳0.00");
+    expect(formatContractMoney(0, "bn")).toBe("৳০.০০");
   });
 
-  it("does not infer an unlisted custom branding entitlement or popularity", () => {
-    const plan = publicPlanToDefinition({
-      code: "GROWTH",
-      name: "Growth",
-      public_name: "Moderator Plus",
-      description: "Growth",
-      description_bn: "Moderator Plus description",
-      billing_model: "flat_monthly",
-      price_bdt_monthly: 999,
-      price_bdt_yearly: 9990,
-      conversations_limit: 500,
-      orders_limit: -1,
-      products_limit: -1,
-      can_purchase_topups: true,
-      per_order_charge_bdt: null,
-      features: { advanced_ai: true },
-      topup_packs: TOPUP_PACK_FALLBACK,
-      partner_order_tiers: [],
-      support_reply_allowance: {
-        amount: 3000,
-        unit: "provider_accepted_ai_reply",
-        period: "utc_calendar_month",
-        status: "shadow_only",
-        billable: false,
-        enforced: false,
-      },
-    });
-
-    expect(plan.publicName).toBe("Moderator Plus");
-    expect(plan.supportReplyAllowance?.amount).toBe(3000);
-    expect(plan.features.custom_branding).toBe(false);
-    expect(plan).not.toHaveProperty("popular");
+  it("no longer exposes a retired plan catalog, price snapshot or prepaid credits", () => {
+    expect((planModule as Record<string, unknown>).subscriptionPlans).toBeUndefined();
+    expect((planModule as Record<string, unknown>).TOPUP_PACK_FALLBACK).toBeUndefined();
+    expect((planModule as Record<string, unknown>).PARTNER_ORDER_TIERS_FALLBACK).toBeUndefined();
+    expect((planModule as Record<string, unknown>).PUBLIC_PLAN_NAME_BY_CODE).toBeUndefined();
+    expect((planModule as Record<string, unknown>).publicPlanToDefinition).toBeUndefined();
   });
 });

@@ -18,6 +18,9 @@ jest.mock('../../entities', () => ({
     AuditLog: mockAuditLog,
     OrderReturn: {},
     CourierDispatch: mockCourierDispatch,
+    // Billing standing gate (ADR-0011 C5) counts unpaid recurring invoices
+    // inside the booking claim; these suites are about dispatch, not billing.
+    Invoice: { count: jest.fn().mockResolvedValue(0) },
 }));
 jest.mock('../../../utils/database/database-setup', () => ({
     sequelize: {

@@ -13,7 +13,7 @@
     "notifications": "Notifications",
     "faqs": "FAQs",
     "settings": "Settings",
-    "subscription": "Subscription",
+    "subscription": "Billing",
     "shopSettings": "Shop Settings",
     "collapse": "Collapse",
     "inbox": "Inbox",
@@ -248,58 +248,6 @@
         }
       ]
     },
-    "pricing": {
-      "label": "Pricing",
-      "heading": "Smooth and honest pricing",
-      "subheading": "Start free with Shuru, grow with Growth, or join the Partner path.",
-      "badge1": "Free forever",
-      "badge2": "No hidden fees",
-      "details": "See pricing details",
-      "perMonth": "/mo",
-      "mostPopular": "Most Popular",
-      "getStarted": "Start free with Shuru",
-      "partnerBadge": "300+ delivered orders",
-      "partnerPrice": "৳0",
-      "partnerPriceUnit": "upfront",
-      "becomePartner": "Apply for Partner →",
-      "freeForever": "Free forever",
-      "unlimitedConversations": "Unlimited conversations",
-      "conversationsPerMonth": "{{count}} conversations each month",
-      "partnerRateBands": "Delivered-order bands",
-      "partnerRateBand": "{{min}}–{{max}}: ৳{{rate}} per delivered order",
-      "plans": {
-        "shuru": {
-          "description": "Free forever for getting started with Messenger sales.",
-          "cta": "Create free account",
-          "highlights": [
-            "100 customer conversations each month",
-            "Facebook Messenger inbox",
-            "Order capture and COD risk checks",
-            "Manual replies always available"
-          ]
-        },
-        "growth": {
-          "description": "The full Messenger sales assistant for growing shops.",
-          "cta": "Start with Growth",
-          "highlights": [
-            "500 customer conversations each month",
-            "Facebook Messenger inbox",
-            "Order capture and COD risk checks",
-            "Top-ups when you need more conversations"
-          ]
-        },
-        "partner": {
-          "description": "No upfront fee; pay for successfully delivered orders.",
-          "cta": "Apply for Partner",
-          "highlights": [
-            "300+ delivered orders in 30 days to qualify",
-            "No monthly fee",
-            "Unlimited customer conversations",
-            "Flat rate by delivered-order band"
-          ]
-        }
-      }
-    },
     "testimonials": {
       "label": "Pilot scorecard",
       "heading": "What we will prove with launch shops",
@@ -384,75 +332,6 @@
         "passwordRequired": "Please enter your password",
         "invalidCredentials": "Invalid email or password"
       }
-    },
-    "signup": {
-      "alreadyHaveAccount": "Already have an account?",
-      "signIn": "Sign in",
-      "badge": "🇧🇩 Private BD seller pilot",
-      "heading": "Start Today",
-      "subheading": "Start replying faster and capturing orders in about 5 minutes.",
-      "choosePlan": "Shuru free forever",
-      "shuruEyebrow": "Shuru · free forever",
-      "shuruTitle": "Start selling with Shuru",
-      "shuruSubtitle": "Create your shop, connect Messenger, and start with 100 customer conversations every month. Upgrade only when your volume grows.",
-      "shuruBenefits": [
-        "No card required",
-        "100 conversations each month",
-        "Upgrade anytime"
-      ],
-      "monthly": "Monthly",
-      "free": "Free",
-      "createAccountHeading": "Create Account",
-      "activateFreePlan": "is free forever after account setup.",
-      "fullName": "Full Name",
-      "fullNamePlaceholder": "Enter your name",
-      "email": "Email Address",
-      "emailPlaceholder": "you@example.com",
-      "phone": "Mobile Number",
-      "optional": "(optional)",
-      "password": "Password",
-      "passwordPlaceholder": "Create a strong password",
-      "paymentMethod": "Payment Method",
-      "paymentComingSoon": "🔜 Bangladeshi payment methods coming soon.",
-      "paymentDevMode": "No charge in Dev mode.",
-      "agreePrefix": "I have read and agree to",
-      "privacyPolicy": "Privacy Policy",
-      "agreeSuffix": "and",
-      "termsRequired": "Accept the Terms & Conditions to create your account.",
-      "termsOfService": "Terms of Service",
-      "plan": "Plan",
-      "billing": "Billing",
-      "payToday": "Payment today",
-      "freeAmount": "৳0",
-      "freeForever": "No payment today — Shuru is free forever",
-      "upgradeAnytime": "After signup, we will open Business Setup.",
-      "startFreeButton": "Create account and start setup →",
-      "creating": "Creating account...",
-      "createButton": "Create Account →",
-      "secure": "Your shop information is protected",
-      "features": {
-        "rtoShield": {
-          "title": "RTO Shield",
-          "desc": "Block fake orders"
-        },
-        "delivery": {
-          "title": "Delivery partners",
-          "desc": "Direct courier booking"
-        },
-        "chatbot": {
-          "title": "Sales assistant",
-          "desc": "24/7 draft replies"
-        }
-      },
-      "errors": {
-        "selectPlan": "Please select a subscription plan.",
-        "enterName": "Please enter your full name.",
-        "enterEmail": "Please enter a valid email.",
-        "createPassword": "Please create a password.",
-        "acceptTerms": "Please accept the terms to continue.",
-        "unableToCreate": "We could not create your account. Check the details and try again."
-      },
-      "subscriptionPaymentMethod": "Subscription payment method"
     },
     "forgotPassword": {
       "title": "Forgot Password",
@@ -839,7 +718,6 @@
       "closed": "Closed",
       "archived": "Archived"
     },
-    "upgradeForAI": "Upgrade for AI",
     "agentBanner": "You're replying yourself — AI is paused for this conversation.",
     "windowClosingSoon": "⚠ Time to reply directly to this customer is almost up — reply now.",
     "windowExpired": "This customer messaged over 24h ago. Direct Messenger replies are blocked until the customer messages again.",
@@ -2663,194 +2541,67 @@
     }
   },
   "subscription": {
-    "title": "Plan & Billing",
-    "subtitle": "Choose a plan, track your allowance, and keep your shop in control",
-    "loading": "Loading subscription details...",
+    "title": "Billing",
+    "subtitle": "Delivered-order billing, invoices, and payment",
+    "loading": "Loading billing details...",
     "entitlementsUnavailable": "Feature availability is temporarily unavailable.",
     "loadingFeatures": "Checking feature availability...",
-    "noData": "Billing details are not ready yet",
-    "noDataMsg": "We could not find billing details for this shop. Reload, then contact support if it happens again.",
-    "reload": "Reload",
-    "planTitle": "{{plan}} Plan",
-    "imageUnderstanding": "Understands Product Photos",
-    "price": "৳{{price}} BDT / {{cycle}}",
-    "nextBilling": "Next billing: {{date}}",
-    "addConversations": "Add Customer Conversations",
-    "upgradePlan": "Review Moderator Plus",
-    "renew": "Renew subscription",
-    "plansTitle": "Plans",
-    "plansSubtitle": "Three package paths with current billing terms; accepted-reply targets are measured separately in shadow mode.",
-    "planCatalogLoading": "Loading published package details…",
-    "planCatalogUnavailable": "The live plan catalog is unavailable or incomplete. No pinned price, allowance or top-up pack is shown, and plan changes are disabled.",
-    "retryPlanCatalog": "Retry catalog",
-    "topupCatalogUnavailable": "Current conversation top-up packs are unavailable from the published catalog.",
-    "monthly": "Monthly",
-    "conversationsLimit": "Conversations:",
-    "ordersLimit": "Orders:",
-    "productsLimit": "Products:",
-    "currentPlan": "Current plan",
-    "switchPlan": "Switch plan",
-    "aiConversations": "Customer Conversations",
-    "usagePerMonth": "{{used}} / {{limit}} per month",
-    "statusSafe": "Safe",
-    "statusAlmostUsed": "Almost Used",
-    "statusExhausted": "Allowance used",
-    "ordersCreated": "Orders Created",
-    "productsUsed": "Products Used",
-    "usageTitle": "This period's usage",
-    "usageSubtitle": "AI pauses only after the included allowance and any top-up balance are used.",
-    "conversationsUsed": "Customer conversations",
-    "conversationsPerMonth": "{{count}} conversations each month",
-    "includedConversations": "Included allowance: {{count}}",
-    "topupBalance": "Top-up balance: {{count}}",
-    "topupBalanceLabel": "Top-up balance",
-    "aiPausedForUsage": "AI replies are paused for this allowance; manual replies remain available.",
-    "statusNeedsAttention": "Needs attention",
-    "period": "Current period",
-    "perMonth": "/ month",
-    "perYear": "/ year",
-    "partnerUpfront": "No upfront subscription",
-    "flatBillingSummary": "Flat monthly plan with a clear conversation allowance.",
-    "partnerBillingSummary": "No upfront subscription; billed by delivered-order band.",
-    "partnerRateBands": "Delivered-order rates",
+    "contractTitle": "Commercial terms",
+    "contractSubtitle": "One price for every shop, straight from the commercial contract",
+    "contractUnavailable": "Commercial terms could not be loaded. No price is shown until they load.",
+    "contractVersion": "Contract version {{version}}",
     "perDeliveredOrder": "per delivered order",
-    "partnerEligibility": "Delivered in the last 30 days: {{count}} / {{minimum}} required.",
-    "partnerNoTopups": "Partnership includes unlimited conversations; conversation top-ups are not available.",
-    "growthTopupsOnly": "Conversation top-ups are available on Moderator Plus (GROWTH).",
-    "shadowAllowanceLabel": "Non-billable reply measurement",
-    "shadowAllowanceTitle": "{{formattedCount}} accepted AI-generated replies per UTC month (shadow target)",
-    "shadowAllowanceNote": "Shadow measurement only. The active {{conversations}}-conversation entitlement and current conversation top-ups are unchanged.",
-    "shadowUsageTitle": "AI support reply measurement",
-    "shadowOnlyBadge": "Shadow only",
-    "shadowUnitDefinition": "One unit is one logical AI-originated reply accepted by Meta and durably recorded. Incoming messages, conversations, unsent drafts and failed sends are not units.",
-    "shadowPeriod": "UTC calendar month: {{start}} through just before {{end}}.",
-    "shadowUsageCount": "Observed accepted AI replies: {{used}} / {{target}} shadow target.",
-    "shadowObservedOnly": "Observed accepted AI replies this month: {{formattedCount}}. Partnership has no monthly reply target.",
-    "shadowUsageProgress": "Shadow reply usage against a target of {{target}}.",
-    "shadowRecordingActive": "Measurement is active. It does not limit message sending or change billing.",
-    "shadowNotEnabled": "Shadow measurement is not enabled for this shop; replies are not being counted.",
-    "shadowGateUnavailable": "Eligibility could not be verified; no shadow usage is recorded until the gate recovers.",
-    "shadowBillingBoundary": "This meter is separate from Messenger conversation limits and conversation top-ups. It is not billed or enforced, and no historical conversation credits are converted.",
-    "viewPartnerApplication": "Apply on pricing page",
-    "subscriptionInvoice": "Subscription",
-    "addConversationsTitle": "Add Customer Conversations",
-    "addedToCurrentPlan": "Added to your current plan",
-    "requestInvoice": "Request Invoice",
-    "invoiceNote": "Conversations will be available immediately after invoice approval.",
-    "planIncludes": "Your Plan Includes",
-    "planFeatures": [
-      "Instant Messenger replies",
-      "Understands product photos",
-      "Product question answering",
-      "Order draft creation",
-      "Cash on Delivery support"
-    ],
-    "billingTitle": "Billing Summary",
-    "basePlan": "Base Plan Price",
-    "estimatedInvoice": "Estimated Next Invoice",
-    "invoiceDisclaimer": "Final invoice will be issued before billing date.",
+    "dueWithin": "Due within {{days}} days of the invoice.",
+    "zeroRatedNote": "Returned or cancelled orders are billed at {{amount}}.",
+    "capabilitiesTitle": "Platform capabilities",
+    "capabilitiesSubtitle": "Only claims backed by verified evidence are shown; everything else reads as a truthful fallback.",
+    "capabilityGroups": {
+      "ai": "AI replies",
+      "courier": "Couriers and COD",
+      "voiceAndTools": "Voice and add-ons"
+    },
     "invoicesTitle": "Invoices",
     "invoiceColumns": {
       "id": "Invoice ID",
-      "period": "Billing Period",
+      "period": "Billing period",
       "type": "Type",
       "amount": "Amount",
       "status": "Status",
       "action": "Action"
     },
-    "paid": "Paid",
-    "pending": "Pending",
-    "toastThreshold": "You have used {{threshold}}% of your conversation allowance ({{used}}/{{limit}}).",
+    "invoiceTypes": {
+      "delivered_order": "Delivered orders"
+    },
+    "status": {
+      "paid": "Paid",
+      "pending": "Pending",
+      "overdue": "Overdue",
+      "cancelled": "Cancelled"
+    },
+    "payInvoice": "Pay outstanding invoice",
+    "pay": "Pay",
+    "paying": "Starting...",
+    "bkashUnavailable": "bKash payment is not available right now.",
     "paymentCancelled": "Payment was cancelled or not completed. Please try again.",
-    "topupPaymentSuccess": "Payment successful! {{count}} conversations added to your balance.",
-    "invoicePaymentSuccessActive": "Payment successful. Your replies and order automation stay active.",
     "invoicePaymentSuccess": "Payment successful! Your invoice has been paid.",
     "paymentVerifyFailed": "Payment verification failed. Please contact support.",
-    "loadFailed": "Failed to load subscription data",
     "invoicesLoadFailed": "Failed to load invoices",
-    "planUpdateSuccess": "Subscription plan updated successfully",
-    "planUpdateFailed": "Failed to update plan",
     "bkashStartFailed": "Failed to start bKash payment",
-    "statusPaymentDue": "Payment due",
-    "statusAiPaused": "Automatic replies paused",
-    "statusCancelled": "Cancelled",
-    "invoiceDueWarning": "Your recurring invoice is due. If it is not paid, automatic replies may pause.",
-    "aiPausedNote": "Automatic replies are paused. Pay your monthly subscription to resume reply drafts and order automation.",
-    "payActivateBkash": "Pay ৳{{price}} with bKash",
-    "popular": "Popular",
-    "perMonthShort": "/mo",
-    "unlimited": "Unlimited",
-    "unlimitedConversations": "Unlimited conversations",
-    "bkashUnavailable": "bKash payment is not available right now.",
-    "perMonthCount": "{{count}}/mo",
-    "applyNow": "Apply now →",
-    "slashUnlimited": "/ Unlimited",
-    "slashPerMonth": "/ {{limit}}/mo",
-    "forecastDays": "At this rate your limit will run out in {{count}} day.",
-    "forecastDays_other": "At this rate your limit will run out in {{count}} days.",
-    "conversationsCount": "{{count}} conversations",
-    "plusConversations": "+{{count}} conversations",
-    "addedToBalance": "Added to your top-up balance",
-    "imageUnderstandingTitle": "Understands Product Photos",
-    "imageUnderstandingDesc": "Uses product photos to answer customer questions more accurately",
-    "advancedAiTitle": "Better Reply Accuracy",
-    "advancedAiDesc": "More accurate replies for product, delivery, payment, and order questions",
-    "payInvoiceTitle": "Pay this invoice with bKash",
-    "viewInvoiceTitle": "View / Print invoice",
-    "downloadInvoiceTitle": "Download invoice (print to PDF)",
-    "payWithBkash": "Pay with bKash",
-    "topupBkashNote": "Once payment succeeds, the conversations are added to your balance instantly.",
-    "free": "Free",
-    "perOrder": "/order",
-    "confirmPlan": "Change plan",
-    "upgradeToUnlock": "Upgrade to reply faster",
-    "featureAvailablePrefix": "is available on the",
-    "featureAvailableSuffix": "plan and above.",
-    "planNameLabel": "{{plan}} Plan",
-    "pricePerMonth": "৳{{price}}/mo",
-    "notNow": "Not now",
-    "upgradeNow": "Upgrade now",
-    "upgradeUnlockTitle": "Upgrade to {{plan}} to keep {{feature}} available",
-    "upgradeToPlan": "Upgrade to {{plan}}",
+    "viewBillingLines": "Billing lines",
+    "hideBillingLines": "Hide lines",
+    "billingLinesLoading": "Loading billing lines...",
+    "billingLinesUnavailable": "Billing lines are not available for this invoice yet.",
+    "billingLinesEmpty": "This invoice has no billing lines.",
+    "billingLineColumns": {
+      "order": "Order",
+      "kind": "Kind",
+      "outcome": "Outcome",
+      "amount": "Amount"
+    },
     "noInvoices": "No invoices yet.",
-    "usageExhaustedAction": "AI replies are paused at the conversation allowance. Review Moderator Plus or wait for the next period; manual replies remain available.",
-    "planDescriptions": {
-      "shuru": "No monthly plan fee; the active allowance is 100 Messenger conversations.",
-      "growth": "BDT 999/month; the active allowance is 500 Messenger conversations with conversation-only top-ups.",
-      "partner": "No upfront subscription; billed by delivered-order band."
-    },
-    "plans": {
-      "shuru": {
-        "name": "Get Your Moderator",
-        "description": "No monthly plan fee; the active allowance is 100 Messenger conversations."
-      },
-      "growth": {
-        "name": "Moderator Plus",
-        "description": "BDT 999/month; the active allowance is 500 Messenger conversations with conversation-only top-ups."
-      },
-      "partner": {
-        "name": "Partnership",
-        "description": "No upfront subscription; billed by delivered-order band."
-      }
-    },
-    "growthIntentNotice": "You asked to review Moderator Plus. New accounts start on Get Your Moderator. A plan change takes effect only after a supported payment is completed.",
-    "growthIntentViewPlan": "View Moderator Plus plan"
-  },
-  "conversationAlert": {
-    "threshold70": {
-      "title": "Conversation usage is getting busy",
-      "message": "You have used {{used}} of {{limit}} conversations this period."
-    },
-    "threshold90": {
-      "title": "Conversation allowance is nearly used",
-      "message": "You have used {{used}} of {{limit}} conversations. Review your plan before AI replies pause."
-    },
-    "threshold100": {
-      "title": "AI replies are paused",
-      "message": "The {{limit}} conversation allowance is used. Manual replies remain available."
-    },
-    "manage": "Manage plan",
-    "dismiss": "Dismiss conversation usage alert"
+    "invoiceDisclaimer": "Amounts come from validated billing lines; the invoice PDF is the final document.",
+    "viewInvoiceTitle": "View / Print invoice",
+    "downloadInvoiceTitle": "Download invoice (print to PDF)"
   },
   "bd_lite": {
     "todayQueue": "Today's Queue",
@@ -2980,127 +2731,6 @@
     "providerError": "Meta returned an error: {{error}}",
     "retry": "Back to Chat Settings"
   },
-  "pricing": {
-    "label": "Pricing",
-    "mostPopular": "Most Popular",
-    "perMonth": "/mo",
-    "partnerApplyNote": "Apply after 300+ delivered orders in 30 days",
-    "partnerPriceUnit": "upfront",
-    "partnerEligibleBadge": "300+ delivered orders",
-    "partnerRateBandsTitle": "Pay per delivered order",
-    "partnerRateBand": "{{min}}–{{max}} orders: ৳{{rate}} each",
-    "applyNow": "Apply now",
-    "limits": {
-      "unlimitedConversations": "Unlimited conversations",
-      "conversationsPerMonth": "{{count}} customer conversations each month",
-      "deliveredOrders": "300+ delivered orders in 30 days to qualify",
-      "manualInbox": "Manual replies always available",
-      "unlimitedOrders": "Unlimited orders",
-      "ordersPerMonth": "{{count}} orders/mo",
-      "unlimitedProducts": "Unlimited products",
-      "products": "{{count}} products"
-    },
-    "features": {
-      "imageUnderstanding": "Understands product photos",
-      "advancedAi": "Better reply accuracy",
-      "prioritySupport": "Priority Support",
-      "customBranding": "Custom Branding (White-label)",
-      "facebookInbox": "Facebook sales inbox"
-    },
-    "planFeatures": {
-      "shuru": [
-        "100 customer conversations each month",
-        "Facebook Messenger inbox",
-        "Order capture and COD risk checks",
-        "Manual replies always available"
-      ],
-      "growth": [
-        "500 customer conversations each month",
-        "Facebook Messenger inbox",
-        "Order capture and COD risk checks",
-        "Top-ups when you need more conversations"
-      ],
-      "partner": [
-        "300+ delivered orders in 30 days to qualify",
-        "No monthly fee",
-        "Unlimited customer conversations",
-        "Flat rate by delivered-order band"
-      ]
-    },
-    "plans": {
-      "shuru": {
-        "name": "Shuru",
-        "description": "Free forever for getting started with Messenger sales.",
-        "priceNote": "Free forever",
-        "cta": "Create free account"
-      },
-      "growth": {
-        "name": "Growth",
-        "description": "The full Messenger sales assistant for growing shops.",
-        "priceNote": "Simple monthly billing",
-        "cta": "Start with Growth"
-      },
-      "partner": {
-        "name": "Partner",
-        "description": "No upfront fee; pay for successfully delivered orders.",
-        "priceNote": "Flat rate by delivered-order band",
-        "cta": "Apply for Partner"
-      }
-    },
-    "hero": {
-      "heading": "Smooth and honest pricing",
-      "subheading": "Start free with Shuru, grow with Growth, or join the Partner path.",
-      "badge1": "Messenger-only launch scope",
-      "badge2": "Free forever",
-      "badge3": "No hidden fees"
-    },
-    "partnerTeaser": {
-      "question": "Have 300+ delivered orders in 30 days?",
-      "link": "Learn about the Partner Plan →"
-    },
-    "included": {
-      "heading": "The same core features for every shop",
-      "subheading": "Choose your scale, not a restricted feature set. Growth is ৳{{price}}/month."
-    },
-    "faq": {
-      "heading": "Frequently asked questions",
-      "q1": "Is Shuru really free?",
-      "a1": "Yes — Shuru is free forever with 100 customer conversations each month. No card is required.",
-      "q2": "What is Growth?",
-      "a2": "Growth is ৳{{price}}/month with 500 customer conversations each month. Growth shops can buy a top-up when needed.",
-      "q3": "How many customer conversations do I get per month?",
-      "a3": "Shuru includes 100 conversations each month. Growth includes 500. Growth shops can buy a top-up when needed.",
-      "q4": "What happens when the conversation limit runs out?",
-      "a4": "AI replies pause after the included allowance and any Growth top-up balance are used. Manual replies remain available.",
-      "q5": "How do I apply for the Partner plan?",
-      "a5": "Apply from the Pricing page after building 300+ delivered orders in 30 days. Partner has no monthly fee and uses flat delivered-order bands: ৳15, ৳12, or ৳10."
-    },
-    "cta": {
-      "heading": "Ready to turn more messages into orders?",
-      "subheading": "Start free with Shuru. Upgrade when your Messenger volume grows.",
-      "button": "Get started now"
-    },
-    "partnerModal": {
-      "title": "Apply to become a Partner",
-      "subtitle": "Have 300+ delivered orders in 30 days? Partner has no monthly fee and flat delivered-order bands.",
-      "businessNameLabel": "Business Name",
-      "businessNamePlaceholder": "Your shop's name",
-      "phoneLabel": "Phone Number",
-      "pageLinkLabel": "Facebook Page Link",
-      "submit": "Send application",
-      "submitting": "Sending...",
-      "successTitle": "Application sent!",
-      "successMessage": "We'll review your application and get in touch soon.",
-      "successMessageEn": "Your application has been received. We'll be in touch soon.",
-      "ok": "OK",
-      "errors": {
-        "businessNameRequired": "Business name is required",
-        "phoneRequired": "Phone number is required",
-        "pageLinkRequired": "Page link is required",
-        "submitFailed": "Could not send the application. Please try again."
-      }
-    }
-  },
   "admin": {
     "shopDetail": {
       "shopFallback": "Shop",
@@ -3168,7 +2798,7 @@
         "conversations": "Conversations",
         "topupBalance": "Top-up balance",
         "nextBilling": "Next billing",
-        "effectiveLimit": "Effective conversation allowance",
+        "effectiveLimit": "Effective usage limit",
         "partnerEligibility": "Partner eligibility",
         "outstanding": "Outstanding",
         "superAdminNote": "SUPER_ADMIN required for billing actions.",
@@ -3232,68 +2862,44 @@
     "courier": {
       "pathao": {
         "booking_live": {
-          "en": "Courier booking through Pathao is available.",
-          "bn": "Pathao-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "en": "Courier booking through Pathao has been live-verified.",
+          "bn": "Pathao-এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাই করা হয়েছে।",
           "fallback": {
             "en": "Pathao courier booking is implemented but has not been verified on a live account yet.",
             "bn": "Pathao কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
           }
         },
         "integration_status": {
-          "en": "Pathao integration code is present.",
-          "bn": "Pathao ইন্টিগ্রেশন কোড রয়েছে।"
-        },
-        "cod_settlement": {
-          "en": "Pathao COD settlement reconciliation is supported.",
-          "bn": "Pathao COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
-          "fallback": {
-            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
-            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
-          }
+          "en": "Pathao integration code is present; live verification is pending.",
+          "bn": "Pathao ইন্টিগ্রেশন কোড রয়েছে; লাইভ যাচাই বাকি।"
         }
       },
       "steadfast": {
         "booking_live": {
-          "en": "Courier booking through Steadfast is available.",
-          "bn": "Steadfast-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "en": "Courier booking through Steadfast has been live-verified.",
+          "bn": "Steadfast-এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাই করা হয়েছে।",
           "fallback": {
             "en": "Steadfast courier booking is implemented but has not been verified on a live account yet.",
             "bn": "Steadfast কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
           }
         },
         "integration_status": {
-          "en": "Steadfast integration code is present.",
-          "bn": "Steadfast ইন্টিগ্রেশন কোড রয়েছে।"
-        },
-        "cod_settlement": {
-          "en": "Steadfast COD settlement reconciliation is supported.",
-          "bn": "Steadfast COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
-          "fallback": {
-            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
-            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
-          }
+          "en": "Steadfast integration code is present; live verification is pending.",
+          "bn": "Steadfast ইন্টিগ্রেশন কোড রয়েছে; লাইভ যাচাই বাকি।"
         }
       },
       "redx": {
         "booking_live": {
-          "en": "Courier booking through RedX is available.",
-          "bn": "RedX-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "en": "Courier booking through RedX has been live-verified.",
+          "bn": "RedX-এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাই করা হয়েছে।",
           "fallback": {
             "en": "RedX courier booking is implemented but has not been verified on a live account yet.",
             "bn": "RedX কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
           }
         },
         "integration_status": {
-          "en": "RedX integration code is present.",
-          "bn": "RedX ইন্টিগ্রেশন কোড রয়েছে।"
-        },
-        "cod_settlement": {
-          "en": "RedX COD settlement reconciliation is supported.",
-          "bn": "RedX COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
-          "fallback": {
-            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
-            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
-          }
+          "en": "RedX integration code is present; live verification is pending.",
+          "bn": "RedX ইন্টিগ্রেশন কোড রয়েছে; লাইভ যাচাই বাকি।"
         }
       },
       "all_providers": {
@@ -3303,20 +2909,46 @@
           "en": "Courier booking is implemented, but it is not yet live-verified for all three providers.",
           "bn": "কুরিয়ার বুকিং তৈরি হয়েছে, তবে তিনটি প্রোভাইডারের জন্যই এখনো লাইভ যাচাই হয়নি।"
         }
+      },
+      "cod_settlement": {
+        "pathao": {
+          "en": "Pathao COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Pathao COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
+            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
+          }
+        },
+        "steadfast": {
+          "en": "Steadfast COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Steadfast COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
+            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        },
+        "redx": {
+          "en": "RedX COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "RedX COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
+            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
       }
     },
     "voice": {
       "transcription": {
-        "en": "Voice transcription is available.",
-        "bn": "ভয়েস ট্রান্সক্রিপশন পাওয়া যায়।",
+        "en": "Voice transcription has been live-verified.",
+        "bn": "ভয়েস ট্রান্সক্রিপশন লাইভ যাচাই করা হয়েছে।",
         "fallback": {
           "en": "Voice transcription is a mock-only preview and is not live-verified.",
           "bn": "ভয়েস ট্রান্সক্রিপশন শুধু মক প্রিভিউ, লাইভ যাচাইকৃত নয়।"
         }
       },
       "auto_reply": {
-        "en": "Voice auto-reply is available.",
-        "bn": "ভয়েস অটো-রিপ্লাই পাওয়া যায়।",
+        "en": "Voice auto-reply is implemented and live-verified.",
+        "bn": "ভয়েস অটো-রিপ্লাই তৈরি হয়েছে এবং লাইভ যাচাই করা হয়েছে।",
         "fallback": {
           "en": "Voice auto-reply is not implemented.",
           "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
@@ -3363,5 +2995,14 @@
         }
       }
     }
+  },
+  "billingStanding": {
+    "title": "Billing standing",
+    "manage": "View billing",
+    "dismiss": "Dismiss billing notice"
+  },
+  "featureGate": {
+    "unavailable": "This capability is not available for this shop.",
+    "viewBilling": "View billing"
   }
 }

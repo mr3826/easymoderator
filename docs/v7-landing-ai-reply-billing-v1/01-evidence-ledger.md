@@ -1,4 +1,9 @@
+<!-- HISTORICAL RECORD -->
 # V7 Preflight Evidence Ledger
+
+> **Historical record.** ADR-0011 (2026-11-14) supersedes the commercial terms
+> referenced in this ledger. Keep it for audit; do not render or copy its
+> subscription/plan terms.
 
 Audit date: 2026-10-31. Source branch: `feat/easymod-unified-landing-v7` at `39ac79793215bcf1b5f25bc0ad9034b50928bd4f`.
 

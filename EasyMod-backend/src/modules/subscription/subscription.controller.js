@@ -2,6 +2,47 @@ const subscriptionService = require('./subscription.service');
 const { validationResult } = require('express-validator');
 const { AppError } = require('../../utils/AppError');
 const { Shop } = require('../entities');
+const commercialQuery = require('../commercial/commercial-query.service');
+const {
+    COMMERCIAL_CONTRACT_VERSION,
+    formatBdt,
+} = require('../commercial/commercial.contract');
+const { InvoiceType } = require('./subscription.plans');
+
+/**
+ * Invoice money columns are legacy DECIMAL BDT; billing lines are integer
+ * poisha. Both are rendered through the contract formatter so the invoice
+ * never invents a price format.
+ */
+const bdtFromDecimal = (value) => formatBdt(Math.round((Number(value) || 0) * 100));
+
+const parseInvoiceMetadata = (value) => {
+    if (!value) return {};
+    if (typeof value === 'string') {
+        try { return JSON.parse(value) || {}; } catch (_) { return {}; }
+    }
+    return typeof value === 'object' ? value : {};
+};
+
+/**
+ * Billing lines for a delivered-order invoice. The invoice has already been
+ * tenant-checked by getInvoiceById, so a query failure degrades to the invoice
+ * metadata derivation instead of failing the printable document.
+ */
+const loadBillingLines = async (shopId, invoice) => {
+    try {
+        return await commercialQuery.listBillingLines({ shopId, invoiceId: invoice.id });
+    } catch (_) {
+        return [];
+    }
+};
+
+const normalizeInvoiceLine = (line) => ({
+    orderId: line.orderId ?? line.order_id ?? null,
+    kind: String(line.lineKind ?? line.kind ?? line.line_kind ?? '').toLowerCase(),
+    outcome: String(line.outcome || '').toUpperCase(),
+    amountMinor: Number(line.amountMinor ?? line.amount_minor ?? 0) || 0,
+});
 
 const escapeHtml = (value) => String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -180,22 +221,110 @@ const getInvoicePdf = async (req, res, next) => {
             : null;
 
         const statusColor = invoice.status === 'paid' ? '#15803d' : invoice.status === 'pending' ? '#b45309' : '#dc2626';
-        let partnerMetadata = invoice.metadata || {};
-        if (typeof partnerMetadata === 'string') {
-            try { partnerMetadata = JSON.parse(partnerMetadata || '{}'); } catch (_) { partnerMetadata = {}; }
-        }
+        const invoiceMetadata = parseInvoiceMetadata(invoice.metadata);
+        const isDeliveredOrder = invoice.invoice_type === InvoiceType.DELIVERED_ORDER;
+
+        // Historical pre-cutover Partner invoice: keep its recorded derivation
+        // visible (the numbers were actually sold under the retired bands), but
+        // label it as historical so it can never read as current pricing.
         const hasPartnerDerivation = invoice.invoice_type === 'partner_per_order'
-            || partnerMetadata.delivered_orders !== undefined;
+            || invoiceMetadata.delivered_orders !== undefined;
         const partnerDerivation = hasPartnerDerivation ? `
   <div style="margin-bottom:24px;padding:16px;border:1px solid #e5e7eb;border-radius:8px">
-    <div class="label">Partner delivery calculation</div>
-    <div class="value">Delivered orders: ${escapeHtml(partnerMetadata.delivered_orders ?? partnerMetadata.deliveredOrders ?? 0)}</div>
-    <div class="value">Rate band: ${escapeHtml(partnerMetadata.rate_band ?? '—')}</div>
-    <div class="value">Rate: ৳${escapeHtml(partnerMetadata.rate_bdt ?? partnerMetadata.partnerRateBdt ?? 0)} per delivered order</div>
-    ${Number(partnerMetadata.adjustment_credit || 0) > 0 ? `<div class="value">Return credits: -৳${escapeHtml(partnerMetadata.adjustment_credit)}</div>` : ''}
-     <div class="value" style="font-weight:600">Computed Partner fee: ৳${escapeHtml(partnerMetadata.computed_total ?? partnerMetadata.partnerCharge ?? 0)}</div>
+    <div class="label">Historical Partner delivery calculation</div>
+    <div class="value">Delivered orders: ${escapeHtml(invoiceMetadata.delivered_orders ?? invoiceMetadata.deliveredOrders ?? 0)}</div>
+    <div class="value">Historical rate tier: ${escapeHtml(invoiceMetadata.rate_band ?? '—')}</div>
+    <div class="value">Recorded rate: ৳${escapeHtml(invoiceMetadata.rate_bdt ?? invoiceMetadata.partnerRateBdt ?? 0)} per delivered order</div>
+    ${Number(invoiceMetadata.adjustment_credit || 0) > 0 ? `<div class="value">Return credits: -৳${escapeHtml(invoiceMetadata.adjustment_credit)}</div>` : ''}
+     <div class="value" style="font-weight:600">Recorded Partner fee: ৳${escapeHtml(invoiceMetadata.computed_total ?? invoiceMetadata.partnerCharge ?? 0)}</div>
    </div>` : '';
-        const usageChargeLabel = hasPartnerDerivation ? 'Delivered-order charges' : 'Usage charges';
+        const usageChargeLabel = hasPartnerDerivation ? 'Historical delivered-order charges' : 'Usage charges';
+
+        // ADR-0011: a delivered-order invoice is a line-item document. Render
+        // every terminal outcome explicitly, including BDT 0 RETURNED/CANCELLED
+        // lines, then the reversal credit and the net total.
+        const billingLines = isDeliveredOrder
+            ? (await loadBillingLines(shopId, invoice)).map(normalizeInvoiceLine)
+            : [];
+        const metadataLines = Array.isArray(invoiceMetadata.lines)
+            ? invoiceMetadata.lines.map(normalizeInvoiceLine)
+            : [];
+        const invoiceLines = billingLines.length ? billingLines : metadataLines;
+        const creditMinor = Math.max(0, Number(invoiceMetadata.creditMinor) || 0);
+        const lineRows = invoiceLines.map((line) => {
+            const outcome = line.outcome || 'UNRECORDED';
+            const amount = line.kind === 'zero_rated' || line.amountMinor === 0
+                ? `${formatBdt(0)} (zero-rated)`
+                : formatBdt(line.amountMinor);
+            const orderRef = line.orderId ? String(line.orderId).slice(0, 8) : '—';
+            return `
+      <tr>
+        <td>${escapeHtml(outcome)} order</td>
+        <td style="color:#6b7280">${escapeHtml(orderRef)}</td>
+        <td style="text-align:right">${escapeHtml(amount)}</td>
+      </tr>`;
+        }).join('');
+        const creditRow = creditMinor > 0 ? `
+      <tr>
+        <td>Reversal credit</td>
+        <td style="color:#6b7280">Settled-invoice adjustment</td>
+        <td style="text-align:right">-${formatBdt(creditMinor)}</td>
+      </tr>` : '';
+        const invoiceContractVersion = invoiceMetadata.contractVersion || COMMERCIAL_CONTRACT_VERSION;
+        const contractFooter = (isDeliveredOrder || invoiceMetadata.contractVersion)
+            ? `Commercial contract v${escapeHtml(invoiceContractVersion)}`
+            : 'Historical invoice — terms recorded at issue';
+        const totalDisplay = isDeliveredOrder && Number.isFinite(Number(invoiceMetadata.netMinor))
+            ? formatBdt(Number(invoiceMetadata.netMinor))
+            : bdtFromDecimal(invoice.amount);
+
+        const invoiceTable = isDeliveredOrder ? `
+  <table>
+    <thead>
+      <tr>
+        <th>Order outcome</th>
+        <th>Order</th>
+        <th style="text-align:right">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${lineRows || `
+      <tr class="amount-row">
+        <td>No terminal outcomes in this period</td>
+        <td style="color:#6b7280">${escapeHtml(invoice.billing_period || '—')}</td>
+        <td style="text-align:right">${formatBdt(0)}</td>
+      </tr>`}
+      ${creditRow}
+      <tr class="total-row">
+        <td colspan="2">Total Due</td>
+        <td style="text-align:right">${totalDisplay}</td>
+      </tr>
+    </tbody>
+  </table>` : `
+  <table>
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th>Period</th>
+        <th style="text-align:right">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="amount-row">
+        <td>${escapeHtml(invoice.invoice_type || 'Invoice')}</td>
+        <td style="color:#6b7280">${escapeHtml(invoice.billing_period || '—')}</td>
+        <td style="text-align:right">${bdtFromDecimal(invoice.base_amount || invoice.amount)}</td>
+      </tr>
+      ${parseFloat(invoice.extra_usage_amount || 0) > 0 ? `
+      <tr><td>${usageChargeLabel}</td><td></td><td style="text-align:right">${bdtFromDecimal(invoice.extra_usage_amount)}</td></tr>` : ''}
+      ${parseFloat(invoice.addon_amount || 0) > 0 ? `
+      <tr><td>Add-ons</td><td></td><td style="text-align:right">${bdtFromDecimal(invoice.addon_amount)}</td></tr>` : ''}
+      <tr class="total-row">
+        <td colspan="2">Total Due</td>
+        <td style="text-align:right">${totalDisplay}</td>
+      </tr>
+    </tbody>
+  </table>`;
 
         const html = `<!DOCTYPE html>
 <html lang="en">
@@ -252,36 +381,13 @@ const getInvoicePdf = async (req, res, next) => {
 
   <hr class="divider">
 
-  <table>
-    <thead>
-      <tr>
-        <th>Description</th>
-        <th>Period</th>
-        <th style="text-align:right">Amount</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr class="amount-row">
-         <td>${escapeHtml(invoice.invoice_type || 'Subscription')}</td>
-         <td style="color:#6b7280">${escapeHtml(invoice.billing_period || '—')}</td>
-        <td style="text-align:right">৳${parseFloat(invoice.base_amount || invoice.amount).toLocaleString()}</td>
-      </tr>
-       ${parseFloat(invoice.extra_usage_amount || 0) > 0 ? `
-       <tr><td>${usageChargeLabel}</td><td></td><td style="text-align:right">৳${parseFloat(invoice.extra_usage_amount).toLocaleString()}</td></tr>` : ''}
-      ${parseFloat(invoice.addon_amount || 0) > 0 ? `
-      <tr><td>Add-ons</td><td></td><td style="text-align:right">৳${parseFloat(invoice.addon_amount).toLocaleString()}</td></tr>` : ''}
-      <tr class="total-row">
-        <td colspan="2">Total Due</td>
-        <td style="text-align:right">৳${parseFloat(invoice.amount).toLocaleString()}</td>
-      </tr>
-    </tbody>
-  </table>
+  ${invoiceTable}
 
   ${partnerDerivation}
   ${invoice.notes ? `<div style="font-size:13px;color:#6b7280;margin-bottom:24px"><strong>Notes:</strong> ${escapeHtml(invoice.notes)}</div>` : ''}
 
   <hr class="divider">
-  <div class="footer">EasyModerator &bull; easymod.tech &bull; This is a computer-generated invoice.</div>
+  <div class="footer">EasyModerator &bull; easymod.tech &bull; This is a computer-generated invoice.<br>${contractFooter}</div>
 
   <script>
     // Auto-open print dialog when opened in a new tab

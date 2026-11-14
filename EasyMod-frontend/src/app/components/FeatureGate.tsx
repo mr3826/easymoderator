@@ -1,127 +1,65 @@
-import { useState, type ReactNode } from "react";
-import { Lock, Zap, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Lock } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useSubscriptionFeatures, type SubscriptionFeatures } from "@/app/lib/useSubscriptionFeatures";
-import { subscriptionPlans } from "@/app/lib/subscriptionPlans";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useClaimDecisions } from "@/api/domains/commercialContract";
+import type { ClaimDecision, ClaimSurface } from "@/api/types/commercial";
+import { resolveClaimLocale } from "./claims/ClaimProvider";
 
-interface UpgradeModalProps {
-  featureLabel: string;
-  requiredPlan: string;
-  onClose: () => void;
-}
-
-function UpgradeModal({ featureLabel, requiredPlan, onClose }: UpgradeModalProps) {
-  const navigate = useNavigate();
-  const { t } = useTranslation();
-  const plan = subscriptionPlans.find((p) => p.name === requiredPlan);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative animate-in fade-in zoom-in-95 duration-150">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className="flex items-center justify-center w-14 h-14 rounded-full bg-amber-100 mx-auto mb-4">
-          <Lock className="w-7 h-7 text-amber-600" />
-        </div>
-
-        <h2 className="text-xl font-bold text-gray-900 text-center mb-1">
-          {t("subscription.upgradeToUnlock")}
-        </h2>
-        <p className="text-gray-500 text-center text-sm mb-5">
-          <strong className="text-gray-700">{featureLabel}</strong>{" "}
-          {t("subscription.featureAvailablePrefix")}{" "}
-          <span className="font-semibold text-blue-600">{requiredPlan}</span>{" "}
-          {t("subscription.featureAvailableSuffix")}
-        </p>
-
-        {plan && (
-          <div className="bg-blue-50 rounded-xl p-4 mb-5 border border-blue-100">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-gray-900">{t("subscription.planNameLabel", { plan: plan.name })}</span>
-              <span className="font-bold text-blue-700">{t("subscription.pricePerMonth", { price: plan.monthlyPrice.toLocaleString() })}</span>
-            </div>
-            <ul className="space-y-1">
-              {plan.highlights.slice(0, 3).map((h, hi) => (
-                <li key={h} className="flex items-start gap-2 text-sm text-gray-600">
-                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-blue-500 flex-shrink-0" />
-                  {t(`subscription.plans.${plan.id}.highlights.${hi}`, h)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            {t("subscription.notNow")}
-          </button>
-          <button
-            onClick={() => { onClose(); navigate("/subscription"); }}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-          >
-            <Zap className="w-4 h-4" />
-            {t("subscription.upgradeNow")}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+/**
+ * Capability gate backed by the commercial claim registry (ADR-0011).
+ *
+ * There is no subscription plan to upgrade to, so the old plan-highlight
+ * upgrade modal is gone. A gate is open only while its server-evaluated claim
+ * is available; otherwise it shows the claim's own truthful copy (or the
+ * fallback text) and links to billing — never a promised plan.
+ *
+ * Fail-closed: a missing decision, a failed decision fetch, or an unavailable
+ * claim keeps the children locked.
+ */
 
 interface FeatureGateProps {
-  /** The feature flag key to check */
-  feature: keyof SubscriptionFeatures;
-  /** Human-readable label shown in the upgrade modal */
-  featureLabel: string;
-  /** Minimum plan name required (e.g. "PACKAGE_2") */
-  requiredPlan: string;
+  /** Claim registry id that grants the capability, e.g. `ai.draft_reply`. */
+  claimId: string;
+  /** Human-readable capability name used when no claim copy is available. */
+  featureLabel?: string;
+  /** Claim surface the decision must be evaluated on. */
+  surface?: ClaimSurface;
   children: ReactNode;
 }
 
-/**
- * Wraps children with a soft lock overlay when the current plan does not
- * include the feature. Clicking the overlay opens an upgrade modal.
- *
- * Usage:
- *   <FeatureGate feature="image_understanding" featureLabel="Understands Product Photos" requiredPlan="PACKAGE_2">
- *     <ImageUploader />
- *   </FeatureGate>
- */
-export function FeatureGate({ feature, featureLabel, requiredPlan, children }: FeatureGateProps) {
-  const { t } = useTranslation();
-  const { features, loading, error } = useSubscriptionFeatures();
-  const [showModal, setShowModal] = useState(false);
+function isClaimUsable(decision: ClaimDecision | null): boolean {
+  if (!decision) return false;
+  if (decision.render !== "claim" || !decision.available) return false;
+  return decision.predicate.code_present
+    && decision.predicate.merchant_enabled
+    && decision.predicate.production_verified
+    && !decision.predicate.deprecated
+    && !decision.predicate.internal_only;
+}
 
-  if (features[feature] && !loading && !error) {
-    return <>{children}</>;
-  }
+export function FeatureGate({
+  claimId,
+  featureLabel,
+  surface = "subscription",
+  children,
+}: FeatureGateProps) {
+  const { t, i18n } = useTranslation();
+  const locale = resolveClaimLocale(i18n?.language);
+  const query = useClaimDecisions(surface, locale);
+  const decision = query.data?.decisions.find((entry) => entry.claimId === claimId) ?? null;
 
-  // Entitlement failures are not confirmed plan restrictions. Keep the feature
-  // unavailable without showing an upgrade CTA that could mislead the user.
-  if (loading || error) {
+  if (query.isLoading) {
     return (
       <div
-        data-testid={error ? "feature-gate-unavailable" : "feature-gate-loading"}
+        data-testid="feature-gate-loading"
         className="relative select-none"
-        aria-busy={loading}
+        aria-busy
       >
         <div className="absolute inset-0 z-10 rounded-lg bg-white/70 backdrop-blur-[2px] flex items-center justify-center p-4">
           <div className="flex items-center gap-1.5 bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-sm font-medium shadow-sm text-center">
             <Lock className="w-3.5 h-3.5" />
-            <span>
-              {error
-                ? t("subscription.entitlementsUnavailable", "Feature availability is temporarily unavailable.")
-                : t("subscription.loadingFeatures", "Checking feature availability...")}
-            </span>
+            <span>{t("subscription.loadingFeatures", "Checking feature availability...")}</span>
           </div>
         </div>
         <div className="pointer-events-none opacity-40">{children}</div>
@@ -129,31 +67,47 @@ export function FeatureGate({ feature, featureLabel, requiredPlan, children }: F
     );
   }
 
-  return (
-    <>
+  if (query.error) {
+    return (
       <div
-        className="relative cursor-pointer select-none"
-        onClick={() => setShowModal(true)}
-        title={t("subscription.upgradeUnlockTitle", { plan: requiredPlan, feature: featureLabel })}
+        data-testid="feature-gate-unavailable"
+        className="relative select-none"
+        aria-busy={false}
       >
-        {/* Blur overlay */}
-        <div className="absolute inset-0 z-10 rounded-lg bg-white/60 backdrop-blur-[2px] flex items-center justify-center">
-          <div className="flex items-center gap-1.5 bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full text-sm font-medium shadow-sm">
+        <div className="absolute inset-0 z-10 rounded-lg bg-white/70 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="flex items-center gap-1.5 bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-sm font-medium shadow-sm text-center">
             <Lock className="w-3.5 h-3.5" />
-            <span>{t("subscription.upgradeToPlan", { plan: requiredPlan })}</span>
+            <span>{t("subscription.entitlementsUnavailable", "Feature availability is temporarily unavailable.")}</span>
           </div>
         </div>
-        {/* Render children behind the overlay for layout */}
         <div className="pointer-events-none opacity-40">{children}</div>
       </div>
+    );
+  }
 
-      {showModal && (
-        <UpgradeModal
-          featureLabel={featureLabel}
-          requiredPlan={requiredPlan}
-          onClose={() => setShowModal(false)}
-        />
-      )}
-    </>
+  if (isClaimUsable(decision)) {
+    return <>{children}</>;
+  }
+
+  const claimText = decision?.textKey
+    ? t(decision.textKey, { ...decision.interpolation })
+    : null;
+  const message = typeof claimText === "string" && claimText.length > 0 && claimText !== decision?.textKey
+    ? claimText
+    : featureLabel || t("featureGate.unavailable", "This capability is not available for this shop.");
+
+  return (
+    <div className="relative select-none" data-testid="feature-gate-locked">
+      <div className="absolute inset-0 z-10 rounded-lg bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 p-4 text-center">
+        <div className="flex items-center gap-1.5 bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full text-sm font-medium shadow-sm">
+          <Lock className="w-3.5 h-3.5" />
+          <span>{message}</span>
+        </div>
+        <Link to="/subscription" className="text-xs font-semibold text-brand underline">
+          {t("featureGate.viewBilling", "View billing")}
+        </Link>
+      </div>
+      <div className="pointer-events-none opacity-40">{children}</div>
+    </div>
   );
 }

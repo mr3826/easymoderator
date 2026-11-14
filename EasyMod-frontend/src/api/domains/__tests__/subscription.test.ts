@@ -1,42 +1,14 @@
 /**
- * Subscription Domain API Tests
+ * Subscription Domain API Tests — ADR-0011 contract-only billing.
+ *
+ * The plan catalog is retired: these tests pin the tombstone behaviour (no
+ * request, no substituted price) and the billing-lines validator.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as subscription from '../subscription';
 import { httpClient } from '@/shared/lib/http/client';
-import { publicApiGet } from '@/shared/lib/http/public-client';
-
-const LIVE_PLANS = [
-  {
-    code: 'SHURU', name: 'Shuru', public_name: 'Get Your Moderator',
-    description: 'No monthly plan fee; the active allowance counts Messenger conversations.',
-    description_bn: 'মাসিক প্ল্যান ফি নেই; Messenger কথোপকথন গণনা হয়।', billing_model: 'flat_monthly',
-    price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: 100,
-    orders_limit: -1, products_limit: -1, can_purchase_topups: false,
-    per_order_charge_bdt: null, features: {}, topup_packs: [], partner_order_tiers: [],
-    support_reply_allowance: { amount: 300, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false },
-  },
-  {
-    code: 'GROWTH', name: 'Growth', public_name: 'Moderator Plus',
-    description: 'Monthly subscription with conversation-only top-ups.',
-    description_bn: 'মাসিক সাবস্ক্রিপশন; top-up-এ কথোপকথন যোগ হয়।', billing_model: 'flat_monthly',
-    price_bdt_monthly: 999, price_bdt_yearly: 9990, conversations_limit: 500,
-    orders_limit: -1, products_limit: -1, can_purchase_topups: true,
-    per_order_charge_bdt: null, features: {},
-    topup_packs: [{ code: 'PACK_100', conversations: 100, priceBdt: 250 }], partner_order_tiers: [],
-    support_reply_allowance: { amount: 3000, unit: 'provider_accepted_ai_reply', period: 'utc_calendar_month', status: 'shadow_only', billable: false, enforced: false },
-  },
-  {
-    code: 'PARTNER', name: 'Partner', public_name: 'Partnership',
-    description: 'No upfront subscription; billed by delivered-order bands.',
-    description_bn: 'কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।', billing_model: 'per_order',
-    price_bdt_monthly: 0, price_bdt_yearly: 0, conversations_limit: -1,
-    orders_limit: -1, products_limit: -1, can_purchase_topups: false,
-    per_order_charge_bdt: null, features: {}, topup_packs: [],
-    partner_order_tiers: [{ minOrders: 300, maxOrders: 999, rateBdt: 15 }], support_reply_allowance: null,
-  },
-];
+import { COMMERCIAL_CONTRACT_VERSION } from '@/shared/contracts/commercial-contract';
 
 vi.mock('@/shared/lib/http/client', () => ({
   httpClient: {
@@ -45,9 +17,19 @@ vi.mock('@/shared/lib/http/client', () => ({
     put: vi.fn(),
   },
 }));
-vi.mock('@/shared/lib/http/public-client', () => ({
-  publicApiGet: vi.fn(),
-}));
+
+const LINE = {
+  id: 'line-1',
+  invoiceId: '0f9b5a2e-1c3d-4e5f-8a9b-0c1d2e3f4a5b',
+  orderId: 'order-1',
+  lineKind: 'DELIVERED_ORDER',
+  outcome: 'DELIVERED',
+  unitPriceMinor: 1000,
+  amountMinor: 1000,
+  currency: 'BDT',
+  contractVersion: COMMERCIAL_CONTRACT_VERSION,
+  createdAt: '2026-11-14T00:00:00.000Z',
+};
 
 describe('Subscription Domain API', () => {
   beforeEach(() => {
@@ -55,11 +37,11 @@ describe('Subscription Domain API', () => {
   });
 
   describe('getSubscription', () => {
-    it('should return subscription details', async () => {
+    it('returns subscription details', async () => {
       const mockResponse = {
         data: {
           data: {
-            subscription: { plan_code: 'SHURU', status: 'active' },
+            subscription: { plan_code: 'MERCHANT', status: 'active' },
             usage: {},
           },
         },
@@ -69,130 +51,86 @@ describe('Subscription Domain API', () => {
       const result = await subscription.getSubscription();
 
       expect(httpClient.get).toHaveBeenCalledWith('/api/subscription');
-      expect(result.subscription.plan_code).toBe('SHURU');
+      expect(result.subscription.plan_code).toBe('MERCHANT');
     });
   });
 
-  describe('getSubscriptionPlans', () => {
-    it('should return available plans', async () => {
-      const mockResponse = { success: true, data: LIVE_PLANS };
-      (publicApiGet as any).mockResolvedValue(mockResponse);
-
-      const result = await subscription.getSubscriptionPlans();
-
-      expect(publicApiGet).toHaveBeenCalledWith('/api/subscription/plans');
-      expect(result.map((plan) => plan.code)).toEqual(['SHURU', 'GROWTH', 'PARTNER']);
-      expect(result.map((plan) => plan.publicName)).toEqual(['Get Your Moderator', 'Moderator Plus', 'Partnership']);
-      expect(result.find((plan) => plan.code === 'GROWTH')?.supportReplyAllowance?.amount).toBe(3000);
+  describe('retired subscription catalog', () => {
+    it('fails closed without requesting the retired plan endpoint', async () => {
+      await expect(subscription.getSubscriptionPlans()).rejects.toMatchObject({
+        code: 'SUBSCRIPTION_CATALOG_RETIRED',
+      });
+      expect(httpClient.get).not.toHaveBeenCalled();
     });
 
-    it('does not substitute pinned commercial values when the live catalog is unavailable', async () => {
-      (publicApiGet as any).mockRejectedValue(new Error('offline'));
-
-      await expect(subscription.getPublicSubscriptionCatalog()).rejects.toThrow('offline');
+    it('exposes the public catalog as a tombstone', async () => {
+      await expect(subscription.getPublicSubscriptionCatalog()).rejects.toMatchObject({
+        code: 'SUBSCRIPTION_CATALOG_RETIRED',
+      });
+      await expect(subscription.getCurrentPublicSubscriptionCatalog()).rejects.toMatchObject({
+        code: 'SUBSCRIPTION_CATALOG_RETIRED',
+      });
+      expect(subscription.hasRequiredPublicPlans()).toBe(false);
     });
 
-    it('marks a successful catalog response as live', async () => {
-      (publicApiGet as any).mockResolvedValue({ success: true, data: LIVE_PLANS });
-
-      const result = await subscription.getPublicSubscriptionCatalog();
-
-      expect(result.source).toBe('live');
-      expect(result.plans.map((plan) => plan.code)).toEqual(['SHURU', 'GROWTH', 'PARTNER']);
+    it('retires prepaid credit purchases', async () => {
+      await expect(subscription.getTopupPacks()).rejects.toMatchObject({ code: 'SUBSCRIPTION_CATALOG_RETIRED' });
+      await expect(subscription.initiateTopup('anything')).rejects.toMatchObject({ code: 'SUBSCRIPTION_CATALOG_RETIRED' });
+      await expect(subscription.completeTopup('topup-1', 'pay-1')).rejects.toMatchObject({ code: 'SUBSCRIPTION_CATALOG_RETIRED' });
+      expect(httpClient.post).not.toHaveBeenCalled();
     });
 
-    it('rejects unavailable live catalog data instead of returning pinned prices', async () => {
-      (publicApiGet as any).mockRejectedValue(new Error('offline'));
-
-      await expect(subscription.getCurrentPublicSubscriptionCatalog()).rejects.toThrow('offline');
-    });
-
-    it('rejects an empty live catalog rather than presenting a stale price list', async () => {
-      (publicApiGet as any).mockResolvedValue({ success: true, data: [] });
-
-      await expect(subscription.getCurrentPublicSubscriptionCatalog()).rejects.toThrow(/catalog/i);
-    });
-
-    it('rejects a live catalog that omits the accepted-reply allowance instead of pinning it locally', async () => {
-      const incomplete = LIVE_PLANS.map((plan) => ({ ...plan }));
-      delete (incomplete[0] as any).support_reply_allowance;
-      (publicApiGet as any).mockResolvedValue({ success: true, data: incomplete });
-
-      await expect(subscription.getCurrentPublicSubscriptionCatalog()).rejects.toThrow(/shadow allowance/i);
+    it('does not subscribe to a retired plan', async () => {
+      await expect(subscription.subscribeToPlan('anything')).rejects.toMatchObject({
+        code: 'SUBSCRIPTION_CATALOG_RETIRED',
+      });
+      expect(httpClient.put).not.toHaveBeenCalled();
     });
   });
 
-  describe('subscribeToPlan', () => {
-    it('should subscribe to plan', async () => {
-      const mockResponse = {
-        data: { data: { plan: 'PRO', status: 'active' } },
-      };
-      (httpClient.put as any).mockResolvedValue(mockResponse);
+  describe('getBillingLines', () => {
+    it('requests tenant-scoped lines for one invoice', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { success: true, data: { invoiceId: LINE.invoiceId, contractVersion: COMMERCIAL_CONTRACT_VERSION, lines: [LINE] } },
+      });
 
-      const result = await subscription.subscribeToPlan('pro', 'yearly');
+      const lines = await subscription.getBillingLines(LINE.invoiceId);
 
-      expect(httpClient.put).toHaveBeenCalledWith('/api/subscription/plan', { plan_code: 'PRO', billing_cycle: 'yearly' });
-      expect(result.status).toBe('active');
+      expect(httpClient.get).toHaveBeenCalledWith('/api/commercial/billing-lines', {
+        params: { invoiceId: LINE.invoiceId },
+      });
+      expect(lines).toHaveLength(1);
+      expect(lines[0].amountMinor).toBe(1000);
     });
 
-    it('should use monthly as default billing cycle', async () => {
-      const mockResponse = { data: { data: {} } };
-      (httpClient.put as any).mockResolvedValue(mockResponse);
+    it('rejects a non-BDT line instead of guessing a currency', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { success: true, data: { lines: [{ ...LINE, currency: 'USD' }] } },
+      });
 
-      await subscription.subscribeToPlan('SHURU');
-
-      expect(httpClient.put).toHaveBeenCalledWith('/api/subscription/plan', { plan_code: 'SHURU', billing_cycle: 'monthly' });
-    });
-  });
-
-  describe('cancelSubscription', () => {
-    it('should cancel with no reason by default', async () => {
-      const mockResponse = { data: { data: { status: 'cancelled' } } };
-      (httpClient.post as any).mockResolvedValue(mockResponse);
-
-      const result = await subscription.cancelSubscription();
-
-      expect(httpClient.post).toHaveBeenCalledWith('/api/subscription/cancel', { reason: undefined });
-      expect(result.status).toBe('cancelled');
+      await expect(subscription.getBillingLines(LINE.invoiceId)).rejects.toThrow(/currency must be BDT/);
     });
 
-    it('should forward a cancellation reason when provided', async () => {
-      const mockResponse = { data: { data: { status: 'cancelled' } } };
-      (httpClient.post as any).mockResolvedValue(mockResponse);
+    it('rejects a fractional minor amount', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { success: true, data: { lines: [{ ...LINE, amountMinor: 10.5 }] } },
+      });
 
-      await subscription.cancelSubscription('Too expensive');
-
-      expect(httpClient.post).toHaveBeenCalledWith('/api/subscription/cancel', { reason: 'Too expensive' });
+      await expect(subscription.getBillingLines(LINE.invoiceId)).rejects.toThrow(/integer minor amount/);
     });
-  });
 
-  describe('reactivateSubscription', () => {
-    it('should reactivate subscription', async () => {
-      const mockResponse = { data: { data: { status: 'active' } } };
-      (httpClient.post as any).mockResolvedValue(mockResponse);
+    it('rejects a current-contract line whose unit price drifts from the contract', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { success: true, data: { lines: [{ ...LINE, unitPriceMinor: 999 }] } },
+      });
 
-      const result = await subscription.reactivateSubscription();
-
-      expect(httpClient.post).toHaveBeenCalledWith('/api/subscription/reactivate');
-      expect(result.status).toBe('active');
+      await expect(subscription.getBillingLines(LINE.invoiceId)).rejects.toThrow(/does not match contract/);
     });
-  });
 
-  describe('getPaymentMethods', () => {
-    it('should return payment methods', async () => {
-      const mockResponse = {
-        data: {
-          data: [
-            { id: 'pm1', type: 'card', last4: '4242' },
-          ],
-        },
-      };
-      (httpClient.get as any).mockResolvedValue(mockResponse);
+    it('rejects an unsuccessful envelope', async () => {
+      (httpClient.get as any).mockResolvedValue({ data: { success: false, data: { lines: [] } } });
 
-      const result = await subscription.getPaymentMethods();
-
-      expect(httpClient.get).toHaveBeenCalledWith('/api/payment-methods/available');
-      expect(result[0].last4).toBe('4242');
+      await expect(subscription.getBillingLines(LINE.invoiceId)).rejects.toThrow(/did not succeed/);
     });
   });
 });

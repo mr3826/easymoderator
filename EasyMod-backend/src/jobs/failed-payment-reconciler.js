@@ -5,25 +5,35 @@ const { Op } = require('sequelize');
 const emailService = require('../utils/email.service');
 const cacheService = require('../utils/cache.service');
 const { getOrigins, joinOrigin } = require('../config/origins');
+const {
+    COMMERCIAL_CONTRACT,
+    formatBdt,
+} = require('../modules/commercial/commercial.contract');
+const { renderClaim } = require('../modules/commercial/claim-gate.service');
+const { buildOverduePolicySentence } = require('../modules/commercial/billing-standing.service');
 
 /**
  * Failed Payment Reconciler Job
- * 
+ *
  * Reconciles failed payments and updates subscription status accordingly.
  * Runs daily at 02:00 UTC to check for overdue invoices.
- * 
+ *
  * IDEMPOTENT: Running multiple times for same date processes same invoices
  * RE-RUNNABLE: Can be re-run for historical dates
- * 
- * Billing policy (founder spec): a recurring subscription invoice is issued on
- * the renewal date with a 3-day "due threshold" (due_date = issue + 3 days).
- * Once that window passes unpaid, the AI assistant must stop. So:
- * - Recurring invoice (monthly / yearly subscription, partner_per_order) past due
- *     → suspend the subscription (isAiActive=false → AI auto-pauses; the manual
- *       inbox stays usable). Paying the invoice reactivates it.
- * - Optional one-off invoices (add-on packs, proration) NEVER suspend AI — they
- *   are discretionary purchases; we only send a reminder.
- * 
+ *
+ * Billing policy (ADR-0011 C1/C5): the only merchant bill is the delivered-order
+ * aggregate. `delivered_order` is a recurring invoice type, and its `due_date`
+ * already encodes the contract's 7-day window (issue + `COMMERCIAL_CONTRACT.dueDays`).
+ * Once that window passes unpaid:
+ * - Recurring invoice (delivered_order, plus residual legacy recurring types)
+ *     → suspend the subscription (isAiActive=false → automated AI pauses; the
+ *       manual inbox and history stay readable, nothing is deleted). Pays the
+ *       invoice to restore automated replies and new courier bookings.
+ * - Optional one-off invoices (proration) NEVER suspend AI — they are
+ *   discretionary; we only send a reminder.
+ *
+ * There is no free plan to exempt: every shop is on the single MERCHANT tier.
+ *
  * Usage:
  *   const job = new FailedPaymentReconciler();
  *   await job.execute({ dryRun: true });
@@ -34,9 +44,10 @@ const { RECURRING_INVOICE_TYPES } = require('../modules/subscription/subscriptio
 class FailedPaymentReconciler extends BaseJob {
     constructor() {
         super('failed_payment_reconciler');
-        // The 3-day grace is encoded in the invoice due_date (issue + 3 days);
-        // once a recurring invoice is past due at all, AI is paused.
-        this.GRACE_DAYS = 3;
+        // Grace is the contract due window and is already encoded in the
+        // invoice due_date (issue + dueDays). Once a recurring invoice is past
+        // due at all, automated AI pauses. Kept for operators/tests that read it.
+        this.GRACE_DAYS = COMMERCIAL_CONTRACT.dueDays;
     }
 
     /**
@@ -76,11 +87,13 @@ class FailedPaymentReconciler extends BaseJob {
                     action: 'none'
                 };
 
-                // The 3-day due window has already passed (due_date < runDate). For a
-                // recurring renewal invoice that means the AI must stop now: suspend the
-                // subscription (isAiActive → false). Paying the invoice reactivates it.
-                // One-off / discretionary invoices (add-on packs, proration) never gate AI —
-                // they only get a payment reminder.
+                // The contract due window (due_date = issue + dueDays) has already
+                // passed (due_date < runDate). For a recurring invoice that means
+                // automated AI must pause now: suspend the subscription
+                // (isAiActive → false). The manual inbox and history stay
+                // readable; paying the invoice restores automated replies and new
+                // courier bookings. One-off / discretionary invoices (proration)
+                // never gate AI — they only get a payment reminder.
                 if (Number(invoice.amount || 0) <= 0) {
                     if (!dryRun && typeof invoice.update === 'function') {
                         await invoice.update({
@@ -101,21 +114,17 @@ class FailedPaymentReconciler extends BaseJob {
                     // Never suspend or notify from an invoice whose ownership
                     // edges disagree; operators must repair the data first.
                 } else if (isRecurring) {
-                    if (this.isFreePlan(invoice.subscription)) {
-                        action.action = 'ignored_free_plan';
-                    } else {
-                        if (!dryRun) {
-                            await this.suspendSubscription(invoice.subscription);
-                        }
-                        action.action = 'suspended';
-                        results.subscriptionsSuspended++;
+                    if (!dryRun) {
+                        await this.suspendSubscription(invoice.subscription);
                     }
+                    action.action = 'suspended';
+                    results.subscriptionsSuspended++;
                 } else {
                     action.action = 'reminder';
                 }
 
                 // Send the dunning / reminder email (Nodemailer via email.service.js)
-                if (!dryRun && !['ignored_free_plan', 'ignored_tenant_mismatch', 'ignored_zero_balance'].includes(action.action)) {
+                if (!dryRun && !['ignored_tenant_mismatch', 'ignored_zero_balance'].includes(action.action)) {
                     await this.sendReminderNotification(invoice, action.action);
                     await this.sendMerchantPaymentAlert(invoice, action.action, runDate);
                     results.remindersSent++;
@@ -187,7 +196,6 @@ class FailedPaymentReconciler extends BaseJob {
      * @param {Object} subscription 
      */
     async suspendSubscription(subscription) {
-        if (this.isFreePlan(subscription)) return; // Legacy invoices never suspend Shuru.
         if (subscription.status === 'suspended') {
             return; // Already suspended
         }
@@ -208,13 +216,26 @@ class FailedPaymentReconciler extends BaseJob {
         });
     }
 
-    isFreePlan(subscription) {
-        const planCode = String(subscription?.plan_code || '').toUpperCase();
-        if (planCode === 'SHURU') return true;
-        return Boolean(planCode)
-            && planCode !== 'PARTNER'
-            && parseFloat(subscription?.plan_price || 0) <= 0
-            && subscription?.billing_model !== 'per_order';
+    /**
+     * Overdue-policy copy for merchant email/alerts (ADR-0011 C5).
+     *
+     * Gated through the frozen claim registry so the document never asserts a
+     * policy the platform has not declared. The sentence is derived from
+     * COMMERCIAL_CONTRACT.onOverdue (not typed here) and mirrors
+     * `claims.billing.overdue_policy.en`.
+     */
+    overduePolicyCopy() {
+        try {
+            const decision = renderClaim('billing.overdue_policy', { surface: 'email', locale: 'en' });
+            // A merchant email may only carry the policy when the claim is
+            // renderable. In enforce mode `none` means the registry says the
+            // platform may not make the promise — send no policy sentence.
+            if (decision?.render === 'none') return null;
+        } catch (_) {
+            // Claim gate unavailable: the contract flags are static and still
+            // authoritative, so fall through to the derived sentence.
+        }
+        return buildOverduePolicySentence();
     }
 
     /**
@@ -225,7 +246,10 @@ class FailedPaymentReconciler extends BaseJob {
         const shopEmail = invoice.shop?.email;
         const shopName = invoice.shop?.name || 'Shop';
         const invoiceNumber = invoice.invoice_number;
-        const amount = parseFloat(invoice.amount).toLocaleString();
+        // Amount comes from the contract formatter; the invoice stores DECIMAL
+        // BDT, so convert to integer poisha for formatting.
+        const amountMinor = Math.round(Number(invoice.amount) * 100);
+        const amount = formatBdt(amountMinor);
         const dueDate = new Date(invoice.due_date).toLocaleDateString('en-BD', {
             day: 'numeric', month: 'long', year: 'numeric'
         });
@@ -237,19 +261,20 @@ class FailedPaymentReconciler extends BaseJob {
         }
 
         const isSuspended = action === 'suspended';
+        const policyCopy = isSuspended ? this.overduePolicyCopy() : null;
 
         const subject = isSuspended
-            ? 'Your EasyModerator subscription has been suspended'
-            : `Payment Reminder: Invoice ${invoiceNumber} is overdue`;
+            ? 'Action required: your EasyMod bill is overdue'
+            : `Payment reminder: invoice ${invoiceNumber} is overdue`;
 
         const ctaColor = isSuspended ? '#dc2626' : '#2563eb';
-        const ctaLabel = isSuspended ? 'Pay Now to Restore Access' : 'Pay Invoice';
+        const ctaLabel = isSuspended ? 'Pay Now to Restore Service' : 'Pay Invoice';
         const bodyHeading = isSuspended
-            ? 'Your subscription has been <strong>suspended</strong> due to non-payment.'
+            ? (policyCopy || 'Your bill is overdue and automated replies are paused.')
             : 'This is a reminder that your invoice is overdue.';
         const footerNote = isSuspended
-            ? 'Pay this invoice to immediately restore your AI assistant. Your inbox and data are unaffected.'
-            : 'Please clear this balance to keep your add-on conversations available.';
+            ? 'Pay this invoice to immediately restore automated replies and new courier bookings.'
+            : 'Please clear this balance to keep your account in good standing.';
 
         const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${subject}</title></head>
@@ -260,7 +285,7 @@ class FailedPaymentReconciler extends BaseJob {
     <p>${bodyHeading}</p>
     <table style="width:100%;border-collapse:collapse;margin:16px 0">
       <tr><td style="padding:8px 0;color:#6b7280">Invoice</td><td style="padding:8px 0;font-weight:600">${invoiceNumber}</td></tr>
-      <tr><td style="padding:8px 0;color:#6b7280">Amount Due</td><td style="padding:8px 0;font-weight:600">৳${amount}</td></tr>
+      <tr><td style="padding:8px 0;color:#6b7280">Amount Due</td><td style="padding:8px 0;font-weight:600">${amount}</td></tr>
       <tr><td style="padding:8px 0;color:#6b7280">Due Date</td><td style="padding:8px 0;font-weight:600">${dueDate}</td></tr>
     </table>
     <a href="${billingUrl}" style="display:inline-block;background:${ctaColor};color:white;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;margin:8px 0">${ctaLabel}</a>
@@ -296,7 +321,7 @@ class FailedPaymentReconciler extends BaseJob {
                 {
                     invoiceNumber: invoice.invoice_number,
                     issue: action === 'suspended'
-                        ? 'Subscription suspended for overdue recurring invoice'
+                        ? (this.overduePolicyCopy() || 'Automated replies are paused until payment.')
                         : 'Invoice payment is overdue',
                     amount: invoice.amount,
                     dueDate: invoice.due_date

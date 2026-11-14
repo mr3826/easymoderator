@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ApiError, workspaceApi, type SearchResults } from '@/api/client';
 import { useGrowthAuth } from '@/auth/GrowthAuthProvider';
+import { planLabel } from '@/planLabel';
 
 const EMPTY_FEEDBACK = 'Nothing matched within your access scope. Try an exact email, phone digits, or unique shop code.';
 const MAX_SEARCH_QUERY_LENGTH = 100;
@@ -138,7 +139,7 @@ export function SearchPage() {
                     <div>
                       <Link to={`/merchants/${merchant.shopId}`}>{merchant.merchantName || merchant.shopId}</Link>
                       <p className="table-subtext">
-                        {merchant.planName ?? 'no plan'}
+                        {planLabel(merchant.planName)}
                         {merchant.owner?.email ? ` · ${merchant.owner.email}` : ''}
                         {typeof merchant.activated === 'boolean'
                           ? ` · ${merchant.activated ? 'activated' : 'not activated'}`

@@ -118,7 +118,7 @@ const makeHarness = ({ users = [], shops = [], tenants = [], memberships = [], s
 const runHarness = (harness) => runMetaReviewMerchantSeed(harness);
 
 describe('seed-meta-review-merchant', () => {
-    it('creates one normal merchant, paid Growth coverage, five products, owned images, and indexes', async () => {
+    it('creates one normal merchant on the delivered-order model with five products, owned images, and indexes', async () => {
         const harness = makeHarness();
         const result = await runHarness(harness);
 
@@ -140,7 +140,9 @@ describe('seed-meta-review-merchant', () => {
         });
         expect(result.shop.settings.ai.automation_mode).toBe('MANUAL');
         expect(result.shop.settings.ai.auto_reply_enabled).toBe(false);
-        expect(result.subscription.plan_code).toBe('GROWTH');
+        expect(result.subscription.plan_code).toBe('MERCHANT');
+        expect(result.subscription.plan_price).toBe(0);
+        expect(result.subscription.billing_model).toBe('per_order');
         expect(result.subscription.status).toBe('active');
         expect(result.subscription.conversations_used).toBe(0);
         expect(result.subscription.topup_balance).toBe(0);

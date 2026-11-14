@@ -124,6 +124,63 @@ test('(v) Growth OS product names and GROWTH_USER roles are not flagged', () => 
     });
 });
 
+test('(v-b) the internal Growth OS app is not the retired GROWTH plan', () => {
+    withTree({
+        'EasyMod-growth/src/pages/MerchantDetailPage.tsx': "export const label = 'Growth workspace';\n",
+        'scripts/run-growth-e2e.js': "console.log('Growth E2E fixture ready');\n",
+        'EasyMod-backend/src/scripts/seed-growth-e2e.js': "const name = 'Growth E2E Admin';\n",
+    }, (root) => {
+        const result = run(root, 'tokens');
+        assert.equal(result.status, 0, result.stdout);
+        assert.match(result.stdout, /PASS \(a\) forbidden-token scan/);
+    });
+});
+
+test('(v-b2) the mobile app is in scan scope for retired plan copy', () => {
+    withTree({
+        'EasyMod-mobile/src/screens/LegacyPlanScreen.tsx': "export const plan = 'Shuru';\n",
+    }, (root) => {
+        const result = run(root, 'tokens');
+        assert.equal(result.status, 1);
+        assert.match(result.stdout, /name\.shuru/);
+        assert.match(result.stdout, /EasyMod-mobile\/src\/screens\/LegacyPlanScreen\.tsx:1/);
+    });
+});
+
+test('(v-c) a merchant Growth plan copy in frontend/backend is still flagged', () => {
+    withTree({
+        'EasyMod-frontend/src/pages/Pricing.tsx': "export const plan = 'Growth';\n",
+        'EasyMod-backend/src/modules/billing/copy.js': "module.exports = 'Growth';\n",
+    }, (root) => {
+        const result = run(root, 'tokens');
+        assert.equal(result.status, 1);
+        assert.match(result.stdout, /name\.growth/);
+        assert.match(result.stdout, /EasyMod-frontend\/src\/pages\/Pricing\.tsx:1/);
+    });
+});
+
+test('(v-d) immutable applied migrations are historical record', () => {
+    withTree({
+        'EasyMod-backend/src/database/migrations/20260101_001_commercial.js': [
+            "await query(`ALTER TABLE subscriptions ALTER COLUMN plan_name SET DEFAULT 'Growth'`);",
+            "const price = '৳999 / month';",
+            '',
+        ].join('\n'),
+    }, (root) => {
+        const result = run(root, 'tokens');
+        assert.equal(result.status, 0, result.stdout);
+    });
+});
+
+test('(v-e) Growth OS component/role identifiers are not flagged', () => {
+    withTree({
+        'EasyMod-backend/src/internal/roles.js': "const label = 'Growth Users';\n",
+    }, (root) => {
+        const result = run(root, 'tokens');
+        assert.equal(result.status, 0, result.stdout);
+    });
+});
+
 test('(vi) the new ৳10 / ৳১০ price is not flagged', () => {
     withTree({
         'EasyMod-frontend/src/shared/pricing.ts': [
@@ -170,6 +227,16 @@ test('(b) an uppercase retired plan code in a compatibility path is allowed', ()
     }, (root) => {
         const result = run(root, 'retired');
         assert.equal(result.status, 0, result.stdout);
+    });
+});
+
+test('(c-b) an unregistered claim in the mobile app fails', () => {
+    withTree({
+        'EasyMod-mobile/src/screens/ClaimScreen.tsx': 'export const A = () => <Claim id="billing.not_registered" />;\n',
+    }, (root) => {
+        const result = run(root, 'registry');
+        assert.equal(result.status, 1);
+        assert.match(result.stdout, /unregistered claim id/);
     });
 });
 

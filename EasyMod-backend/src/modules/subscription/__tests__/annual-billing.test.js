@@ -1,10 +1,10 @@
 /**
- * Annual billing invariant — a yearly entitlement is a year long, and the
- * renewal it schedules is an annual one (entities and cache mocked).
+ * Historical annual rows — ADR-0011 retirement.
  *
- * Pairs with jobs/__tests__/invoice-generator.test.js: this asserts the period
- * that gets *written* when a yearly invoice is paid, that one asserts the
- * generator honours it.
+ * Annual billing and plan selection are retired. A pre-cutover yearly row that
+ * settles a residual invoice must still reactivate the shop, but activation
+ * normalizes it to the single MERCHANT delivered-order tier and anchors a
+ * monthly window; it never re-prices a year or revives an annual cycle.
  */
 
 jest.mock('../../entities', () => ({
@@ -29,6 +29,9 @@ const makeSubscription = (billingCycle) => {
     const sub = {
         id: 'sub-1',
         shop_id: 'shop-1',
+        plan_code: 'GROWTH',
+        plan_name: 'Growth',
+        plan_price: 9990,
         billing_cycle: billingCycle,
         status: 'suspended',
         update: jest.fn(async (values) => { Object.assign(sub, values); return sub; }),
@@ -41,25 +44,32 @@ const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / MS_PER_DA
 
 beforeEach(() => jest.clearAllMocks());
 
-describe('BILLING-YEARLY-001 — a paid yearly subscription is entitled for a year', () => {
-    it('anchors a period one year long', async () => {
+describe('BILLING-YEARLY-HISTORICAL — a residual annual row activates on the single tier', () => {
+    it('normalizes the plan to MERCHANT per_order with no annual fee', async () => {
+        const sub = makeSubscription('yearly');
+
+        await subscriptionService.activateFromPaidInvoice(sub, {
+            targetPlanCode: 'GROWTH',
+            targetBillingCycle: 'yearly',
+        });
+
+        expect(sub.plan_code).toBe('MERCHANT');
+        expect(sub.plan_name).toBe('MERCHANT');
+        expect(sub.plan_price).toBe(0);
+        expect(sub.billing_cycle).toBe('monthly');
+        expect(sub.billing_model).toBe('per_order');
+        expect(sub.per_order_charge_bdt).toBe(10);
+    });
+
+    it('anchors a monthly window, never a year', async () => {
         const sub = makeSubscription('yearly');
 
         await subscriptionService.activateFromPaidInvoice(sub);
 
         const days = daysBetween(sub.current_period_start, sub.current_period_end);
-        expect(days).toBeGreaterThanOrEqual(365);
-        expect(days).toBeLessThanOrEqual(366);
-    });
-
-    it('schedules the next renewal at the annual boundary, not a month out', async () => {
-        const sub = makeSubscription('yearly');
-
-        await subscriptionService.activateFromPaidInvoice(sub);
-
+        expect(days).toBeGreaterThanOrEqual(28);
+        expect(days).toBeLessThanOrEqual(31);
         expect(sub.next_billing_date).toEqual(sub.current_period_end);
-        expect(daysBetween(sub.current_period_start, sub.next_billing_date))
-            .toBeGreaterThanOrEqual(365);
     });
 
     it('restores AI access', async () => {
@@ -92,17 +102,16 @@ describe('recurring invoice types', () => {
         expect(recurringInvoiceTypeFor(cycle)).toBe(expected);
     });
 
-    // A yearly renewal that genuinely lapses must still gate AI — the fix defers
-    // annual dunning, it does not exempt annual subscribers from it.
-    it('treats every cycle as dunnable once actually overdue', () => {
+    // Residual pre-cutover invoices must still dunning-gate AI until settled.
+    it('keeps every historical recurring type dunnable', () => {
         expect(RECURRING_INVOICE_TYPES).toEqual(
-            expect.arrayContaining(['monthly_subscription', 'yearly_subscription', 'partner_per_order']),
+            expect.arrayContaining(['delivered_order', 'monthly_subscription', 'yearly_subscription', 'partner_per_order']),
         );
     });
 
-    // Discretionary purchases must never suspend a shop.
+    // Discretionary or retired one-offs must never suspend a shop.
     it('never treats a one-off as recurring', () => {
-        expect(RECURRING_INVOICE_TYPES).not.toContain('Proration (upgrade to Growth)');
+        expect(RECURRING_INVOICE_TYPES).not.toContain('Proration (upgrade)');
         expect(RECURRING_INVOICE_TYPES).not.toContain('topup');
     });
 });

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getCurrentPublicSubscriptionCatalog, type PublicSubscriptionCatalog } from "@/api/domains/publicSubscription";
 import { getPublicAddonCatalog, type PublicAddonDefinition } from "@/api/domains/publicAddons";
 import { trackFunnelEvent } from "@/app/lib/funnel";
 import { PublicFunnelFooter, PublicFunnelHeader, PublicFunnelSkipLink } from "./PublicFunnelChrome";
@@ -19,12 +18,8 @@ const LANDING_SCHEMA = {
   url: "https://easymod.tech/",
 };
 
-const REQUIRED_PLAN_CODES = ["SHURU", "GROWTH", "PARTNER"] as const;
-
 export default function LandingPage() {
   const { t } = useTranslation();
-  const [catalog, setCatalog] = useState<PublicSubscriptionCatalog | null>(null);
-  const [catalogError, setCatalogError] = useState(false);
   const [addons, setAddons] = useState<PublicAddonDefinition[] | null>(null);
   const [addonsError, setAddonsError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
@@ -32,25 +27,9 @@ export default function LandingPage() {
   useEffect(() => {
     trackFunnelEvent("landing_view", { surface: "landing" });
     let active = true;
-    setCatalog(null);
-    setCatalogError(false);
     setAddons(null);
     setAddonsError(false);
 
-    getCurrentPublicSubscriptionCatalog()
-      .then((result) => {
-        const publishedCodes = new Set(result.plans.map((plan) => plan.code));
-        if (result.source !== "live" || !REQUIRED_PLAN_CODES.every((code) => publishedCodes.has(code))) {
-          throw new Error("The published plan catalog is incomplete.");
-        }
-        if (active) setCatalog(result);
-      })
-      .catch(() => {
-        if (active) {
-          setCatalog(null);
-          setCatalogError(true);
-        }
-      });
     getPublicAddonCatalog()
       .then((result) => { if (active) setAddons(result); })
       .catch(() => { if (active) { setAddons(null); setAddonsError(true); } });
@@ -77,9 +56,6 @@ export default function LandingPage() {
         <StorySection />
         <TrustAndFaq />
         <PlanComparison
-          plans={catalog?.plans ?? []}
-          loading={!catalogError && catalog === null}
-          unavailable={catalogError}
           addons={addons}
           addonsLoading={!addonsError && addons === null}
           addonsUnavailable={addonsError}

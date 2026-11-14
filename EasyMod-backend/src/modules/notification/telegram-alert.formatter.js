@@ -2,6 +2,11 @@
 
 const { NOTIFICATION_EVENTS } = require('./notification-events');
 const { getOrigins } = require('../../config/origins');
+const {
+    COMMERCIAL_CONTRACT,
+    COMMERCIAL_CONTRACT_VERSION,
+    formatBdt,
+} = require('../commercial/commercial.contract');
 
 function baseAppUrl() {
     return getOrigins().app;
@@ -154,12 +159,18 @@ function formatTelegramAlert(eventType, payload = {}) {
             };
         }
         case NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE: {
+            // Copy is contract-derived: the merchant is billed per delivered
+            // order, never by a subscription. The event key stays historical.
+            const amountMinor = Number(payload.amountMinor);
             return {
-                title: 'Payment or subscription issue',
+                title: 'Delivered-order billing issue',
                 body: compactLines([
-                    'Payment or subscription issue / পেমেন্ট বা সাবস্ক্রিপশন সমস্যা',
+                    'Delivered-order billing issue / ডেলিভারি-ভিত্তিক বিল সমস্যা',
                     payload.issue ? `Issue: ${payload.issue}` : null,
-                    payload.invoiceNumber ? `Invoice: ${payload.invoiceNumber}` : null
+                    payload.invoiceNumber ? `Invoice: ${payload.invoiceNumber}` : null,
+                    Number.isFinite(amountMinor) ? `Amount: ${formatBdt(amountMinor)}` : null,
+                    `Contract v${COMMERCIAL_CONTRACT_VERSION}: `
+                        + `${formatBdt(COMMERCIAL_CONTRACT.unitPriceMinor)} per delivered order`
                 ]),
                 deepLink: deepLink('/subscription')
             };

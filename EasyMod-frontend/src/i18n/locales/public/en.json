@@ -10,8 +10,8 @@
     "meta": {
       "landingTitle": "EasyModerator | Messenger customer support and order review",
       "landingDescription": "Support customers through Facebook Messenger, use saved product information in replies, and review order details before the next step.",
-      "pricingTitle": "EasyModerator pricing | Get Your Moderator, Moderator Plus and Partnership",
-      "pricingDescription": "Compare current EasyModerator plan prices and conversation allowances, with Partner billing details.",
+      "pricingTitle": "EasyModerator pricing | Delivered-order billing",
+      "pricingDescription": "Pay per provider-confirmed delivered order. Returned and cancelled orders are billed at ৳0.00. No subscription, no setup fee and no monthly minimum.",
       "authTitle": "EasyModerator account access",
       "authDescription": "Sign in or create an EasyModerator merchant account."
     },
@@ -19,7 +19,7 @@
       "heroEyebrow": "Messenger-first work, with clearly scoped pilot tools",
       "heroTitle": "From Messenger messages to orders, from ad reports to clearer decisions—all in one dashboard.",
       "heroBody": "EasyModerator's core workflow supports Facebook Page Messenger customer work, saved product context and order review. Ads Studio and Storefront are limited, approval-gated pilots; they are not active by default and their billing terms are not activated.",
-      "primaryCta": "Create your Get Your Moderator account",
+      "primaryCta": "Create your EasyModerator account",
       "secondaryCta": "See the three steps",
       "sampleLabel": "Illustrative Messenger reply and order review workflow",
       "sampleInbox": "Customer Support",
@@ -68,7 +68,7 @@
           "title": "Business is growing, but the work isn't shrinking?",
           "solution": "Keep supported Facebook Page Messenger conversations, saved product context and order review in the EasyModerator workspace.",
           "limit": "Facebook Page Messenger is the supported customer channel; a customer request is not a confirmed order.",
-          "action": "Create your Get Your Moderator account"
+          "action": "Create an EasyModerator account"
         },
         "messages": {
           "title": "Drowning in messages?",
@@ -114,8 +114,8 @@
       "workflowBody": "Create your account, connect a Page you manage, then review the inbox and order details. Pilot tools require separate approval.",
       "steps": {
         "inquiry": {
-          "title": "Create your Get Your Moderator account",
-          "body": "New merchant accounts start on Get Your Moderator (SHURU). No payment details are needed to register."
+          "title": "Create your EasyModerator account",
+          "body": "New merchant accounts start on delivered-order billing. No payment details are needed to register."
         },
         "context": {
           "title": "Connect a Facebook Page",
@@ -135,7 +135,7 @@
       "trustEyebrow": "Clear boundaries",
       "trustTitle": "The merchant stays in control of the decision.",
       "trustBody": "Reply modes and order actions follow the shop's configured behavior and the checks available in the product. The page does not promise that every inquiry becomes an order.",
-      "separateBoundary": "Get Your Moderator, Moderator Plus and Partnership map to the existing SHURU, GROWTH and PARTNER plan records. Ads Studio and Storefront are separate, approval-gated pilots; billing terms are not active.",
+      "separateBoundary": "Delivered-order billing is the only merchant billing model. Ads Studio and Storefront are separate, approval-gated pilots; their billing terms are not active.",
       "faqTitle": "Questions merchants ask",
       "faq": {
         "channel": {
@@ -151,16 +151,16 @@
           "answer": "You choose Manual, Draft, or Auto. A Draft stays unsent until an authorized merchant or team member sends it. Auto sends only when the reply passes the shop's safety checks and Meta's messaging rules; otherwise it can be held for review. Meta's messaging window still applies."
         },
         "plans": {
-          "question": "Which plan does a new account get?",
-          "answer": "New accounts start on Get Your Moderator (SHURU). The current conversation limits and prices load from the published subscription catalog; the accepted-AI-reply targets are separate shadow measurements only."
+          "question": "How does a new account get billed?",
+          "answer": "New accounts are billed per provider-confirmed delivered order. Returned or cancelled orders are billed at ৳0.00; there is no subscription, setup fee or monthly minimum."
         },
         "separate": {
-          "question": "Are other products included in the subscription?",
-          "answer": "Ads Studio and Storefront are optional pilots, available only when a shop is approved and opts in. Their billing terms are not active; core plan billing is not changed by viewing the pilots."
+          "question": "Are other products included in the delivered-order price?",
+          "answer": "Ads Studio and Storefront are optional pilots, available only when a shop is approved and opts in. Their billing terms are not active; core delivered-order billing is not changed by viewing the pilots."
         }
       },
       "closingTitle": "A clearer way to handle customer support and order work.",
-      "closingBody": "Create an EasyModerator account on Get Your Moderator (SHURU) and continue setup from your dashboard. No payment information is required to register."
+      "closingBody": "Create an EasyModerator account and continue setup from your dashboard. Billing starts with your first provider-confirmed delivered order; no payment information is required to register."
     },
     "nav": {
       "primary": "Primary navigation",
@@ -185,7 +185,7 @@
       "title": "Bring customer replies and order work together.",
       "body": "Manage Facebook Messenger messages, product information, order review and eligible courier handoffs in one workspace. Use AI assistance while keeping each decision visible.",
       "primaryCta": "Create account",
-      "signupNote": "New accounts start on Get Your Moderator (SHURU). The published catalog shows current conversation allowances and billing terms.",
+      "signupNote": "New accounts are billed per provider-confirmed delivered order. See the pricing page for the published contract terms.",
       "sampleFlowLabel": "Sample Messenger work journey",
       "sampleFlowCaption": "One customer request, step by step",
       "sampleFlowNote": "Illustration only · no customer data",
@@ -249,16 +249,16 @@
           "boundary": "Booking, provider acceptance, delivery and settlement are separate states."
         }
       },
-      "commercialBoundary": "Compare Get Your Moderator, Moderator Plus and Partnership, including current entitlements and the separate shadow-measurement targets.",
-      "pricingEyebrow": "Clear plan choices",
-      "pricingTitle": "Choose the plan that fits your workflow",
-      "pricingBody": "New accounts start on Get Your Moderator (SHURU). Moderator Plus (GROWTH) and Partnership (PARTNER) retain their existing subscription and delivered-order billing records.",
+      "commercialBoundary": "See the delivered-order billing terms, including the BDT 0 outcome for returned or cancelled orders.",
+      "pricingEyebrow": "Clear pricing",
+      "pricingTitle": "One offer, billed per delivered order",
+      "pricingBody": "EasyModerator bills a flat amount per provider-confirmed delivered order. There is no subscription, setup fee, monthly minimum or conversation entitlement.",
       "closingTitle": "Make customer work easier to follow.",
-      "closingBody": "Create an account to enter the merchant workspace. You start on Get Your Moderator; selecting another plan does not change billing until the plan transition is confirmed.",
+      "closingBody": "Create an account to enter the merchant workspace. Billing starts with your first provider-confirmed delivered order.",
       "brandPromise": "Your initiative, our technology—moving forward together.",
-      "viewPricing": "Compare plans",
-      "catalogLoading": "Loading current plan details…",
-      "catalogUnavailable": "Current plan details are unavailable right now. Try again to load the published catalog.",
+      "viewPricing": "See pricing",
+      "catalogLoading": "Loading current pricing…",
+      "catalogUnavailable": "Current pricing is unavailable right now. Try again.",
       "retryCatalog": "Retry",
       "faqTitle": "Questions merchants ask",
       "faq": {
@@ -271,72 +271,31 @@
           "answer": "No. A Draft is saved for review and is not sent. Manual, Draft and Auto modes are available where enabled; sending and order decisions follow shop permissions and applicable messaging rules."
         },
         "quota": {
-          "question": "How is a conversation counted?",
-          "answer": "Messages in the same Messenger thread for the same shop, customer and Page count as one conversation while the thread stays active. A new conversation starts after 24 hours with no activity in that thread."
+          "question": "How is a Messenger thread grouped?",
+          "answer": "Messages in the same Messenger thread for the same shop, customer and Page stay together while the thread is active. A new thread starts after 24 hours with no activity."
         },
         "signup": {
           "question": "What happens when I create an account?",
-          "answer": "A new account starts on Shuru. Choosing Growth from this page does not purchase or activate Growth; Partner applications are reviewed separately."
+          "answer": "You get merchant workspace access, and billing starts with your first provider-confirmed delivered order. There is no subscription to choose at signup."
         }
       }
     },
     "pricing": {
-      "eyebrow": "Current public plan catalog",
-      "title": "Plans for your connected workflow",
-      "subtitle": "Compare published prices, current Messenger conversation allowances and Partnership terms. Reply targets shown separately are shadow-only and do not change current billing.",
-      "catalogLoading": "Loading current plan details…",
-      "catalogUnavailable": "Current plan details are unavailable right now. Try again to load the published catalog.",
+      "eyebrow": "Delivered-order billing",
+      "title": "Pay only for delivered orders",
+      "subtitle": "{{unitPrice}} per provider-confirmed delivered order. Returned or cancelled orders are billed at ৳0.00. No subscription, no setup fee and no monthly minimum.",
+      "catalogLoading": "Loading current pricing…",
+      "catalogUnavailable": "Current pricing is unavailable right now. Try again.",
       "retryCatalog": "Retry",
-      "perMonth": "/ month",
       "perDeliveredOrder": "per delivered order",
-      "partnerNoMonthlyFee": "No monthly subscription fee; billed by delivered order after approval.",
-      "conversationsPerMonth": "{{amount}} Messenger conversations each month",
-      "conversationCountNote": "We count one active Messenger thread for the same shop, customer, channel and Page. Messages in that thread count once until 24 hours pass with no thread activity.",
-      "unlimitedConversations": "Unlimited conversations",
-      "unlimitedOrders": "Unlimited orders",
-      "unlimitedProducts": "Unlimited products",
-      "includedLimits": "Published plan limits",
-      "shuruAction": "Create a Get Your Moderator account",
-      "growthAction": "Review Moderator Plus",
-      "getModeratorAction": "Create a Get Your Moderator account",
-      "moderatorPlusAction": "Review Moderator Plus",
-      "moderatorPlusNewAccountsNote": "New shops start with Get Your Moderator. Reviewing Moderator Plus does not activate an upgrade.",
-      "partnershipAction": "Request Partnership review",
-      "partnershipReviewNote": "Submitting a Partnership application requests review; it does not activate delivered-order billing.",
-      "partnershipApplicationTitle": "Partnership application",
-      "partnershipApplicationDescription": "Share your business details for review. This form sends a real application and does not change your plan.",
-      "partnershipSuccessTitle": "Partnership request received",
-      "partnershipSuccessBody": "Your request was recorded for review. Delivered-order billing and eligibility will be confirmed before activation.",
-      "growthMonthlyNote": "Growth is shown monthly. New annual selections are not available.",
-      "coreFeatureParity": "Get Your Moderator, Moderator Plus and Partnership retain the existing SHURU, GROWTH and PARTNER records. Current conversation entitlements and Partnership delivered-order billing remain authoritative.",
-      "topupsTitle": "Moderator Plus (GROWTH) conversation packs",
-      "topupsCaveat": "Eligible Moderator Plus (GROWTH) accounts only. Each pack is a separate one-time purchase, not part of the monthly plan fee. When bKash checkout is enabled, successful payment adds conversation credits to the balance. Unused balance carries into the next billing period. AI replies pause only after both the included allowance and top-up balance run out; manual replies remain available.",
-      "partnerQualification": "Partnership applications require review. Qualification is based on at least 300 delivered orders in the rolling 30-day window.",
-      "partnerRateTitle": "Partnership delivered-order billing period",
-      "partnerBillingNote": "For each Partnership invoice period, 0–299 delivered orders have no per-order fee. At 300 or more, the matching rate applies to every delivered order in that period. Period dates follow your account invoice, not calendar months. Application eligibility uses a separate rolling 30-day window.",
-      "partnerThresholdExample": "At {{belowThresholdOrders}} delivered orders: ৳0 per-order fees. At {{orders}}: {{orders}} × ৳{{rate}} = ৳{{total}} for the invoice period.",
-      "partnerAction": "Request Partnership review",
-      "partnerReviewNote": "Submitting an application requests review; it does not activate Partnership billing.",
-      "topupPack": "{{amount}} conversations · ৳{{price}} per pack",
-      "catalogUnitNote": "Current allowances and top-ups count Messenger conversations in the account billing period. The separate 300/3,000 accepted-AI-reply targets use UTC calendar months in shadow mode only: no fee, no enforcement, and no conversion of conversation credits.",
-      "shadowAllowanceLabel": "Non-billable support reply measurement",
-      "shadowAllowanceTitle": "{{amount}} accepted AI-generated replies per UTC calendar month (shadow target)",
-      "shadowAllowanceNote": "Measurement only; it is not billed or enforced. Your active allowance stays {{conversations}} Messenger conversations per account billing period; Moderator Plus top-ups still add conversations only.",
-      "separateBoundary": "The package names Get Your Moderator, Moderator Plus and Partnership map to SHURU, GROWTH and PARTNER. Ads Studio and Storefront are optional pilots requiring shop approval; their billing terms are not active.",
-      "applicationTitle": "Partnership application",
-      "applicationDescription": "Share your business details for review. This form sends an application and does not change your plan.",
-      "businessName": "Business name",
-      "phone": "Phone number",
-      "phoneFormatNote": "Use a Bangladesh mobile number such as 017XXXXXXXX. You can also enter +880 format.",
-      "phoneInvalid": "Enter a valid Bangladesh mobile number, such as 017XXXXXXXX.",
-      "facebookPage": "Facebook Page URL",
-      "applicationSubmit": "Send application for review",
-      "applicationSending": "Sending…",
-      "applicationSuccessTitle": "Application received",
-      "applicationSuccessBody": "Your Partnership application has been recorded for review. Your current plan has not changed.",
-      "applicationClose": "Close",
-      "applicationError": "The application could not be sent. Please try again later.",
-      "fieldRequired": "This field is required."
+      "separateBoundary": "Delivered-order billing is the only merchant billing model. Ads Studio and Storefront are optional pilots requiring shop approval; their billing terms are not active.",
+      "offerTitle": "Delivered-order billing",
+      "zeroRatedNote": "Returned or cancelled orders are billed at ৳0.00.",
+      "noFeesNote": "No subscription, setup fee or monthly minimum.",
+      "dueNote": "Billed monthly, postpaid, due within {{dueDays}} days.",
+      "capabilitiesTitle": "What the contract covers",
+      "contractVersionLabel": "Contract version {{version}}",
+      "cta": "Create an EasyModerator account"
     },
     "addons": {
       "eyebrow": "Optional add-ons",
@@ -496,7 +455,7 @@
         "coreCta": "See the core workflow",
         "optionalLabel": "Optional solutions",
         "optionalTitle": "Optional solutions, each with a clear scope.",
-        "optionalBody": "Store, brand, customer insight and campaign measurement solve different jobs, separate from Shuru, Growth and Partner subscriptions.",
+        "optionalBody": "Store, brand, customer insight and campaign measurement solve different jobs, separate from delivered-order billing.",
         "detailsCta": "Explore",
         "exploreNeed": "Explore {{name}}",
         "scope": {
@@ -507,17 +466,11 @@
         }
       },
       "plans": {
-        "eyebrow": "Commercial plans",
-        "title": "Plans for the way you do business.",
-        "body": "Choose Get Your Moderator (SHURU), Moderator Plus (GROWTH) or Partnership (PARTNER). Current prices and active conversation allowances load from the live catalog; 300/3,000 accepted-AI-reply targets are shadow-only. Ads Studio and Storefront are separate approval-gated pilots; billing terms are not active.",
-        "partnerBilling": "No upfront subscription; delivered-order billing",
-        "topupBoundary": "Moderator Plus (GROWTH) only: eligible accounts can buy conversation-credit packs separately when bKash checkout is enabled.",
-        "growthIntentNote": "New accounts start on Get Your Moderator (SHURU). Review Moderator Plus after signup; registration does not activate a paid plan.",
-        "catalogNote": "Current allowances and top-ups count Messenger conversations in the account billing period. The separate 300/3,000 accepted-AI-reply targets use UTC calendar months in shadow mode only: no fee, no enforcement, and no conversion of conversation credits.",
+        "eyebrow": "Pricing",
+        "title": "One offer for every shop",
+        "body": "{{unitPrice}} per provider-confirmed delivered order. Returned or cancelled orders are billed at ৳0.00. No subscription, no setup fee and no monthly minimum. Ads Studio and Storefront are separate approval-gated pilots; their billing terms are not active.",
         "actions": {
-          "shuru": "Create a Get Your Moderator account",
-          "growth": "Review Moderator Plus",
-          "partner": "Request Partnership review"
+          "offer": "Create an EasyModerator account"
         }
       },
       "trust": {
@@ -540,18 +493,17 @@
       }
     },
     "auth": {
-      "createAccount": "Create a Shuru account",
+      "createAccount": "Create an account",
       "createAccountHeading": "Your account details",
-      "createShuruButton": "Create your Get Your Moderator account",
+      "createShuruButton": "Create your EasyModerator account",
       "creatingAccount": "Creating account…",
       "email": "Email",
       "emailPlaceholder": "you@example.com",
       "forgotPassword": "Forgot password?",
-      "growthReviewOnShuru": "Your account starts on Get Your Moderator (SHURU). Review Moderator Plus after signup; creating an account does not activate a paid plan.",
       "haveAccount": "Already have an EasyModerator account?",
       "hidePassword": "Hide characters",
       "nameHelper": "We use your name for your account and first shop. You can change the shop name later under Business information.",
-      "newAccountsStartOnShuru": "A Get Your Moderator (SHURU) subscription is created with your account. You can review other current plans separately.",
+      "newAccountsStartOnShuru": "Accounts start on delivered-order billing: a flat fee per provider-confirmed delivered order, with no subscription or setup fee.",
       "noAccount": "New to EasyModerator?",
       "noPaidSubscriptionOnSignup": "No payment information is required to create an account.",
       "panelKicker": "Account access",
@@ -570,7 +522,7 @@
       "privacyPolicy": "Privacy policy",
       "rememberMe": "Keep me signed in on this device",
       "showPassword": "Show characters",
-      "shuruPlanLabel": "Starting plan · Get Your Moderator",
+      "shuruPlanLabel": "Starting model · Delivered-order billing",
       "signInButton": "Sign in",
       "signInKicker": "Welcome back",
       "signInPanelBody": "Continue your customer support, reply and order work from the EasyModerator dashboard.",
@@ -601,7 +553,8 @@
       "twoFactorVerify": "Verify",
       "twoFactorVerifying": "Verifying…",
       "yourName": "Your name",
-      "yourNamePlaceholder": "Your full name"
+      "yourNamePlaceholder": "Your full name",
+      "startingPrice": "{{unitPrice}} per provider-confirmed delivered order."
     },
     "validation": {
       "emailInvalid": "Enter a valid email address.",
@@ -619,124 +572,149 @@
       "termsRequired": "You must accept the terms and conditions."
     }
   },
-  "pricing": {
-    "label": "Pricing",
-    "mostPopular": "Most Popular",
-    "perMonth": "/mo",
-    "partnerApplyNote": "Apply after 300+ delivered orders in 30 days",
-    "partnerPriceUnit": "upfront",
-    "partnerEligibleBadge": "300+ delivered orders",
-    "partnerRateBandsTitle": "Pay per delivered order",
-    "partnerRateBand": "{{min}}–{{max}} orders: ৳{{rate}} each",
-    "applyNow": "Apply now",
-    "limits": {
-      "unlimitedConversations": "Unlimited conversations",
-      "conversationsPerMonth": "{{count}} customer conversations each month",
-      "deliveredOrders": "300+ delivered orders in 30 days to qualify",
-      "manualInbox": "Manual replies always available",
-      "unlimitedOrders": "Unlimited orders",
-      "ordersPerMonth": "{{count}} orders/mo",
-      "unlimitedProducts": "Unlimited products",
-      "products": "{{count}} products"
-    },
-    "features": {
-      "imageUnderstanding": "Understands product photos",
-      "advancedAi": "Better reply accuracy",
-      "prioritySupport": "Priority Support",
-      "customBranding": "Custom Branding (White-label)",
-      "facebookInbox": "Facebook sales inbox"
-    },
-    "planFeatures": {
-      "shuru": [
-        "100 customer conversations each month",
-        "Facebook Messenger inbox",
-        "Order capture and COD risk checks",
-        "Manual replies always available"
-      ],
-      "growth": [
-        "500 customer conversations each month",
-        "Facebook Messenger inbox",
-        "Order capture and COD risk checks",
-        "AI replies follow your conversation allowance"
-      ],
-      "partner": [
-        "300+ delivered orders in 30 days to qualify",
-        "No monthly fee",
-        "Unlimited customer conversations",
-        "Flat rate by delivered-order band"
-      ]
-    },
-    "plans": {
-      "shuru": {
-        "name": "Shuru",
-        "description": "No monthly plan fee; core customer-support and order workflows within Shuru’s published conversation allowance.",
-        "priceNote": "Free forever",
-        "cta": "Create free account"
+  "claims": {
+    "billing": {
+      "delivered_order": {
+        "en": "৳10.00 per provider-confirmed delivered order. No subscription, no setup fee, and no monthly minimum.",
+        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে ৳১০.০০। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।"
       },
-      "growth": {
-        "name": "Growth",
-        "description": "The same core customer-support and commerce tools with a larger conversation allowance.",
-        "priceNote": "Simple monthly billing",
-        "cta": "Start with Growth"
-      },
-      "partner": {
-        "name": "Partner",
-        "description": "No per-order fee for 0–299 delivered orders in an invoice period. At 300+, the period's rate applies to every delivered order.",
-        "priceNote": "Flat rate by delivered-order band",
-        "cta": "Apply for Partner"
+      "overdue_policy": {
+        "en": "If a bill is overdue, new courier bookings are blocked and automated replies pause. Your inbox and history stay readable, and nothing is deleted.",
+        "bn": "বিল বকেয়া হলে নতুন কুরিয়ার বুকিং বন্ধ থাকে এবং স্বয়ংক্রিয় রিপ্লাই বিরত থাকে। আপনার ইনবক্স ও হিস্টোরি পড়া যাবে, কিছুই মুছে ফেলা হয় না।"
       }
     },
-    "hero": {
-      "heading": "Smooth and honest pricing",
-      "subheading": "Start free with Shuru, grow with Growth, or join the Partner path.",
-      "badge1": "Messenger-only launch scope",
-      "badge2": "Free forever",
-      "badge3": "No hidden fees"
+    "courier": {
+      "pathao": {
+        "booking_live": {
+          "en": "Courier booking through Pathao is available.",
+          "bn": "Pathao-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "Pathao courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "Pathao কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "Pathao integration code is present.",
+          "bn": "Pathao ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "Pathao COD settlement reconciliation is supported.",
+          "bn": "Pathao COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
+            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
+          }
+        }
+      },
+      "steadfast": {
+        "booking_live": {
+          "en": "Courier booking through Steadfast is available.",
+          "bn": "Steadfast-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "Steadfast courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "Steadfast কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "Steadfast integration code is present.",
+          "bn": "Steadfast ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "Steadfast COD settlement reconciliation is supported.",
+          "bn": "Steadfast COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
+            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
+      },
+      "redx": {
+        "booking_live": {
+          "en": "Courier booking through RedX is available.",
+          "bn": "RedX-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "fallback": {
+            "en": "RedX courier booking is implemented but has not been verified on a live account yet.",
+            "bn": "RedX কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
+          }
+        },
+        "integration_status": {
+          "en": "RedX integration code is present.",
+          "bn": "RedX ইন্টিগ্রেশন কোড রয়েছে।"
+        },
+        "cod_settlement": {
+          "en": "RedX COD settlement reconciliation is supported.",
+          "bn": "RedX COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
+          "fallback": {
+            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
+            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
+      },
+      "all_providers": {
+        "en": "Courier booking through {{providers}} is live-verified.",
+        "bn": "{{providers}}—এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Courier booking is implemented, but it is not yet live-verified for all three providers.",
+          "bn": "কুরিয়ার বুকিং তৈরি হয়েছে, তবে তিনটি প্রোভাইডারের জন্যই এখনো লাইভ যাচাই হয়নি।"
+        }
+      }
     },
-    "partnerTeaser": {
-      "question": "Have 300+ delivered orders in 30 days?",
-      "link": "Learn about the Partner Plan →"
+    "voice": {
+      "transcription": {
+        "en": "Voice transcription is available.",
+        "bn": "ভয়েস ট্রান্সক্রিপশন পাওয়া যায়।",
+        "fallback": {
+          "en": "Voice transcription is a mock-only preview and is not live-verified.",
+          "bn": "ভয়েস ট্রান্সক্রিপশন শুধু মক প্রিভিউ, লাইভ যাচাইকৃত নয়।"
+        }
+      },
+      "auto_reply": {
+        "en": "Voice auto-reply is available.",
+        "bn": "ভয়েস অটো-রিপ্লাই পাওয়া যায়।",
+        "fallback": {
+          "en": "Voice auto-reply is not implemented.",
+          "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
+        }
+      }
     },
-    "included": {
-      "heading": "The same core features for every shop",
-      "subheading": "Choose your scale, not a restricted feature set. Growth is ৳{{price}}/month."
+    "ai": {
+      "auto_reply": {
+        "en": "Automated AI replies are enabled for this shop.",
+        "bn": "এই শপের জন্য স্বয়ংক্রিয় AI রিপ্লাই চালু আছে।",
+        "fallback": {
+          "en": "Automated AI replies have not been proven live; replies stay in draft for review.",
+          "bn": "স্বয়ংক্রিয় AI রিপ্লাই লাইভ প্রমাণিত নয়; রিপ্লাই পর্যালোচনার জন্য ড্রাফটে থাকে।"
+        }
+      },
+      "draft_reply": {
+        "en": "AI-assisted draft replies are available for review before sending.",
+        "bn": "পাঠানোর আগে পর্যালোচনার জন্য AI-সহায়ক ড্রাফট রিপ্লাই পাওয়া যায়।"
+      },
+      "reply_shadow_meter": {
+        "en": "AI reply shadow meter is available internally.",
+        "bn": "AI রিপ্লাই শ্যাডো মিটার অভ্যন্তরীণভাবে পাওয়া যায়।"
+      }
     },
-    "faq": {
-      "heading": "Frequently asked questions",
-      "q1": "Is Shuru really free?",
-      "a1": "Yes — Shuru is free forever with 100 customer conversations each month. No card is required.",
-      "q2": "What is Growth?",
-      "a2": "Growth is ৳{{price}}/month with 500 customer conversations per billing period.",
-      "q3": "How many customer conversations do I get per month?",
-      "a3": "Shuru includes 100 conversations per billing period and Growth includes 500.",
-      "q4": "What happens when the conversation limit runs out?",
-      "a4": "AI replies pause after the included conversation allowance is used. Manual replies remain available.",
-      "q5": "How do I apply for the Partner plan?",
-      "a5": "Apply from the Pricing page after building 300+ delivered orders in 30 days. Partner has no monthly fee and uses flat delivered-order bands: ৳15, ৳12, or ৳10."
-    },
-    "cta": {
-      "heading": "Ready to turn more messages into orders?",
-      "subheading": "Start free with Shuru. Upgrade when your Messenger volume grows.",
-      "button": "Get started now"
-    },
-    "partnerModal": {
-      "title": "Apply to become a Partner",
-      "subtitle": "Have 300+ delivered orders in 30 days? Partner has no monthly fee and flat delivered-order bands.",
-      "businessNameLabel": "Business Name",
-      "businessNamePlaceholder": "Your shop's name",
-      "phoneLabel": "Phone Number",
-      "pageLinkLabel": "Facebook Page Link",
-      "submit": "Send application",
-      "submitting": "Sending...",
-      "successTitle": "Application sent!",
-      "successMessage": "We'll review your application and get in touch soon.",
-      "successMessageEn": "Your application has been received. We'll be in touch soon.",
-      "ok": "OK",
-      "errors": {
-        "businessNameRequired": "Business name is required",
-        "phoneRequired": "Phone number is required",
-        "pageLinkRequired": "Page link is required",
-        "submitFailed": "Could not send the application. Please try again."
+    "addons": {
+      "ads_studio": {
+        "pilot": {
+          "en": "Ads Studio is enabled for this shop as an approved pilot.",
+          "bn": "এই শপে অনুমোদিত পাইলট হিসেবে Ads Studio চালু আছে।",
+          "fallback": {
+            "en": "Ads Studio is an approval-only pilot and is not enabled for this shop.",
+            "bn": "Ads Studio শুধু অনুমোদনসাপেক্ষ পাইলট এবং এই শপে চালু নেই।"
+          }
+        }
+      },
+      "storefront": {
+        "pilot": {
+          "en": "Storefront is enabled for this shop as an approved pilot.",
+          "bn": "এই শপে অনুমোদিত পাইলট হিসেবে Storefront চালু আছে।",
+          "fallback": {
+            "en": "Storefront is an approval-only pilot and is not enabled for this shop.",
+            "bn": "Storefront শুধু অনুমোদনসাপেক্ষ পাইলট এবং এই শপে চালু নেই।"
+          }
+        }
       }
     }
   }

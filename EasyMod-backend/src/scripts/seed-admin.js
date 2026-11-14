@@ -22,7 +22,8 @@ const { User, Shop, UserShop, Tenant, Subscription } = entities;
 const { hashPassword } = require('../utils/password.util');
 const { generateUniqueShopCode } = require('../modules/auth/auth.service');
 const cacheService = require('../utils/cache.service');
-const { PlanCode, PRICING_TIERS } = require('../modules/subscription/subscription.plans');
+const { PlanCode, getTierByCode } = require('../modules/subscription/subscription.plans');
+const { COMMERCIAL_CONTRACT } = require('../modules/commercial/commercial.contract');
 
 const ADMIN_EMAIL = requireInProduction('SEED_ADMIN_EMAIL') || process.env.SEED_ADMIN_EMAIL || 'admin@test.local';
 const ADMIN_PASSWORD = requireInProduction('SEED_ADMIN_PASSWORD') || process.env.SEED_ADMIN_PASSWORD || 'ChangeMe@LocalSeed1!';
@@ -44,25 +45,26 @@ function addMonths(date, months) {
 async function ensurePaidSubscription(shopId) {
     const now = new Date();
     const periodEnd = addMonths(now, PAID_MONTHS);
-    const growth = PRICING_TIERS[PlanCode.GROWTH];
-    const annual = PAID_MONTHS === 12;
+    const tier = getTierByCode(PlanCode.MERCHANT);
 
+    // ADR-0011: the row is a delivered-order entitlement, not a paid plan.
+    // There is no subscription fee, so the period window is seeded but priced 0.
     const payload = {
-        plan_code: growth.code,
-        plan_name: growth.name,
-        plan_price: annual ? growth.priceBdtYearly : growth.priceBdtMonthly * PAID_MONTHS,
-        billing_cycle: annual ? 'yearly' : 'monthly',
-        billing_model: growth.billingModel,
-        per_order_charge_bdt: growth.perOrderChargeBdt,
+        plan_code: tier.code,
+        plan_name: tier.name,
+        plan_price: 0,
+        billing_cycle: 'monthly',
+        billing_model: tier.billingModel,
+        per_order_charge_bdt: COMMERCIAL_CONTRACT.unitPriceMinor / 100,
         status: 'active',
-        conversations_limit: growth.conversationsLimit,
-        orders_limit: growth.ordersLimit,
-        products_limit: growth.productsLimit,
+        conversations_limit: tier.conversationsLimit,
+        orders_limit: tier.ordersLimit,
+        products_limit: tier.productsLimit,
         conversations_used: 0,
         orders_used: 0,
         products_used: 0,
         topup_balance: 0,
-        features: { ...growth.features },
+        features: { ...tier.features },
         current_period_start: now,
         current_period_end: periodEnd,
         next_billing_date: periodEnd,

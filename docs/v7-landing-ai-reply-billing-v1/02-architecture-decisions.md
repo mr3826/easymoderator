@@ -1,4 +1,9 @@
+<!-- HISTORICAL RECORD -->
 # V7 Architecture Decisions (Pre-Implementation)
+
+> **Historical record.** ADR-0011 (2026-11-14) supersedes the commercial terms
+> referenced in this document. Keep it for audit; do not render or copy its
+> subscription/plan terms.
 
 Status: accepted for implementation in **Landing L** and **Billing B1 shadow / B3 disabled**. B2 entitlement activation and B3 live-money activation remain blocked pending evidence gates.
 

@@ -5,7 +5,7 @@
 import { memo, useState } from "react";
 import {
   Bot, User, CheckCircle2, Edit3, Loader2, UserCheck, AlertTriangle,
-  Clock, ArrowLeft, Lock, FileText, RotateCcw, PanelRight,
+  Clock, ArrowLeft, FileText, RotateCcw, PanelRight,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -647,16 +647,7 @@ export function InboxThreadDetail({
                   {selectedConversation.hitl ? t("inbox.resumeAi") : t("inbox.takeOver")}
                 </button>
               </>
-            ) : (
-              <a
-                href="/subscription"
-                title="Upgrade to unlock AI features"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
-              >
-                <Lock className="w-4 h-4" />
-                {t("inbox.upgradeForAI")}
-              </a>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

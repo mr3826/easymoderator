@@ -202,7 +202,12 @@ describe('Shop Service', () => {
             expect.anything()
         );
         expect(Subscription.create).toHaveBeenCalledWith(
-            expect.objectContaining({ shop_id: 'shop-1', plan_code: 'SHURU', conversations_limit: 100 }),
+            expect.objectContaining({
+                shop_id: 'shop-1',
+                plan_code: 'MERCHANT',
+                billing_model: 'per_order',
+                conversations_limit: -1,
+            }),
             expect.anything()
         );
         expect(result.role).toBe('owner');

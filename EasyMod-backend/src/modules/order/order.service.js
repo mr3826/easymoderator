@@ -11,6 +11,7 @@ const { findOrderByIdempotencyKey } = require('./order-idempotency.service');
 const { isRuntimeFlagEnabled } = require('../../config/ai-runtime-flags');
 const { normalizeCourierProvider, normalizeTrackingId, trackingUnavailableMessage } = require('../delivery/tracking-identity');
 const { BUCKET_KEYS, buildBucketWhere, buildBucketSql } = require('./order-worklist.buckets');
+const { assertBookingAllowed } = require('../commercial/billing-standing.service');
 
 /**
  * Constants for order processing
@@ -3130,6 +3131,13 @@ const bookForOrder = async (orderOrShopId, orderOrOptions, maybeOptions) => {
             if (missingOrderData.length) {
                 return { state: 'setup_required', order: latestOrder, missingOrderData };
             }
+            // Billing standing (ADR-0011 C5). Runs INSIDE the claim
+            // transaction, AFTER the already-booked and committed
+            // draft-reconcile early returns above: a parcel that is already
+            // COMMITTED always reconciles — nothing is deleted and history
+            // stays readable. Only a NEW claim is refused while an invoice is
+            // past due. Local reads only; this does not call a provider.
+            await assertBookingAllowed(shopId, { transaction });
             return {
                 ...(await claimCourierDispatchRecord(latestOrder, shopId, resolution.provider, transaction)),
                 order: latestOrder,

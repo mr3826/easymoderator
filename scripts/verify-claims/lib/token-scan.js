@@ -15,7 +15,11 @@
 
 const { FORBIDDEN_TOKENS } = require('../../../EasyMod-backend/src/modules/commercial/commercial.contract');
 const { readText } = require('./repo');
-const { tokenScanAllowReason } = require('./allowlist');
+const {
+    tokenScanAllowReason,
+    tokenPathExclusions,
+    tokenLineExclusions,
+} = require('./allowlist');
 
 const HISTORICAL_HEADER = /^\s*<!--\s*HISTORICAL RECORD\s*-->/;
 
@@ -34,6 +38,10 @@ const compileTokens = (tokens = FORBIDDEN_TOKENS) => tokens.map((token) => ({
         // would advance lastIndex and skip matches.
         (token.excludeFlags || 'gi').replace(/g/g, ''),
     )),
+    // Path/line exclusions from allowlist.js are token-specific: they suppress
+    // only this token on this path/line, never the whole file.
+    pathExcludes: tokenPathExclusions(token.id),
+    lineExcludes: tokenLineExclusions(token.id),
 }));
 
 const isHistoricalRecord = (file, text) => (
@@ -73,6 +81,11 @@ function scanTokens({ root, files, tokens = FORBIDDEN_TOKENS }) {
             const line = lines[index];
             if (line === '') continue;
             for (const token of compiled) {
+                // Path-level, token-specific exclusions (e.g. `name.growth` in
+                // the internal Growth OS app) suppress only this token.
+                if (token.pathExcludes.some((exclude) => exclude.test(file))) continue;
+                // Line-level identifier exclusions (Growth Users, GrowthShell).
+                if (token.lineExcludes.some((exclude) => exclude.test(line))) continue;
                 // excludeSources name internal product/role identifiers. Test
                 // them against the path as well as the line: `growth-os` is a
                 // path namespace (modules/growth-os, scripts/...-growth-os...).

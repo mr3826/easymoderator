@@ -1468,24 +1468,40 @@ paths:
       responses:
         '200': { description: Updated }
 
-  /subscription/plans:
+  /public/commercial-contract:
     get:
       tags: [Subscription]
-      summary: Get public subscription plans
+      summary: Get the public delivered-order commercial contract
+      description: >
+        Sole merchant price authority (ADR-0011). Unauthenticated. snake_case
+        payload with the frozen contract, version, hash and the merchant-renderable
+        claim allowlist. There is no subscription, setup fee, monthly minimum,
+        conversation entitlement or top-up.
       security: []
       responses:
         '200':
-          description: Server-authoritative plan catalog
+          description: The frozen commercial contract
           content:
             application/json:
               schema:
-                type: object
-                required: [success, data]
-                properties:
-                  success: { type: boolean }
-                  data:
-                    type: array
-                    items: { $ref: '#/components/schemas/PublicPlan' }
+                $ref: '#/components/schemas/PublicCommercialContract'
+        '503': { description: Contract unavailable (fails closed) }
+
+  /subscription/plans:
+    get:
+      tags: [Subscription]
+      summary: Retired subscription catalog (410 Gone)
+      description: >
+        The SHURU/GROWTH/PARTNER catalog is superseded in full by
+        /public/commercial-contract. Kept for one release so old clients get an
+        explicit, machine-readable retirement instead of a second price authority.
+      security: []
+      responses:
+        '410':
+          description: Catalog retired
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetiredCatalog' }
 
   /subscription:
     parameters:
@@ -1508,69 +1524,37 @@ paths:
       - $ref: '#/components/parameters/RateLimitInfo'
     put:
       tags: [Subscription]
-      summary: Update subscription plan
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        content:
-          application/json:
-            example:
-              plan_code: GROWTH
-              billing_cycle: monthly
-            schema:
-              type: object
-              required: [plan_code]
-              properties:
-                plan_code:
-                  type: string
-                  enum: [SHURU, GROWTH]
-                billing_cycle:
-                  type: string
-                  enum: [monthly, yearly]
+      summary: Plan selection is retired (410 Gone)
+      description: >
+        Every shop is on the single MERCHANT delivered-order model; there is no
+        plan to select, upgrade or prorate.
       responses:
-        '200': { description: Plan updated }
+        '410':
+          description: Plan selection retired
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetiredCatalog' }
 
   /subscription/topup/packs:
     get:
       tags: [Subscription]
-      summary: List Growth top-up packs
+      summary: Top-up catalog is retired (410 Gone)
       responses:
-        '200': { description: Top-up catalog }
+        '410': { description: Conversation top-ups are retired }
 
   /subscription/topup/initiate:
     post:
       tags: [Subscription]
-      summary: Start a Growth top-up payment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [pack_code]
-              properties:
-                pack_code: { type: string, enum: [PACK_100, PACK_300, PACK_700] }
+      summary: Top-up purchase is retired (410 Gone)
       responses:
-        '201': { description: bKash checkout created }
-        '403': { description: Top-ups are restricted to Growth }
+        '410': { description: Conversation top-ups are retired }
 
   /subscription/topup/complete:
     post:
       tags: [Subscription]
-      summary: Complete a bound Growth top-up payment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [topup_id, payment_id]
-              properties:
-                topup_id: { type: string, format: uuid }
-                payment_id: { type: string }
+      summary: Top-up checkout is retired (410 Gone)
       responses:
-        '200': { description: Top-up completed or duplicate }
-        '403': { description: Payment ID is not bound to the transaction }
+        '410': { description: Conversation top-ups are retired }
 
   /subscription/renew:
     post:
@@ -1683,6 +1667,114 @@ paths:
               schema:
                 $ref: '#/components/schemas/Invoice'
         '404': { $ref: '#/components/responses/Error' }
+
+  /commercial/contract:
+    parameters:
+      - $ref: '#/components/parameters/XShopId'
+      - $ref: '#/components/parameters/RateLimitInfo'
+    get:
+      tags: [Subscription]
+      summary: Authenticated commercial contract and merchant claim allowlist
+      responses:
+        '200':
+          description: Frozen contract, hashes and merchant claim descriptors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    required: [contractVersion, contractHash, registryHash, contract, claims]
+                    properties:
+                      contractVersion: { type: string }
+                      contractHash: { type: string }
+                      registryHash: { type: string }
+                      contract: { $ref: '#/components/schemas/CommercialContract' }
+                      claims:
+                        type: array
+                        items: { $ref: '#/components/schemas/ClaimDescriptor' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Shop context required }
+
+  /commercial/claims:
+    parameters:
+      - $ref: '#/components/parameters/XShopId'
+      - $ref: '#/components/parameters/RateLimitInfo'
+    get:
+      tags: [Subscription]
+      summary: Server-evaluated claim decisions for a surface
+      parameters:
+        - name: surface
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [pricing, subscription, signup, landing, email, usage-banner, mobile, collateral, growth-os, admin, invoice]
+        - name: locale
+          in: query
+          required: false
+          schema: { type: string, enum: [en, bn], default: bn }
+      responses:
+        '200':
+          description: Claim decisions (fail-closed)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    required: [surface, locale, contractVersion, registryHash, decisions]
+                    properties:
+                      surface: { type: string }
+                      locale: { type: string, enum: [en, bn] }
+                      contractVersion: { type: string }
+                      registryHash: { type: string }
+                      decisions:
+                        type: array
+                        items: { $ref: '#/components/schemas/ClaimDecision' }
+        '400': { description: Unknown claim surface }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /commercial/billing-lines:
+    parameters:
+      - $ref: '#/components/parameters/XShopId'
+      - $ref: '#/components/parameters/RateLimitInfo'
+    get:
+      tags: [Subscription]
+      summary: Tenant-scoped billing lines for one invoice
+      parameters:
+        - name: invoiceId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Billing lines (billable + explicit zero-rated)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    required: [invoiceId, contractVersion, lines]
+                    properties:
+                      invoiceId: { type: string, format: uuid }
+                      contractVersion: { type: string }
+                      lines:
+                        type: array
+                        items: { $ref: '#/components/schemas/BillingLine' }
+        '400': { description: invoiceId must be a UUID }
+        '403': { description: Invoice does not belong to this shop }
+        '503': { description: Billing lines are not available yet }
 
   /webhooks/meta:
     get:
@@ -2102,112 +2194,182 @@ components:
         credentials:
           type: object
     Subscription:
+      description: >
+        Merchant subscription envelope (ADR-0011). The contract is the price
+        authority; the row carries the single MERCHANT delivered-order billing
+        state. Retired fields (effective_conversation_limit,
+        conversation_quota_exhausted, partner_eligibility, extra_usage) are gone.
       type: object
+      required: [subscription, plan, contract, contract_version, usage, period]
       properties:
-        id:
-          type: string
-        plan_code:
-          type: string
-          enum: [SHURU, GROWTH, PARTNER]
-        plan_name:
-          type: string
-        plan_price:
-          type: number
-        billing_cycle:
-          type: string
-          enum: [monthly, yearly, per_order]
-        status:
-          type: string
-        conversations_limit:
-          type: integer
-        topup_balance:
-          type: integer
-          minimum: 0
-        conversations_used:
-          type: integer
-        orders_used:
-          type: integer
-        products_used:
-          type: integer
-        current_period_start:
-          type: string
-          format: date-time
-        current_period_end:
-          type: string
-          format: date-time
-        next_billing_date:
-          type: string
-          format: date-time
+        subscription:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            shop_id: { type: string, format: uuid }
+            plan_code: { type: string, enum: [MERCHANT] }
+            plan_name: { type: string }
+            plan_price: { type: number, description: Always 0. No subscription fee. }
+            billing_cycle: { type: string, enum: [monthly] }
+            billing_model: { type: string, enum: [per_order] }
+            per_order_charge_bdt: { type: number, description: Derived from the commercial contract. }
+            status: { type: string }
+            current_period_start: { type: string, format: date-time }
+            current_period_end: { type: string, format: date-time }
+            next_billing_date: { type: string, format: date-time }
+        plan:
+          type: object
+          required: [code, name, billing_model]
+          properties:
+            code: { type: string, enum: [MERCHANT] }
+            name: { type: string }
+            billing_model: { type: string, enum: [per_order] }
+        contract: { $ref: '#/components/schemas/CommercialContract' }
+        contract_version: { type: string }
+        contract_hash: { type: string }
         usage:
           type: object
           properties:
             conversations: { $ref: '#/components/schemas/UsageMetric' }
             orders: { $ref: '#/components/schemas/UsageMetric' }
             products: { $ref: '#/components/schemas/UsageMetric' }
-        effective_conversation_limit:
-          type: integer
-        conversation_quota_exhausted:
-          type: boolean
         period:
           type: object
           properties:
             start: { type: string, format: date-time }
             end: { type: string, format: date-time }
-        partner_eligibility:
+    CommercialContract:
+      type: object
+      required: [contractVersion, model, currency, unitPriceMinor, dueDays]
+      properties:
+        contractVersion: { type: string }
+        schemaName: { type: string }
+        model: { type: string, enum: [DELIVERED_ORDER] }
+        currency: { type: string, enum: [BDT] }
+        trigger: { type: string, enum: [ORDER_DELIVERED_PROVIDER_CONFIRMED] }
+        unitPriceMinor: { type: integer, description: Integer poisha per delivered order. }
+        zeroRatedOutcomes:
+          type: array
+          items: { type: string }
+        subscriptionFeeMinor: { type: integer, enum: [0] }
+        setupFeeMinor: { type: integer, enum: [0] }
+        monthlyMinimumMinor: { type: integer, enum: [0] }
+        conversationEntitlement: { type: object, nullable: true, enum: [null] }
+        cycle: { type: string, enum: [MONTHLY] }
+        payment: { type: string, enum: [POSTPAID] }
+        dueDays: { type: integer }
+        onOverdue:
           type: object
           properties:
-            delivered_orders_30d: { type: integer }
-            minimum_delivered_orders: { type: integer }
-            eligible: { type: boolean }
-            available: { type: boolean }
-        extra_usage:
+            blockCourierBooking: { type: boolean }
+            pauseAutomatedAi: { type: boolean }
+            keepInboxReadable: { type: boolean }
+            keepHistoryReadable: { type: boolean }
+            deleteData: { type: boolean, enum: [false] }
+    PublicCommercialContract:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          required: [contract_version, contract_hash, model, currency, unit_price_minor, due_days]
+          properties:
+            contract_version: { type: string }
+            contract_hash: { type: string }
+            model: { type: string, enum: [DELIVERED_ORDER] }
+            currency: { type: string, enum: [BDT] }
+            trigger: { type: string }
+            unit_price_bdt: { type: number }
+            unit_price_minor: { type: integer }
+            zero_rated_outcomes:
+              type: array
+              items: { type: string }
+            subscription_fee_bdt: { type: number, enum: [0] }
+            setup_fee_bdt: { type: number, enum: [0] }
+            monthly_minimum_bdt: { type: number, enum: [0] }
+            conversation_entitlement: { type: object, nullable: true }
+            cycle: { type: string }
+            payment: { type: string }
+            due_days: { type: integer }
+            description:
+              type: object
+              properties:
+                en: { type: string }
+                bn: { type: string }
+    ClaimDescriptor:
+      type: object
+      required: [id, verifiedScope, surfaces, i18nKey]
+      properties:
+        id: { type: string }
+        verifiedScope: { type: string, nullable: true }
+        surfaces:
+          type: array
+          items: { type: string }
+        i18nKey:
           type: object
           properties:
-            conversations: { type: integer }
-            charge: { type: number }
+            en: { type: string }
+            bn: { type: string }
+        fallbackI18nKey:
+          type: object
+          nullable: true
+          properties:
+            en: { type: string }
+            bn: { type: string }
+    ClaimDecision:
+      type: object
+      required: [claimId, available, render, locale, surface, mode, contractVersion, registryHash]
+      properties:
+        claimId: { type: string }
+        available: { type: boolean }
+        render: { type: string, enum: [claim, fallback, none] }
+        textKey: { type: string, nullable: true }
+        locale: { type: string, enum: [en, bn] }
+        surface: { type: string }
+        scope:
+          type: object
+          properties:
+            claimedProviders: { type: array, items: { type: string }, nullable: true }
+            verifiedProviders: { type: array, items: { type: string }, nullable: true }
+            match: { type: boolean }
+            text: { type: string, nullable: true }
+        interpolation: { type: object }
+        mode: { type: string, enum: [off, shadow, enforce] }
+        predicate: { type: object }
+        wouldBlock: { type: boolean }
+        contractVersion: { type: string }
+        registryHash: { type: string }
+    BillingLine:
+      description: One terminal commercial outcome for one order. Integer poisha.
+      type: object
+      required: [id, invoiceId, orderId, lineKind, outcome, unitPriceMinor, amountMinor, currency, contractVersion]
+      properties:
+        id: { type: string, format: uuid }
+        invoiceId: { type: string, format: uuid, nullable: true }
+        orderId: { type: string, format: uuid }
+        lineKind: { type: string, enum: [billable, zero_rated] }
+        outcome: { type: string, enum: [DELIVERED, RETURNED, CANCELLED] }
+        unitPriceMinor: { type: integer }
+        amountMinor: { type: integer, description: 0 for explicit zero-rated outcomes. }
+        currency: { type: string, enum: [BDT] }
+        contractVersion: { type: string }
+        createdAt: { type: string, format: date-time }
+    RetiredCatalog:
+      type: object
+      required: [success, code, message]
+      properties:
+        success: { type: boolean, enum: [false] }
+        code: { type: string, enum: [CATALOG_RETIRED] }
+        message: { type: string }
+        successor: { type: string }
     UsageMetric:
       type: object
       properties:
         used: { type: integer }
-        limit: { type: integer }
-        included_limit: { type: integer }
-        topup_balance: { type: integer }
+        limit: { type: integer, description: -1 means unlimited. }
         percentage: { type: number }
         status: { type: string, enum: [safe, warning, exceeded] }
-    PublicPlan:
-      type: object
-      required: [code, name, billing_model, price_bdt_monthly, conversations_limit, can_purchase_topups]
-      properties:
-        code: { type: string, enum: [SHURU, GROWTH, PARTNER] }
-        name: { type: string }
-        description: { type: string }
-        billing_model: { type: string, enum: [flat_monthly, per_order] }
-        price_bdt_monthly: { type: number, minimum: 0 }
-        price_bdt_yearly: { type: number, minimum: 0 }
-        conversations_limit: { type: integer }
-        orders_limit: { type: integer }
-        products_limit: { type: integer }
-        can_purchase_topups: { type: boolean }
-        per_order_charge_bdt: { type: number, nullable: true }
-        features: { type: object }
-        topup_packs:
-          type: array
-          items: { $ref: '#/components/schemas/TopupPack' }
-        partner_order_tiers:
-          type: array
-          items:
-            type: object
-            properties:
-              minOrders: { type: integer }
-              maxOrders: { type: integer, nullable: true }
-              rateBdt: { type: number }
-    TopupPack:
-      type: object
-      required: [code, conversations, priceBdt]
-      properties:
-        code: { type: string, enum: [PACK_100, PACK_300, PACK_700] }
-        conversations: { type: integer }
-        priceBdt: { type: number }
     Invoice:
       type: object
       properties:

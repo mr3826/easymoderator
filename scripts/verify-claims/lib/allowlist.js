@@ -2,13 +2,15 @@
 
 /**
  * Explicit, reasoned allowlists. ADR-0002 discipline: each entry names what it
- * permits and why; none is a bare "everything" wildcard. Seeds are NOT
- * allowlisted for the token scan — Phase 2 must rewrite their price copy.
+ * permits and why; none is a bare "everything" wildcard. Seeds are not blanket
+ * allowlisted — only the Growth OS staff seed paths are exempt from the
+ * `name.growth` token, while retired price copy in any seed stays flagged.
  */
 
 const normalize = (file) => String(file).split('\\').join('/');
 
 const CONTRACT_MODULE = 'EasyMod-backend/src/modules/commercial/commercial.contract.js';
+const SCANNER_ROOT = 'scripts/verify-claims/';
 const SCANNER_FIXTURES = 'scripts/verify-claims/__tests__/fixtures/';
 
 const isTestPath = (p) => (
@@ -19,14 +21,98 @@ const isTestPath = (p) => (
 );
 
 /**
+ * Immutable applied schema history. Migrations are the recorded terms that were
+ * actually applied, including retired plan names and prices; editing one would
+ * rewrite history and break already-migrated databases. They are never
+ * rendered to a merchant, so the forbidden-token scan exempts the whole file.
+ * `archive/` at the repository root holds the same kind of retired record.
+ *
+ * Explicit and reasoned (ADR-0002): no bare wildcard, and this does NOT cover
+ * `modules/` or merchant-facing copy.
+ */
+const HISTORICAL_RECORD_PATHS = Object.freeze([
+    {
+        pattern: /^EasyMod-backend\/src\/database\/migrations\//,
+        reason: 'historical-migration: immutable applied schema history; never edited or rendered',
+    },
+    {
+        pattern: /^archive\//,
+        reason: 'historical-archive: retired records preserved for audit; never rendered',
+    },
+]);
+
+/**
+ * Per-token PATH exclusions. Unlike a file-level allowlist these suppress only
+ * the named token on the named path, so the rest of the token set still scans
+ * those files (a retired price in the Growth app is still flagged).
+ *
+ * The only entry is `name.growth`, whose `\bGrowth\b` source also matches the
+ * internal "Growth OS" product/role identifiers. Growth OS is an internal
+ * console (claim-registry mode `off`), not the retired GROWTH plan. Merchant
+ * "Growth" plan copy in the frontend/backend is deliberately NOT excluded.
+ */
+const TOKEN_PATH_EXCLUSIONS = Object.freeze([
+    {
+        tokenId: 'name.growth',
+        pattern: /^EasyMod-growth\//,
+        reason: 'internal Growth OS app: product name, not the retired GROWTH plan',
+    },
+    {
+        tokenId: 'name.growth',
+        pattern: /(^|\/)growth-os\//,
+        reason: 'internal Growth OS namespace (modules/growth-os, docs, tests)',
+    },
+    {
+        tokenId: 'name.growth',
+        pattern: /^scripts\/run-growth-[^/]*\.js$/,
+        reason: 'internal Growth OS e2e/image runner scripts',
+    },
+    {
+        tokenId: 'name.growth',
+        pattern: /^EasyMod-backend\/src\/scripts\/seed-growth[^/]*\.js$/,
+        reason: 'Growth OS staff seed script (internal identities, not plan copy)',
+    },
+    {
+        tokenId: 'name.growth',
+        pattern: /^EasyMod-backend\/src\/scripts\/seed-initial-growth-admin\.js$/,
+        reason: 'Growth OS staff seed script (internal identities, not plan copy)',
+    },
+]);
+
+/**
+ * Per-token LINE exclusions for internal product/component identifiers that
+ * contain the word "Growth" with a word boundary (e.g. "Growth Users",
+ * `GrowthShell`, `GrowthUsersPage`). These are role/component names, never a
+ * merchant-facing plan claim.
+ */
+const TOKEN_LINE_EXCLUSIONS = Object.freeze([
+    {
+        tokenId: 'name.growth',
+        pattern: /\bGrowth(?:[\s_-]*Users?|Shell|UsersPage)\b/i,
+        reason: 'internal Growth OS component/role identifier',
+    },
+    {
+        tokenId: 'name.growth',
+        pattern: /\bGrowth\s+(?:frontend|health|suites?)\b/i,
+        reason: 'internal Growth OS deploy/health/test-suite reference in ops scripts',
+    },
+]);
+
+/**
  * Reason a file is exempt from the forbidden-token scan, or null.
  *
- * Only four exemptions exist:
+ * Exemptions, each explicit and reasoned (ADR-0002):
  *   1. the frozen contract module itself (it defines the tokens);
- *   2. test files (fixtures assert retired copy is caught);
- *   3. this scanner's own fixtures (deliberate retired tokens);
- *   4. historical Markdown records OUTSIDE the four product modules — handled
+ *   2. the archived legacy plan catalog (codes/numbers only, never rendered);
+ *   3. immutable applied migrations and root `archive/` (historical record);
+ *   4. test files (fixtures assert retired copy is caught);
+ *   5. this scanner's own fixtures (deliberate retired tokens);
+ *   6. historical Markdown records OUTSIDE the four product modules — handled
  *      by header in token-scan.js, never by path alone.
+ *
+ * NOTE: Growth OS product paths are NOT exempt here. They use the narrower,
+ * token-specific `TOKEN_PATH_EXCLUSIONS` above so only `name.growth` is
+ * suppressed and any other retired copy there is still caught.
  */
 function tokenScanAllowReason(file) {
     const p = normalize(file);
@@ -34,9 +120,28 @@ function tokenScanAllowReason(file) {
     if (/(^|\/)subscription\.legacy-plans\.js$/.test(p)) {
         return 'legacy-plan-catalog: archived CODES and numeric terms only, for historical invoices/top-ups; never rendered';
     }
+    const historical = HISTORICAL_RECORD_PATHS.find((entry) => entry.pattern.test(p));
+    if (historical) return historical.reason;
     if (p.startsWith(SCANNER_FIXTURES)) return 'scanner-fixture: deliberate retired copy for self-tests';
+    if (p.startsWith(SCANNER_ROOT)) {
+        return 'scanner-implementation: names the retired tokens and internal identifiers it detects (self-reference)';
+    }
     if (isTestPath(p)) return 'test-file: assertions and fixtures are not rendered';
     return null;
+}
+
+/** RegExp path exclusions that apply only to `tokenId`. */
+function tokenPathExclusions(tokenId) {
+    return TOKEN_PATH_EXCLUSIONS
+        .filter((entry) => entry.tokenId === tokenId)
+        .map((entry) => entry.pattern);
+}
+
+/** RegExp line exclusions that apply only to `tokenId`. */
+function tokenLineExclusions(tokenId) {
+    return TOKEN_LINE_EXCLUSIONS
+        .filter((entry) => entry.tokenId === tokenId)
+        .map((entry) => entry.pattern);
 }
 
 /**
@@ -93,9 +198,15 @@ function retiredCodeAllowReason(file) {
 
 module.exports = {
     CONTRACT_MODULE,
+    SCANNER_ROOT,
     SCANNER_FIXTURES,
+    HISTORICAL_RECORD_PATHS,
+    TOKEN_PATH_EXCLUSIONS,
+    TOKEN_LINE_EXCLUSIONS,
     isTestPath,
     tokenScanAllowReason,
+    tokenPathExclusions,
+    tokenLineExclusions,
     RETIRED_CODE_COMPAT,
     retiredCodeAllowReason,
 };

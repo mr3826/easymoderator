@@ -15,7 +15,9 @@ import { PasswordStrengthMeter } from "@/features/auth/components/PasswordStreng
 import { trackFunnelEvent } from "@/app/lib/funnel";
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { buildMarketingUrlWithLocale } from "@/app/lib/config";
-import { getSignupSuccessPath, isGrowthUpgradeIntent } from "@/app/lib/signupIntent";
+import { getSignupSuccessPath } from "@/app/lib/signupIntent";
+import { useCommercialContract } from "@/api/domains/commercialContract";
+import { formatBdt, formatBdtBn } from "@/shared/contracts/commercial-contract";
 import Seo from "./Seo";
 import "./public-funnel.css";
 import "./landing-v6.css";
@@ -26,7 +28,12 @@ export default function Signup() {
   const { t, i18n } = useTranslation();
   const { signup } = useAuth();
   const locale = i18n.resolvedLanguage || i18n.language;
-  const growthIntent = isGrowthUpgradeIntent(searchParams);
+  const isBangla = locale.toLowerCase().startsWith("bn");
+  const contractQuery = useCommercialContract();
+  const contract = contractQuery.data;
+  const unitPrice = contract
+    ? (isBangla ? formatBdtBn(contract.unit_price_minor) : formatBdt(contract.unit_price_minor))
+    : null;
   const [showPassword, setShowPassword] = useState(false);
   const signupInFlight = useRef(false);
   const schema = useMemo(() => createSignupSchema({
@@ -113,7 +120,12 @@ export default function Signup() {
           <h2 id="signup-form-title">{t("publicFunnel.auth.createAccountHeading")}</h2>
           <div className="auth-v6-shuru-summary">
             <strong>{t("publicFunnel.auth.shuruPlanLabel")}</strong>
-            <span>{growthIntent ? t("publicFunnel.auth.growthReviewOnShuru") : t("publicFunnel.auth.newAccountsStartOnShuru")}</span>
+            <span>{t("publicFunnel.auth.newAccountsStartOnShuru")}</span>
+            {unitPrice && (
+              <span data-contract-version={contract?.contract_version}>
+                {t("publicFunnel.auth.startingPrice", { unitPrice })}
+              </span>
+            )}
             <span>{t("publicFunnel.auth.noPaidSubscriptionOnSignup")}</span>
             <span>{t("publicFunnel.auth.signupNextStep")}</span>
             <a href={buildMarketingUrlWithLocale("/pricing", locale)} className="mt-1 inline-flex w-fit text-sm font-bold text-[#4C3DA8] underline underline-offset-4">

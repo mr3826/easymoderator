@@ -7,10 +7,14 @@ const { Op } = require('sequelize');
 const { joinOrigin, resolvePublicAssetOrigin } = require('../config/origins');
 const {
     PlanCode,
-    PRICING_TIERS,
+    InvoiceType,
     RECURRING_INVOICE_TYPES,
-    recurringInvoiceTypeFor,
+    getTierByCode,
 } = require('../modules/subscription/subscription.plans');
+const {
+    COMMERCIAL_CONTRACT,
+    COMMERCIAL_CONTRACT_VERSION,
+} = require('../modules/commercial/commercial.contract');
 
 const SEED_KEY = 'meta-review-merchant-v1';
 const SEED_CONFIRMATION = 'META-REVIEW-SEED';
@@ -20,7 +24,7 @@ const TENANT_NAME = 'EasyModerator Meta Review Tenant';
 const BUSINESS_NAME = 'EasyModerator Review Store';
 const SHOP_CODE = 'META-REVIEW-01';
 const NAMESPACE = '06a7e6b9-7d4c-4e75-9a34-91fd3f8b7f11';
-const INVOICE_TYPE = recurringInvoiceTypeFor('monthly');
+const INVOICE_TYPE = InvoiceType.DELIVERED_ORDER;
 const PAYMENT_METHOD = 'manual_test_reconciliation';
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MEDIA_TIMEOUT_MS = 10_000;
@@ -152,7 +156,8 @@ const PAYMENT_METADATA = Object.freeze({
     purpose: 'META_APP_REVIEW',
     payment_source: 'INTERNAL_SEED',
     reference: 'META_APP_REVIEW_SEED',
-    plan_code: PlanCode.GROWTH,
+    plan_code: PlanCode.MERCHANT,
+    contractVersion: COMMERCIAL_CONTRACT_VERSION,
     no_real_money_collected: true,
 });
 
@@ -403,18 +408,18 @@ const ensureOwnerMembership = async ({ UserShop, user, shop, transaction }) => {
 };
 
 const planSubscriptionValues = (subscription, { initializeUsage, periodStart, periodEnd }) => {
-    const tier = PRICING_TIERS[PlanCode.GROWTH];
-    if (!tier || tier.billingModel !== 'flat_monthly' || !(tier.priceBdtMonthly > 0)) {
-        throw new Error('The current paid merchant plan is not a usable flat monthly plan');
+    const tier = getTierByCode(PlanCode.MERCHANT);
+    if (!tier || tier.billingModel !== 'per_order') {
+        throw new Error('The active merchant tier is not the delivered-order model');
     }
 
     const values = {
         plan_code: tier.code,
         plan_name: tier.name,
-        plan_price: tier.priceBdtMonthly,
+        plan_price: 0,
         billing_cycle: 'monthly',
         billing_model: tier.billingModel,
-        per_order_charge_bdt: null,
+        per_order_charge_bdt: COMMERCIAL_CONTRACT.unitPriceMinor / 100,
         partner_orders_this_week: 0,
         partner_pending_invoice_amount: 0,
         status: 'active',
@@ -458,9 +463,12 @@ const ensureSubscription = async ({ Subscription, Invoice, shop, transaction }) 
     let subscription = await Subscription.findOne({ where: { shop_id: shop.id }, transaction });
 
     if (subscription) {
-        if (String(subscription.plan_code || '').toUpperCase() === PlanCode.PARTNER
-            || subscription.billing_model === 'per_order') {
-            throw conflict('the review shop already has a Partner/per-order subscription');
+        // Re-runs must recognize their own MERCHANT/per_order row. Only a
+        // foreign Partner or per_order subscription is a conflict.
+        const seedOwned = String(subscription.id) === String(stableId('subscription'));
+        const legacyPartner = String(subscription.plan_code || '').toUpperCase() === PlanCode.PARTNER;
+        if (!seedOwned && (legacyPartner || subscription.billing_model === 'per_order')) {
+            throw conflict('the review shop already has an incompatible per-order subscription');
         }
         const invoices = await Invoice.findAll({ where: { subscription_id: subscription.id }, transaction });
         const billingStateConflict = invoices.filter((invoice) => (
@@ -533,8 +541,10 @@ const ensureInvoice = async ({ Invoice, subscription, shop, period, now, transac
         billing_period_start: new Date(period.start),
         billing_period_end: new Date(period.end),
         invoice_type: INVOICE_TYPE,
-        amount: PRICING_TIERS[PlanCode.GROWTH].priceBdtMonthly,
-        base_amount: PRICING_TIERS[PlanCode.GROWTH].priceBdtMonthly,
+        // ADR-0011: no subscription fee. A review period with no delivered
+        // orders is an explicit BDT 0 delivered-order invoice.
+        amount: 0,
+        base_amount: 0,
         extra_usage_amount: 0,
         addon_amount: 0,
         status: 'paid',
@@ -547,7 +557,19 @@ const ensureInvoice = async ({ Invoice, subscription, shop, period, now, transac
         checkout_lease_id: null,
         checkout_lease_expires_at: null,
         notes: 'Internal Meta App Review seed settlement; no real money was collected; exclude from revenue reporting.',
-        metadata: { ...currentMetadata, ...PAYMENT_METADATA },
+        metadata: {
+            ...currentMetadata,
+            ...PAYMENT_METADATA,
+            contractVersion: COMMERCIAL_CONTRACT_VERSION,
+            model: COMMERCIAL_CONTRACT.model,
+            currency: COMMERCIAL_CONTRACT.currency,
+            unit_price_minor: COMMERCIAL_CONTRACT.unitPriceMinor,
+            deliveredCount: 0,
+            zeroRatedCount: 0,
+            grossMinor: 0,
+            creditMinor: 0,
+            netMinor: 0,
+        },
     };
 
     if (!invoice) {

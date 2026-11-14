@@ -13,7 +13,7 @@
     "notifications": "নোটিফিকেশন",
     "faqs": "FAQ",
     "settings": "সেটিংস",
-    "subscription": "সাবস্ক্রিপশন",
+    "subscription": "বিলিং",
     "shopSettings": "শপ সেটিংস",
     "collapse": "ছোট করুন",
     "inbox": "ইনবক্স",
@@ -248,58 +248,6 @@
         }
       ]
     },
-    "pricing": {
-      "label": "প্রাইসিং",
-      "heading": "মসৃণ ও সৎ মূল্য নির্ধারণ",
-      "subheading": "Shuru দিয়ে ফ্রি শুরু করুন, Growth-এ বাড়ুন, অথবা Partner path বেছে নিন।",
-      "badge1": "চিরদিন ফ্রি",
-      "badge2": "কোনো hidden fee নেই",
-      "details": "Pricing details দেখুন",
-      "perMonth": "/মাস",
-      "mostPopular": "সবচেয়ে জনপ্রিয়",
-      "getStarted": "Shuru দিয়ে ফ্রি শুরু করুন",
-      "partnerBadge": "৩০০+ ডেলিভার্ড অর্ডার",
-      "partnerPrice": "৳০",
-      "partnerPriceUnit": "upfront",
-      "becomePartner": "Partner-এর জন্য আবেদন →",
-      "freeForever": "চিরদিন ফ্রি",
-      "unlimitedConversations": "আনলিমিটেড কনভারসেশন",
-      "conversationsPerMonth": "প্রতি মাসে {{count}}টি কাস্টমার কনভারসেশন",
-      "partnerRateBands": "Delivered-order band",
-      "partnerRateBand": "{{min}}–{{max}}: প্রতি delivered order-এ ৳{{rate}}",
-      "plans": {
-        "shuru": {
-          "description": "Messenger sales শুরু করার জন্য চিরদিন ফ্রি।",
-          "cta": "ফ্রি অ্যাকাউন্ট তৈরি করুন",
-          "highlights": [
-            "প্রতি মাসে ১০০টি কাস্টমার কনভারসেশন",
-            "Facebook Messenger ইনবক্স",
-            "অর্ডার ক্যাপচার ও COD risk checks",
-            "ম্যানুয়াল রিপ্লাই সবসময় চালু"
-          ]
-        },
-        "growth": {
-          "description": "বাড়তে থাকা শপের জন্য সম্পূর্ণ Messenger sales assistant।",
-          "cta": "Growth দিয়ে শুরু করুন",
-          "highlights": [
-            "প্রতি মাসে ৫০০টি কাস্টমার কনভারসেশন",
-            "Facebook Messenger ইনবক্স",
-            "অর্ডার ক্যাপচার ও COD risk checks",
-            "প্রয়োজনে Growth top-up"
-          ]
-        },
-        "partner": {
-          "description": "কোনো upfront fee নেই; সফল ডেলিভার্ড অর্ডারে পেমেন্ট।",
-          "cta": "Partner-এর জন্য আবেদন",
-          "highlights": [
-            "৩০ দিনে ৩০০+ ডেলিভার্ড অর্ডার প্রয়োজন",
-            "কোনো মাসিক ফি নেই",
-            "আনলিমিটেড কাস্টমার কনভারসেশন",
-            "ডেলিভার্ড অর্ডার ব্যান্ড অনুযায়ী flat rate"
-          ]
-        }
-      }
-    },
     "testimonials": {
       "label": "Pilot scorecard",
       "heading": "Launch shop দিয়ে যা প্রমাণ করব",
@@ -384,75 +332,6 @@
         "passwordRequired": "আপনার পাসওয়ার্ড লিখুন",
         "invalidCredentials": "ইমেইল বা পাসওয়ার্ড সঠিক নয়"
       }
-    },
-    "signup": {
-      "alreadyHaveAccount": "ইতিমধ্যে অ্যাকাউন্ট আছে?",
-      "signIn": "লগইন করুন",
-      "badge": "🇧🇩 Private BD seller pilot",
-      "heading": "শুরু করুন আজই",
-      "subheading": "প্রায় ৫ মিনিটে দ্রুত রিপ্লাই ও অর্ডার ক্যাপচার শুরু করুন।",
-      "choosePlan": "Shuru চিরদিন ফ্রি",
-      "shuruEyebrow": "Shuru · চিরদিন ফ্রি",
-      "shuruTitle": "Shuru দিয়ে বিক্রি শুরু করুন",
-      "shuruSubtitle": "শপ তৈরি করুন, Messenger কানেক্ট করুন, এবং প্রতি মাসে ১০০টি কাস্টমার কনভারসেশন দিয়ে শুরু করুন। ভলিউম বাড়লে আপগ্রেড করুন।",
-      "shuruBenefits": [
-        "কার্ড লাগবে না",
-        "প্রতি মাসে ১০০টি কনভারসেশন",
-        "যেকোনো সময় আপগ্রেড"
-      ],
-      "monthly": "মাসিক",
-      "free": "বিনামূল্যে",
-      "createAccountHeading": "অ্যাকাউন্ট তৈরি করুন",
-      "activateFreePlan": "অ্যাকাউন্ট সেটআপের পর চিরদিন ফ্রি।",
-      "fullName": "পূর্ণ নাম",
-      "fullNamePlaceholder": "আপনার নাম লিখুন",
-      "email": "ইমেইল ঠিকানা",
-      "emailPlaceholder": "you@example.com",
-      "phone": "মোবাইল নম্বর",
-      "optional": "(ঐচ্ছিক)",
-      "password": "পাসওয়ার্ড",
-      "passwordPlaceholder": "শক্তিশালী পাসওয়ার্ড দিন",
-      "paymentMethod": "পেমেন্ট পদ্ধতি",
-      "paymentComingSoon": "🔜 বাংলাদেশী পেমেন্ট পদ্ধতি শীঘ্রই আসছে।",
-      "paymentDevMode": "Dev mode-এ কোনো চার্জ প্রযোজ্য নয়।",
-      "agreePrefix": "আমি পড়েছি এবং সম্মতি দিচ্ছি",
-      "privacyPolicy": "গোপনীয়তা নীতি",
-      "agreeSuffix": "ও",
-      "termsRequired": "অ্যাকাউন্ট তৈরি করতে শর্তাবলীতে সম্মতি দিন।",
-      "termsOfService": "সেবার শর্তাবলী",
-      "plan": "প্ল্যান",
-      "billing": "বিলিং",
-      "payToday": "আজ পেমেন্ট",
-      "freeAmount": "৳০",
-      "freeForever": "আজ কোনো পেমেন্ট নেই — Shuru চিরদিন ফ্রি",
-      "upgradeAnytime": "Signup শেষ হলে Business Setup খুলবে।",
-      "startFreeButton": "Account তৈরি করে setup শুরু করুন →",
-      "creating": "অ্যাকাউন্ট তৈরি হচ্ছে...",
-      "createButton": "অ্যাকাউন্ট তৈরি করুন →",
-      "secure": "আপনার শপের তথ্য সুরক্ষিত",
-      "features": {
-        "rtoShield": {
-          "title": "RTO Shield",
-          "desc": "ভুয়া অর্ডার ব্লক"
-        },
-        "delivery": {
-          "title": "ডেলিভারি পার্টনার",
-          "desc": "সরাসরি কুরিয়ার বুকিং"
-        },
-        "chatbot": {
-          "title": "Sales assistant",
-          "desc": "২৪/৭ draft replies"
-        }
-      },
-      "errors": {
-        "selectPlan": "একটি সাবস্ক্রিপশন প্ল্যান নির্বাচন করুন।",
-        "enterName": "আপনার পূর্ণ নাম লিখুন।",
-        "enterEmail": "একটি বৈধ ইমেইল লিখুন।",
-        "createPassword": "একটি পাসওয়ার্ড তৈরি করুন।",
-        "acceptTerms": "চালিয়ে যেতে শর্তাবলীতে সম্মত হন।",
-        "unableToCreate": "অ্যাকাউন্ট তৈরি করা যায়নি।"
-      },
-      "subscriptionPaymentMethod": "সাবস্ক্রিপশন পেমেন্ট পদ্ধতি"
     },
     "forgotPassword": {
       "title": "পাসওয়ার্ড ভুলে গেছেন",
@@ -839,7 +718,6 @@
       "closed": "বন্ধ",
       "archived": "আর্কাইভ করা"
     },
-    "upgradeForAI": "AI-এর জন্য আপগ্রেড করুন",
     "agentBanner": "আপনি নিজে উত্তর দিচ্ছেন — এই কথোপকথনে AI বন্ধ আছে।",
     "windowClosingSoon": "⚠ এই কাস্টমারকে সরাসরি উত্তর দেওয়ার সময় প্রায় শেষ — এখনই উত্তর দিন।",
     "windowExpired": "এই কাস্টমার ২৪ ঘণ্টার বেশি আগে মেসেজ করেছেন। কাস্টমার আবার মেসেজ না করা পর্যন্ত সরাসরি Messenger reply বন্ধ থাকবে।",
@@ -2663,194 +2541,67 @@
     }
   },
   "subscription": {
-    "title": "প্ল্যান ও বিলিং",
-    "subtitle": "প্ল্যান বেছে নিন, allowance দেখুন, এবং শপের নিয়ন্ত্রণ নিজের হাতে রাখুন",
-    "loading": "সাবস্ক্রিপশনের বিবরণ লোড হচ্ছে...",
-    "entitlementsUnavailable": "ফিচারের তথ্য এখন পাওয়া যাচ্ছে না।",
-    "loadingFeatures": "ফিচারের উপলভ্যতা যাচাই হচ্ছে...",
-    "noData": "Billing details এখনো ready নয়",
-    "noDataMsg": "এই shop-এর billing details পাওয়া যায়নি। Reload করুন; আবার হলে support-এ যোগাযোগ করুন।",
-    "reload": "পুনরায় লোড করুন",
-    "planTitle": "{{plan}} প্ল্যান",
-    "imageUnderstanding": "Understands Product Photos",
-    "price": "৳{{price}} BDT / {{cycle}}",
-    "nextBilling": "পরবর্তী বিলিং: {{date}}",
-    "addConversations": "Customer Conversations যোগ করুন",
-    "upgradePlan": "Moderator Plus দেখুন",
-    "renew": "সাবস্ক্রিপশন renew করুন",
-    "plansTitle": "প্ল্যানসমূহ",
-    "plansSubtitle": "বর্তমান billing terms সহ তিনটি package পথ; accepted AI reply লক্ষ্য আলাদা shadow mode-এ মাপা হয়।",
-    "planCatalogLoading": "প্রকাশিত package-এর তথ্য লোড হচ্ছে…",
-    "planCatalogUnavailable": "লাইভ plan catalog পাওয়া যাচ্ছে না বা অসম্পূর্ণ। কোনো pinned দাম, সীমা বা top-up pack দেখানো হবে না এবং plan পরিবর্তন বন্ধ থাকবে।",
-    "retryPlanCatalog": "Catalog আবার চেষ্টা করুন",
-    "topupCatalogUnavailable": "প্রকাশিত catalog থেকে বর্তমান conversation top-up pack পাওয়া যাচ্ছে না।",
-    "monthly": "মাসিক",
-    "conversationsLimit": "কথোপকথন:",
-    "ordersLimit": "অর্ডার:",
-    "productsLimit": "পণ্য:",
-    "currentPlan": "বর্তমান প্ল্যান",
-    "switchPlan": "প্ল্যান পরিবর্তন করুন",
-    "aiConversations": "Customer Conversations",
-    "usagePerMonth": "{{used}} / {{limit}} প্রতি মাস",
-    "statusSafe": "নিরাপদ",
-    "statusAlmostUsed": "প্রায় শেষ",
-    "statusExhausted": "Allowance শেষ",
-    "ordersCreated": "তৈরি অর্ডার",
-    "productsUsed": "ব্যবহৃত পণ্য",
-    "usageTitle": "এই period-এর ব্যবহার",
-    "usageSubtitle": "Included allowance এবং top-up balance শেষ হলেই শুধু AI pause হবে।",
-    "conversationsUsed": "কাস্টমার কনভারসেশন",
-    "conversationsPerMonth": "প্রতি মাসে {{count}}টি কনভারসেশন",
-    "includedConversations": "Included allowance: {{count}}",
-    "topupBalance": "Top-up balance: {{count}}",
-    "topupBalanceLabel": "টপ-আপ ব্যালেন্স",
-    "aiPausedForUsage": "এই allowance শেষ হওয়ায় AI reply pause আছে; manual reply চালু আছে।",
-    "statusNeedsAttention": "মনোযোগ প্রয়োজন",
-    "period": "বর্তমান period",
-    "perMonth": "/ মাস",
-    "perYear": "/ বছর",
-    "partnerUpfront": "কোনো upfront subscription নেই",
-    "flatBillingSummary": "স্পষ্ট conversation allowance সহ flat monthly plan।",
-    "partnerBillingSummary": "কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।",
-    "partnerRateBands": "Delivered-order rate",
-    "perDeliveredOrder": "প্রতি delivered order",
-    "partnerEligibility": "গত ৩০ দিনে delivered order: {{count}} / প্রয়োজন {{minimum}}।",
-    "partnerNoTopups": "Partnership-এ unlimited conversation আছে; conversation top-up পাওয়া যায় না।",
-    "growthTopupsOnly": "Conversation top-up শুধু Moderator Plus (GROWTH)-এ পাওয়া যায়।",
-    "shadowAllowanceLabel": "বিলযোগ্য নয় এমন reply measurement",
-    "shadowAllowanceTitle": "প্রতি UTC মাসে {{formattedCount}}টি Meta-তে গৃহীত AI-generated reply (shadow লক্ষ্য)",
-    "shadowAllowanceNote": "শুধু shadow measurement। সক্রিয় {{conversations}}টি কথোপকথনের entitlement এবং বর্তমান conversation top-up অপরিবর্তিত।",
-    "shadowUsageTitle": "AI support reply measurement",
-    "shadowOnlyBadge": "শুধু shadow",
-    "shadowUnitDefinition": "একটি unit হলো Meta-তে গৃহীত ও স্থায়ীভাবে নথিভুক্ত একটি logical AI-generated reply। Incoming message, conversation, না-পাঠানো draft বা ব্যর্থ send unit নয়।",
-    "shadowPeriod": "UTC calendar মাস: {{start}} থেকে {{end}} তারিখ শুরুর ঠিক আগ পর্যন্ত।",
-    "shadowUsageCount": "নথিভুক্ত Meta-গৃহীত AI reply: {{used}} / {{target}} shadow লক্ষ্য।",
-    "shadowObservedOnly": "এই মাসে নথিভুক্ত Meta-গৃহীত AI reply: {{formattedCount}}। Partnership-এর মাসিক reply লক্ষ্য নেই।",
-    "shadowUsageProgress": "{{target}} লক্ষ্য অনুযায়ী shadow reply ব্যবহার।",
-    "shadowRecordingActive": "Measurement সক্রিয়। এটি message sending সীমিত করে না বা billing বদলায় না।",
-    "shadowNotEnabled": "এই শপে shadow measurement চালু নেই; reply গণনা হচ্ছে না।",
-    "shadowGateUnavailable": "যোগ্যতা যাচাই করা যায়নি; gate ঠিক না হওয়া পর্যন্ত shadow usage নথিভুক্ত হবে না।",
-    "shadowBillingBoundary": "এই meter Messenger কথোপকথনের সীমা ও conversation top-up থেকে আলাদা। এতে বিল বা enforcement নেই এবং পুরনো conversation credit রূপান্তর হয় না।",
-    "viewPartnerApplication": "Pricing page-এ আবেদন",
-    "subscriptionInvoice": "Subscription",
-    "addConversationsTitle": "Customer Conversations যোগ করুন",
-    "addedToCurrentPlan": "আপনার বর্তমান প্ল্যানে যোগ হবে",
-    "requestInvoice": "ইনভয়েস অনুরোধ করুন",
-    "invoiceNote": "ইনভয়েস অনুমোদনের পরপরই কথোপকথন পাওয়া যাবে।",
-    "planIncludes": "আপনার প্ল্যানে যা আছে",
-    "planFeatures": [
-      "Instant Messenger replies",
-      "Product photo বুঝে উত্তর",
-      "পণ্য সম্পর্কিত প্রশ্নের উত্তর",
-      "অর্ডার ড্রাফট তৈরি",
-      "ক্যাশ অন ডেলিভারি সমর্থন"
-    ],
-    "billingTitle": "বিলিং সারসংক্ষেপ",
-    "basePlan": "বেস প্ল্যানের মূল্য",
-    "estimatedInvoice": "আনুমানিক পরবর্তী ইনভয়েস",
-    "invoiceDisclaimer": "বিলিং তারিখের আগে চূড়ান্ত ইনভয়েস জারি করা হবে।",
+    "title": "বিলিং",
+    "subtitle": "ডেলিভারি-অর্ডার বিলিং, ইনভয়েস ও পেমেন্ট",
+    "loading": "বিলিং বিবরণ লোড হচ্ছে...",
+    "entitlementsUnavailable": "ফিচারের প্রাপ্যতা এখনই যাচাই করা যাচ্ছে না।",
+    "loadingFeatures": "ফিচারের প্রাপ্যতা যাচাই হচ্ছে...",
+    "contractTitle": "বাণিজ্যিক শর্ত",
+    "contractSubtitle": "প্রতিটি শপের জন্য একই মূল্য, সরাসরি বাণিজ্যিক চুক্তি থেকে",
+    "contractUnavailable": "বাণিজ্যিক শর্ত লোড করা যায়নি। শর্ত লোড না হওয়া পর্যন্ত কোনো মূল্য দেখানো হবে না।",
+    "contractVersion": "চুক্তি সংস্করণ {{version}}",
+    "perDeliveredOrder": "প্রতি ডেলিভারি অর্ডারে",
+    "dueWithin": "ইনভয়েসের {{days}} দিনের মধ্যে পরিশোধযোগ্য।",
+    "zeroRatedNote": "ফেরত বা বাতিল অর্ডারে {{amount}} বিল হয়।",
+    "capabilitiesTitle": "প্লাটফর্ম সক্ষমতা",
+    "capabilitiesSubtitle": "শুধু যাচাইকৃত প্রমাণসহ দাবিগুলো দেখানো হয়; বাকিগুলো সত্যনিষ্ঠ বিকল্প বাক্য হিসেবে দেখায়।",
+    "capabilityGroups": {
+      "ai": "AI রিপ্লাই",
+      "courier": "কুরিয়ার ও COD",
+      "voiceAndTools": "ভয়েস ও অ্যাড-অন"
+    },
     "invoicesTitle": "ইনভয়েস",
     "invoiceColumns": {
-      "id": "ইনভয়েস ID",
-      "period": "বিলিং পিরিয়ড",
+      "id": "ইনভয়েস আইডি",
+      "period": "বিলিং সময়কাল",
       "type": "ধরন",
       "amount": "পরিমাণ",
-      "status": "অবস্থা",
-      "action": "কার্যক্রম"
+      "status": "স্ট্যাটাস",
+      "action": "অ্যাকশন"
     },
-    "paid": "পরিশোধিত",
-    "pending": "অপেক্ষমান",
-    "toastThreshold": "আপনি conversation allowance-এর {{threshold}}% ব্যবহার করেছেন ({{used}}/{{limit}})।",
-    "paymentCancelled": "Payment বাতিল হয়েছে বা সম্পন্ন হয়নি। আবার চেষ্টা করুন।",
-    "topupPaymentSuccess": "Payment সফল হয়েছে! আপনার balance-এ {{count}} conversation যোগ হয়েছে।",
-    "invoicePaymentSuccessActive": "Payment successful. আপনার replies ও order automation active থাকবে।",
-    "invoicePaymentSuccess": "Payment সফল হয়েছে! আপনার invoice pay করা হয়েছে।",
-    "paymentVerifyFailed": "Payment যাচাই ব্যর্থ হয়েছে। অনুগ্রহ করে support-এ যোগাযোগ করুন।",
-    "loadFailed": "Subscription data লোড করা যায়নি",
-    "invoicesLoadFailed": "Invoice লোড করা যায়নি",
-    "planUpdateSuccess": "Subscription plan সফলভাবে আপডেট হয়েছে",
-    "planUpdateFailed": "Plan আপডেট করা যায়নি",
-    "bkashStartFailed": "bKash payment শুরু করা যায়নি",
-    "statusPaymentDue": "Payment বাকি",
-    "statusAiPaused": "Automatic replies paused",
-    "statusCancelled": "বাতিল",
-    "invoiceDueWarning": "আপনার monthly invoice due আছে। ৩ দিনের মধ্যে pay না করলে automatic replies pause হতে পারে।",
-    "aiPausedNote": "Automatic replies paused. Monthly subscription pay করলে reply drafts ও order automation resume হবে।",
-    "payActivateBkash": "bKash দিয়ে ৳{{price}} Pay করুন",
-    "popular": "জনপ্রিয়",
-    "perMonthShort": "/মাস",
-    "unlimited": "আনলিমিটেড",
-    "unlimitedConversations": "আনলিমিটেড কনভারসেশন",
-    "bkashUnavailable": "bKash payment এখন available নয়।",
-    "perMonthCount": "{{count}}/মাস",
-    "applyNow": "আবেদন করুন →",
-    "slashUnlimited": "/ আনলিমিটেড",
-    "slashPerMonth": "/ {{limit}}/মাস",
-    "forecastDays": "এই হারে চললে {{count}} দিনের মধ্যে limit শেষ হবে।",
-    "forecastDays_other": "এই হারে চললে {{count}} দিনের মধ্যে limit শেষ হবে।",
-    "conversationsCount": "{{count}} conversations",
-    "plusConversations": "+{{count}} conversations",
-    "addedToBalance": "Top-up balance-এ যোগ হবে",
-    "imageUnderstandingTitle": "Understands Product Photos",
-    "imageUnderstandingDesc": "Product photo ব্যবহার করে customer question আরও accurately answer করে",
-    "advancedAiTitle": "Better Reply Accuracy",
-    "advancedAiDesc": "Product, delivery, payment ও order question-এর জন্য আরও accurate replies",
-    "payInvoiceTitle": "bKash দিয়ে এই invoice pay করুন",
-    "viewInvoiceTitle": "Invoice দেখুন / প্রিন্ট করুন",
-    "downloadInvoiceTitle": "Invoice ডাউনলোড করুন (PDF হিসেবে প্রিন্ট)",
-    "payWithBkash": "bKash দিয়ে Pay করুন",
-    "topupBkashNote": "Payment সফল হলে conversations সাথে সাথে balance-এ যোগ হবে।",
-    "free": "ফ্রি",
-    "perOrder": "/অর্ডার",
-    "confirmPlan": "Plan পরিবর্তন করুন",
-    "upgradeToUnlock": "দ্রুত reply করতে upgrade করুন",
-    "featureAvailablePrefix": "ফিচারটি পাওয়া যাবে",
-    "featureAvailableSuffix": "plan ও তার উপরে।",
-    "planNameLabel": "{{plan}} Plan",
-    "pricePerMonth": "৳{{price}}/মাস",
-    "notNow": "এখন নয়",
-    "upgradeNow": "এখনই upgrade করুন",
-    "upgradeUnlockTitle": "{{feature}} available রাখতে {{plan}}-এ upgrade করুন",
-    "upgradeToPlan": "{{plan}}-এ upgrade করুন",
-    "noInvoices": "এখনো কোনো invoice নেই।",
-    "usageExhaustedAction": "Conversation allowance শেষ হওয়ায় AI reply pause আছে। Moderator Plus দেখুন বা পরের period পর্যন্ত অপেক্ষা করুন; manual reply চালু আছে।",
-    "planDescriptions": {
-      "shuru": "মাসিক প্ল্যান ফি নেই; সক্রিয় সীমা ১০০টি Messenger কথোপকথন।",
-      "growth": "৳৯৯৯/মাস; সক্রিয় সীমা ৫০০টি Messenger কথোপকথন, top-up-ও কথোপকথনের জন্য।",
-      "partner": "কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।"
+    "invoiceTypes": {
+      "delivered_order": "ডেলিভারি অর্ডার"
     },
-    "plans": {
-      "shuru": {
-        "name": "Get Your Moderator",
-        "description": "মাসিক প্ল্যান ফি নেই; সক্রিয় সীমা ১০০টি Messenger কথোপকথন।"
-      },
-      "growth": {
-        "name": "Moderator Plus",
-        "description": "৳৯৯৯/মাস; সক্রিয় সীমা ৫০০টি Messenger কথোপকথন, top-up-ও কথোপকথনের জন্য।"
-      },
-      "partner": {
-        "name": "Partnership",
-        "description": "কোনো upfront subscription নেই; delivered-order band অনুযায়ী বিল।"
-      }
+    "status": {
+      "paid": "পরিশোধিত",
+      "pending": "অপেক্ষমাণ",
+      "overdue": "বকেয়া",
+      "cancelled": "বাতিল"
     },
-    "growthIntentNotice": "আপনি Moderator Plus দেখতে চেয়েছেন। নতুন অ্যাকাউন্ট Get Your Moderator-এ শুরু হয়। সমর্থিত পেমেন্ট সম্পন্ন হলেই প্ল্যান বদলায়।",
-    "growthIntentViewPlan": "Moderator Plus প্ল্যান দেখুন"
-  },
-  "conversationAlert": {
-    "threshold70": {
-      "title": "Conversation usage বাড়ছে",
-      "message": "এই period-এ {{limit}}টির মধ্যে {{used}}টি conversation ব্যবহার হয়েছে।"
+    "payInvoice": "বকেয়া ইনভয়েস পরিশোধ করুন",
+    "pay": "পরিশোধ",
+    "paying": "শুরু হচ্ছে...",
+    "bkashUnavailable": "bKash পেমেন্ট এখনই পাওয়া যাচ্ছে না।",
+    "paymentCancelled": "পেমেন্ট বাতিল হয়েছে বা সম্পন্ন হয়নি। আবার চেষ্টা করুন।",
+    "invoicePaymentSuccess": "পেমেন্ট সফল হয়েছে! আপনার ইনভয়েস পরিশোধ হয়েছে।",
+    "paymentVerifyFailed": "পেমেন্ট যাচাই ব্যর্থ হয়েছে। অনুগ্রহ করে সাপোর্টে যোগাযোগ করুন।",
+    "invoicesLoadFailed": "ইনভয়েস লোড করা যায়নি",
+    "bkashStartFailed": "bKash পেমেন্ট শুরু করা যায়নি",
+    "viewBillingLines": "বিলিং লাইন",
+    "hideBillingLines": "লাইন লুকান",
+    "billingLinesLoading": "বিলিং লাইন লোড হচ্ছে...",
+    "billingLinesUnavailable": "এই ইনভয়েসের বিলিং লাইন এখনো পাওয়া যাচ্ছে না।",
+    "billingLinesEmpty": "এই ইনভয়েসে কোনো বিলিং লাইন নেই।",
+    "billingLineColumns": {
+      "order": "অর্ডার",
+      "kind": "ধরন",
+      "outcome": "ফলাফল",
+      "amount": "পরিমাণ"
     },
-    "threshold90": {
-      "title": "Conversation allowance প্রায় শেষ",
-      "message": "{{limit}}টির মধ্যে {{used}}টি conversation ব্যবহার হয়েছে। AI pause হওয়ার আগে plan দেখুন।"
-    },
-    "threshold100": {
-      "title": "AI reply pause আছে",
-      "message": "{{limit}} conversation allowance শেষ। Manual reply চালু আছে।"
-    },
-    "manage": "Plan দেখুন",
-    "dismiss": "Conversation usage alert বন্ধ করুন"
+    "noInvoices": "এখনো কোনো ইনভয়েস নেই।",
+    "invoiceDisclaimer": "পরিমাণ যাচাইকৃত বিলিং লাইন থেকে আসে; ইনভয়েস PDF চূড়ান্ত নথি।",
+    "viewInvoiceTitle": "ইনভয়েস দেখুন / প্রিন্ট করুন",
+    "downloadInvoiceTitle": "ইনভয়েস ডাউনলোড করুন (PDF প্রিন্ট)"
   },
   "bd_lite": {
     "todayQueue": "আজকের কাজ",
@@ -2980,127 +2731,6 @@
     "providerError": "Meta error দিয়েছে: {{error}}",
     "retry": "Chat Settings এ ফিরে যান"
   },
-  "pricing": {
-    "label": "প্রাইসিং",
-    "mostPopular": "সবচেয়ে জনপ্রিয়",
-    "perMonth": "/মাস",
-    "partnerApplyNote": "৩০ দিনে ৩০০+ delivered order হলে আবেদন করুন",
-    "partnerPriceUnit": "upfront",
-    "partnerEligibleBadge": "৩০০+ delivered order",
-    "partnerRateBandsTitle": "প্রতি delivered order-এ পেমেন্ট",
-    "partnerRateBand": "{{min}}–{{max}} order: প্রতিটিতে ৳{{rate}}",
-    "applyNow": "আবেদন করুন",
-    "limits": {
-      "unlimitedConversations": "আনলিমিটেড কথোপকথন",
-      "conversationsPerMonth": "প্রতি মাসে {{count}}টি customer conversation",
-      "deliveredOrders": "যোগ্য হতে ৩০ দিনে ৩০০+ delivered order",
-      "manualInbox": "Manual reply সবসময় চালু",
-      "unlimitedOrders": "আনলিমিটেড অর্ডার",
-      "ordersPerMonth": "{{count}}টি অর্ডার/মাস",
-      "unlimitedProducts": "আনলিমিটেড প্রোডাক্ট",
-      "products": "{{count}}টি প্রোডাক্ট"
-    },
-    "features": {
-      "imageUnderstanding": "Product photo বুঝে",
-      "advancedAi": "Better reply accuracy",
-      "prioritySupport": "Priority Support",
-      "customBranding": "Custom Branding (White-label)",
-      "facebookInbox": "Facebook sales inbox"
-    },
-    "planFeatures": {
-      "shuru": [
-        "প্রতি মাসে ১০০টি customer conversation",
-        "Facebook Messenger ইনবক্স",
-        "অর্ডার ক্যাপচার ও COD risk checks",
-        "Manual reply সবসময় চালু"
-      ],
-      "growth": [
-        "প্রতি মাসে ৫০০টি customer conversation",
-        "Facebook Messenger ইনবক্স",
-        "অর্ডার ক্যাপচার ও COD risk checks",
-        "প্রয়োজনে top-up"
-      ],
-      "partner": [
-        "যোগ্য হতে ৩০ দিনে ৩০০+ delivered order",
-        "কোনো মাসিক ফি নেই",
-        "আনলিমিটেড customer conversation",
-        "Delivered-order band অনুযায়ী flat rate"
-      ]
-    },
-    "plans": {
-      "shuru": {
-        "name": "Shuru",
-        "description": "Messenger sales শুরু করার জন্য চিরদিন ফ্রি।",
-        "priceNote": "চিরদিন ফ্রি",
-        "cta": "ফ্রি অ্যাকাউন্ট তৈরি করুন"
-      },
-      "growth": {
-        "name": "Growth",
-        "description": "বাড়তে থাকা শপের জন্য সম্পূর্ণ Messenger sales assistant।",
-        "priceNote": "সহজ মাসিক বিল",
-        "cta": "Growth দিয়ে শুরু করুন"
-      },
-      "partner": {
-        "name": "Partner",
-        "description": "কোনো upfront fee নেই; সফল delivered order-এ পেমেন্ট।",
-        "priceNote": "Delivered-order band অনুযায়ী flat rate",
-        "cta": "Partner-এর জন্য আবেদন"
-      }
-    },
-    "hero": {
-      "heading": "মসৃণ ও সৎ মূল্য নির্ধারণ",
-      "subheading": "Shuru দিয়ে ফ্রি শুরু করুন, Growth-এ বাড়ুন, অথবা Partner path বেছে নিন।",
-      "badge1": "Messenger-only launch scope",
-      "badge2": "চিরদিন ফ্রি",
-      "badge3": "কোনো hidden fee নেই"
-    },
-    "partnerTeaser": {
-      "question": "৩০ দিনে ৩০০+ delivered order আছে?",
-      "link": "Partner Plan সম্পর্কে জানুন →"
-    },
-    "included": {
-      "heading": "সব শপের জন্য একই core feature",
-      "subheading": "Feature lock নয়, আপনার scale অনুযায়ী plan বেছে নিন। Growth ৳{{price}}/মাস।"
-    },
-    "faq": {
-      "heading": "সাধারণ জিজ্ঞাসা",
-      "q1": "Shuru কি সত্যিই ফ্রি?",
-      "a1": "হ্যাঁ — Shuru চিরদিন ফ্রি, প্রতি মাসে ১০০টি customer conversation সহ। কোনো কার্ড লাগবে না।",
-      "q2": "Growth কী?",
-      "a2": "Growth হলো ৳{{price}}/মাস, প্রতি মাসে ৫০০টি customer conversation সহ। প্রয়োজনে Growth top-up করা যায়।",
-      "q3": "মাসে কতগুলো customer conversation পাব?",
-      "a3": "Shuru-তে প্রতি মাসে ১০০টি এবং Growth-এ ৫০০টি conversation আছে। Growth shop প্রয়োজনে top-up কিনতে পারে।",
-      "q4": "Conversation limit শেষ হলে কী হবে?",
-      "a4": "Included allowance ও Growth top-up balance শেষ হলে AI reply pause হবে। Manual reply চালু থাকবে।",
-      "q5": "Partner প্লানে কীভাবে আবেদন করব?",
-      "a5": "৩০ দিনে ৩০০+ delivered order হলে Pricing page থেকে আবেদন করুন। Partner-এ মাসিক ফি নেই; delivered-order band অনুযায়ী ৳১৫, ৳১২ বা ৳১০।"
-    },
-    "cta": {
-      "heading": "আরও message-কে order বানাতে ready?",
-      "subheading": "Shuru দিয়ে ফ্রি শুরু করুন। Messenger volume বাড়লে upgrade করুন।",
-      "button": "এখনই শুরু করুন"
-    },
-    "partnerModal": {
-      "title": "Partner হতে আবেদন করুন",
-      "subtitle": "৩০ দিনে ৩০০+ delivered order আছে? কোনো মাসিক ফি নেই; delivered-order band অনুযায়ী flat rate।",
-      "businessNameLabel": "Business Name",
-      "businessNamePlaceholder": "আপনার শপের নাম",
-      "phoneLabel": "Phone Number",
-      "pageLinkLabel": "Facebook Page Link",
-      "submit": "আবেদন পাঠান",
-      "submitting": "পাঠানো হচ্ছে...",
-      "successTitle": "আবেদন পাঠানো হয়েছে!",
-      "successMessage": "আমরা আপনার আবেদন পর্যালোচনা করব এবং শীঘ্রই যোগাযোগ করব।",
-      "successMessageEn": "আপনার আবেদন পাওয়া গেছে। আমরা শীঘ্রই যোগাযোগ করব।",
-      "ok": "ঠিক আছে",
-      "errors": {
-        "businessNameRequired": "ব্যবসার নাম আবশ্যক",
-        "phoneRequired": "ফোন নম্বর আবশ্যক",
-        "pageLinkRequired": "পেজ লিঙ্ক আবশ্যক",
-        "submitFailed": "আবেদন পাঠানো যায়নি। আবার চেষ্টা করুন।"
-      }
-    }
-  },
   "admin": {
     "shopDetail": {
       "shopFallback": "শপ",
@@ -3168,7 +2798,7 @@
         "conversations": "কথোপকথন",
         "topupBalance": "টপ-আপ ব্যালেন্স",
         "nextBilling": "পরবর্তী বিলিং",
-        "effectiveLimit": "Effective conversation allowance",
+        "effectiveLimit": "কার্যকর ব্যবহারসীমা",
         "partnerEligibility": "Partner eligibility",
         "outstanding": "বকেয়া",
         "superAdminNote": "বিলিং অ্যাকশনের জন্য SUPER_ADMIN প্রয়োজন।",
@@ -3232,68 +2862,44 @@
     "courier": {
       "pathao": {
         "booking_live": {
-          "en": "Courier booking through Pathao is available.",
-          "bn": "Pathao-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "en": "Courier booking through Pathao has been live-verified.",
+          "bn": "Pathao-এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাই করা হয়েছে।",
           "fallback": {
             "en": "Pathao courier booking is implemented but has not been verified on a live account yet.",
             "bn": "Pathao কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
           }
         },
         "integration_status": {
-          "en": "Pathao integration code is present.",
-          "bn": "Pathao ইন্টিগ্রেশন কোড রয়েছে।"
-        },
-        "cod_settlement": {
-          "en": "Pathao COD settlement reconciliation is supported.",
-          "bn": "Pathao COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
-          "fallback": {
-            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
-            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
-          }
+          "en": "Pathao integration code is present; live verification is pending.",
+          "bn": "Pathao ইন্টিগ্রেশন কোড রয়েছে; লাইভ যাচাই বাকি।"
         }
       },
       "steadfast": {
         "booking_live": {
-          "en": "Courier booking through Steadfast is available.",
-          "bn": "Steadfast-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "en": "Courier booking through Steadfast has been live-verified.",
+          "bn": "Steadfast-এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাই করা হয়েছে।",
           "fallback": {
             "en": "Steadfast courier booking is implemented but has not been verified on a live account yet.",
             "bn": "Steadfast কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
           }
         },
         "integration_status": {
-          "en": "Steadfast integration code is present.",
-          "bn": "Steadfast ইন্টিগ্রেশন কোড রয়েছে।"
-        },
-        "cod_settlement": {
-          "en": "Steadfast COD settlement reconciliation is supported.",
-          "bn": "Steadfast COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
-          "fallback": {
-            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
-            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
-          }
+          "en": "Steadfast integration code is present; live verification is pending.",
+          "bn": "Steadfast ইন্টিগ্রেশন কোড রয়েছে; লাইভ যাচাই বাকি।"
         }
       },
       "redx": {
         "booking_live": {
-          "en": "Courier booking through RedX is available.",
-          "bn": "RedX-এর মাধ্যমে কুরিয়ার বুকিং পাওয়া যায়।",
+          "en": "Courier booking through RedX has been live-verified.",
+          "bn": "RedX-এর মাধ্যমে কুরিয়ার বুকিং লাইভ যাচাই করা হয়েছে।",
           "fallback": {
             "en": "RedX courier booking is implemented but has not been verified on a live account yet.",
             "bn": "RedX কুরিয়ার বুকিং তৈরি হয়েছে, তবে লাইভ অ্যাকাউন্টে এখনো যাচাই হয়নি।"
           }
         },
         "integration_status": {
-          "en": "RedX integration code is present.",
-          "bn": "RedX ইন্টিগ্রেশন কোড রয়েছে।"
-        },
-        "cod_settlement": {
-          "en": "RedX COD settlement reconciliation is supported.",
-          "bn": "RedX COD সেটেলমেন্ট রিকনসিলিয়েশন সমর্থিত।",
-          "fallback": {
-            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
-            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
-          }
+          "en": "RedX integration code is present; live verification is pending.",
+          "bn": "RedX ইন্টিগ্রেশন কোড রয়েছে; লাইভ যাচাই বাকি।"
         }
       },
       "all_providers": {
@@ -3303,20 +2909,46 @@
           "en": "Courier booking is implemented, but it is not yet live-verified for all three providers.",
           "bn": "কুরিয়ার বুকিং তৈরি হয়েছে, তবে তিনটি প্রোভাইডারের জন্যই এখনো লাইভ যাচাই হয়নি।"
         }
+      },
+      "cod_settlement": {
+        "pathao": {
+          "en": "Pathao COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Pathao COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Pathao has no payout API. Reconcile COD in the Pathao merchant portal.",
+            "bn": "Pathao-এ payout API নেই। Pathao মার্চেন্ট পোর্টালে COD রিকনসিল করুন।"
+          }
+        },
+        "steadfast": {
+          "en": "Steadfast COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "Steadfast COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "Steadfast COD settlement has not been live-verified. Reconcile in the Steadfast merchant portal.",
+            "bn": "Steadfast COD সেটেলমেন্ট লাইভ যাচাই হয়নি। Steadfast মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        },
+        "redx": {
+          "en": "RedX COD order reconciliation is implemented in code; live payout verification is pending.",
+          "bn": "RedX COD অর্ডার রিকনসিলিয়েশন কোডে তৈরি হয়েছে; লাইভ পেআউট যাচাই বাকি।",
+          "fallback": {
+            "en": "RedX settlement status is unavailable after delivery. Reconcile in the RedX merchant portal.",
+            "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
+          }
+        }
       }
     },
     "voice": {
       "transcription": {
-        "en": "Voice transcription is available.",
-        "bn": "ভয়েস ট্রান্সক্রিপশন পাওয়া যায়।",
+        "en": "Voice transcription has been live-verified.",
+        "bn": "ভয়েস ট্রান্সক্রিপশন লাইভ যাচাই করা হয়েছে।",
         "fallback": {
           "en": "Voice transcription is a mock-only preview and is not live-verified.",
           "bn": "ভয়েস ট্রান্সক্রিপশন শুধু মক প্রিভিউ, লাইভ যাচাইকৃত নয়।"
         }
       },
       "auto_reply": {
-        "en": "Voice auto-reply is available.",
-        "bn": "ভয়েস অটো-রিপ্লাই পাওয়া যায়।",
+        "en": "Voice auto-reply is implemented and live-verified.",
+        "bn": "ভয়েস অটো-রিপ্লাই তৈরি হয়েছে এবং লাইভ যাচাই করা হয়েছে।",
         "fallback": {
           "en": "Voice auto-reply is not implemented.",
           "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
@@ -3363,5 +2995,14 @@
         }
       }
     }
+  },
+  "billingStanding": {
+    "title": "বিলিং অবস্থা",
+    "manage": "বিলিং দেখুন",
+    "dismiss": "বিলিং নোটিশ বন্ধ করুন"
+  },
+  "featureGate": {
+    "unavailable": "এই সক্ষমতা আপনার শপের জন্য উপলব্ধ নয়।",
+    "viewBilling": "বিলিং দেখুন"
   }
 }

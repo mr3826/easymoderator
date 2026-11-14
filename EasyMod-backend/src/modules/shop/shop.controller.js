@@ -11,7 +11,11 @@ const {
     stripAutomationModeFromShopUpdate,
 } = require('./shop-settings.validator');
 const { invalidateShopSettingsCaches } = require('../../utils/shop-settings-cache');
-const { PlanCode, normalizePlanCode } = require('../subscription/subscription.plans');
+const { PlanCode, normalizePlanCode, getTierByCode } = require('../subscription/subscription.plans');
+const {
+    COMMERCIAL_CONTRACT,
+    COMMERCIAL_CONTRACT_VERSION,
+} = require('../commercial/commercial.contract');
 const {
     AI_REPLY_MODES,
     normalizeAiReplyMode,
@@ -19,20 +23,20 @@ const {
     isKnownAiReplyMode,
 } = require('./ai-reply-mode');
 
-// Resolve subscription plan code for a shop, with Redis caching (5 min TTL).
-// Missing/error states fail closed to the free Shuru entitlement; they must not
-// normalize to Growth and accidentally grant paid capabilities.
+// Resolve the shop's plan code, with Redis caching (5 min TTL). Under ADR-0011
+// every row normalizes to the single MERCHANT tier; a missing row or read error
+// therefore fails closed to MERCHANT, which grants nothing beyond the contract.
 async function getShopPlanCode(shopId) {
     try {
         const cached = await cacheService.getForShop(shopId, 'subscription:plan_code');
         if (cached) return normalizePlanCode(cached);
         const { Subscription } = require('../entities');
         const sub = await Subscription.findOne({ where: { shop_id: shopId }, attributes: ['plan_code'] });
-        const planCode = normalizePlanCode(sub?.plan_code || PlanCode.SHURU);
+        const planCode = normalizePlanCode(sub?.plan_code || PlanCode.MERCHANT);
         await cacheService.setForShop(shopId, 'subscription:plan_code', planCode, 300);
         return planCode;
     } catch (_) {
-        return PlanCode.SHURU;
+        return PlanCode.MERCHANT;
     }
 }
 
@@ -395,11 +399,14 @@ const getAISettings = async (req, res, next) => {
             ? { ...aiSettings, automation_mode: normalizeAiReplyMode(aiSettings.automation_mode) }
             : aiSettings;
 
-        // Include plan capabilities so the frontend can render locked fields
-        const { getTierByCode } = require('../subscription/subscription.plans');
-        const tier = getTierByCode(planCode) || getTierByCode(PlanCode.SHURU);
+        // Capabilities are contract/tier derived: one MERCHANT tier, one price
+        // authority, no plan-gated feature list that could drift from the API.
+        const tier = getTierByCode(planCode) || getTierByCode(PlanCode.MERCHANT);
         const planCapabilities = {
-            plan_code: planCode,
+            plan_code: tier.code,
+            billing_model: tier.billingModel,
+            contract_version: COMMERCIAL_CONTRACT_VERSION,
+            unit_price_minor: COMMERCIAL_CONTRACT.unitPriceMinor,
             ai_settings_access: [...tier.ai_settings_access],
             allowed_languages: [...tier.features.allowed_languages],
             allowed_automation_modes: Object.values(AI_REPLY_MODES),

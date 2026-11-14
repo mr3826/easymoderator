@@ -1,4 +1,12 @@
+<!-- HISTORICAL RECORD -->
 # EasyModerator Founder Pilot v1 Decision Ledger
+
+> **Superseded in full by [ADR-0011](adr/0011-delivered-order-commercial-contract.md)**
+> (2026-11-14). The 2026-11-01 commercial ledger recorded below — subscription
+> plans, conversation allowances, top-up packs, and Partner order bands — is
+> historical record only. The sole current price authority is
+> `EasyMod-backend/src/modules/commercial/commercial.contract.js`. Do not copy
+> these terms into merchant-facing copy.
 
 **As of:** 2026-11-01
 **Implementation base:** `main` at `84a5c528cac719147805c3f8cbee5fb6f3b1846c`

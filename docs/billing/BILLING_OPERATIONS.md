@@ -1,10 +1,17 @@
 # Billing operations
 
-Operational rules for EasyModerator's subscription billing. Written after a
-yearly subscriber was invoiced and suspended as if they were monthly.
+Operational rules for EasyModerator's billing. Current billing is the
+delivered-order model in "Current commercial model (ADR-0011)"; the
+subscription-era sections are retained below as historical record because they
+document the yearly-subscriber incident that produced the original rules.
 
-## Annual billing invariant
+## Annual billing invariant — HISTORICAL
 
+> **Historical record.** The yearly/monthly entitlement rules in this section
+> governed the retired subscription model and are retained because they document
+> the yearly-subscriber incident and the regression tests that guard it. They do
+> not describe current billing — see "Current commercial model (ADR-0011)".
+>
 > A subscription is billed when **its own paid period ends**, never when the
 > calendar month turns.
 
@@ -30,22 +37,31 @@ usage reset runs at `00:00` UTC. The `usage_reset_at < current_period_start`
 marker lets the `01:00` invoice run derive the exact period that just ended
 before the next period is billed.
 
-## Current commercial model
+## Current commercial model (ADR-0011)
 
-| Plan | Price | Conversation allowance | Top-ups | Billing |
-|---|---:|---:|---|---|
-| Shuru | ৳0 | 100/month | No | Free forever |
-| Growth | ৳999/month | 500/month | Yes: `PACK_100` ৳250, `PACK_300` ৳500, `PACK_700` ৳1,000 | Flat monthly |
-| Partner | ৳0 upfront | Unlimited | No | 300–999 delivered orders ৳15/order; 1,000–2,999 ৳12/order; 3,000+ ৳10/order |
+> The sole price authority is
+> `EasyMod-backend/src/modules/commercial/commercial.contract.js`. The values
+> below restate that contract for operators and must match its `contractVersion`;
+> if they disagree, the module wins. The frontend mirror is
+> `EasyMod-frontend/src/shared/contracts/commercial-contract.ts`.
 
-Every plan shares the same core features. A new shop is created as active
-Shuru with a synthetic monthly period anchored at signup. Annual Growth rows
-remain valid for renewal but annual billing is not marketed to new signups.
+| Model | Price | Billable event | Zero-rated outcomes | Billing |
+| --- | --- | --- | --- | --- |
+| Delivered order | ৳10.00 per order | `ORDER_DELIVERED_PROVIDER_CONFIRMED` | RETURNED, CANCELLED, DRAFT, CONFIRMED, BOOKED, IN_TRANSIT, FAILED | Monthly postpaid; invoice due within 7 days |
 
-Conversation metering consumes the included allowance, then `topup_balance`.
-When both are exhausted, the inbound message remains in the manual inbox and
-the worker skips only the automated reply with reason `usage_exhausted`. No
-conversation overage charge is generated.
+There is no subscription, no setup fee, no monthly minimum, no conversation
+entitlement, and no top-up pack. Every shop is on the single `MERCHANT` tier
+and pays the same rate from order 1. A new shop is created as an active
+`MERCHANT`; historical plan rows resolve to `MERCHANT` and survive only so
+already-issued invoices and payments still reconcile.
+
+The cutover instant is persisted by migration `20261114_003` and read from
+`commercial_cutover_events.cutover_at`; it is never hardcoded in code or copy.
+Invoices of type `delivered_order` are aggregated from `billing_lines` by the
+invoice generator; a returned or cancelled order stays visible as an explicit
+BDT 0 line rather than disappearing.
+
+### Subscription-era incidents — HISTORICAL
 
 **What broke before.** The generator billed every `status='active'` subscription
 on the 1st of the month with no reference to its period, typed every non-per-order
@@ -77,7 +93,11 @@ Covered by `src/jobs/__tests__/invoice-generator.test.js` (BILLING-YEARLY-002…
 BILLING-MONTHLY-REGRESSION, BILLING-IDEMPOTENCY) and
 `src/modules/subscription/__tests__/annual-billing.test.js` (BILLING-YEARLY-001).
 
-## Production verification receipt
+## Production verification receipt — HISTORICAL FIXTURE
+
+> The turn and the subscription state below are retained as the recorded
+> evidence of the legacy annual-subscriber fixture. They are not a description
+> of the current commercial model; ADR-0011 supersedes those terms.
 
 Locked-account Messenger smoke test, **2026-08-13T11:43:34Z**, commit `d5b8f55`,
 merchant `admin@easymod.tech` / shop `Easy Style Fashion`, customer
@@ -163,7 +183,12 @@ on the 3rd?" is asked much later than that.
 
 Covered by `src/jobs/__tests__/message-worker.billing-pause.test.js`.
 
-### When conversation allowance pauses the AI
+### When conversation allowance pauses the AI — HISTORICAL
+
+> **Superseded by ADR-0011 (C5).** Conversation quotas and top-ups are retired,
+> so the `usage_exhausted` pause path is no longer part of the current model;
+> it is kept as the record of the retired metering era. The current overdue
+> pause is described in "When billing pauses the AI" above.
 
 The same operator-visible behavior applies when a fresh conversation crosses
 the effective allowance:
@@ -181,7 +206,12 @@ was deployed fail open during a rolling deploy. Covered by
 `src/jobs/__tests__/message-worker.billing-pause.test.js` and the subscription
 usage integration suite.
 
-### Partner reversals
+### Partner reversals — HISTORICAL
+
+> **Superseded by ADR-0011.** The tiered Partner bands are retired; the
+> delivered-order contract now bills every provider-confirmed delivery at the
+> single rate. This section is retained as the documented reversal rule for
+> already-issued Partner invoices.
 
 Courier delivery callbacks stamp `orders.delivered_at` once. If an admin later
 approves or refunds a return after a paid Partner invoice covered that order,
