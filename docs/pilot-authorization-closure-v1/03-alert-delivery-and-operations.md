@@ -1,5 +1,7 @@
 # 03 — Alert pipeline, synthetic incident delivery, and operator runbook (Gate C)
 
+> **2026-11-14 note:** D-3 is recorded in `08-founder-authorization-package.md` — the alert channel is GitHub Actions notifications (`production-watch.yml` hourly probes) and the named on-call is the founder. The test-alert **human acknowledgment remains OPEN**, so this document's `ALERT_AND_OPERATOR_PROOF=PARTIAL` remains correct for the human-ack component; the "production destination/operator unnamed" statements below are the 2026-10-30 assessment.
+
 ## Pipeline inspected (candidate `04b07134`, read-only)
 
 Single fan-out helper `EasyMod-backend/src/utils/ops-alert.js`: console `[OPS-ALERT]` always; Sentry (`SENTRY_DSN`) and Slack incoming webhook (`SLACK_ALERT_WEBHOOK_URL`) as external sinks; per-title throttle `OPS_ALERT_THROTTLE_MS` (default 5 min; closure rehearsal set to 0). Production config **fails closed without at least one of** Sentry/Slack (`src/config/production-config.validator.js:219-220`). `describeAlertSinks()` exposes booleans only.

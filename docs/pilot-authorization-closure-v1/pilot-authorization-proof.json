@@ -1,6 +1,8 @@
 {
   "milestone": "Pilot Authorization Closure V1",
   "date": "2026-10-30",
+  "dateUpdated": "2026-11-14",
+  "dateScope": "2026-10-30 values are the original milestone assessment; current state is recorded in dateUpdated, gatesCurrent, technicalPilotReadinessCurrent and authorizationRecord2026_11_14",
   "baseCodeSha": "04b07134c265b04745d7c3add85154b66e82f132",
   "baseEvidenceSha": "4c36dffc7071e3baec217b5f7f6bbbcfaf4f1956",
   "frozenEvidenceSha": "0bf1ae47a6361b7d477e1add1110fd9d5e1ea799",
@@ -18,6 +20,12 @@
     "full_security_scan": "PASS (vuln+secret+misconfig complete; 0 HIGH/CRITICAL; 1 MEDIUM qs disclosed with owner disposition pending)",
     "founder_decision_package": "READY (D-1..D-7 + 4 supplemental items consolidated, unsigned by design)"
   },
+  "gatesAsOf": "2026-10-30 — historical milestone assessment; current state in gatesCurrent",
+  "gatesCurrent": {
+    "founder_decision_package": "SIGNED 2026-11-14 — founder replied \"approve all as recommended\"; authoritative record in docs/pilot-authorization-closure-v1/08-founder-authorization-package.md",
+    "founder_access": "SUPERSEDED — loopback preview retired; production sign-in path is https://app.easymod.tech. The founder sign-in itself is still an open confirmatory follow-up.",
+    "alert_and_operator_proof": "PARTIAL — channel (GitHub Actions notifications via production-watch.yml hourly probes) and on-call (founder) named 2026-11-14; test-alert human ack still OPEN"
+  },
   "keyReceipts": {
     "previewWalkthrough": "D:\\easymod\\_pilot-authorization-closure-v1-local\\evidence\\preview-walkthrough-20261030.json",
     "previewBrowser": ["D:\\easymod\\_pilot-authorization-closure-v1-local\\evidence\\playwright-chromium-pilot.log", "D:\\easymod\\_pilot-authorization-closure-v1-local\\evidence\\playwright-firefox-pilot.log"],
@@ -32,6 +40,7 @@
     "low": [{"scope": "jest dev-chain x5", "shipped": false}]
   },
   "safety": {
+    "asOf": "2026-10-30 (milestone-scoped; productionSystemsAccessed counts mutations performed by this milestone)",
     "productionChanges": "NONE",
     "pushed": false,
     "merged": false,
@@ -39,10 +48,61 @@
     "paidInferenceCalls": 0,
     "externalAlertContact": 0,
     "productionSystemsAccessed": 0,
+    "productionReads": ["2026-11-14 ~02:50Z — OCI /opt/easymod/deployment-metadata.json read via delegated SSH (read-only; digests only, no secrets)"],
     "otherWorktreesModified": "NONE (protected closure worktree untouched; its preserved fixture modification left unstaged)"
   },
   "independentAttestation": "PASS two rounds — R1 ses_e71c0ce51ffe (12/12 vs frozen 0bf1ae47, live-refuted preview chain, re-hashed 2,920-blob manifest; F-1/F-2 corrected) + R2 ses_e71a12ed3ffe (bounded delta vs b5cf6a2a: every new citation re-verified incl. kill-switch check order and mobile production record; DELTA_ATTESTATION=PASS; F-7/F-8/F-9 all corrected in final commit); 0 BLOCKER/MAJOR across both rounds; GO_RECOMMENDATION=NO_GO_WITH_EXACT_BLOCKERS",
-  "technicalPilotReadiness": "NO_GO_WITH_EXACT_BLOCKERS",
-  "exactBlockers": ["D-1..D-4 + image-transfer condition unsigned", "deployed image digest unread", "production alert destination/operator unnamed", "production effective env unread", "qs disposition unsigned", "founder preview walkthrough unconfirmed"],
-  "founderAuthorizationStatus": "NOT_REQUESTED_YET (package ready: docs/pilot-authorization-closure-v1/08)"
+  "technicalPilotReadiness": "NO_GO_WITH_EXACT_BLOCKERS (2026-10-30 assessment — superseded by technicalPilotReadinessCurrent)",
+  "technicalPilotReadinessCurrent": "GO 2026-11-14 — pilot proceeds only as shadow/manual DRAFT operation with flags OFF; AI auto-reply and photo features remain gated",
+  "exactBlockers2026_10_30": ["D-1..D-4 + image-transfer condition unsigned", "deployed image digest unread", "production alert destination/operator unnamed", "production effective env unread", "qs disposition unsigned", "founder preview walkthrough unconfirmed"],
+  "exactBlockersAsOf": "2026-10-30 — superseded; see authorizationRecord2026_11_14.openFollowUps and openItemsCurrent",
+  "openItemsCurrent": [
+    "D-2 Tech Provider Access Verification — due 2026-11-21 (AI auto-reply gated until it clears)",
+    "D-2 support-email / support_url / data_deletion_url drift remediation — against the 2026-11-21 deadline",
+    "D-3 test-alert human acknowledgment — OPEN; pre-traffic gate: no merchant traffic until recorded",
+    "D-3 written escalation contact — founder on-call is named; escalation path still to be written",
+    "D-4 two-person rule on global mutation flags — deferred to GA (founder-accepted deviation)",
+    "D-4 one rehearsed production-side flag flip — not yet performed",
+    "D-1 merchant selection (2-5 pilot merchants) — separate explicit action",
+    "Item 8 provider image-transfer terms — not approved; photo matching stays OFF",
+    "B-4 effective production env capture — open",
+    "Rollback rehearsal (prior-digest compatibility) — separate, ungranted action",
+    "Founder production sign-in at https://app.easymod.tech — confirmatory, OPEN",
+    "Mobile device proof re-run against re-signed artifact (mobile-release run 43546632124) — OPEN"
+  ],
+  "founderAuthorizationStatus": "APPROVED 2026-11-14 — founder replied \"approve all as recommended\"; see authorizationRecord2026_11_14 and docs/pilot-authorization-closure-v1/08",
+  "authorizationRecord2026_11_14": {
+    "approval": "approve all as recommended",
+    "approvedOn": "2026-11-14",
+    "approvedIn": "Claude Code session",
+    "recordedIn": "docs/pilot-authorization-closure-v1/08-founder-authorization-package.md (section: 2026-11-14 — Founder authorization record)",
+    "recordedState": "pilot GO for shadow/manual DRAFT operation with flags OFF; AI auto-reply and photo features remain gated",
+    "authorizes": "nothing beyond shadow/manual DRAFT operation — no deploy, merge/push, production flag change, merchant selection, provider spend or image transfer",
+    "openFollowUps": [
+      "D-2 Tech Provider Access Verification — due 2026-11-21 (AI auto-reply gated until it clears)",
+      "D-2 support-email / support_url / data_deletion_url drift remediation — against the 2026-11-21 deadline",
+      "D-3 test-alert human acknowledgment — OPEN, not yet performed; no merchant traffic until recorded",
+      "D-3 written escalation contact — founder on-call named, escalation path still to be written",
+      "D-4 two-person rule on global mutation flags — deferred to GA (accepted deviation)",
+      "D-4 one rehearsed production-side flag flip — not yet performed",
+      "D-1 merchant selection (2-5 pilot merchants) — separate explicit action",
+      "item 8 provider image-transfer terms — not approved; photo matching stays OFF",
+      "B-4 effective production env capture — open",
+      "Rollback rehearsal — separate, ungranted action",
+      "Founder production sign-in at https://app.easymod.tech — confirmatory, OPEN",
+      "Mobile device proof re-run against re-signed artifact (mobile-release run 43546632124) — OPEN"
+    ],
+    "deployedDigests": {
+      "source": "OCI host /opt/easymod/deployment-metadata.json, read 2026-11-14 ~02:50Z via delegated SSH",
+      "DEPLOYED_COMMIT": "d427f1431c68f6c16a398daa223961f3a0a28dd8",
+      "BACKEND": "ghcr.io/mr3826/easymoderator-backend@sha256:e683f3234f249926e71097231ce6d13a778a56f9642b3a47e2f785ed8c1455f9",
+      "FRONTEND": "ghcr.io/mr3826/easymoderator-frontend@sha256:2fa813a7e011304c2ca9328316cc115a757c57f7581d0c538c7c17b4436595f5",
+      "GROWTH": "ghcr.io/mr3826/easymoderator-growth-os@sha256:4d0ceebc579ac5e7ed44144861fbf9206d823996f13baf78e75823c6c2bc5b22",
+      "PREVIOUS_BACKEND": "sha256:b8d9abc50826104237e4eec145549a6eed9d4be762bd0308c36cb703530b2d7a",
+      "PREVIOUS_FRONTEND": "sha256:a0c573105aca26c64dac7f2b681c744c5428d9b6fb7fa4f8c38fc9c193d60e09",
+      "PREVIOUS_GROWTH": "sha256:4d0ceebc579ac5e7ed44144861fbf9206d823996f13baf78e75823c6c2bc5b22",
+      "WORKFLOW_RUN_ID": "43543879447",
+      "DEPLOYED_AT": "2026-11-14T02:14:23Z"
+    }
+  }
 }
