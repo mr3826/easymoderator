@@ -2935,6 +2935,22 @@
             "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
           }
         }
+      },
+      "booking": {
+        "en": "Courier booking is live-verified for your courier services.",
+        "bn": "আপনার কুরিয়ার সেবার জন্য কুরিয়ার বুকিং লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Courier booking is implemented in code; live verification is pending for every service.",
+          "bn": "কুরিয়ার বুকিং কোডে তৈরি হয়েছে; কোনো সেবায় এখনো লাইভ যাচাই হয়নি।"
+        }
+      },
+      "payout": {
+        "en": "COD payout matching is implemented for {{providerCount}} courier service(s); live verification is pending.",
+        "bn": "{{providerCountBn}}টি কুরিয়ার সেবার জন্য COD পেআউট মিলানোর কোড তৈরি হয়েছে; লাইভ যাচাই বাকি।",
+        "fallback": {
+          "en": "COD payout matching is not yet implemented.",
+          "bn": "COD পেআউট মিলানো এখনো তৈরি হয়নি।"
+        }
       }
     },
     "voice": {
@@ -2952,6 +2968,14 @@
         "fallback": {
           "en": "Voice auto-reply is not implemented.",
           "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
+        }
+      },
+      "transcribe": {
+        "en": "Voice-note transcription is live-verified.",
+        "bn": "ভয়েস-নোট ট্রান্সক্রিপশন লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Voice transcription exists as a manual preview only; the automatic pipeline is not wired and it is not live-verified. Transcription only — no automatic voice reply.",
+          "bn": "ভয়েস ট্রান্সক্রিপশন শুধু ম্যানুয়াল প্রিভিউ; অটো পাইপলাইন যুক্ত নয় ও লাইভ যাচাইকৃত নয়। শুধু ট্রান্সক্রিপশন — স্বয়ংক্রিয় ভয়েস রিপ্লাই নেই।"
         }
       }
     },
@@ -2975,6 +2999,14 @@
       "reply_shadow_meter": {
         "en": "AI reply shadow meter is available internally.",
         "bn": "AI রিপ্লাই শ্যাডো মিটার অভ্যন্তরীণভাবে পাওয়া যায়।"
+      },
+      "notrain": {
+        "en": "Your data and conversation content are never used to train AI models, and no provider is permitted to train on them.",
+        "bn": "আপনার ডেটা ও কথোপকথন কখনো AI মডেল ট্রেইনে ব্যবহার হয় না, কোনো প্রোভাইডারকেও ট্রেইনের অনুমতি দেওয়া হয় না।",
+        "fallback": {
+          "en": "See our published privacy policy for data-use terms.",
+          "bn": "ডেটা ব্যবহারের শর্তের জন্য আমাদের প্রকাশিত গোপনীয়তা নীতি দেখুন।"
+        }
       }
     },
     "addons": {
@@ -2998,6 +3030,88 @@
           }
         }
       }
+    },
+    "price": {
+      "unit": {
+        "en": "{{unitPrice}} per provider-confirmed delivered order.",
+        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPriceBn}}।"
+      },
+      "zero": {
+        "en": "{{zeroAmount}} on returned or cancelled orders.",
+        "bn": "রিটার্ন বা বাতিল অর্ডারে {{zeroAmountBn}}।",
+        "fallback": {
+          "en": "Returned or cancelled orders are billed at the contract's zero rate.",
+          "bn": "রিটার্ন বা বাতিল অর্ডার কন্ট্রাক্টের শূন্য রেটে বিল হয়।"
+        }
+      },
+      "nosub": {
+        "en": "No subscription, no setup fee, no monthly minimum.",
+        "bn": "কোনো সাবস্ক্রিপশন নেই, সেটআপ ফি নেই, মাসিক ন্যূনতম নেই।",
+        "fallback": {
+          "en": "See the current contract for billing terms.",
+          "bn": "বিলিং শর্তের জন্য বর্তমান কন্ট্রাক্ট দেখুন।"
+        }
+      }
+    },
+    "rto": {
+      "verify": {
+        "en": "RTO risk signals are verified on live deliveries.",
+        "bn": "লাইভ ডেলিভারিতে RTO ঝুঁকি সংকেত যাচাইকৃত।",
+        "fallback": {
+          "en": "RTO risk scoring is implemented and runs in the delivery flow; live verification is pending. Signals are not proof of fraud.",
+          "bn": "RTO ঝুঁকি স্কোরিং তৈরি হয়েছে ও ডেলিভারি ফ্লোতে চলে; লাইভ যাচাই বাকি। সংকেত জালিয়াতির প্রমাণ নয়।"
+        }
+      }
+    },
+    "order": {
+      "fromchat": {
+        "en": "Orders are captured from chat conversations, live-verified.",
+        "bn": "চ্যাট কথোপকথন থেকে অর্ডার তৈরি হয়, লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Chat-to-order capture is implemented end-to-end in code; no production order has been created yet.",
+          "bn": "চ্যাট-থেকে-অর্ডার কোডে সম্পূর্ণ তৈরি হয়েছে; প্রোডাকশনে এখনো কোনো অর্ডার তৈরি হয়নি।"
+        }
+      }
+    },
+    "customer": {
+      "ledger": {
+        "en": "A per-customer history timeline is live-verified.",
+        "bn": "প্রতি-কাস্টমার হিস্টোরি টাইমলাইন লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "A per-customer timeline merges orders, conversations and signals into one view (a computed history, not a financial ledger); tested on seeded data only.",
+          "bn": "প্রতি-কাস্টমার টাইমলাইন অর্ডার, কথোপকথন ও সংকেত এক ভিউতে মেলে (গণনাকৃত হিস্টোরি, আর্থিক খাতা নয়); শুধু সিডেড ডেটায় পরীক্ষিত।"
+        }
+      }
+    },
+    "knowledge": {
+      "gaps": {
+        "en": "Knowledge-gap capture is live-verified.",
+        "bn": "নলেজ-গ্যাপ শনাক্তকরণ লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Unanswered questions are captured as knowledge gaps for merchant review; not yet run on live traffic.",
+          "bn": "উত্তরহীন প্রশ্ন নলেজ গ্যাপ হিসেবে জমা হয় মার্চেন্ট পর্যালোচনার জন্য; লাইভ ট্রাফিকে এখনো চলে না।"
+        }
+      }
+    },
+    "queue": {
+      "priority": {
+        "en": "The inbox queue is prioritized, live-verified.",
+        "bn": "ইনবক্স কিউ অগ্রাধিকারভিত্তিক, লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "The inbox action queue is ordered by operational-risk bucket (needs-human first), oldest first — deterministic ordering, not AI ranking; not yet live-verified.",
+          "bn": "ইনবক্স অ্যাকশন কিউ অপারেশনাল-ঝুঁকি বাকেট অনুযায়ী সাজানো (মানুষ-দরকার আগে), তারপর পুরোনো আগে — নির্দিষ্ট ক্রম, AI র‍্যাঙ্কিং নয়; লাইভ যাচাই বাকি।"
+        }
+      }
+    },
+    "handoff": {
+      "human": {
+        "en": "Human takeover is live-verified.",
+        "bn": "মানুষের টেকওভার লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Human takeover and manual reply are implemented (taking over cancels the AI candidate); not yet exercised on a live conversation.",
+          "bn": "মানুষের টেকওভার ও ম্যানুয়াল রিপ্লাই তৈরি হয়েছে (টেকওভার AI ক্যান্ডিডেট বাতিল করে); লাইভ কথোপকথনে এখনো ব্যবহার হয়নি।"
+        }
+      }
     }
   },
   "billingStanding": {
@@ -3008,5 +3122,146 @@
   "featureGate": {
     "unavailable": "এই সক্ষমতা আপনার শপের জন্য উপলব্ধ নয়।",
     "viewBilling": "বিলিং দেখুন"
+  },
+  "landingV7": {
+    "meta": {
+      "title": "EasyModerator — মেসেজ, অর্ডার আর ডেলিভারির এক খাতা",
+      "description": "মেসেঞ্জার কথোপকথন, অর্ডার, কুরিয়ার আর ডেলিভারি এক খাতায়। শুধু ডেলিভারি হওয়া অর্ডারে পেমেন্ট।"
+    },
+    "hero": {
+      "eyebrow": "চার জায়গার কাজ, এক খাতায়",
+      "title": "মেসেঞ্জারের মেসেজ থেকে ডেলিভারি — সব এক খাতায়",
+      "subtitle": "প্রতিটি কাস্টমারকে মেসেজ থেকে অর্ডার, কুরিয়ার, ডেলিভারি থেকে টাকা পর্যন্ত এক জায়গায় দেখুন — ট্যাবের মাঝে কপি না করেই।",
+      "ctaPrimary": "অ্যাকাউন্ট তৈরি করুন",
+      "ctaSecondary": "কীভাবে কাজ করে দেখুন",
+      "sampleLabel": "নমুনা ইন্টারফেস — প্রকৃত কাস্টমার বা অর্ডার নয়",
+      "threadLabel": "কমার্স থ্রেড",
+      "nodes": {
+        "messages": "মেসেজ",
+        "orders": "অর্ডার",
+        "courier": "কুরিয়ার",
+        "delivery": "ডেলিভারি",
+        "money": "টাকা"
+      },
+      "ledgerNote": "প্রতিটি ধাপ একই খাতায় লেখা থাকে।"
+    },
+    "scatter": {
+      "title": "আপনার দিন চার জায়গায় ছড়িয়ে থাকে",
+      "subtitle": "ইনবক্স, অর্ডারের খাতা, কুরিয়ার বুক আর কাগজের খাতা — প্রতিটিতে আলাদা টুকরো।",
+      "resolve": "৪ জায়গা → ১ খাতা",
+      "inboxTitle": "মেসেজ",
+      "inboxBody": "কাস্টমারের প্রশ্ন আসে মেসেঞ্জারে।",
+      "ordersTitle": "অর্ডার",
+      "ordersBody": "অর্ডারের বিবরণ থাকে আলাদা খাতায়।",
+      "parcelTitle": "পার্সেল",
+      "parcelBody": "কুরিয়ার বইয়ে পার্সেলের হিসাব।",
+      "customerTitle": "কাস্টমার",
+      "customerBody": "কাস্টমারের হিস্টোরি আপনার মনে, সিস্টেমে নয়।",
+      "notYourFault": "দোষটা আপনার না — কাজটা ছড়িয়ে আছে, আপনি নন।"
+    },
+    "how": {
+      "title": "তিনটি ব্যবস্থা এটিকে একসাথে ধরে",
+      "subtitle": "ফিচারের তালিকা নয় — তিনটি ব্যবস্থা যা একটাই সত্য রেকর্ড রাখে।",
+      "oneTitle": "এক কথোপকথন, এক রেকর্ড",
+      "oneBody": "প্রতিটি মেসেজ ও অর্ডার তার কাস্টমারের সাথে যুক্ত থাকে।",
+      "twoTitle": "নিরপেক্ষ রেকর্ড মিল",
+      "twoBody": "কুরিয়ারের রিপোর্ট আর আপনার রেকর্ড পাশাপাশি দেখানো হয়, কাউকে দোষ দেওয়া হয় না।",
+      "threeTitle": "সিদ্ধান্ত আপনারই থাকে",
+      "threeBody": "সিস্টেম রেকর্ড দেখায়; সিদ্ধান্ত মানুষ নেয়।"
+    },
+    "extras": {
+      "title": "প্রতিদিনের ছয়টি কাজ",
+      "subtitle": "প্রতিটির প্রকৃত অবস্থা দেখানো হয় — যাচাইকৃত, বা লাইভ যাচাই বাকি।",
+      "orderTitle": "চ্যাট থেকে অর্ডার",
+      "ledgerTitle": "কাস্টমার হিস্টোরি",
+      "gapsTitle": "নলেজ গ্যাপ",
+      "queueTitle": "কিউ অগ্রাধিকার",
+      "handoffTitle": "মানুষের কাছে হস্তান্তর",
+      "rtoTitle": "RTO ঝুঁকি সংকেত"
+    },
+    "price": {
+      "title": "একটাই সহজ দাম",
+      "subtitle": "ডেলিভারি অর্ডার বিলিং। এর বেশি কিছু নয়।",
+      "zeroWord": "শূন্য",
+      "zeroCaption": "রিটার্ন ও বাতিল অর্ডারে",
+      "perOrderLabel": "প্রতি ডেলিভারি অর্ডারে",
+      "perOrderCaption": "কুরিয়ার ডেলিভারি নিশ্চিত করলেই কেবল ধরা হয়।",
+      "zeroOnReturnLabel": "রিটার্ন বা বাতিল",
+      "zeroOnReturnNote": "কন্ট্রাক্টের শূন্য রেটে বিল, আলাদা লাইনে দেখানো হয়।",
+      "noSubLabel": "সাবস্ক্রিপশন, সেটআপ বা মাসিক ন্যূনতম নেই",
+      "noSubNote": "মাসিক পোস্টপেইড, কন্ট্রাক্টের সময়সীমার মধ্যে পরিশোধ।"
+    },
+    "calc": {
+      "title": "নিজের মাসটা হিসাব করুন",
+      "subtitle": "আপনার ইনপুট, আপনার হিসাব। প্রতিশ্রুত ফল নয়।",
+      "ordersLabel": "মাসে অর্ডার",
+      "deliveredLabel": "ডেলিভারি %",
+      "returnedLabel": "রিটার্ন %",
+      "cancelledLabel": "বাতিল %",
+      "failedLabel": "ব্যর্থ %",
+      "monthsLabel": "মাস",
+      "avgValueLabel": "গড় অর্ডার মূল্য",
+      "feeHeading": "আপনার হিসাব",
+      "deliveredLine": "ডেলিভারি অর্ডার",
+      "zeroLine": "রিটার্ন + বাতিল + ব্যর্থ (শূন্য রেট)",
+      "feeLine": "আনুমানিক বিল",
+      "turnoverLine": "COD টার্নওভার (ডেলিভারি × অর্ডার মূল্য)",
+      "arithmeticNote": "এগুলো আপনার নিজের সংখ্যা কন্ট্রাক্ট রেটে গুণ করা, পূর্বাভাস নয়।",
+      "resetLabel": "রিসেট"
+    },
+    "trust": {
+      "title": "যা আমরা প্রতিশ্রুতি দিই না",
+      "subtitle": "যাচাই করা যায় এমন রেকর্ড, যা যাচাই হয় না এমন প্রতিশ্রুতির চেয়ে ভালো।",
+      "wont1": "শতকরা বৃদ্ধির দাবি নেই।",
+      "wont2": "সেটআপের সময়ের নিশ্চয়তা নেই।",
+      "wont3": "বানানো সঞ্চয়ের হিসাব নেই।",
+      "permissionsTitle": "তিনটি অনুমতি, এর বেশি নয়",
+      "perm1": "pages_messaging — পেজের মেসেজ পড়া ও উত্তর দেওয়া।",
+      "perm2": "pages_manage_metadata — পেজকে মেসেজ ওয়েবহুকে যুক্ত করা।",
+      "perm3": "public_profile — সংযুক্ত অ্যাকাউন্ট শনাক্ত করা।",
+      "neutralRecord": "কুরিয়ারের রিপোর্ট আপনার রেকর্ডের পাশে দেখাই। কোনো কুরিয়ারকে ভুল বা জালিয়াতির দোষ দিই না।"
+    },
+    "start": {
+      "title": "তিনটি সংযোগ দিয়ে শুরু",
+      "subtitle": "আগে ফল: আপনার মেসেজ আর অর্ডার এক খাতায়।",
+      "step1": "অ্যাকাউন্ট তৈরি করুন",
+      "step2": "আপনার Facebook পেজ যুক্ত করুন",
+      "step3": "ইনবক্স আর অর্ডার দেখুন",
+      "noTime": "সেটআপের সময়ের প্রতিশ্রুতি নেই — আপনার পেজ যতটা অনুমতি দেয়, ততটাই লাগে।",
+      "cta": "অ্যাকাউন্ট তৈরি করুন"
+    },
+    "faq": {
+      "title": "সাধারণ প্রশ্ন",
+      "q1": "ঠিক কীসের জন্য চার্জ হয়?",
+      "a1": "শুধু ডেলিভারি অর্ডার, কন্ট্রাক্ট রেটে। রিটার্ন ও বাতিল অর্ডার শূন্য রেটে।",
+      "q2": "সাবস্ক্রিপশন আছে?",
+      "a2": "না। সাবস্ক্রিপশন নেই, সেটআপ ফি নেই, মাসিক ন্যূনতম নেই।",
+      "q3": "কোন চ্যানেল সমর্থিত?",
+      "a3": "Facebook পেজ মেসেঞ্জার সমর্থিত চ্যানেল। অন্য কোনো প্ল্যাটফর্ম যুক্ত নয়।",
+      "q4": "বিল বকেয়া হলে কী হয়?",
+      "a4": "নতুন কুরিয়ার বুকিং থামে ও স্বয়ংক্রিয় রিপ্লাই বন্ধ হয়। ইনবক্স ও হিস্টোরি পড়া যায়; কিছু মুছে ফেলা হয় না।",
+      "q5": "আপনারা কি আমার ডেটা দিয়ে AI ট্রেইন করেন?",
+      "a5": "ডেটা ও AI প্রশিক্ষণের শর্ত ট্রাস্ট অংশে দেখুন।"
+    },
+    "close": {
+      "title": "এক খাতা দিয়ে শুরু করুন",
+      "subtitle": "এক দাম। এক রেকর্ড। সিদ্ধান্ত আপনার।",
+      "cta": "অ্যাকাউন্ট তৈরি করুন"
+    },
+    "status": {
+      "title": "ক্যাপাবিলিটি অবস্থা",
+      "subtitle": "ক্লেইম রেজিস্ট্রি থেকে তৈরি — হাতে লেখা নয়।",
+      "verified": "যাচাইকৃত",
+      "partial": "আংশিক — তৈরি, লাইভ যাচাই বাকি",
+      "notLaunched": "চালু হয়নি",
+      "note": "অবস্থা এভিডেন্স ফ্ল্যাগ থেকে, মার্কেটিং থেকে নয়।"
+    },
+    "sticky": {
+      "cta": "অ্যাকাউন্ট তৈরি করুন"
+    },
+    "footer": {
+      "capabilitiesTitle": "ক্যাপাবিলিটি অবস্থা",
+      "versionLabel": "প্রাইসিং ভার্সন"
+    }
   }
 }

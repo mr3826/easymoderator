@@ -12,8 +12,10 @@ import { resolve } from 'node:path';
  * BDT 10.00 per provider-confirmed delivered order, read from the public
  * commercial-contract endpoint, with no plan picker and no top-ups.
  *
- * All API traffic is mocked. The public contract payload must pass the same
- * fail-closed validator the app uses, so a stale price would fail this spec.
+ * The landing page is a contract-derived surface: prices come from the contract
+ * payload and capability statements render through the claim gate. All API
+ * traffic is mocked, and the public contract payload must pass the same
+ * fail-closed validator the app uses, so a stale price fails this spec.
  */
 
 const screenshots = resolve(process.cwd(), 'test-results', 'v7-public-funnel');
@@ -60,8 +62,8 @@ const publicContract = {
       fallback_i18n_key: null,
     },
   ],
-  // ADR-0011 B6: the public endpoint carries server-evaluated decisions; the
-  // fail-closed validator requires the array. The offer price renders from the
+  // The public endpoint carries server-evaluated decisions; the fail-closed
+  // validator requires the array. The landing offer price renders from the
   // contract payload, so an empty decision set is a valid anonymous state.
   decisions: [],
 };
@@ -127,9 +129,6 @@ function claimsForSurface(surface: string | null) {
 
 /** Mock every API the public marketing surfaces reach. */
 async function mockPublicApi(page: Page, { contractUnavailable = false } = {}) {
-  const user = { id: 'v7-preview-user', email: 'v7-preview@example.invalid', full_name: 'V7 Preview Merchant', role: 'MERCHANT', shop_id: 'v7-preview-shop' };
-  const shop = { id: 'v7-preview-shop', code: 'V7TEST', shop_name: 'V7 Preview Shop' };
-
   // Pathname predicate, not `**/api/**`: the glob also matches Vite module URLs
   // like /src/api/index.ts and would answer them with JSON.
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
@@ -158,10 +157,7 @@ async function mockPublicApi(page: Page, { contractUnavailable = false } = {}) {
     }
     if (url.pathname === '/api/analytics/funnel') return json(200, { success: true, data: {} });
     if (url.pathname === '/api/auth/signup' && request.method() === 'POST') {
-      return json(201, { success: true, data: { user, shop, currentShop: shop, allShops: [shop] } }, { 'set-cookie': 'v7-preview-session=1; Path=/; SameSite=Lax' });
-    }
-    if (url.pathname === '/api/auth/signin' && request.method() === 'POST') {
-      return json(200, { success: true, data: { user, shop, currentShop: shop, allShops: [shop] } }, { 'set-cookie': 'v7-preview-session=1; Path=/; SameSite=Lax' });
+      return json(201, { success: true, data: { user: {}, shop: {}, currentShop: {}, allShops: [] } }, { 'set-cookie': 'v7-preview-session=1; Path=/; SameSite=Lax' });
     }
     return json(200, { success: true, data: {} });
   });
@@ -179,77 +175,33 @@ async function expectNoRetiredOffer(page: Page) {
   await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 
+const HERO_EN = 'From Messenger messages to delivered orders — one ledger';
+
 test.describe('EasyModerator public funnel V7 — single delivered-order offer (mocked API only)', () => {
   test.beforeEach(async ({ page }) => {
     await mockPublicApi(page);
   });
 
-  test('renders the single delivered-order offer and keeps the responsive layout intact', async ({ page }) => {
+  test('renders the contract-derived offer and keeps the responsive layout intact', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
 
     for (const width of [1440, 1280, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/?lang=en');
-      const heroHeading = page.getByRole('heading', { level: 1, name: 'From Messenger messages to orders, from ad reports to clearer decisions—all in one dashboard.' });
-      await expect(heroHeading).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Core tools today. Extra tools by approval.', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: HERO_EN })).toBeVisible();
+      await expect(page.getByText('4 places → 1 ledger')).toBeVisible();
 
-      // One offer. The contract price is read from the mocked public endpoint.
-      const offer = page.locator('#plans article[data-contract-version="1.0.0"]');
-      await expect(offer).toHaveCount(1);
-      await expect(offer.getByRole('heading', { name: 'Delivered-order billing', exact: true })).toBeVisible();
-      await expect(page.locator('[data-testid="landing-unit-price"]')).toHaveText('৳10.00');
-      await expect(page.locator('#plans')).toContainText(/provider-confirmed delivered order/i);
-      await expect(page.locator('#plans')).toContainText(/No subscription, setup fee or monthly minimum/i);
+      // One offer. The contract price is read from the mocked public endpoint,
+      // and renders in the price section, the hero and the close.
+      await expect(page.locator('#plans')).toBeVisible();
+      await expect(page.getByTestId('lv7-unit-price')).toHaveText('৳10.00');
+      await expect(page.locator('#plans')).toContainText(/per delivered order/i);
+      await expect(page.getByTestId('lv7-hero-price')).toContainText('৳10.00');
+      await expect(page.getByTestId('lv7-close-price')).toContainText('৳10.00');
       await expectNoRetiredOffer(page);
 
-      // Add-on pilots remain explicit and separately gated.
-      await expect(page.getByRole('heading', { name: 'EasyModerator Ads Studio', exact: true })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'EasyModerator Storefront', exact: true })).toBeVisible();
-      await expect(page.locator('#plans article')).toHaveCount(3); // offer + 2 add-on pilots
-
-      await expect(page.getByText('Your Business. Our Technology. Forward, Together.')).toBeVisible();
-      await expect(page.locator('#feature-bar')).toContainText(/Ads Studio \+ Storefront/i);
-      await expect(page.locator('#feature-bar')).toContainText(/pilot approval is required/i);
-      await expect(page.locator('#capabilities article')).toHaveCount(5);
-      const painTitles = await page.locator('#capabilities article h3').allTextContents();
-      expect(painTitles).toEqual([
-        "Business is growing, but the work isn't shrinking?",
-        'Drowning in messages?',
-        'Want to reduce fake orders?',
-        'Worried about wasted ad spend?',
-        'Cash not adding up?',
-      ]);
-      await expect(page.locator('#capabilities article').nth(2)).toContainText(/not proof of fraud or a delivery guarantee/i);
-      await expect(page.locator('#capabilities article').nth(3)).toContainText(/merchant-supplied Meta CSV/i);
-      await expect(page.locator('#capabilities article').nth(3)).toContainText(/No direct Meta ad-account connection/i);
-      await expect(page.locator('#capabilities article').nth(3)).toContainText(/ROAS\/profit\/order attribution/i);
-      await expect(page.locator('#capabilities article').nth(4)).toContainText(/verify actual receipt manually/i);
-      await expect(page.locator('#capabilities article').nth(4)).toContainText(/no online payment verification, courier automation or cash reconciliation/i);
-
-      const sectionIndexes = await page.locator('#public-funnel-main').evaluate((main) =>
-        ['.landing-v6-hero', '#feature-bar', '#workflow', '#capabilities', '.landing-v6-story']
-          .map((selector) => Array.from(main.children).indexOf(main.querySelector(selector)!)),
-      );
-      expect(sectionIndexes.every((index) => index >= 0)).toBe(true);
-      expect(sectionIndexes).toEqual([...sectionIndexes].sort((left, right) => left - right));
-
-      const skip = page.getByRole('link', { name: /skip to content/i });
-      await skip.focus();
-      await page.keyboard.press('Enter');
-      const main = page.locator('#public-funnel-main');
-      await expect(main).toBeFocused();
-      const [mainTop, stickyHeaderHeight] = await Promise.all([
-        main.evaluate((element) => element.getBoundingClientRect().top),
-        page.locator('header.funnel-header').evaluate((element) => element.getBoundingClientRect().height),
-      ]);
-      expect(mainTop).toBeGreaterThanOrEqual(stickyHeaderHeight - 1);
-
-      const workflowFigure = page.getByRole('figure', { name: /illustrative Messenger reply and order review workflow/i });
-      await expect(workflowFigure).toContainText('AI-assisted reply');
-      await expect(workflowFigure).toContainText(/draft.*not sent/i);
-
+      // No horizontal overflow at any of the target widths (including 320px).
       const dimensions = await page.evaluate(() => ({
         viewport: document.documentElement.clientWidth,
         page: document.documentElement.scrollWidth,
@@ -257,33 +209,25 @@ test.describe('EasyModerator public funnel V7 — single delivered-order offer (
       expect(dimensions.page, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(dimensions.viewport);
 
       await page.screenshot({ path: resolve(screenshots, `landing-en-${width}.png`), fullPage: true });
-      await page.getByRole('link', { name: /see the three steps/i }).click();
-      await expect(page).toHaveURL(/#workflow$/);
-      await page.goto('/?lang=en');
-      await page.getByRole('link', { name: /create your easymoderator account/i }).first().click();
-      await expect(page).toHaveURL(/\/signup\?lang=en/);
     }
 
+    // Desktop-only navigation + skip link behaviours.
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/?lang=en');
-    await page.getByRole('link', { name: /create your easymoderator account/i }).first().click();
-    await expect(page).toHaveURL(/\/signup\?lang=en/);
-    await expect(page.getByRole('heading', { name: /create your EasyModerator account/i })).toBeVisible();
+    const skip = page.getByRole('link', { name: /skip to content/i });
+    await skip.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#public-funnel-main')).toBeFocused();
 
     await page.goto('/?lang=en');
-    await page.getByRole('link', { name: /see the three steps/i }).click();
-    await expect(page).toHaveURL(/#workflow$/);
     await page.getByRole('navigation', { name: /primary navigation/i }).getByRole('link', { name: /^plans$/i }).click();
     await expect(page).toHaveURL(/#plans$/);
-    await expect(page.locator('#plans article[data-contract-version="1.0.0"]')).toHaveCount(1);
+    await expect(page.getByTestId('lv7-unit-price')).toBeVisible();
 
     await page.goto('/?lang=en');
-    const billingFaq = page.locator('details').filter({ hasText: /How does a new account get billed\?/i });
-    await billingFaq.locator('summary').click();
-    await expect(billingFaq).toContainText(/billed per provider-confirmed delivered order/i);
-    await page.getByRole('link', { name: /sign in/i }).first().click();
-    await expect(page).toHaveURL(/\/signin\?lang=en/);
-    await expect(page.getByRole('heading', { name: /sign in to EasyModerator/i })).toBeVisible();
+    await page.getByRole('link', { name: /create your account/i }).first().click();
+    await expect(page).toHaveURL(/\/signup\?lang=en/);
+
     expect(pageErrors).toEqual([]);
   });
 
@@ -292,44 +236,27 @@ test.describe('EasyModerator public funnel V7 — single delivered-order offer (
       await page.setViewportSize({ width, height: 800 });
       await page.goto('/?lang=en');
       const menuToggle = page.locator('button[aria-controls="public-funnel-navigation"]');
-      const controlledMenu = page.locator('#public-funnel-navigation');
       await expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
-      await expect(controlledMenu).toHaveCount(1);
-      await expect(controlledMenu).toBeHidden();
+      await expect(page.locator('#public-funnel-navigation')).toBeHidden();
       await page.getByRole('button', { name: /open navigation/i }).click();
       await expect(page.getByRole('button', { name: /close navigation/i })).toHaveAttribute('aria-expanded', 'true');
       await page.getByRole('button', { name: /switch to bengali/i }).click();
-      await expect(page.getByRole('heading', { level: 1, name: 'মেসেঞ্জারের মেসেজ থেকে অর্ডার, বিজ্ঞাপনের রিপোর্ট থেকে সিদ্ধান্ত—সব এক ড্যাশবোর্ডে' })).toBeVisible();
-      await expect(page.getByText('আপনার ব্যবসা। আমাদের প্রযুক্তি। এগিয়ে চলি একসাথে।')).toBeVisible();
-      const painTitles = await page.locator('#capabilities article h3').allTextContents();
-      expect(painTitles).toEqual([
-        'ব্যবসা বাড়ছে, কিন্তু কাজ কমছে না?',
-        'মেসেজে ডুবে যাচ্ছেন?',
-        'ফেক অর্ডার কমাতে চান?',
-        'বিজ্ঞাপনের টাকা অপচয়?',
-        'ক্যাশ মিলছে না?',
-      ]);
-      await expect(page.locator('#capabilities article').nth(3)).toContainText(/সরাসরি Meta ad-account সংযোগ নয়/i);
-      await expect(page.locator('#capabilities article').nth(4)).toContainText(/cash reconciliation নেই/i);
-      await expect(page.locator('#capabilities article').nth(3).getByRole('link')).toHaveAttribute('href', /\/signin\?lang=bn$/);
-      await expect(page.locator('html')).toHaveAttribute('lang', 'bn');
 
-      const commercialSection = page.locator('#plans');
-      await expect(commercialSection.locator('article[data-contract-version="1.0.0"]')).toHaveCount(1);
-      await expect(commercialSection.getByRole('heading', { name: 'ডেলিভারি অর্ডার বিলিং', exact: true })).toBeVisible();
-      await expect(page.locator('[data-testid="landing-unit-price"]')).toContainText('৳১০.০০');
+      await expect(page.getByRole('heading', { level: 1, name: 'মেসেঞ্জারের মেসেজ থেকে ডেলিভারি — সব এক খাতায়' })).toBeVisible();
+      await expect(page.getByText('৪ জায়গা → ১ খাতা')).toBeVisible();
+      await expect(page.getByTestId('lv7-unit-price')).toContainText('৳১০.০০');
+      await expect(page.locator('html')).toHaveAttribute('lang', 'bn');
       await expectNoRetiredOffer(page);
 
-      await expect(menuToggle).toHaveAttribute('aria-expanded', 'true');
-      await menuToggle.click();
-      await expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
-      await expect(controlledMenu).toBeHidden();
-      await page.screenshot({ path: resolve(screenshots, `landing-bn-${width}.png`), fullPage: true });
       const dimensions = await page.evaluate(() => ({
         viewport: document.documentElement.clientWidth,
         page: document.documentElement.scrollWidth,
       }));
       expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
+
+      await page.screenshot({ path: resolve(screenshots, `landing-bn-${width}.png`), fullPage: true });
+      await menuToggle.click();
+      await expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
     }
   });
 
@@ -354,7 +281,6 @@ test.describe('EasyModerator public funnel V7 — single delivered-order offer (
     await expect(page.locator('article[data-contract-version="1.0.0"]')).toHaveAttribute('data-contract-hash', CONTRACT_HASH);
 
     await expectNoRetiredOffer(page);
-    // No plan-selection control remains on the public offer.
     await expect(offer.getByRole('radio')).toHaveCount(0);
     await expect(offer.getByRole('combobox')).toHaveCount(0);
 

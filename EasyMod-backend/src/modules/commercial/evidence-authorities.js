@@ -142,6 +142,59 @@ const EVIDENCE_AUTHORITIES = deepFreeze({
         'PLATFORM_EVIDENCE value (pilot add-on code ships)',
         'src/modules/commercial/claim.registry.js',
     ),
+
+    // Contract-derived price facts (ADR-0011). These back the landing price
+    // claims so a contract change that stops zero-rating returns, or starts
+    // charging a subscription fee, fails the corresponding claim closed.
+    'contract.zero_on_return': authority(
+        './commercial.contract',
+        'COMMERCIAL_CONTRACT',
+        true,
+        'zeroRatedOutcomes includes RETURNED and CANCELLED',
+        'src/modules/commercial/commercial.contract.js',
+    ),
+    'contract.no_subscription': authority(
+        './commercial.contract',
+        'COMMERCIAL_CONTRACT',
+        true,
+        'subscriptionFeeMinor/setupFeeMinor/monthlyMinimumMinor all 0 and conversationEntitlement null',
+        'src/modules/commercial/commercial.contract.js',
+    ),
+
+    // Published-policy fact: the privacy policy commits that no merchant or
+    // conversation data trains AI models and no provider is permitted to. This
+    // is a documented commitment, not a runtime lifecycle capability.
+    'platform.ai.no_training_policy': authority(
+        './claim.registry',
+        'PLATFORM_EVIDENCE',
+        true,
+        'PLATFORM_EVIDENCE value (published privacy policy no-training commitment)',
+        'src/modules/commercial/claim.registry.js',
+    ),
+
+    // Capability evidence for the landing "extras" claims. code_present is
+    // true where the code exists; production_verified is false for every one
+    // because production has never run a commercial lifecycle (0 orders/0
+    // messages ever). Truthful fallbacks render until a flag is raised on real
+    // verification.
+    ...Object.fromEntries([
+        'rto', 'order_from_chat', 'customer_ledger', 'knowledge_gaps', 'queue_priority', 'human_handoff',
+    ].flatMap((key) => [
+        [`platform.${key}.code_present`, authority(
+            './claim.registry',
+            'PLATFORM_EVIDENCE',
+            true,
+            `PLATFORM_EVIDENCE value (${key} code presence)`,
+            'src/modules/commercial/claim.registry.js',
+        )],
+        [`platform.${key}.production_verified`, authority(
+            './claim.registry',
+            'PLATFORM_EVIDENCE',
+            true,
+            `PLATFORM_EVIDENCE value (${key} never live-verified)`,
+            'src/modules/commercial/claim.registry.js',
+        )],
+    ])),
 });
 
 const EVIDENCE_FLAGS = Object.freeze(Object.keys(EVIDENCE_AUTHORITIES));

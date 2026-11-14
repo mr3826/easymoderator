@@ -7,6 +7,18 @@ const { redactSecretiveValues, redactSensitiveUrl } = require('../growth-os/grow
 const ALLOWED_FUNNEL_EVENTS = new Set([
     'landing_view',
     'signup_started',
+    // Contract-derived landing instrumentation (anonymous, first-party). These
+    // carry only section ids, numeric scroll depth, calculator inputs the
+    // merchant typed, and the contract_version — never PII.
+    'page_view',
+    'cta_click',
+    'signup_click',
+    'scroll_depth',
+    'section_view',
+    'mechanism_view',
+    'faq_open',
+    'calc_state',
+    'calc_reset',
     'signup_completed',
     'facebook_connect_started',
     'facebook_connect_succeeded',
@@ -27,7 +39,19 @@ const ALLOWED_FUNNEL_EVENTS = new Set([
     'partner_applied',
     'partner_approved',
 ]);
-const PUBLIC_FUNNEL_EVENTS = new Set(['landing_view', 'signup_started']);
+const PUBLIC_FUNNEL_EVENTS = new Set([
+    'landing_view',
+    'signup_started',
+    'page_view',
+    'cta_click',
+    'signup_click',
+    'scroll_depth',
+    'section_view',
+    'mechanism_view',
+    'faq_open',
+    'calc_state',
+    'calc_reset',
+]);
 const INTERNAL_FUNNEL_EVENTS = new Set([...ALLOWED_FUNNEL_EVENTS].filter(event => !PUBLIC_FUNNEL_EVENTS.has(event)));
 const SENSITIVE_METADATA_KEY = /(password|token|secret|api[_-]?key|authorization|cookie|credential|otp|totp|email|phone|message)/i;
 const URL_METADATA_KEY = /(?:path|url|referer|referrer|redirect|callback)/i;

@@ -2935,6 +2935,22 @@
             "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
           }
         }
+      },
+      "booking": {
+        "en": "Courier booking is live-verified for your courier services.",
+        "bn": "আপনার কুরিয়ার সেবার জন্য কুরিয়ার বুকিং লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Courier booking is implemented in code; live verification is pending for every service.",
+          "bn": "কুরিয়ার বুকিং কোডে তৈরি হয়েছে; কোনো সেবায় এখনো লাইভ যাচাই হয়নি।"
+        }
+      },
+      "payout": {
+        "en": "COD payout matching is implemented for {{providerCount}} courier service(s); live verification is pending.",
+        "bn": "{{providerCountBn}}টি কুরিয়ার সেবার জন্য COD পেআউট মিলানোর কোড তৈরি হয়েছে; লাইভ যাচাই বাকি।",
+        "fallback": {
+          "en": "COD payout matching is not yet implemented.",
+          "bn": "COD পেআউট মিলানো এখনো তৈরি হয়নি।"
+        }
       }
     },
     "voice": {
@@ -2952,6 +2968,14 @@
         "fallback": {
           "en": "Voice auto-reply is not implemented.",
           "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
+        }
+      },
+      "transcribe": {
+        "en": "Voice-note transcription is live-verified.",
+        "bn": "ভয়েস-নোট ট্রান্সক্রিপশন লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Voice transcription exists as a manual preview only; the automatic pipeline is not wired and it is not live-verified. Transcription only — no automatic voice reply.",
+          "bn": "ভয়েস ট্রান্সক্রিপশন শুধু ম্যানুয়াল প্রিভিউ; অটো পাইপলাইন যুক্ত নয় ও লাইভ যাচাইকৃত নয়। শুধু ট্রান্সক্রিপশন — স্বয়ংক্রিয় ভয়েস রিপ্লাই নেই।"
         }
       }
     },
@@ -2975,6 +2999,14 @@
       "reply_shadow_meter": {
         "en": "AI reply shadow meter is available internally.",
         "bn": "AI রিপ্লাই শ্যাডো মিটার অভ্যন্তরীণভাবে পাওয়া যায়।"
+      },
+      "notrain": {
+        "en": "Your data and conversation content are never used to train AI models, and no provider is permitted to train on them.",
+        "bn": "আপনার ডেটা ও কথোপকথন কখনো AI মডেল ট্রেইনে ব্যবহার হয় না, কোনো প্রোভাইডারকেও ট্রেইনের অনুমতি দেওয়া হয় না।",
+        "fallback": {
+          "en": "See our published privacy policy for data-use terms.",
+          "bn": "ডেটা ব্যবহারের শর্তের জন্য আমাদের প্রকাশিত গোপনীয়তা নীতি দেখুন।"
+        }
       }
     },
     "addons": {
@@ -2998,6 +3030,88 @@
           }
         }
       }
+    },
+    "price": {
+      "unit": {
+        "en": "{{unitPrice}} per provider-confirmed delivered order.",
+        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPriceBn}}।"
+      },
+      "zero": {
+        "en": "{{zeroAmount}} on returned or cancelled orders.",
+        "bn": "রিটার্ন বা বাতিল অর্ডারে {{zeroAmountBn}}।",
+        "fallback": {
+          "en": "Returned or cancelled orders are billed at the contract's zero rate.",
+          "bn": "রিটার্ন বা বাতিল অর্ডার কন্ট্রাক্টের শূন্য রেটে বিল হয়।"
+        }
+      },
+      "nosub": {
+        "en": "No subscription, no setup fee, no monthly minimum.",
+        "bn": "কোনো সাবস্ক্রিপশন নেই, সেটআপ ফি নেই, মাসিক ন্যূনতম নেই।",
+        "fallback": {
+          "en": "See the current contract for billing terms.",
+          "bn": "বিলিং শর্তের জন্য বর্তমান কন্ট্রাক্ট দেখুন।"
+        }
+      }
+    },
+    "rto": {
+      "verify": {
+        "en": "RTO risk signals are verified on live deliveries.",
+        "bn": "লাইভ ডেলিভারিতে RTO ঝুঁকি সংকেত যাচাইকৃত।",
+        "fallback": {
+          "en": "RTO risk scoring is implemented and runs in the delivery flow; live verification is pending. Signals are not proof of fraud.",
+          "bn": "RTO ঝুঁকি স্কোরিং তৈরি হয়েছে ও ডেলিভারি ফ্লোতে চলে; লাইভ যাচাই বাকি। সংকেত জালিয়াতির প্রমাণ নয়।"
+        }
+      }
+    },
+    "order": {
+      "fromchat": {
+        "en": "Orders are captured from chat conversations, live-verified.",
+        "bn": "চ্যাট কথোপকথন থেকে অর্ডার তৈরি হয়, লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Chat-to-order capture is implemented end-to-end in code; no production order has been created yet.",
+          "bn": "চ্যাট-থেকে-অর্ডার কোডে সম্পূর্ণ তৈরি হয়েছে; প্রোডাকশনে এখনো কোনো অর্ডার তৈরি হয়নি।"
+        }
+      }
+    },
+    "customer": {
+      "ledger": {
+        "en": "A per-customer history timeline is live-verified.",
+        "bn": "প্রতি-কাস্টমার হিস্টোরি টাইমলাইন লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "A per-customer timeline merges orders, conversations and signals into one view (a computed history, not a financial ledger); tested on seeded data only.",
+          "bn": "প্রতি-কাস্টমার টাইমলাইন অর্ডার, কথোপকথন ও সংকেত এক ভিউতে মেলে (গণনাকৃত হিস্টোরি, আর্থিক খাতা নয়); শুধু সিডেড ডেটায় পরীক্ষিত।"
+        }
+      }
+    },
+    "knowledge": {
+      "gaps": {
+        "en": "Knowledge-gap capture is live-verified.",
+        "bn": "নলেজ-গ্যাপ শনাক্তকরণ লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Unanswered questions are captured as knowledge gaps for merchant review; not yet run on live traffic.",
+          "bn": "উত্তরহীন প্রশ্ন নলেজ গ্যাপ হিসেবে জমা হয় মার্চেন্ট পর্যালোচনার জন্য; লাইভ ট্রাফিকে এখনো চলে না।"
+        }
+      }
+    },
+    "queue": {
+      "priority": {
+        "en": "The inbox queue is prioritized, live-verified.",
+        "bn": "ইনবক্স কিউ অগ্রাধিকারভিত্তিক, লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "The inbox action queue is ordered by operational-risk bucket (needs-human first), oldest first — deterministic ordering, not AI ranking; not yet live-verified.",
+          "bn": "ইনবক্স অ্যাকশন কিউ অপারেশনাল-ঝুঁকি বাকেট অনুযায়ী সাজানো (মানুষ-দরকার আগে), তারপর পুরোনো আগে — নির্দিষ্ট ক্রম, AI র‍্যাঙ্কিং নয়; লাইভ যাচাই বাকি।"
+        }
+      }
+    },
+    "handoff": {
+      "human": {
+        "en": "Human takeover is live-verified.",
+        "bn": "মানুষের টেকওভার লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Human takeover and manual reply are implemented (taking over cancels the AI candidate); not yet exercised on a live conversation.",
+          "bn": "মানুষের টেকওভার ও ম্যানুয়াল রিপ্লাই তৈরি হয়েছে (টেকওভার AI ক্যান্ডিডেট বাতিল করে); লাইভ কথোপকথনে এখনো ব্যবহার হয়নি।"
+        }
+      }
     }
   },
   "billingStanding": {
@@ -3008,5 +3122,146 @@
   "featureGate": {
     "unavailable": "This capability is not available for this shop.",
     "viewBilling": "View billing"
+  },
+  "landingV7": {
+    "meta": {
+      "title": "EasyModerator — one ledger for messages, orders and delivery",
+      "description": "Messenger conversations, orders, courier and delivery in one ledger. Pay only per delivered order."
+    },
+    "hero": {
+      "eyebrow": "One ledger, not four tabs",
+      "title": "From Messenger messages to delivered orders — one ledger",
+      "subtitle": "Follow each customer from message to order to courier to delivery to cash, without copying between tabs.",
+      "ctaPrimary": "Create your account",
+      "ctaSecondary": "See how it works",
+      "sampleLabel": "Sample interface — not a real customer or order",
+      "threadLabel": "The commerce thread",
+      "nodes": {
+        "messages": "Message",
+        "orders": "Order",
+        "courier": "Courier",
+        "delivery": "Delivery",
+        "money": "Cash"
+      },
+      "ledgerNote": "Every step is recorded on the same ledger."
+    },
+    "scatter": {
+      "title": "Your day is scattered across four places",
+      "subtitle": "Inbox, order notes, courier book and a paper ledger — each holds a different piece.",
+      "resolve": "4 places → 1 ledger",
+      "inboxTitle": "Messages",
+      "inboxBody": "Customer questions arrive in Messenger.",
+      "ordersTitle": "Orders",
+      "ordersBody": "Order details live in a separate note.",
+      "parcelTitle": "Parcel",
+      "parcelBody": "The courier book tracks the parcel.",
+      "customerTitle": "Customer",
+      "customerBody": "The customer history is remembered by you, not the system.",
+      "notYourFault": "It is not your fault — the work is scattered, not you."
+    },
+    "how": {
+      "title": "Three mechanisms hold it together",
+      "subtitle": "Not a list of features — three mechanisms that keep one truthful record.",
+      "oneTitle": "One conversation, one record",
+      "oneBody": "Each message and order stays attached to its customer.",
+      "twoTitle": "Neutral record matching",
+      "twoBody": "The courier report and your record are shown side by side, never blamed.",
+      "threeTitle": "Decisions stay yours",
+      "threeBody": "The system shows the record; a human makes the call."
+    },
+    "extras": {
+      "title": "Six everyday capabilities",
+      "subtitle": "Each is shown with its real status — verified, or pending live verification.",
+      "orderTitle": "Order from chat",
+      "ledgerTitle": "Customer history",
+      "gapsTitle": "Knowledge gaps",
+      "queueTitle": "Queue priority",
+      "handoffTitle": "Human handoff",
+      "rtoTitle": "RTO risk signals"
+    },
+    "price": {
+      "title": "One simple price",
+      "subtitle": "Delivered-order billing. Nothing else.",
+      "zeroWord": "ZERO",
+      "zeroCaption": "on returned and cancelled orders",
+      "perOrderLabel": "per delivered order",
+      "perOrderCaption": "Charged only when the courier confirms delivery.",
+      "zeroOnReturnLabel": "Returned or cancelled",
+      "zeroOnReturnNote": "Billed at the contract zero rate, shown as an explicit line.",
+      "noSubLabel": "No subscription, setup or monthly minimum",
+      "noSubNote": "Postpaid monthly, due within the contract window."
+    },
+    "calc": {
+      "title": "Work out your own month",
+      "subtitle": "Your inputs, your arithmetic. Not a promised result.",
+      "ordersLabel": "Orders per month",
+      "deliveredLabel": "Delivered %",
+      "returnedLabel": "Returned %",
+      "cancelledLabel": "Cancelled %",
+      "failedLabel": "Failed %",
+      "monthsLabel": "Months",
+      "avgValueLabel": "Average order value",
+      "feeHeading": "Your arithmetic",
+      "deliveredLine": "Delivered orders",
+      "zeroLine": "Returned + cancelled + failed (× zero rate)",
+      "feeLine": "Estimated bill",
+      "turnoverLine": "COD turnover (delivered × order value)",
+      "arithmeticNote": "These are your own numbers run through the contract rate, not a forecast.",
+      "resetLabel": "Reset"
+    },
+    "trust": {
+      "title": "What we will not promise",
+      "subtitle": "A record you can check beats a promise you cannot.",
+      "wont1": "No percentage uplift claim.",
+      "wont2": "No setup-duration guarantee.",
+      "wont3": "No invented savings total.",
+      "permissionsTitle": "Three permissions, nothing more",
+      "perm1": "pages_messaging — read and reply to Page messages.",
+      "perm2": "pages_manage_metadata — subscribe the Page to message webhooks.",
+      "perm3": "public_profile — identify the connected account.",
+      "neutralRecord": "We show the courier report next to your record. We never accuse a courier of error or fraud."
+    },
+    "start": {
+      "title": "Start with three connections",
+      "subtitle": "Outcome first: your messages and orders on one ledger.",
+      "step1": "Create your account",
+      "step2": "Connect your Facebook Page",
+      "step3": "Review the inbox and orders",
+      "noTime": "No setup-duration promise — the steps take as long as your Page allows.",
+      "cta": "Create your account"
+    },
+    "faq": {
+      "title": "Common questions",
+      "q1": "What exactly am I charged for?",
+      "a1": "Only delivered orders, at the contract rate. Returned and cancelled orders are zero-rated.",
+      "q2": "Is there a subscription?",
+      "a2": "No. No subscription, no setup fee, no monthly minimum.",
+      "q3": "Which channel is supported?",
+      "a3": "Facebook Page Messenger is the supported channel. No other platform is connected.",
+      "q4": "What happens if a bill is overdue?",
+      "a4": "New courier bookings pause and automated replies stop. Your inbox and history stay readable; nothing is deleted.",
+      "q5": "Do you train AI on my data?",
+      "a5": "See the Data & AI training terms in the Trust section."
+    },
+    "close": {
+      "title": "Start with one ledger",
+      "subtitle": "One price. One record. Your decisions.",
+      "cta": "Create your account"
+    },
+    "status": {
+      "title": "Capability status",
+      "subtitle": "Derived from the claim registry — not written by hand.",
+      "verified": "Verified",
+      "partial": "Partial — implemented, live verification pending",
+      "notLaunched": "Not launched",
+      "note": "Status reflects evidence flags, not marketing."
+    },
+    "sticky": {
+      "cta": "Create your account"
+    },
+    "footer": {
+      "capabilitiesTitle": "Capability status",
+      "versionLabel": "Pricing version"
+    }
   }
 }

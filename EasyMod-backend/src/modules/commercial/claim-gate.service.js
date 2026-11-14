@@ -28,6 +28,7 @@ const {
     COMMERCIAL_CONTRACT_VERSION,
     formatBdt,
     formatBdtBn,
+    toBengaliNumerals,
 } = require('./commercial.contract');
 const {
     getClaim,
@@ -91,8 +92,9 @@ function predicateFacets(entry, evidenceMap) {
         scope_match: true,
     };
 
+    const scopeFacet = entry.scopeEvidenceFacet || 'production_verified';
     const claimedFlags = new Set(
-        (entry.claimedProviders || []).map((provider) => `courier.${provider}.production_verified`),
+        (entry.claimedProviders || []).map((provider) => `courier.${provider}.${scopeFacet}`),
     );
 
     for (const flagId of entry.requiredEvidence) {
@@ -113,7 +115,7 @@ function predicateFacets(entry, evidenceMap) {
 
     if (entry.claimedProviders) {
         const verified = entry.claimedProviders.filter((provider) => (
-            evidenceMap[`courier.${provider}.production_verified`] === true
+            evidenceMap[`courier.${provider}.${scopeFacet}`] === true
         ));
         predicate.production_verified = predicate.production_verified && verified.length > 0;
         predicate.scope_match = verified.length === entry.claimedProviders.length;
@@ -154,8 +156,9 @@ function resolveScope(entry, evidenceMap) {
         };
     }
 
+    const scopeFacet = entry.scopeEvidenceFacet || 'production_verified';
     const verified = entry.claimedProviders.filter((provider) => (
-        evidenceMap[`courier.${provider}.production_verified`] === true
+        evidenceMap[`courier.${provider}.${scopeFacet}`] === true
     ));
     const total = entry.claimedProviders.length;
     const fullMatch = verified.length === total;
@@ -200,12 +203,26 @@ function interpolationFor(scope, entry) {
     const interpolation = {};
 
     if (scope.claimedProviders && scope.count > 0) {
+        // Display names stay available for merchant-app surfaces; a claim that
+        // explicitly scopes on a capability facet (e.g. courier.payout on
+        // settlement) additionally gets brand-free provider counts for the
+        // public landing. Claims without a declared facet keep the original
+        // {providers} interpolation unchanged.
         interpolation.providers = scope.verifiedProviders.map(providerDisplayName).join(', ');
+        if (entry && entry.scopeEvidenceFacet) {
+            interpolation.providerCount = String(scope.count);
+            interpolation.providerCountBn = toBengaliNumerals(String(scope.count));
+        }
     }
 
-    if (entry && entry.id === 'billing.delivered_order') {
+    // Price claims are always interpolated from the contract, never from copy.
+    if (entry && (entry.id === 'billing.delivered_order' || String(entry.id).startsWith('price.'))) {
         interpolation.unitPrice = formatBdt(COMMERCIAL_CONTRACT.unitPriceMinor);
         interpolation.unitPriceBn = formatBdtBn(COMMERCIAL_CONTRACT.unitPriceMinor);
+        if (entry.id === 'price.zero') {
+            interpolation.zeroAmount = formatBdt(0);
+            interpolation.zeroAmountBn = formatBdtBn(0);
+        }
     }
 
     return interpolation;
@@ -343,11 +360,31 @@ async function resolveAiAutoReplyFlag(flagId, shopId) {
     }
 }
 
+/**
+ * Contract-derived price facts. Returns undefined when the flag is not a
+ * contract facet so callers fall through to the other resolvers.
+ */
+function resolveContractFlag(flagId) {
+    if (flagId === 'contract') return true;
+    if (flagId === 'contract.zero_on_return') {
+        return COMMERCIAL_CONTRACT.zeroRatedOutcomes.includes('RETURNED')
+            && COMMERCIAL_CONTRACT.zeroRatedOutcomes.includes('CANCELLED');
+    }
+    if (flagId === 'contract.no_subscription') {
+        return COMMERCIAL_CONTRACT.subscriptionFeeMinor === 0
+            && COMMERCIAL_CONTRACT.setupFeeMinor === 0
+            && COMMERCIAL_CONTRACT.monthlyMinimumMinor === 0
+            && COMMERCIAL_CONTRACT.conversationEntitlement === null;
+    }
+    return undefined;
+}
+
 /** Async evidence resolution used by evaluateClaim (request path). */
 async function resolveFlag(flagId, shopId) {
     const authority = EVIDENCE_AUTHORITIES[flagId];
     if (!authority) return false;
-    if (flagId === 'contract') return true;
+    const contractFlag = resolveContractFlag(flagId);
+    if (contractFlag !== undefined) return contractFlag;
     if (flagId.startsWith('platform.')) return PLATFORM_EVIDENCE[flagId]?.value === true;
 
     const courier = resolveCourierFlag(flagId);
@@ -373,7 +410,8 @@ async function resolveFlag(flagId, shopId) {
 function resolveFlagSync(flagId) {
     const authority = EVIDENCE_AUTHORITIES[flagId];
     if (!authority) return false;
-    if (flagId === 'contract') return true;
+    const contractFlag = resolveContractFlag(flagId);
+    if (contractFlag !== undefined) return contractFlag;
     if (flagId.startsWith('platform.')) return PLATFORM_EVIDENCE[flagId]?.value === true;
     const courier = resolveCourierFlag(flagId);
     return courier !== undefined ? courier : false;

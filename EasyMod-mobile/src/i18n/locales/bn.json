@@ -508,6 +508,22 @@
             "bn": "ডেলিভারির পর RedX সেটেলমেন্ট স্ট্যাটাস পাওয়া যায় না। RedX মার্চেন্ট পোর্টালে রিকনসিল করুন।"
           }
         }
+      },
+      "booking": {
+        "en": "Courier booking is live-verified for your courier services.",
+        "bn": "আপনার কুরিয়ার সেবার জন্য কুরিয়ার বুকিং লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Courier booking is implemented in code; live verification is pending for every service.",
+          "bn": "কুরিয়ার বুকিং কোডে তৈরি হয়েছে; কোনো সেবায় এখনো লাইভ যাচাই হয়নি।"
+        }
+      },
+      "payout": {
+        "en": "COD payout matching is implemented for {{providerCount}} courier service(s); live verification is pending.",
+        "bn": "{{providerCountBn}}টি কুরিয়ার সেবার জন্য COD পেআউট মিলানোর কোড তৈরি হয়েছে; লাইভ যাচাই বাকি।",
+        "fallback": {
+          "en": "COD payout matching is not yet implemented.",
+          "bn": "COD পেআউট মিলানো এখনো তৈরি হয়নি।"
+        }
       }
     },
     "voice": {
@@ -525,6 +541,14 @@
         "fallback": {
           "en": "Voice auto-reply is not implemented.",
           "bn": "ভয়েস অটো-রিপ্লাই এখনো তৈরি হয়নি।"
+        }
+      },
+      "transcribe": {
+        "en": "Voice-note transcription is live-verified.",
+        "bn": "ভয়েস-নোট ট্রান্সক্রিপশন লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Voice transcription exists as a manual preview only; the automatic pipeline is not wired and it is not live-verified. Transcription only — no automatic voice reply.",
+          "bn": "ভয়েস ট্রান্সক্রিপশন শুধু ম্যানুয়াল প্রিভিউ; অটো পাইপলাইন যুক্ত নয় ও লাইভ যাচাইকৃত নয়। শুধু ট্রান্সক্রিপশন — স্বয়ংক্রিয় ভয়েস রিপ্লাই নেই।"
         }
       }
     },
@@ -548,6 +572,14 @@
       "reply_shadow_meter": {
         "en": "AI reply shadow meter is available internally.",
         "bn": "AI রিপ্লাই শ্যাডো মিটার অভ্যন্তরীণভাবে পাওয়া যায়।"
+      },
+      "notrain": {
+        "en": "Your data and conversation content are never used to train AI models, and no provider is permitted to train on them.",
+        "bn": "আপনার ডেটা ও কথোপকথন কখনো AI মডেল ট্রেইনে ব্যবহার হয় না, কোনো প্রোভাইডারকেও ট্রেইনের অনুমতি দেওয়া হয় না।",
+        "fallback": {
+          "en": "See our published privacy policy for data-use terms.",
+          "bn": "ডেটা ব্যবহারের শর্তের জন্য আমাদের প্রকাশিত গোপনীয়তা নীতি দেখুন।"
+        }
       }
     },
     "addons": {
@@ -569,6 +601,88 @@
             "en": "Storefront is an approval-only pilot and is not enabled for this shop.",
             "bn": "Storefront শুধু অনুমোদনসাপেক্ষ পাইলট এবং এই শপে চালু নেই।"
           }
+        }
+      }
+    },
+    "price": {
+      "unit": {
+        "en": "{{unitPrice}} per provider-confirmed delivered order.",
+        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPriceBn}}।"
+      },
+      "zero": {
+        "en": "{{zeroAmount}} on returned or cancelled orders.",
+        "bn": "রিটার্ন বা বাতিল অর্ডারে {{zeroAmountBn}}।",
+        "fallback": {
+          "en": "Returned or cancelled orders are billed at the contract's zero rate.",
+          "bn": "রিটার্ন বা বাতিল অর্ডার কন্ট্রাক্টের শূন্য রেটে বিল হয়।"
+        }
+      },
+      "nosub": {
+        "en": "No subscription, no setup fee, no monthly minimum.",
+        "bn": "কোনো সাবস্ক্রিপশন নেই, সেটআপ ফি নেই, মাসিক ন্যূনতম নেই।",
+        "fallback": {
+          "en": "See the current contract for billing terms.",
+          "bn": "বিলিং শর্তের জন্য বর্তমান কন্ট্রাক্ট দেখুন।"
+        }
+      }
+    },
+    "rto": {
+      "verify": {
+        "en": "RTO risk signals are verified on live deliveries.",
+        "bn": "লাইভ ডেলিভারিতে RTO ঝুঁকি সংকেত যাচাইকৃত।",
+        "fallback": {
+          "en": "RTO risk scoring is implemented and runs in the delivery flow; live verification is pending. Signals are not proof of fraud.",
+          "bn": "RTO ঝুঁকি স্কোরিং তৈরি হয়েছে ও ডেলিভারি ফ্লোতে চলে; লাইভ যাচাই বাকি। সংকেত জালিয়াতির প্রমাণ নয়।"
+        }
+      }
+    },
+    "order": {
+      "fromchat": {
+        "en": "Orders are captured from chat conversations, live-verified.",
+        "bn": "চ্যাট কথোপকথন থেকে অর্ডার তৈরি হয়, লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Chat-to-order capture is implemented end-to-end in code; no production order has been created yet.",
+          "bn": "চ্যাট-থেকে-অর্ডার কোডে সম্পূর্ণ তৈরি হয়েছে; প্রোডাকশনে এখনো কোনো অর্ডার তৈরি হয়নি।"
+        }
+      }
+    },
+    "customer": {
+      "ledger": {
+        "en": "A per-customer history timeline is live-verified.",
+        "bn": "প্রতি-কাস্টমার হিস্টোরি টাইমলাইন লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "A per-customer timeline merges orders, conversations and signals into one view (a computed history, not a financial ledger); tested on seeded data only.",
+          "bn": "প্রতি-কাস্টমার টাইমলাইন অর্ডার, কথোপকথন ও সংকেত এক ভিউতে মেলে (গণনাকৃত হিস্টোরি, আর্থিক খাতা নয়); শুধু সিডেড ডেটায় পরীক্ষিত।"
+        }
+      }
+    },
+    "knowledge": {
+      "gaps": {
+        "en": "Knowledge-gap capture is live-verified.",
+        "bn": "নলেজ-গ্যাপ শনাক্তকরণ লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Unanswered questions are captured as knowledge gaps for merchant review; not yet run on live traffic.",
+          "bn": "উত্তরহীন প্রশ্ন নলেজ গ্যাপ হিসেবে জমা হয় মার্চেন্ট পর্যালোচনার জন্য; লাইভ ট্রাফিকে এখনো চলে না।"
+        }
+      }
+    },
+    "queue": {
+      "priority": {
+        "en": "The inbox queue is prioritized, live-verified.",
+        "bn": "ইনবক্স কিউ অগ্রাধিকারভিত্তিক, লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "The inbox action queue is ordered by operational-risk bucket (needs-human first), oldest first — deterministic ordering, not AI ranking; not yet live-verified.",
+          "bn": "ইনবক্স অ্যাকশন কিউ অপারেশনাল-ঝুঁকি বাকেট অনুযায়ী সাজানো (মানুষ-দরকার আগে), তারপর পুরোনো আগে — নির্দিষ্ট ক্রম, AI র‍্যাঙ্কিং নয়; লাইভ যাচাই বাকি।"
+        }
+      }
+    },
+    "handoff": {
+      "human": {
+        "en": "Human takeover is live-verified.",
+        "bn": "মানুষের টেকওভার লাইভ যাচাইকৃত।",
+        "fallback": {
+          "en": "Human takeover and manual reply are implemented (taking over cancels the AI candidate); not yet exercised on a live conversation.",
+          "bn": "মানুষের টেকওভার ও ম্যানুয়াল রিপ্লাই তৈরি হয়েছে (টেকওভার AI ক্যান্ডিডেট বাতিল করে); লাইভ কথোপকথনে এখনো ব্যবহার হয়নি।"
         }
       }
     }
