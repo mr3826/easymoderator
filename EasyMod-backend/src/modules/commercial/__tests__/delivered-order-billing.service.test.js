@@ -17,7 +17,15 @@ jest.mock('../../entities', () => ({
     Order: { findAll: jest.fn() },
 }));
 
+jest.mock('../../../utils/database/database-setup', () => ({
+    sequelize: {
+        query: jest.fn(),
+        getDialect: jest.fn(() => 'postgres'),
+    },
+}));
+
 const { BillingLine, Order } = require('../../entities');
+const { sequelize } = require('../../../utils/database/database-setup');
 const billing = require('../delivered-order-billing.service');
 const { COMMERCIAL_CONTRACT, COMMERCIAL_CONTRACT_VERSION } = require('../commercial.contract');
 
@@ -41,6 +49,8 @@ beforeEach(() => {
     BillingLine.findOne.mockResolvedValue(null);
     BillingLine.findAll.mockResolvedValue([]);
     BillingLine.update.mockResolvedValue([1]);
+    sequelize.query.mockResolvedValue([[{ id: 'line-1' }], 1]);
+    sequelize.getDialect.mockReturnValue('postgres');
 });
 
 describe('computeInvoiceFromLines (pure)', () => {
@@ -119,18 +129,25 @@ describe('billingIdempotencyKey', () => {
 });
 
 describe('recordOutcomeLine', () => {
-    it('writes a billable line at the contract unit price', async () => {
+    it('writes a billable line at the contract unit price with a single INSERT', async () => {
         const created = line();
-        BillingLine.findOrCreate.mockResolvedValueOnce([created, true]);
+        BillingLine.findOne
+            .mockResolvedValueOnce(null)    // pre-check: no terminal line yet
+            .mockResolvedValueOnce(created); // read back after INSERT
 
         const result = await billing.recordOutcomeLine({
             shopId: 'shop-1', orderId: 'order-1', outcome: 'DELIVERED',
             provider: 'pathao', occurredAt: '2026-10-05', source: 'courier_webhook',
         }, { LOCK: { UPDATE: 'UPDATE' } });
 
-        expect(result).toEqual({ line: created, created: true });
-        const [[args]] = BillingLine.findOrCreate.mock.calls;
-        expect(args.defaults).toMatchObject({
+        expect(result.created).toBe(true);
+        const [sql, options] = sequelize.query.mock.calls[0];
+        expect(sql).toMatch(/INSERT INTO billing_lines/i);
+        // A6: the insert must survive a duplicate without aborting the caller's
+        // transaction — ON CONFLICT DO NOTHING, never findOrCreate.
+        expect(sql).toMatch(/ON CONFLICT DO NOTHING/i);
+        expect(BillingLine.findOrCreate).not.toHaveBeenCalled();
+        expect(options.replacements).toMatchObject({
             shop_id: 'shop-1',
             order_id: 'order-1',
             line_kind: 'billable',
@@ -144,19 +161,20 @@ describe('recordOutcomeLine', () => {
             occurred_at: '2026-10-05',
             invoice_id: null,
         });
-        expect(args.defaults.idempotency_key).toBe(
+        expect(options.replacements.idempotency_key).toBe(
             billing.billingIdempotencyKey('shop-1', 'order-1', 'billable'),
         );
     });
 
     it('writes a zero-rated line for RETURNED and CANCELLED', async () => {
-        BillingLine.findOrCreate.mockResolvedValue([line({ line_kind: 'zero_rated', amount_minor: 0 }), true]);
+        // No prior row: each call takes the insert path.
+        BillingLine.findOne.mockResolvedValue(null);
 
         await billing.recordOutcomeLine({ shopId: 's', orderId: 'o', outcome: 'RETURNED' });
         await billing.recordOutcomeLine({ shopId: 's', orderId: 'o', outcome: 'CANCELLED' });
 
-        const kinds = BillingLine.findOrCreate.mock.calls.map(([args]) => [
-            args.defaults.line_kind, args.defaults.amount_minor,
+        const kinds = sequelize.query.mock.calls.map(([, options]) => [
+            options.replacements.line_kind, options.replacements.amount_minor,
         ]);
         expect(kinds).toEqual([['zero_rated', 0], ['zero_rated', 0]]);
     });
@@ -170,22 +188,73 @@ describe('recordOutcomeLine', () => {
         });
 
         expect(result).toEqual({ line: existing, created: false });
-        expect(BillingLine.findOrCreate).not.toHaveBeenCalled();
+        expect(sequelize.query).not.toHaveBeenCalled();
     });
 
-    it('recovers from a unique-constraint race on insert', async () => {
+    it('A6 — a duplicate insert is a no-op, not a transaction-aborting error', async () => {
         const existing = line();
-        const uniqueError = Object.assign(new Error('duplicate'), { name: 'SequelizeUniqueConstraintError' });
-        BillingLine.findOrCreate.mockRejectedValueOnce(uniqueError);
+        // pre-check finds nothing (a concurrent writer has not committed yet)
+        // and the INSERT ... ON CONFLICT DO NOTHING returns zero rows.
         BillingLine.findOne
-            .mockResolvedValueOnce(null)   // pre-check for any kind
-            .mockResolvedValueOnce(existing); // recovery lookup
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(existing);
+        sequelize.query.mockResolvedValueOnce([[], 0]);
 
         const result = await billing.recordOutcomeLine({
             shopId: 'shop-1', orderId: 'order-1', outcome: 'DELIVERED',
         });
 
         expect(result).toEqual({ line: existing, created: false });
+        const [sql] = sequelize.query.mock.calls[0];
+        expect(sql).toMatch(/ON CONFLICT DO NOTHING/i);
+    });
+
+    it('A7 — a later DELIVERED upgrades a CANCELLED zero line to billable', async () => {
+        const cancelled = line({
+            line_kind: 'zero_rated', outcome: 'CANCELLED', amount_minor: 0, invoice_id: null,
+        });
+        BillingLine.findOne.mockResolvedValueOnce(cancelled);
+        BillingLine.update.mockResolvedValueOnce([1]);
+
+        const result = await billing.recordOutcomeLine({
+            shopId: 'shop-1', orderId: 'order-1', outcome: 'DELIVERED',
+            provider: 'pathao', occurredAt: '2026-10-06', source: 'courier_webhook',
+        });
+
+        expect(result.created).toBe(false);
+        expect(result.upgraded).toBe(true);
+        expect(result.line.line_kind).toBe('billable');
+        expect(result.line.amount_minor).toBe(COMMERCIAL_CONTRACT.unitPriceMinor);
+        const [[values, options]] = BillingLine.update.mock.calls;
+        expect(values).toMatchObject({
+            line_kind: 'billable',
+            outcome: 'DELIVERED',
+            amount_minor: COMMERCIAL_CONTRACT.unitPriceMinor,
+            idempotency_key: billing.billingIdempotencyKey('shop-1', 'order-1', 'billable'),
+        });
+        expect(options.where).toMatchObject({
+            id: cancelled.id,
+            line_kind: 'zero_rated',
+            outcome: 'CANCELLED',
+            invoice_id: null,
+        });
+        // No second row is written for the same order.
+        expect(sequelize.query).not.toHaveBeenCalled();
+    });
+
+    it('A7 — RETURNED is final: a DELIVERED callback leaves the zero line unchanged', async () => {
+        const returned = line({
+            line_kind: 'zero_rated', outcome: 'RETURNED', amount_minor: 0, invoice_id: null,
+        });
+        BillingLine.findOne.mockResolvedValueOnce(returned);
+
+        const result = await billing.recordOutcomeLine({
+            shopId: 'shop-1', orderId: 'order-1', outcome: 'DELIVERED',
+        });
+
+        expect(result).toEqual({ line: returned, created: false });
+        expect(BillingLine.update).not.toHaveBeenCalled();
+        expect(result.line.amount_minor).toBe(0);
     });
 
     it('rejects unsupported outcomes and missing tenant identifiers', async () => {
@@ -238,7 +307,7 @@ describe('catchUpLines', () => {
 
     it('does nothing without a cutover instant', async () => {
         const result = await billing.catchUpLines({ shopId: 'shop-1', ...period, cutoverAt: null });
-        expect(result).toEqual({ considered: 0, created: 0, skipped: 0 });
+        expect(result).toEqual({ considered: 0, created: 0, skipped: 0, wouldCreate: 0 });
         expect(Order.findAll).not.toHaveBeenCalled();
     });
 
@@ -253,21 +322,39 @@ describe('catchUpLines', () => {
             }])
             .mockResolvedValueOnce([]);
         BillingLine.findAll.mockResolvedValueOnce([]);
-        BillingLine.findOrCreate.mockResolvedValueOnce([line({ line_kind: 'zero_rated' }), true]);
 
         const result = await billing.catchUpLines({
             shopId: 'shop-1', ...period, cutoverAt: '2026-09-01',
         });
 
-        expect(result).toEqual({ considered: 1, created: 1, skipped: 0 });
-        const [[args]] = BillingLine.findOrCreate.mock.calls;
-        expect(args.defaults).toMatchObject({
+        expect(result).toEqual({ considered: 1, created: 1, skipped: 0, wouldCreate: 0 });
+        const [, options] = sequelize.query.mock.calls[0];
+        expect(options.replacements).toMatchObject({
             outcome: 'RETURNED',
             line_kind: 'zero_rated',
             amount_minor: 0,
             source: 'invoice_catchup',
             occurred_at: '2026-10-05',
         });
+    });
+
+    it('A2 — dry-run counts candidates but writes zero rows', async () => {
+        Order.findAll
+            .mockResolvedValueOnce([{
+                id: 'o-1', order_status: 'delivered',
+                delivered_at: new Date('2026-10-05T10:00:00Z'),
+                updated_at: new Date('2026-10-06T10:00:00Z'), metadata: {},
+            }])
+            .mockResolvedValueOnce([]);
+        BillingLine.findAll.mockResolvedValueOnce([]);
+
+        const result = await billing.catchUpLines({
+            shopId: 'shop-1', ...period, cutoverAt: '2026-09-01', dryRun: true,
+        });
+
+        expect(result).toEqual({ considered: 1, created: 0, skipped: 0, wouldCreate: 1 });
+        expect(sequelize.query).not.toHaveBeenCalled();
+        expect(BillingLine.findOrCreate).not.toHaveBeenCalled();
     });
 
     it('skips orders that already have a recorded line', async () => {
@@ -284,8 +371,32 @@ describe('catchUpLines', () => {
             shopId: 'shop-1', ...period, cutoverAt: '2026-09-01',
         });
 
-        expect(result).toEqual({ considered: 1, created: 0, skipped: 1 });
-        expect(BillingLine.findOrCreate).not.toHaveBeenCalled();
+        expect(result).toEqual({ considered: 1, created: 0, skipped: 1, wouldCreate: 0 });
+        expect(sequelize.query).not.toHaveBeenCalled();
+    });
+});
+
+describe('aggregateUninvoicedLines (A5 fail closed)', () => {
+    const range = {
+        shopId: 'shop-1',
+        periodStart: new Date('2026-10-01T00:00:00Z'),
+        periodEnd: new Date('2026-11-01T00:00:00Z'),
+    };
+
+    it('returns NO lines when the cutover instant is unavailable', async () => {
+        const result = await billing.aggregateUninvoicedLines({ ...range, cutoverAt: null });
+
+        expect(result).toEqual([]);
+        expect(BillingLine.findAll).not.toHaveBeenCalled();
+    });
+
+    it('floors aggregation at the cutover instant when it is present', async () => {
+        await billing.aggregateUninvoicedLines({ ...range, cutoverAt: '2026-10-15' });
+
+        expect(BillingLine.findAll).toHaveBeenCalledTimes(1);
+        const { where } = BillingLine.findAll.mock.calls[0][0];
+        expect(where).toMatchObject({ shop_id: 'shop-1', invoice_id: null });
+        expect(where.occurred_at).toBeDefined();
     });
 });
 

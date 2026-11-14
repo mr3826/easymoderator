@@ -104,27 +104,50 @@ async function listBillingLines({ shopId, invoiceId } = {}) {
 
     if (!Array.isArray(rows) || rows.length === 0) {
         // No lines at all: prove ownership through the invoice before answering
-        // with an empty list, so a foreign invoice id is indistinguishable from
-        // inaccessible rather than merely empty.
+        // with an empty list. Fail CLOSED — a missing/unreadable ownership
+        // check is not evidence that the invoice is the caller's. Before this,
+        // a findByPk throw (or a missing Invoice model) returned [] and a
+        // foreign/unreadable invoice was indistinguishable from an empty one.
         const Invoice = getInvoiceModel();
-        if (Invoice && typeof Invoice.findByPk === 'function') {
-            let invoice = null;
-            try {
-                invoice = await Invoice.findByPk(invoiceId);
-            } catch (error) {
-                logger.warn('Commercial invoice ownership lookup failed', { error: error.message });
-            }
-            if (invoice) {
-                const invoiceShopId = invoice.shop_id ?? invoice.shopId ?? null;
-                if (invoiceShopId && String(invoiceShopId) !== String(shopId)) {
-                    throw new AppError(
-                        'Invoice does not belong to this shop',
-                        403,
-                        'INVOICE_FORBIDDEN',
-                    );
-                }
-            }
+        if (!Invoice || typeof Invoice.findByPk !== 'function') {
+            throw new AppError(
+                'Invoice ownership check is unavailable',
+                503,
+                'INVOICE_OWNERSHIP_UNAVAILABLE',
+            );
         }
+
+        let invoice = null;
+        try {
+            invoice = await Invoice.findByPk(invoiceId);
+        } catch (error) {
+            logger.warn('Commercial invoice ownership lookup failed', { error: error.message });
+            throw new AppError(
+                'Invoice ownership check failed',
+                503,
+                'INVOICE_OWNERSHIP_UNAVAILABLE',
+            );
+        }
+
+        if (!invoice) {
+            // An absent invoice cannot evidence ownership. Answer 403 rather
+            // than 404/[] so a foreign id is not confirmed to exist.
+            throw new AppError(
+                'Invoice does not belong to this shop',
+                403,
+                'INVOICE_FORBIDDEN',
+            );
+        }
+
+        const invoiceShopId = invoice.shop_id ?? invoice.shopId ?? null;
+        if (!invoiceShopId || String(invoiceShopId) !== String(shopId)) {
+            throw new AppError(
+                'Invoice does not belong to this shop',
+                403,
+                'INVOICE_FORBIDDEN',
+            );
+        }
+
         return [];
     }
 

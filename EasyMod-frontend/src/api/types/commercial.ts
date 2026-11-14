@@ -93,4 +93,10 @@ export interface PublicClaimDescriptor {
 export interface PublicCommercialContractPayload extends PublicCommercialContract {
   readonly registry_hash: string;
   readonly claims: readonly PublicClaimDescriptor[];
+  /**
+   * Server-evaluated claim decisions for anonymous visitors. Contracts and
+   * platform claims are evaluated truthfully; merchant-dependent claims fail
+   * closed to their fallback because no shop context exists.
+   */
+  readonly decisions: readonly ClaimDecision[];
 }

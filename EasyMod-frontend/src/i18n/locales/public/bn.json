@@ -575,8 +575,8 @@
   "claims": {
     "billing": {
       "delivered_order": {
-        "en": "৳10.00 per provider-confirmed delivered order. No subscription, no setup fee, and no monthly minimum.",
-        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে ৳১০.০০। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।"
+        "en": "{{unitPrice}} per provider-confirmed delivered order. No subscription, no setup fee, and no monthly minimum.",
+        "bn": "প্রতি প্রোভাইডার-নিশ্চিত ডেলিভারি অর্ডারে {{unitPriceBn}}। কোনো সাবস্ক্রিপশন, সেটআপ ফি বা মাসিক ন্যূনতম নেই।"
       },
       "overdue_policy": {
         "en": "If a bill is overdue, new courier bookings are blocked and automated replies pause. Your inbox and history stay readable, and nothing is deleted.",
@@ -714,7 +714,11 @@
       },
       "draft_reply": {
         "en": "AI-assisted draft replies are available for review before sending.",
-        "bn": "পাঠানোর আগে পর্যালোচনার জন্য AI-সহায়ক ড্রাফট রিপ্লাই পাওয়া যায়।"
+        "bn": "পাঠানোর আগে পর্যালোচনার জন্য AI-সহায়ক ড্রাফট রিপ্লাই পাওয়া যায়।",
+        "fallback": {
+          "en": "AI draft replies are implemented; production verification is pending.",
+          "bn": "AI ড্রাফট রিপ্লাই তৈরি হয়েছে; প্রোডাকশনে যাচাই বাকি।"
+        }
       },
       "reply_shadow_meter": {
         "en": "AI reply shadow meter is available internally.",

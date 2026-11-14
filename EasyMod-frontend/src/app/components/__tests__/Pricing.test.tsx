@@ -63,7 +63,7 @@ const decision = (overrides: Record<string, unknown> = {}) => ({
   locale: i18n.language === "bn" ? "bn" : "en",
   surface: "pricing",
   scope: { claimedProviders: null, verifiedProviders: null, match: true, text: null },
-  interpolation: {},
+  interpolation: { unitPrice: "৳10.00", unitPriceBn: "৳১০.০০" },
   mode: "enforce",
   predicate: {
     code_present: true,

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import enLocale from "@/i18n/locales/en.json";
+import bnLocale from "@/i18n/locales/bn.json";
 import {
   COMMERCIAL_CONTRACT,
   COMMERCIAL_CONTRACT_VERSION,
   ZERO_RATED_OUTCOMES,
+  formatBdt,
+  formatBdtBn,
 } from "@/shared/contracts/commercial-contract";
 import {
   parseClaimDecisionPayload,
@@ -39,6 +43,7 @@ function validPublicPayload(): Record<string, unknown> {
       i18n_key: { en: "claims.billing.delivered_order.en", bn: "claims.billing.delivered_order.bn" },
       fallback_i18n_key: null,
     }],
+    decisions: [],
   };
 }
 
@@ -130,6 +135,57 @@ describe("parsePublicCommercialContract", () => {
     const payload = validPublicPayload();
     payload.claims = [];
     expect(() => parsePublicCommercialContract(payload)).toThrow(/claims/);
+  });
+});
+
+describe("parsePublicCommercialContract — decisions", () => {
+  it("parses the anonymous decision set and pins version/hash", () => {
+    const payload = validPublicPayload();
+    payload.decisions = [validDecision({ surface: "landing" })];
+
+    const parsed = parsePublicCommercialContract(payload);
+    expect(parsed.decisions).toHaveLength(1);
+    expect(parsed.decisions[0].claimId).toBe("billing.delivered_order");
+    expect(parsed.decisions[0].surface).toBe("landing");
+  });
+
+  it("throws when a public decision disagrees with the registry hash", () => {
+    const payload = validPublicPayload();
+    payload.decisions = [validDecision({ registryHash: `sha256:${"b".repeat(64)}` })];
+
+    expect(() => parsePublicCommercialContract(payload)).toThrow(/registryHash/);
+  });
+
+  it("throws when decisions are missing", () => {
+    const payload = validPublicPayload();
+    delete payload.decisions;
+    expect(() => parsePublicCommercialContract(payload)).toThrow(/decisions/);
+  });
+});
+
+describe("billing.delivered_order copy is tied to the contract", () => {
+  it("interpolates the price from COMMERCIAL_CONTRACT instead of hardcoding it", () => {
+    const claimsEn = (enLocale as { claims: { billing: { delivered_order: { en: string } } } })
+      .claims.billing.delivered_order;
+    const claimsBn = (bnLocale as { claims: { billing: { delivered_order: { bn: string } } } })
+      .claims.billing.delivered_order;
+
+    expect(claimsEn.en).toContain("{{unitPrice}}");
+    expect(claimsBn.bn).toContain("{{unitPriceBn}}");
+
+    const renderedEn = claimsEn.en.replace(
+      "{{unitPrice}}",
+      formatBdt(COMMERCIAL_CONTRACT.unitPriceMinor),
+    );
+    const renderedBn = claimsBn.bn.replace(
+      "{{unitPriceBn}}",
+      formatBdtBn(COMMERCIAL_CONTRACT.unitPriceMinor),
+    );
+
+    // The rendered sentence carries exactly the contract price, so a future
+    // unitPriceMinor change can never leave stale copy behind.
+    expect(renderedEn).toContain(formatBdt(COMMERCIAL_CONTRACT.unitPriceMinor));
+    expect(renderedBn).toContain(formatBdtBn(COMMERCIAL_CONTRACT.unitPriceMinor));
   });
 });
 

@@ -59,7 +59,7 @@ const landingDecision = {
   locale: "en",
   surface: "landing",
   scope: { claimedProviders: null, verifiedProviders: null, match: true, text: null },
-  interpolation: {},
+  interpolation: { unitPrice: "৳10.00", unitPriceBn: "৳১০.০০" },
   mode: "enforce",
   predicate: {
     code_present: true,

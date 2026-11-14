@@ -125,6 +125,29 @@ function parsePublicClaimDescriptors(value: unknown): PublicClaimDescriptor[] {
 }
 
 /**
+ * Public decisions are the same frozen ClaimDecision shape as the authenticated
+ * endpoint, evaluated with no shop context. Every decision must agree with the
+ * payload's contract version and registry hash.
+ */
+function parsePublicClaimDecisions(
+  value: unknown,
+  contractVersion: string,
+  registryHash: string,
+): ClaimDecision[] {
+  if (!Array.isArray(value)) fail("decisions must be an array");
+  return value.map((raw, index) => {
+    const parsed = parseClaimDecision(raw, index);
+    if (parsed.contractVersion !== contractVersion) {
+      fail(`decisions[${index}].contractVersion does not match the payload`);
+    }
+    if (parsed.registryHash !== registryHash) {
+      fail(`decisions[${index}].registryHash does not match the payload`);
+    }
+    return parsed;
+  });
+}
+
+/**
  * Validate the public contract payload against the hand-mirrored frontend
  * contract. Any drift throws; no value is ever substituted.
  */
@@ -193,6 +216,11 @@ export function parsePublicCommercialContract(payload: unknown): PublicCommercia
     ...(data as unknown as PublicCommercialContractPayload),
     registry_hash: registryHash,
     claims: parsePublicClaimDescriptors(data.claims),
+    decisions: parsePublicClaimDecisions(
+      data.decisions,
+      COMMERCIAL_CONTRACT_VERSION,
+      registryHash,
+    ),
   };
 }
 
@@ -314,10 +342,40 @@ export async function getClaimDecisions(
   return parseClaimDecisionPayload(response.data.data);
 }
 
+/**
+ * Anonymous claim decisions. The public contract endpoint evaluates claims
+ * with no shop context: contract/platform claims are truthful, merchant-
+ * dependent claims fail closed to their fallback. Returns the same payload
+ * shape as the authenticated endpoint so ClaimProvider is source-agnostic.
+ */
+export async function getPublicClaimDecisions(
+  surface: ClaimSurface,
+  locale: ClaimLocale = "bn",
+): Promise<ClaimDecisionPayload> {
+  const params = new URLSearchParams({ surface, locale }).toString();
+  const response = await publicApiGet<ApiResponse<unknown>>(
+    `/api/public/commercial-contract?${params}`,
+  );
+  if (!response.success) fail("public contract endpoint did not succeed");
+  const payload = parsePublicCommercialContract(response.data);
+  const decisions = payload.decisions.filter((decision) => decision.surface === surface);
+  return {
+    surface,
+    locale,
+    contractVersion: payload.contract_version,
+    registryHash: payload.registry_hash,
+    decisions,
+  };
+}
+
 export const commercialContractQueryKey = ["commercial-contract"] as const;
 
 export function claimDecisionsQueryKey(surface: ClaimSurface, locale: ClaimLocale) {
   return ["claim-decisions", surface, locale] as const;
+}
+
+export function publicClaimDecisionsQueryKey(surface: ClaimSurface, locale: ClaimLocale) {
+  return ["public-claim-decisions", surface, locale] as const;
 }
 
 /** Frozen public contract, validated against the frontend mirror. */
@@ -330,11 +388,28 @@ export function useCommercialContract() {
   });
 }
 
-/** One server-evaluated decision set per surface (ClaimProvider uses this). */
-export function useClaimDecisions(surface: ClaimSurface, locale: ClaimLocale = "bn") {
+/**
+ * One server-evaluated decision set per surface (ClaimProvider uses this).
+ *
+ * The source follows the session: an authenticated merchant reads
+ * /api/commercial/claims (shop-scoped evidence); an anonymous visitor reads the
+ * public contract endpoint's evaluated decisions, so marketing pages render
+ * truthful capability claims instead of nothing. Defaults to authenticated to
+ * preserve existing callers.
+ */
+export function useClaimDecisions(
+  surface: ClaimSurface,
+  locale: ClaimLocale = "bn",
+  options: { authenticated?: boolean } = {},
+) {
+  const authenticated = options.authenticated !== false;
   return useQuery({
-    queryKey: claimDecisionsQueryKey(surface, locale),
-    queryFn: () => getClaimDecisions(surface, locale),
+    queryKey: authenticated
+      ? claimDecisionsQueryKey(surface, locale)
+      : publicClaimDecisionsQueryKey(surface, locale),
+    queryFn: () => (authenticated
+      ? getClaimDecisions(surface, locale)
+      : getPublicClaimDecisions(surface, locale)),
     staleTime: 60 * 1000,
     retry: 1,
   });

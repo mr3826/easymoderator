@@ -91,10 +91,20 @@ describe('listBillingLines', () => {
             .resolves.toEqual([]);
     });
 
-    it('does not crash when the ownership lookup fails', async () => {
-        mockInvoice.findByPk.mockRejectedValue(new Error('relation does not exist'));
+    it('returns 403 for a foreign or absent invoice with no lines (never an empty 200)', async () => {
+        // B4 regression: findByPk returning null used to fall through to [].
+        mockInvoice.findByPk.mockResolvedValue(null);
+
         await expect(listBillingLines({ shopId: SHOP_ID, invoiceId: INVOICE_ID }))
-            .resolves.toEqual([]);
+            .rejects.toMatchObject({ status: 403, code: 'INVOICE_FORBIDDEN' });
+    });
+
+    it('fails closed with 503 when the ownership lookup throws', async () => {
+        // B4 regression: a failed ownership check used to answer 200 [].
+        mockInvoice.findByPk.mockRejectedValue(new Error('relation does not exist'));
+
+        await expect(listBillingLines({ shopId: SHOP_ID, invoiceId: INVOICE_ID }))
+            .rejects.toMatchObject({ status: 503, code: 'INVOICE_OWNERSHIP_UNAVAILABLE' });
     });
 });
 

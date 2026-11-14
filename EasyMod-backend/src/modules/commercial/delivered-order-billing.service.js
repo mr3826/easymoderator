@@ -117,6 +117,107 @@ const requireTenant = (shopId, orderId) => {
 };
 
 /**
+ * Insert a billing line exactly once.
+ *
+ * A raw `INSERT ... ON CONFLICT DO NOTHING` is deliberate: `findOrCreate`
+ * raises a unique violation inside a caller's transaction, and PostgreSQL then
+ * aborts that transaction (25P02), so the recovery lookup fails and the caller
+ * loses the order mutation as well. `ON CONFLICT DO NOTHING` never raises, so a
+ * duplicate is a no-op and the transaction stays healthy.
+ *
+ * @returns {Promise<{line: object|null, created: boolean}>}
+ */
+const insertBillingLineOnce = async (values, transaction = null) => {
+    const { sequelize } = require('../../utils/database/database-setup');
+    const dialect = typeof sequelize.getDialect === 'function' ? sequelize.getDialect() : 'postgres';
+
+    if (dialect !== 'postgres') {
+        // SQLite fallback (local dev / minimal tests): keep the portable path.
+        const [line, created] = await BillingLine.findOrCreate({
+            where: { idempotency_key: values.idempotency_key },
+            defaults: values,
+            ...(transaction ? { transaction } : {}),
+        });
+        return { line, created };
+    }
+
+    const [inserted] = await sequelize.query(
+        `INSERT INTO billing_lines
+            (shop_id, order_id, subscription_id, line_kind, outcome, unit_price_minor,
+             amount_minor, currency, contract_version, idempotency_key, source, provider,
+             occurred_at, invoice_id, metadata)
+         VALUES
+            (:shop_id, :order_id, :subscription_id, :line_kind, :outcome, :unit_price_minor,
+             :amount_minor, :currency, :contract_version, :idempotency_key, :source,
+             :provider, :occurred_at, :invoice_id, CAST(:metadata AS JSONB))
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
+        {
+            replacements: { ...values, metadata: JSON.stringify(values.metadata || {}) },
+            ...(transaction ? { transaction } : {}),
+        },
+    );
+
+    const rows = Array.isArray(inserted) ? inserted : [];
+    const created = rows.length > 0;
+    const line = await BillingLine.findOne({
+        where: { idempotency_key: values.idempotency_key },
+        ...(transaction ? { transaction } : {}),
+    });
+    // A mock/minimal driver may not return the row; the values are still the
+    // authoritative record that was (or already had been) written.
+    return { line: line || { ...values }, created };
+};
+
+/**
+ * A CANCELLED zero-rated line is not final: the courier may still deliver the
+ * order (the tracking terminal guard allows cancelled -> delivered). When that
+ * genuine DELIVERED callback arrives, upgrade the same row in place to the
+ * billable outcome so the delivered order is charged, instead of returning the
+ * zero line and billing BDT 0. A RETURNED line is final and stays zero.
+ */
+const upgradeCancelledLineToDelivered = async (line, pricing, values, transaction = null) => {
+    const [affected] = await BillingLine.update({
+        line_kind: pricing.lineKind,
+        outcome: pricing.outcome,
+        unit_price_minor: pricing.unitPriceMinor,
+        amount_minor: pricing.amountMinor,
+        source: values.source,
+        provider: values.provider,
+        idempotency_key: values.idempotency_key,
+        metadata: {
+            ...parseMetadata(line.metadata),
+            upgradedFrom: OUTCOME.CANCELLED,
+            upgradedAt: new Date().toISOString(),
+        },
+    }, {
+        where: {
+            id: line.id,
+            shop_id: values.shop_id,
+            line_kind: LINE_KIND.ZERO_RATED,
+            outcome: OUTCOME.CANCELLED,
+            invoice_id: null,
+        },
+        ...(transaction ? { transaction } : {}),
+    });
+
+    if (!affected) return null;
+
+    line.line_kind = pricing.lineKind;
+    line.outcome = pricing.outcome;
+    line.unit_price_minor = pricing.unitPriceMinor;
+    line.amount_minor = pricing.amountMinor;
+    line.source = values.source;
+    line.provider = values.provider;
+    line.idempotency_key = values.idempotency_key;
+    logger.info('Billing line upgraded from CANCELLED to DELIVERED', {
+        lineKind: pricing.lineKind,
+        outcome: pricing.outcome,
+    });
+    return { line, created: false, upgraded: true };
+};
+
+/**
  * Find the recorded line for an order. The first recorded row is returned so a
  * caller sees the billable financial truth when both a billable and a later
  * zero-rated row exist (they normally do not — reversals mutate in place).
@@ -190,33 +291,30 @@ const recordOutcomeLine = async (payload = {}, transaction = null) => {
                 return { line: reversal.line, created: false, reversed: true };
             }
         }
+        // CANCELLED is not terminal: a genuine DELIVERED callback upgrades the
+        // zero-rated row to the billable outcome. RETURNED stays zero forever,
+        // and an invoiced row is an immutable settled document.
+        if (pricing.lineKind === LINE_KIND.BILLABLE
+            && existingAnyKind.line_kind === LINE_KIND.ZERO_RATED
+            && String(existingAnyKind.outcome || '').toUpperCase() === OUTCOME.CANCELLED
+            && existingAnyKind.invoice_id === null) {
+            const upgraded = await upgradeCancelledLineToDelivered(
+                existingAnyKind, pricing, { ...values, shop_id: shopId, idempotency_key: idempotencyKey }, transaction,
+            );
+            if (upgraded) return upgraded;
+        }
         return { line: existingAnyKind, created: false };
     }
 
-    try {
-        const [line, created] = await BillingLine.findOrCreate({
-            where: { idempotency_key: idempotencyKey },
-            defaults: values,
-            ...(transaction ? { transaction } : {}),
+    const { line, created } = await insertBillingLineOnce(values, transaction);
+    if (created) {
+        logger.info('Billing line recorded', {
+            lineKind: pricing.lineKind,
+            outcome: pricing.outcome,
+            source,
         });
-        if (created) {
-            logger.info('Billing line recorded', {
-                lineKind: pricing.lineKind,
-                outcome: pricing.outcome,
-                source,
-            });
-        }
-        return { line, created };
-    } catch (error) {
-        if (error?.name === 'SequelizeUniqueConstraintError') {
-            const existing = await BillingLine.findOne({
-                where: { shop_id: shopId, order_id: orderId, line_kind: pricing.lineKind },
-                ...(transaction ? { transaction } : {}),
-            });
-            if (existing) return { line: existing, created: false };
-        }
-        throw error;
     }
+    return { line, created };
 };
 
 /**
@@ -281,10 +379,17 @@ const reverseLineForReturn = async ({ shopId, orderId } = {}, transaction = null
  * Never runs without a cutover instant: reconstructing history before the
  * recorded commercial start would invent charges that never existed.
  *
- * @param {{shopId:string, periodStart:Date|string, periodEnd:Date|string, cutoverAt:Date|string|null}} payload
+ * With `dryRun: true` the pass enumerates and counts exactly what it *would*
+ * write, but never inserts a row (`created` stays 0; `wouldCreate` carries the
+ * candidate count). The CLI defaults to this mode; only `--apply` writes.
+ *
+ * @param {{shopId:string, periodStart:Date|string, periodEnd:Date|string,
+ *          cutoverAt:Date|string|null, dryRun?:boolean}} payload
  */
-const catchUpLines = async ({ shopId, periodStart, periodEnd, cutoverAt } = {}, transaction = null) => {
-    const result = { considered: 0, created: 0, skipped: 0 };
+const catchUpLines = async ({
+    shopId, periodStart, periodEnd, cutoverAt, dryRun = false,
+} = {}, transaction = null) => {
+    const result = { considered: 0, created: 0, skipped: 0, wouldCreate: 0 };
     if (!shopId) return result;
 
     const cutoverDate = cutoverAt ? new Date(cutoverAt) : null;
@@ -357,6 +462,11 @@ const catchUpLines = async ({ shopId, periodStart, periodEnd, cutoverAt } = {}, 
             // later returned; one without it was cancelled before delivery.
             outcome = order.delivered_at ? OUTCOME.RETURNED : OUTCOME.CANCELLED;
         }
+        if (dryRun) {
+            result.wouldCreate++;
+            recorded.add(String(order.id));
+            continue;
+        }
         const occurredAt = order.delivered_at || order.updated_at || new Date();
         const written = await recordOutcomeLine({
             shopId,
@@ -384,7 +494,14 @@ const aggregateUninvoicedLines = async ({ shopId, periodStart, periodEnd, cutove
     const end = periodEnd ? new Date(periodEnd) : null;
     if (!start || Number.isNaN(start.getTime()) || !end || Number.isNaN(end.getTime())) return [];
 
-    const lower = cutoverAt ? new Date(Math.max(start.getTime(), new Date(cutoverAt).getTime())) : start;
+    const cutover = cutoverAt ? new Date(cutoverAt) : null;
+    // Fail closed: without the persisted cutover instant there is no way to
+    // distinguish pre-cutover history from billable usage. Falling back to
+    // periodStart would silently bill history that was never contracted, so
+    // defer the whole period instead.
+    if (!cutover || Number.isNaN(cutover.getTime())) return [];
+
+    const lower = new Date(Math.max(start.getTime(), cutover.getTime()));
     const occurredAt = { [Op.gte]: toDateOnly(lower), [Op.lt]: toDateOnly(end) };
 
     return BillingLine.findAll({
@@ -395,6 +512,23 @@ const aggregateUninvoicedLines = async ({ shopId, periodStart, periodEnd, cutove
         },
         order: [['occurred_at', 'ASC'], ['created_at', 'ASC']],
         ...(transaction ? { transaction } : {}),
+    });
+};
+
+/**
+ * Lock the invoice candidate lines for the duration of the invoice
+ * transaction. The caller derives the amount from the rows this returns, so a
+ * reversal that commits between aggregation and stamping is reflected (a
+ * reversed line reads back as zero-rated) rather than charging a stale price.
+ */
+const lockLinesForInvoice = async ({ shopId, lines = [] } = {}, transaction = null) => {
+    const lineIds = (Array.isArray(lines) ? lines : [])
+        .map((line) => line && line.id)
+        .filter(Boolean);
+    if (!shopId || !lineIds.length) return [];
+    return BillingLine.findAll({
+        where: { id: { [Op.in]: lineIds }, shop_id: shopId },
+        ...(transaction ? { transaction, lock: transaction.LOCK?.UPDATE } : {}),
     });
 };
 
@@ -501,6 +635,7 @@ module.exports = {
     reverseLineForReturn,
     catchUpLines,
     aggregateUninvoicedLines,
+    lockLinesForInvoice,
     computeInvoiceFromLines,
     getCommercialCutoverAt,
     __setCutoverAtForTests,

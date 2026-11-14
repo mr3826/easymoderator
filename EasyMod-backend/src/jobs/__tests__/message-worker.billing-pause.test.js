@@ -81,7 +81,10 @@ describe('the merchant is told', () => {
         await signalBillingPause(ARGS);
 
         const [[, , payload]] = merchantNotificationService.notifyShop.mock.calls;
-        expect(payload.issue).toMatch(/subscription/i);
+        expect(payload.issue).toMatch(/billing/i);
+        // B7 regression: the contract has no subscription; the retired token
+        // must never reappear in a merchant-facing alert.
+        expect(payload.issue).not.toMatch(/subscription/i);
         expect(payload.subscriptionStatus).toBe('suspended');
     });
 

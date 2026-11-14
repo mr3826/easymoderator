@@ -428,12 +428,20 @@ const restoreSubscriptions = async (sequelize, events) => {
     }
 };
 
-const restoreInvoices = async (sequelize, events) => {
+const restoreInvoices = async (sequelize, postgres, events) => {
     for (const event of events) {
         const before = parseJson(event.before);
+        // A8: only a STILL-CANCELLED invoice is restored. A legacy invoice that
+        // was paid after the cutover is a settled payment, not a debt — blindly
+        // rewriting its status back would corrupt the paid SUM and re-dun a
+        // merchant who already paid.
         // eslint-disable-next-line no-await-in-loop
         await sequelize.query(
-            'UPDATE invoices SET status = :status, notes = :notes WHERE id = :id',
+            `UPDATE invoices
+                SET status = :status, notes = :notes
+              WHERE id = :id
+                AND ${statusText(postgres)} = 'cancelled'
+                AND paid_at IS NULL`,
             {
                 replacements: {
                     id: event.entity_id,
@@ -459,7 +467,7 @@ const replayEvents = async (sequelize, postgres) => {
     // referenced them. One event per entity is written by `up`, so order is
     // stable even when timestamps tie.
     await restoreSubscriptions(sequelize, list.filter((e) => e.entity_type === 'subscription'));
-    await restoreInvoices(sequelize, list.filter((e) => e.entity_type === 'invoice'));
+    await restoreInvoices(sequelize, postgres, list.filter((e) => e.entity_type === 'invoice'));
 
     await sequelize.query(`DROP TABLE IF EXISTS ${EVENTS_TABLE}`);
 };

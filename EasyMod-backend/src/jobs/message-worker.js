@@ -1841,7 +1841,7 @@ async function signalBillingPause({ shopId, conversationId, messageId, status, p
             shopId,
             NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE,
             {
-                issue: 'AI replies are paused because your subscription needs attention. '
+                issue: 'AI replies are paused because your billing needs attention. '
                     + 'Customer messages are arriving and waiting for a manual reply.',
                 subscriptionStatus: status || 'unknown',
                 conversationId,

@@ -100,6 +100,13 @@ const EVIDENCE_AUTHORITIES = deepFreeze({
         'PLATFORM_EVIDENCE value (no auto-reply path for voice)',
         'src/modules/commercial/claim.registry.js',
     ),
+    'platform.voice.auto_reply.production_verified': authority(
+        './claim.registry',
+        'PLATFORM_EVIDENCE',
+        true,
+        'PLATFORM_EVIDENCE value (voice auto-reply never production-verified; fail closed)',
+        'src/modules/commercial/claim.registry.js',
+    ),
     'platform.ai.auto_reply.code_present': authority(
         './claim.registry',
         'PLATFORM_EVIDENCE',
@@ -125,7 +132,7 @@ const EVIDENCE_AUTHORITIES = deepFreeze({
         './claim.registry',
         'PLATFORM_EVIDENCE',
         true,
-        'PLATFORM_EVIDENCE value (DRAFT pipeline verified in production)',
+        'PLATFORM_EVIDENCE value (test-verified only; never proven in production; fail closed)',
         'src/modules/commercial/claim.registry.js',
     ),
     'platform.addons.code_present': authority(

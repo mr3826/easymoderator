@@ -60,6 +60,10 @@ const publicContract = {
       fallback_i18n_key: null,
     },
   ],
+  // ADR-0011 B6: the public endpoint carries server-evaluated decisions; the
+  // fail-closed validator requires the array. The offer price renders from the
+  // contract payload, so an empty decision set is a valid anonymous state.
+  decisions: [],
 };
 
 const publicAddons = [

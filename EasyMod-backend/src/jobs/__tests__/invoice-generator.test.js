@@ -29,6 +29,9 @@ jest.mock('../../modules/commercial/delivered-order-billing.service', () => ({
     getCommercialCutoverAt: jest.fn(),
     catchUpLines: jest.fn(),
     aggregateUninvoicedLines: jest.fn(),
+    // Unit tests have no transaction: hand the candidate rows straight back as
+    // the "locked" set. Integration tests exercise the real FOR UPDATE read.
+    lockLinesForInvoice: jest.fn(async ({ lines }) => lines),
 }));
 
 const {
@@ -125,8 +128,9 @@ beforeEach(() => {
     BillingLine.findAll.mockResolvedValue([]);
     PartnerBillingAdjustment.findAll.mockResolvedValue([]);
     billing.getCommercialCutoverAt.mockResolvedValue(CUTOVER);
-    billing.catchUpLines.mockResolvedValue({ considered: 0, created: 0, skipped: 0 });
+    billing.catchUpLines.mockResolvedValue({ considered: 0, created: 0, skipped: 0, wouldCreate: 0 });
     billing.aggregateUninvoicedLines.mockResolvedValue([]);
+    billing.lockLinesForInvoice.mockImplementation(async ({ lines }) => lines);
 });
 
 describe('BILLING-YEARLY-002 — one month into a paid year', () => {
@@ -485,22 +489,19 @@ describe('ADR-0011 late-delivery charge-forward', () => {
         expect(res.invoicesGenerated).toBe(1);
     });
 
-    it('never charges pre-cutover history when no cutover instant is persisted', async () => {
+    it('A5 — defers the whole period when no cutover instant is persisted', async () => {
         billing.getCommercialCutoverAt.mockResolvedValueOnce(null);
-        billing.aggregateUninvoicedLines.mockResolvedValueOnce([
-            billingLine({ id: 'oct-2', order_id: 'o-oct-2', occurred_at: '2026-10-06' }),
-        ]);
 
-        await runWith([merchantSubscription()], runDate);
+        const res = await runWith([merchantSubscription()], runDate);
 
+        // Fail closed: no aggregation, no catch-up, no invoice. Billing a
+        // period without the cutover would charge pre-cutover history.
+        expect(billing.aggregateUninvoicedLines).not.toHaveBeenCalled();
+        expect(billing.catchUpLines).not.toHaveBeenCalled();
         expect(BillingLine.findAll).not.toHaveBeenCalled();
-        const [[created]] = Invoice.create.mock.calls;
-        expect(created.metadata).toMatchObject({
-            grossMinor: 1000,
-            priorPeriodAdjustmentMinor: 0,
-            priorPeriodAdjustmentCount: 0,
-        });
-        expect(created.billing_period_start).toEqual(octoberStart);
+        expect(Invoice.create).not.toHaveBeenCalled();
+        expect(res.invoicesGenerated).toBe(0);
+        expect(res.invoicesSkipped).toBe(1);
     });
 
     it('charges forward when the current period itself has no usage', async () => {
@@ -520,5 +521,95 @@ describe('ADR-0011 late-delivery charge-forward', () => {
             priorPeriodAdjustmentCount: 1,
         });
         expect(res.invoicesGenerated).toBe(1);
+    });
+});
+
+describe('ADR-0011 cutover floor (A4)', () => {
+    it('applies occurred_at >= cutoverAt even when the cutover is inside the period', async () => {
+        const job = new InvoiceGenerator();
+        const periodStart = new Date(Date.UTC(2026, 9, 1));
+        const midMonthCutover = new Date(Date.UTC(2026, 9, 15));
+
+        BillingLine.findAll.mockResolvedValueOnce([]);
+        await job.priorPeriodUninvoicedLines('shop-1', periodStart, midMonthCutover);
+
+        const { where } = BillingLine.findAll.mock.calls[0][0];
+        const floorValues = Object.getOwnPropertySymbols(where.occurred_at)
+            .map((symbol) => where.occurred_at[symbol]);
+        // The floor is present, so a pre-cutover line cannot leak forward even
+        // though `cutoverAt` is not earlier than periodStart.
+        expect(floorValues).toContain('2026-10-15');
+        expect(floorValues).toContain('2026-10-01');
+    });
+});
+
+describe('ADR-0011 credit carry-forward (A1)', () => {
+    const runDate = new Date('2026-11-01T01:00:00.000Z');
+
+    it('applies only credits that fit the gross and leaves the surplus pending', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([billingLine()]); // gross 1000
+        const first = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        const second = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        PartnerBillingAdjustment.findAll.mockResolvedValueOnce([first, second]);
+
+        await runWith([merchantSubscription()], runDate);
+
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(0);
+        expect(created.metadata).toMatchObject({
+            grossMinor: 1000,
+            creditMinor: 1000,
+            netMinor: 0,
+        });
+        // Exactly one whole credit is consumed; the second is NOT destroyed —
+        // it stays pending and carries forward to the next invoice.
+        expect(first.update).toHaveBeenCalledWith(expect.objectContaining({
+            status: 'applied', invoice_id: 'inv-1',
+        }), expect.anything());
+        expect(second.update).not.toHaveBeenCalled();
+    });
+
+    it('applies no credit at all on a zero-gross period', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([
+            billingLine({ line_kind: 'zero_rated', outcome: 'RETURNED', amount_minor: 0 }),
+        ]);
+        const adjustment = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        PartnerBillingAdjustment.findAll.mockResolvedValueOnce([adjustment]);
+
+        await runWith([merchantSubscription()], runDate);
+
+        const [[created]] = Invoice.create.mock.calls;
+        expect(created.amount).toBe(0);
+        expect(created.metadata).toMatchObject({
+            grossMinor: 0,
+            creditMinor: 0,
+            netMinor: 0,
+        });
+        expect(adjustment.update).not.toHaveBeenCalled();
+    });
+
+    it('applies multiple credits while they fit under the gross', async () => {
+        billing.aggregateUninvoicedLines.mockResolvedValueOnce([
+            billingLine({ id: 'b-1', order_id: 'o-1' }),
+            billingLine({ id: 'b-2', order_id: 'o-2' }),
+            billingLine({ id: 'b-3', order_id: 'o-3' }), // gross 3000
+        ]);
+        const first = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        const second = { amount_bdt: '15.00', update: jest.fn().mockResolvedValue(undefined) };
+        const third = { amount_bdt: '10.00', update: jest.fn().mockResolvedValue(undefined) };
+        PartnerBillingAdjustment.findAll.mockResolvedValueOnce([first, second, third]);
+
+        await runWith([merchantSubscription()], runDate);
+
+        const [[created]] = Invoice.create.mock.calls;
+        // 1000 + 1500 fit; the remaining 500 blocks the third credit entirely.
+        expect(created.metadata).toMatchObject({
+            grossMinor: 3000,
+            creditMinor: 2500,
+            netMinor: 500,
+        });
+        expect(first.update).toHaveBeenCalled();
+        expect(second.update).toHaveBeenCalled();
+        expect(third.update).not.toHaveBeenCalled();
     });
 });

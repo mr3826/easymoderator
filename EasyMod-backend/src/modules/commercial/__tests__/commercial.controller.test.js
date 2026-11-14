@@ -164,6 +164,23 @@ describe('GET /api/commercial/claims', () => {
         await controller.getClaims(makeReq({ shop: null, query: { surface: 'pricing' } }), makeRes(), next);
         expect(next.mock.calls[0][0].status).toBe(403);
     });
+
+    it('B3: a merchant JWT cannot reach internal surfaces or internal-only claims', async () => {
+        for (const surface of ['admin', 'growth-os']) {
+            const next = jest.fn();
+            // eslint-disable-next-line no-await-in-loop
+            await controller.getClaims(makeReq({ query: { surface } }), makeRes(), next);
+
+            expect(next).toHaveBeenCalledTimes(1);
+            expect(next.mock.calls[0][0]).toBeInstanceOf(AppError);
+            expect(next.mock.calls[0][0].status).toBe(403);
+            expect(next.mock.calls[0][0].code).toBe('INTERNAL_SURFACE_FORBIDDEN');
+        }
+
+        // The internal-only shadow meter decision was never evaluated.
+        expect(mockEvaluateClaim).not.toHaveBeenCalled();
+        expect(pricingClaimIds).not.toContain('ai.reply_shadow_meter');
+    });
 });
 
 describe('GET /api/commercial/billing-lines', () => {

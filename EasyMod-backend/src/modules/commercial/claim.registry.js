@@ -189,9 +189,15 @@ const CLAIM_REGISTRY = deepFreeze({
     'voice.auto_reply': claim({
         id: 'voice.auto_reply',
         surfaces: ['pricing', 'landing'],
-        requiredEvidence: ['platform.voice.auto_reply.code_present'],
+        // Code absence alone is not enough: a "live-verified" sentence must
+        // also require production verification. Both are false today, so the
+        // claim renders its truthful fallback.
+        requiredEvidence: [
+            'platform.voice.auto_reply.code_present',
+            'platform.voice.auto_reply.production_verified',
+        ],
         fallback: true,
-        verifiedScope: 'global (code absent)',
+        verifiedScope: 'global (code absent, never production-verified)',
     }),
 
     'ai.auto_reply': claim({
@@ -212,7 +218,11 @@ const CLAIM_REGISTRY = deepFreeze({
             'platform.ai.draft_reply.code_present',
             'platform.ai.draft_reply.production_verified',
         ],
-        verifiedScope: 'global (DRAFT/manual pipeline verified)',
+        // The DRAFT pipeline has never run a live production lifecycle; it is
+        // test-verified only. Until that changes the claim renders the
+        // truthful fallback rather than the availability sentence.
+        fallback: true,
+        verifiedScope: 'global (test-verified; production verification pending)',
     }),
 
     'addons.ads_studio.pilot': addonPilot('ads_studio', 'addons.ads_studio.pilot'),
@@ -251,6 +261,10 @@ const PLATFORM_EVIDENCE = deepFreeze({
         false,
         'docs/ai/AI_ASSISTANT_INTENT_CAPABILITY_BOUNDARY_AUDIT.md',
     ),
+    'platform.voice.auto_reply.production_verified': platformEvidence(
+        false,
+        'docs/ai/AI_ASSISTANT_INTENT_CAPABILITY_BOUNDARY_AUDIT.md',
+    ),
     'platform.ai.auto_reply.code_present': platformEvidence(
         true,
         'docs/adr/0003-business-ai-reply-mode-source-of-truth.md',
@@ -264,8 +278,13 @@ const PLATFORM_EVIDENCE = deepFreeze({
         'docs/adr/0003-business-ai-reply-mode-source-of-truth.md',
     ),
     'platform.ai.draft_reply.production_verified': platformEvidence(
-        true,
-        'docs/billing/BILLING_OPERATIONS.md (locked-account production smoke) + tests/meta-e2e',
+        // Fail closed: the DRAFT pipeline is covered by tests/meta-e2e, but no
+        // live production draft lifecycle has ever run. The BILLING_OPERATIONS
+        // receipt cited here previously was a delivered AUTO send, not a draft
+        // verification, so it cannot evidence this flag.
+        false,
+        'tests/meta-e2e (DRAFT pipeline test coverage) + docs/adr/0003-business-ai-reply-mode-source-of-truth.md (no live production draft verification recorded)',
+        '2026-11-14',
     ),
     'platform.addons.code_present': platformEvidence(
         true,

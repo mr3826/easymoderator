@@ -323,7 +323,11 @@ class FailedPaymentReconciler extends BaseJob {
                     issue: action === 'suspended'
                         ? (this.overduePolicyCopy() || 'Automated replies are paused until payment.')
                         : 'Invoice payment is overdue',
+                    // The alert formatter renders integer poisha. The invoice
+                    // row stores DECIMAL BDT, so carry the converted value (and
+                    // keep `amount` for consumers that still read BDT).
                     amount: invoice.amount,
+                    amountMinor: Math.round(Number(invoice.amount) * 100),
                     dueDate: invoice.due_date
                 },
                 {

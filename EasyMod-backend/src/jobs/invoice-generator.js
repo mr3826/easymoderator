@@ -22,6 +22,7 @@ const {
     catchUpLines,
     computeInvoiceFromLines,
     getCommercialCutoverAt,
+    lockLinesForInvoice,
     minorToBdt,
     toDateOnly,
 } = require('../modules/commercial/delivered-order-billing.service');
@@ -219,8 +220,14 @@ class InvoiceGenerator extends BaseJob {
         const cutover = cutoverAt ? new Date(cutoverAt) : null;
         if (!cutover || Number.isNaN(cutover.getTime())) return [];
 
-        const occurredAt = { [Op.lt]: toDateOnly(start) };
-        if (cutover.getTime() < start.getTime()) occurredAt[Op.gte] = toDateOnly(cutover);
+        // The cutover floor ALWAYS applies. In the cutover month the instant
+        // can fall inside (or after) the period being invoiced, and without the
+        // floor pre-cutover lines from the prior period would leak forward as a
+        // charge that was never contracted.
+        const occurredAt = {
+            [Op.lt]: toDateOnly(start),
+            [Op.gte]: toDateOnly(cutover),
+        };
 
         return BillingLine.findAll({
             where: {
@@ -240,9 +247,20 @@ class InvoiceGenerator extends BaseJob {
         const { periodStart, periodEnd } = this.previousUtcMonth(runDate);
         const cutoverAt = await getCommercialCutoverAt();
 
+        // Fail closed (A5): without the persisted cutover instant we cannot
+        // separate pre-cutover history from billable usage. Deferring is safe;
+        // falling back to periodStart would bill usage that was never
+        // contracted.
+        if (!cutoverAt) {
+            this.logger.warn('Commercial cutover instant unavailable; deferring delivered-order invoicing', {
+                shopId: subscription.shop_id,
+            });
+            results.invoicesSkipped++;
+            return;
+        }
+
         if (!dryRun) {
             // Reconstruct terminal outcomes whose webhook never produced a line.
-            // No-ops without a persisted cutover instant (never invent history).
             await catchUpLines({
                 shopId: subscription.shop_id,
                 periodStart,
@@ -287,10 +305,12 @@ class InvoiceGenerator extends BaseJob {
         }
 
         const adjustments = await this.pendingReversalCredits(subscription.shop_id);
-        const creditsMinor = adjustments.reduce(
-            (total, adjustment) => total + Math.max(0, Math.round(Number(adjustment.amount_bdt) * 100)),
-            0,
-        );
+
+        // Preview derivation. The authoritative amount for a real invoice is
+        // recomputed inside the transaction from the LOCKED rows (A3); this is
+        // what a dry run reports and what the pre-check metadata uses.
+        const previewGrossMinor = computeInvoiceFromLines(combinedLines, 0).grossMinor;
+        const { creditsMinor } = this.selectApplicableAdjustments(adjustments, previewGrossMinor);
         const computed = computeInvoiceFromLines(combinedLines, creditsMinor);
 
         const priorLineIds = new Set(priorLines.map((line) => String(line.id)));
@@ -316,7 +336,11 @@ class InvoiceGenerator extends BaseJob {
             extraCharges: 0,
             totalAmount: minorToBdt(computed.netMinor),
             computed,
+            // Pending credits are re-selected against the locked gross inside
+            // the transaction; the preview list is informational only.
+            pendingAdjustments: adjustments,
             adjustments,
+            candidateLines: combinedLines,
             lineIds: combinedLines.map((line) => line.id),
             priorLineIds: [...priorLineIds],
             priorPeriodAdjustmentMinor,
@@ -325,9 +349,15 @@ class InvoiceGenerator extends BaseJob {
 
         if (!dryRun) {
             const invoice = await this.createDeliveredOrderInvoice(subscription, invoiceData, runDate);
-            if (invoice?.__alreadyExisting) {
+            if (invoice?.__alreadyExisting || invoice?.__noLines) {
                 results.invoicesSkipped++;
                 return;
+            }
+            // The transaction recomputed from locked rows; use its values.
+            if (invoice.__computed) {
+                invoiceData.computed = invoice.__computed;
+                invoiceData.totalAmount = minorToBdt(invoice.__computed.netMinor);
+                invoiceData.priorPeriodAdjustmentMinor = invoice.__computed.priorPeriodAdjustmentMinor;
             }
             invoiceData.invoiceId = invoice.id;
             invoiceData.invoiceNumber = invoice.invoice_number;
@@ -340,62 +370,126 @@ class InvoiceGenerator extends BaseJob {
     }
 
     /**
+     * A1 — choose which pending reversal credits this invoice may consume.
+     *
+     * Credits can only offset a charge that exists. Whole adjustments are
+     * applied in FIFO order while they fit under the gross; the first one that
+     * would exceed the remaining gross stays pending (together with everything
+     * after it) so the surplus carries forward instead of being destroyed.
+     *
+     * @returns {{applicable:Array<{adjustment:object, amountMinor:number}>, creditsMinor:number}}
+     */
+    selectApplicableAdjustments(adjustments = [], grossMinor = 0) {
+        const applicable = [];
+        let remaining = Math.max(0, Math.trunc(Number(grossMinor) || 0));
+        for (const adjustment of Array.isArray(adjustments) ? adjustments : []) {
+            const amountMinor = Math.max(0, Math.round(Number(adjustment.amount_bdt) * 100));
+            if (amountMinor > remaining) break;
+            applicable.push({ adjustment, amountMinor });
+            remaining -= amountMinor;
+        }
+        const creditsMinor = applicable.reduce((total, entry) => total + entry.amountMinor, 0);
+        return { applicable, creditsMinor };
+    }
+
+    /**
      * Persist one delivered-order invoice and claim its lines + credits in the
      * same transaction. Money columns are legacy DECIMAL BDT; metadata carries
      * integer poisha and the derivation, with no customer data.
      */
     async createDeliveredOrderInvoice(subscription, invoiceData, runDate) {
-        const { computed, adjustments = [], lineIds = [], billingPeriodStart, billingPeriodEnd } = invoiceData;
+        const {
+            candidateLines = [],
+            pendingAdjustments = [],
+            priorLineIds = [],
+            billingPeriodStart,
+            billingPeriodEnd,
+        } = invoiceData;
         const invoiceNumber = await this.generateInvoiceNumber(subscription, runDate);
-        const amountBdt = minorToBdt(computed.netMinor);
-
-        const values = {
-            subscription_id: subscription.id,
-            shop_id: subscription.shop_id,
-            invoice_number: invoiceNumber,
-            invoice_type: InvoiceType.DELIVERED_ORDER,
-            amount: amountBdt,
-            base_amount: 0,
-            // Usage-based delivered-order charge, net of reversal credits.
-            extra_usage_amount: amountBdt,
-            billing_period: billingPeriodStart.toISOString().substring(0, 7),
-            status: 'pending',
-            billing_period_start: billingPeriodStart,
-            billing_period_end: billingPeriodEnd,
-            due_date: new Date(runDate.getTime() + COMMERCIAL_CONTRACT.dueDays * 24 * 60 * 60 * 1000),
-            metadata: {
-                contractVersion: COMMERCIAL_CONTRACT_VERSION,
-                model: COMMERCIAL_CONTRACT.model,
-                currency: COMMERCIAL_CONTRACT.currency,
-                unit_price_minor: COMMERCIAL_CONTRACT.unitPriceMinor,
-                unitPriceMinor: COMMERCIAL_CONTRACT.unitPriceMinor,
-                deliveredCount: computed.deliveredCount,
-                zeroRatedCount: computed.zeroRatedCount,
-                grossMinor: computed.grossMinor,
-                creditMinor: computed.creditMinor,
-                netMinor: computed.netMinor,
-                // Late prior-period arrivals carried forward into this invoice.
-                // They are real charges, never a rewrite of the issued document.
-                priorPeriodAdjustmentMinor: invoiceData.priorPeriodAdjustmentMinor || 0,
-                priorPeriodAdjustmentCount: Array.isArray(invoiceData.priorLineIds)
-                    ? invoiceData.priorLineIds.length
-                    : 0,
-                lines: computed.lines,
-                // VAT stays 0 (all-in pricing); kept so it can be enabled centrally.
-                vatRate: 0,
-            },
-        };
+        const priorIdSet = new Set(priorLineIds.map((id) => String(id)));
 
         try {
             return await sequelize.transaction(async (transaction) => {
+                // A3: lock the candidate rows inside the transaction and derive
+                // the invoice from the LOCKED state. A reversal that commits
+                // between aggregation and this point re-reads as zero-rated,
+                // so its stale price can never be charged.
+                const locked = await lockLinesForInvoice(
+                    { shopId: subscription.shop_id, lines: candidateLines },
+                    transaction,
+                );
+                const claimable = locked.filter((line) => line.invoice_id === null);
+                if (!claimable.length) return { __noLines: true };
+
+                // A1: only the credits that fit under THIS gross are consumed;
+                // any surplus stays pending for a later invoice.
+                const grossMinor = computeInvoiceFromLines(claimable, 0).grossMinor;
+                const { applicable, creditsMinor } = this.selectApplicableAdjustments(
+                    pendingAdjustments, grossMinor,
+                );
+                const computed = computeInvoiceFromLines(claimable, creditsMinor);
+                const priorClaimable = claimable.filter((line) => priorIdSet.has(String(line.id)));
+                const priorOrderIds = new Set(priorClaimable.map((line) => String(line.order_id)));
+                computed.priorPeriodAdjustmentMinor = priorClaimable.reduce(
+                    (total, line) => total + Math.max(0, Math.trunc(Number(line.amount_minor) || 0)),
+                    0,
+                );
+                computed.priorPeriodAdjustmentCount = priorClaimable.length;
+                computed.lines = computed.lines.map((line) => ({
+                    ...line,
+                    priorPeriodAdjustment: priorOrderIds.has(String(line.orderId)),
+                }));
+
+                const amountBdt = minorToBdt(computed.netMinor);
+                const values = {
+                    subscription_id: subscription.id,
+                    shop_id: subscription.shop_id,
+                    invoice_number: invoiceNumber,
+                    invoice_type: InvoiceType.DELIVERED_ORDER,
+                    amount: amountBdt,
+                    base_amount: 0,
+                    // Usage-based delivered-order charge, net of reversal credits.
+                    extra_usage_amount: amountBdt,
+                    billing_period: billingPeriodStart.toISOString().substring(0, 7),
+                    status: 'pending',
+                    billing_period_start: billingPeriodStart,
+                    billing_period_end: billingPeriodEnd,
+                    due_date: new Date(runDate.getTime() + COMMERCIAL_CONTRACT.dueDays * 24 * 60 * 60 * 1000),
+                    metadata: {
+                        contractVersion: COMMERCIAL_CONTRACT_VERSION,
+                        model: COMMERCIAL_CONTRACT.model,
+                        currency: COMMERCIAL_CONTRACT.currency,
+                        unit_price_minor: COMMERCIAL_CONTRACT.unitPriceMinor,
+                        unitPriceMinor: COMMERCIAL_CONTRACT.unitPriceMinor,
+                        deliveredCount: computed.deliveredCount,
+                        zeroRatedCount: computed.zeroRatedCount,
+                        grossMinor: computed.grossMinor,
+                        creditMinor: computed.creditMinor,
+                        netMinor: computed.netMinor,
+                        // Late prior-period arrivals carried forward into this
+                        // invoice. They are real charges, never a rewrite of
+                        // the issued document.
+                        priorPeriodAdjustmentMinor: computed.priorPeriodAdjustmentMinor,
+                        priorPeriodAdjustmentCount: computed.priorPeriodAdjustmentCount,
+                        lines: computed.lines,
+                        // VAT stays 0 (all-in pricing); kept so it can be enabled centrally.
+                        vatRate: 0,
+                    },
+                };
+
                 const created = await Invoice.create(values, { transaction });
 
-                if (lineIds.length) {
+                // Claim every locked line that is still un-invoiced — both
+                // billable and explicit BDT 0 lines — so the period's orders are
+                // accounted for exactly once. Lines claimed or reversed by
+                // another transaction are excluded by `invoice_id IS NULL`.
+                const claimableIds = claimable.map((line) => line.id);
+                if (claimableIds.length) {
                     await BillingLine.update(
                         { invoice_id: created.id },
                         {
                             where: {
-                                id: { [Op.in]: lineIds },
+                                id: { [Op.in]: claimableIds },
                                 shop_id: subscription.shop_id,
                                 invoice_id: null,
                             },
@@ -404,7 +498,7 @@ class InvoiceGenerator extends BaseJob {
                     );
                 }
 
-                for (const adjustment of adjustments) {
+                for (const { adjustment } of applicable) {
                     await adjustment.update({
                         status: 'applied',
                         invoice_id: created.id,
@@ -412,6 +506,7 @@ class InvoiceGenerator extends BaseJob {
                     }, { transaction });
                 }
 
+                created.__computed = computed;
                 return created;
             });
         } catch (error) {

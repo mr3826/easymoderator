@@ -48,4 +48,4 @@ Live-verified for booking: 0 of 3 providers.
 
 ---
 
-EasyModerator commercial contract v1.0.0 · contract `sha256:207a8d899d14f0375a88a2c962f3db7c842ffd3483a27984402c5aef194713d6` · registry `sha256:ae42a84c063458cd6bdc8af51d2b862224783dc495f2ec90340b5f9f1f328e27`
+EasyModerator commercial contract v1.0.0 · contract `sha256:207a8d899d14f0375a88a2c962f3db7c842ffd3483a27984402c5aef194713d6` · registry `sha256:ad51d4020d699b0c8eb993350181d8b345da8b43a05770ff5ab8313186793d14`

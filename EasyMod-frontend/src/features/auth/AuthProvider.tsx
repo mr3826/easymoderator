@@ -96,3 +96,12 @@ export const useAuth = () => {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 };
+
+/**
+ * Auth state for components that may render outside AuthProvider (e.g. the
+ * public claim provider on a marketing page or in an isolated unit test).
+ * Returns null instead of throwing; callers treat null as unauthenticated.
+ */
+export const useOptionalAuth = (): AuthContextProps | null => (
+  useContext(AuthContext) ?? null
+);

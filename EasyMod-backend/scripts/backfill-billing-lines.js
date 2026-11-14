@@ -82,20 +82,26 @@ async function main() {
         order: [['id', 'ASC']],
     });
 
-    const totals = { shops: subscriptions.length, considered: 0, created: 0, skipped: 0 };
+    const totals = {
+        shops: subscriptions.length, considered: 0, created: 0, skipped: 0, wouldCreate: 0,
+    };
     for (const subscription of subscriptions) {
+        // The dry-run flag is passed INTO catchUpLines: without it the helper
+        // still inserts rows, so `--apply` would only guard a log line.
         // eslint-disable-next-line no-await-in-loop
         const result = await catchUpLines({
             shopId: subscription.shop_id,
             periodStart: period.start,
             periodEnd: period.end,
             cutoverAt,
+            dryRun: !APPLY,
         }, null);
         totals.considered += result.considered;
         totals.created += result.created;
         totals.skipped += result.skipped;
-        if (!APPLY && result.created > 0) {
-            console.log(`[dry-run] shop ${subscription.shop_id}: would create ${result.created}`);
+        totals.wouldCreate += result.wouldCreate;
+        if (!APPLY && result.wouldCreate > 0) {
+            console.log(`[dry-run] shop ${subscription.shop_id}: would create ${result.wouldCreate}`);
         }
     }
 

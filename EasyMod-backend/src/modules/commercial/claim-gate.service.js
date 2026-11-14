@@ -24,7 +24,10 @@
  */
 
 const {
+    COMMERCIAL_CONTRACT,
     COMMERCIAL_CONTRACT_VERSION,
+    formatBdt,
+    formatBdtBn,
 } = require('./commercial.contract');
 const {
     getClaim,
@@ -188,10 +191,24 @@ function textKeyFor(entry, render, locale) {
  * Rewritten-copy interpolation. A provider-scoped claim always renders
  * `{{providers}}` narrowed to the providers that actually pass, so the sentence
  * never overstates coverage (a full match passes all of them).
+ *
+ * The price claim is interpolated from COMMERCIAL_CONTRACT, never hardcoded in
+ * copy: a future unitPriceMinor change flows to the rendered sentence in both
+ * locales, so copy can never drift from the sole price authority.
  */
-function interpolationFor(scope) {
-    if (!scope.claimedProviders || scope.count === 0) return {};
-    return { providers: scope.verifiedProviders.map(providerDisplayName).join(', ') };
+function interpolationFor(scope, entry) {
+    const interpolation = {};
+
+    if (scope.claimedProviders && scope.count > 0) {
+        interpolation.providers = scope.verifiedProviders.map(providerDisplayName).join(', ');
+    }
+
+    if (entry && entry.id === 'billing.delivered_order') {
+        interpolation.unitPrice = formatBdt(COMMERCIAL_CONTRACT.unitPriceMinor);
+        interpolation.unitPriceBn = formatBdtBn(COMMERCIAL_CONTRACT.unitPriceMinor);
+    }
+
+    return interpolation;
 }
 
 function buildDecision({ entry, claimId, surface, locale, mode, evidenceMap }) {
@@ -212,7 +229,7 @@ function buildDecision({ entry, claimId, surface, locale, mode, evidenceMap }) {
             match: scope.match,
             text: scope.text,
         },
-        interpolation: interpolationFor(scope),
+        interpolation: interpolationFor(scope, entry),
         mode,
         predicate,
         wouldBlock: mode === 'shadow' && !available,

@@ -39,6 +39,14 @@ const HISTORICAL_RECORD_PATHS = Object.freeze([
         pattern: /^archive\//,
         reason: 'historical-archive: retired records preserved for audit; never rendered',
     },
+    {
+        pattern: /^EasyMod-backend\/scripts\/cutover-drill\.js$/,
+        reason: 'migration-drill fixture: must seed pre-cutover retired plans/prices to prove the cutover converts them; never merchant-rendered',
+    },
+    {
+        pattern: /^scripts\/run-backend-cutover-drill\.js$/,
+        reason: 'migration-drill compose wrapper for the cutover drill fixture; never merchant-rendered',
+    },
 ]);
 
 /**
@@ -183,6 +191,8 @@ const RETIRED_CODE_COMPAT = Object.freeze([
     { pattern: /^EasyMod-backend\/scripts\/[^/]+\/[^/]*seed[^/]*\.js$/, reason: 'seed/ops script builds legacy fixtures' },
     { pattern: /^EasyMod-backend\/src\/scripts\/approve-partner\.js$/, reason: 'ops CLI flips a historical PARTNER row' },
     { pattern: /^EasyMod-backend\/scripts\/pilotplus-seed-lab\.js$/, reason: 'seed lab builds legacy fixtures' },
+    { pattern: /^EasyMod-backend\/scripts\/cutover-drill\.js$/, reason: 'migration-drill fixture seeds pre-cutover retired plan codes to prove conversion' },
+    { pattern: /^scripts\/run-backend-cutover-drill\.js$/, reason: 'migration-drill compose wrapper' },
     { pattern: /^EasyMod-backend\/scripts\/ai-cost\/ai-cost-report\.js$/, reason: 'cost report labels historical plans' },
     { pattern: /^EasyMod-backend\/src\/jobs\/invoice-generator\.js$/, reason: 'legacy invoice reconciler reads retired plan codes' },
     { pattern: /^EasyMod-backend\/src\/jobs\/failed-payment-reconciler\.js$/, reason: 'legacy payment reconciler reads retired plan codes' },

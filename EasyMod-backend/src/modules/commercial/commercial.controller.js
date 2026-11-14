@@ -17,6 +17,7 @@ const {
     CLAIM_IDS,
     CLAIM_REGISTRY,
     SURFACES,
+    INTERNAL_SURFACES,
     registryHash,
 } = require('./claim.registry');
 const claimGate = require('./claim-gate.service');
@@ -86,11 +87,19 @@ async function getClaims(req, res, next) {
         if (typeof surface !== 'string' || !SURFACES.includes(surface)) {
             throw new AppError('Unknown claim surface', 400, 'UNKNOWN_CLAIM_SURFACE');
         }
+        // Internal surfaces (growth-os/admin) are never served to a merchant
+        // JWT. Before this, ?surface=admin returned the internal-only
+        // ai.reply_shadow_meter decision to any authenticated merchant.
+        if (INTERNAL_SURFACES.includes(surface)) {
+            throw new AppError('Surface is not available to merchants', 403, 'INTERNAL_SURFACE_FORBIDDEN');
+        }
         const locale = normalizeLocale(req.query?.locale);
 
         const claimIds = CLAIM_IDS.filter((id) => {
             const entry = CLAIM_REGISTRY[id];
-            return entry && entry.surfaces.includes(surface);
+            // Defensive strip: even if a future entry declares a merchant
+            // surface while internalOnly, it must never leave this endpoint.
+            return entry && entry.internalOnly !== true && entry.surfaces.includes(surface);
         });
 
         const decisions = [];

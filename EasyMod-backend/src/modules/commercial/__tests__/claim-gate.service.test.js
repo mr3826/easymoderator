@@ -189,15 +189,42 @@ describe('claim gate — evidence predicates', () => {
     });
 
     it('reads platform evidence from the frozen registry', async () => {
-        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(true);
+        // B2: draft reply is test-verified only, so it renders its fallback.
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(false);
 
-        const verified = await service.evaluateClaim('ai.draft_reply', { surface: 'pricing', locale: 'en' });
-        expect(verified.available).toBe(true);
-        expect(verified.render).toBe('claim');
+        const draft = await service.evaluateClaim('ai.draft_reply', { surface: 'pricing', locale: 'en' });
+        expect(draft.available).toBe(false);
+        expect(draft.render).toBe('fallback');
+        expect(draft.textKey).toBe('claims.ai.draft_reply.fallback.en');
 
         const unverified = await service.evaluateClaim('ai.auto_reply', { surface: 'pricing', locale: 'en' });
         expect(unverified.available).toBe(false);
         expect(unverified.render).toBe('fallback');
+    });
+
+    it('B1: voice auto-reply requires production verification, not just code presence', async () => {
+        const decision = await service.evaluateClaim('voice.auto_reply', {
+            surface: 'pricing',
+            locale: 'en',
+        });
+
+        expect(decision.available).toBe(false);
+        expect(decision.render).toBe('fallback');
+        expect(decision.textKey).toBe('claims.voice.auto_reply.fallback.en');
+        expect(decision.predicate.production_verified).toBe(false);
+    });
+
+    it('B5: interpolates the delivered-order price from the contract, never copy', async () => {
+        const { formatBdt, formatBdtBn, COMMERCIAL_CONTRACT } = require('../commercial.contract');
+        const decision = await service.evaluateClaim('billing.delivered_order', {
+            surface: 'pricing',
+            locale: 'en',
+        });
+
+        expect(decision.interpolation.unitPrice).toBe(formatBdt(COMMERCIAL_CONTRACT.unitPriceMinor));
+        expect(decision.interpolation.unitPriceBn).toBe(formatBdtBn(COMMERCIAL_CONTRACT.unitPriceMinor));
+        expect(decision.interpolation.unitPrice).toBe('৳10.00');
+        expect(decision.interpolation.unitPriceBn).toBe('৳১০.০০');
     });
 });
 

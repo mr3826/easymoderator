@@ -1,11 +1,18 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useClaimDecisions } from "@/api/domains/commercialContract";
+import { useOptionalAuth } from "@/features/auth/AuthProvider";
 import type { ClaimDecision, ClaimSurface } from "@/api/types/commercial";
 
 /**
  * One claim-decision query per surface (ADR-0011). Children read the decisions
  * from context; a surface never issues a query per <Claim/> node.
+ *
+ * Anonymous visitors (marketing origin, or a page rendered outside
+ * AuthProvider) read the PUBLIC decisions embedded in
+ * /api/public/commercial-contract: contract/platform claims are available,
+ * merchant-dependent claims fail closed to their fallback. Authenticated
+ * merchants keep the shop-scoped /api/commercial/claims source.
  */
 
 export interface ClaimContextValue {
@@ -33,7 +40,9 @@ export function ClaimProvider({
 }) {
   const { i18n } = useTranslation();
   const locale = resolveClaimLocale(i18n?.language);
-  const query = useClaimDecisions(surface, locale);
+  const auth = useOptionalAuth();
+  const authenticated = auth?.isAuthenticated === true;
+  const query = useClaimDecisions(surface, locale, { authenticated });
   const data = query.data;
 
   const value = useMemo<ClaimContextValue>(() => {

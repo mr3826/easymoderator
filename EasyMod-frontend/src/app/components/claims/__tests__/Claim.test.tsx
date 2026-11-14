@@ -5,8 +5,9 @@ import type { ClaimDecision, ClaimSurface } from "@/api/types/commercial";
 import { Claim } from "../Claim";
 import { ClaimProvider, resolveClaimLocale } from "../ClaimProvider";
 
-const { mockUseClaimDecisions, translations } = vi.hoisted(() => ({
+const { mockUseClaimDecisions, mockUseOptionalAuth, translations } = vi.hoisted(() => ({
   mockUseClaimDecisions: vi.fn(),
+  mockUseOptionalAuth: vi.fn(),
   translations: {
     "claims.courier.pathao.booking_live.en": "Pathao booking available",
     "claims.courier.pathao.booking_live.fallback.en": "Pathao booking not live-verified",
@@ -16,6 +17,10 @@ const { mockUseClaimDecisions, translations } = vi.hoisted(() => ({
 
 vi.mock("@/api/domains/commercialContract", () => ({
   useClaimDecisions: mockUseClaimDecisions,
+}));
+
+vi.mock("@/features/auth/AuthProvider", () => ({
+  useOptionalAuth: mockUseOptionalAuth,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -81,6 +86,7 @@ function renderClaim(decision: ClaimDecision | null, surface: ClaimSurface = "pr
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUseOptionalAuth.mockReturnValue(null);
 });
 
 describe("Claim", () => {
@@ -185,7 +191,31 @@ describe("ClaimProvider", () => {
     );
 
     expect(mockUseClaimDecisions).toHaveBeenCalledTimes(1);
-    expect(mockUseClaimDecisions).toHaveBeenCalledWith("pricing", "en");
+    expect(mockUseClaimDecisions).toHaveBeenCalledWith("pricing", "en", { authenticated: false });
+  });
+
+  it("B6: anonymous visitors read public decisions, authenticated users read the shop endpoint", () => {
+    mockDecisions("pricing", []);
+    const { unmount } = render(
+      <ClaimProvider surface="pricing">
+        <span>child</span>
+      </ClaimProvider>,
+    );
+
+    // No AuthProvider (or isAuthenticated:false) => public source.
+    expect(mockUseClaimDecisions).toHaveBeenLastCalledWith("pricing", "en", { authenticated: false });
+    unmount();
+
+    mockUseOptionalAuth.mockReturnValue({ isAuthenticated: true });
+    mockDecisions("pricing", []);
+    render(
+      <ClaimProvider surface="pricing">
+        <span>child</span>
+      </ClaimProvider>,
+    );
+
+    // Authenticated => the shop-scoped /api/commercial/claims source.
+    expect(mockUseClaimDecisions).toHaveBeenLastCalledWith("pricing", "en", { authenticated: true });
   });
 
   it("defaults to Bengali unless the language is explicitly English", () => {

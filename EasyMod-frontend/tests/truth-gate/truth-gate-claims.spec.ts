@@ -42,7 +42,7 @@ function claimDecision(surface: Surface, o: DecisionOverrides) {
     locale: 'en',
     surface,
     scope: { claimedProviders: null, verifiedProviders: null, match: true, text: null },
-    interpolation: {},
+    interpolation: { unitPrice: '৳10.00', unitPriceBn: '৳১০.০০' },
     mode: o.mode,
     predicate: {
       code_present: true,
@@ -163,7 +163,12 @@ async function mockCommercialApi(page: Page, { decisions, onClaimsRequest }: Moc
       return json(401, { success: false, error: { code: 'UNAUTHORIZED', message: 'No session' } });
     }
     if (url.pathname === '/api/public/commercial-contract') {
-      return json(200, { success: true, data: publicContract });
+      // Anonymous marketing surfaces read evaluated decisions from the PUBLIC
+      // contract endpoint (ADR-0011 B6), not the authenticated claims endpoint.
+      const surface = (url.searchParams.get('surface') as Surface | null) ?? 'pricing';
+      onClaimsRequest?.(surface);
+      const surfaceDecisions = decisions[surface] ?? decisions.pricing ?? [];
+      return json(200, { success: true, data: { ...publicContract, decisions: surfaceDecisions } });
     }
     if (url.pathname === '/api/public/addons') {
       return json(200, { success: true, data: addons });

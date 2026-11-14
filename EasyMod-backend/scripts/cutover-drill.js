@@ -360,6 +360,17 @@ async function main() {
     assert(/Superseded by delivered-order model/.test(cancelledOverdue.notes || ''),
         'cancelled legacy invoice is missing the full-credit note');
 
+    // A8 regression: the merchant pays the cancelled legacy invoice AFTER the
+    // cutover. A rollback must never turn a settled payment back into a debt
+    // (which would also corrupt the paid COUNT/SUM).
+    await exec(
+        "UPDATE invoices SET status = 'paid', paid_at = :paid_at WHERE id = :id",
+        { id: overdueInvoice.id, paid_at: new Date() },
+    );
+    const paidAfterPostCutoverPayment = await paidSummary();
+    assert(paidAfterPostCutoverPayment.count === baselinePaid.count + 1,
+        `post-cutover payment not recorded: ${JSON.stringify(paidAfterPostCutoverPayment)}`);
+
     const stillPaidPartner = await Invoice.findByPk(partnerInvoice.id);
     assert(stillPaidPartner.status === 'paid', 'the paid Partner invoice was modified');
     const stillPaidMonthly = await Invoice.findByPk(paidMonthly.id);
@@ -452,6 +463,12 @@ async function main() {
     for (const [id, expected] of Object.entries(baselineInvoices)) {
         const actual = restoredInvoices[id];
         assert(actual, `invoice ${id} disappeared in rollback`);
+        if (id === overdueInvoice.id) {
+            // A8: paid after the cutover — `down` must leave it paid.
+            assert(actual.status === 'paid',
+                `A8: a legacy invoice paid after cutover was reverted to '${actual.status}'`);
+            continue;
+        }
         assert(actual.status === expected.status, `invoice ${id} status not restored: ${actual.status} != ${expected.status}`);
         assert(normalize(actual.notes) === normalize(expected.notes), `invoice ${id} notes not restored`);
     }
@@ -462,8 +479,8 @@ async function main() {
     assert(await countOf('invoices') === postEngineInvoices,
         'the rollback added or removed invoices (only statuses may be restored)');
     const restoredPaid = await paidSummary();
-    assert(JSON.stringify(restoredPaid) === JSON.stringify(baselinePaid),
-        `paid money changed across rollback: ${JSON.stringify(restoredPaid)}`);
+    assert(JSON.stringify(restoredPaid) === JSON.stringify(paidAfterPostCutoverPayment),
+        `paid money changed across rollback: ${JSON.stringify(restoredPaid)} != ${JSON.stringify(paidAfterPostCutoverPayment)}`);
 
     const [legacyColumn] = await select(
         "SELECT COUNT(*)::int AS c FROM information_schema.columns WHERE table_name='subscriptions' AND column_name='legacy_plan_snapshot'",

@@ -170,10 +170,10 @@ truthful `fallbackI18nKey` where its evidence is not yet satisfied; a surface
 renders the fallback, never the unimplemented promise.
 
 ```
-registryHash = sha256:ae42a84c063458cd6bdc8af51d2b862224783dc495f2ec90340b5f9f1f328e27
+registryHash = sha256:ad51d4020d699b0c8eb993350181d8b345da8b43a05770ff5ab8313186793d14
 ```
 
-### Evidence flags (21)
+### Evidence flags (22)
 
 ```
 contract
@@ -192,6 +192,7 @@ ai.auto_reply.merchant_enabled
 platform.voice.transcription.code_present
 platform.voice.transcription.production_verified
 platform.voice.auto_reply.code_present
+platform.voice.auto_reply.production_verified
 platform.ai.auto_reply.code_present
 platform.ai.auto_reply.production_verified
 platform.ai.draft_reply.code_present
@@ -208,11 +209,17 @@ registry at require time.
 Current evidence truth, restated so nobody "remembers" otherwise:
 
 - Voice transcription code exists but is mock-only and never live-verified.
-- Voice auto-reply code does not exist.
+- Voice auto-reply code does not exist and has **never** been production-verified,
+  so `platform.voice.auto_reply.production_verified` is `false` and the claim is
+  fail-closed on both flags.
 - AI auto-reply code exists; automatic sending has **never** been proven live,
   so `platform.ai.auto_reply.production_verified` is `false` and the AUTO claim
   is fail-closed.
-- AI draft reply is verified in production (DRAFT/manual pipeline).
+- AI draft reply is covered by `tests/meta-e2e` but has **never** run a live
+  production draft lifecycle. The previously cited BILLING_OPERATIONS receipt
+  was a delivered AUTO send, not a draft verification, so
+  `platform.ai.draft_reply.production_verified` is `false` and the claim renders
+  its truthful "production verification pending" fallback.
 - Courier booking is implemented but never live-verified for any provider;
   Pathao/Steadfast/RedX `production_verified` is unavailable, so
   `courier.all_providers` (scope match N=3, verified 0) may not render.

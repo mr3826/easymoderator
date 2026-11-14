@@ -120,6 +120,30 @@ describe('FailedPaymentReconciler.run', () => {
         expect(html).toContain('৳10.00');
     });
 
+    it('A9 — merchant alert payload carries amountMinor so the Amount line renders', async () => {
+        const inv = makeInvoice({ invoice_type: 'delivered_order', amount: 10 });
+        Invoice.findAll.mockResolvedValueOnce([inv]);
+
+        await new FailedPaymentReconciler().run({ dryRun: false, runDate: new Date() });
+
+        expect(merchantNotificationService.notifyShop).toHaveBeenCalledWith(
+            inv.shop_id,
+            NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE,
+            expect.objectContaining({ amount: 10, amountMinor: 1000 }),
+            expect.any(Object),
+        );
+
+        // The telegram formatter reads payload.amountMinor; without it the
+        // Amount line is silently omitted.
+        const { formatTelegramAlert } = require('../../modules/notification/telegram-alert.formatter');
+        const alert = formatTelegramAlert(NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE, {
+            invoiceNumber: inv.invoice_number,
+            amountMinor: 1000,
+            issue: 'Invoice payment is overdue',
+        });
+        expect(alert.body).toContain('Amount: ৳10.00');
+    });
+
     it('suspends for a partner_per_order recurring invoice too', async () => {
         const inv = makeInvoice({ invoice_type: 'partner_per_order' });
         Invoice.findAll.mockResolvedValueOnce([inv]);

@@ -204,10 +204,37 @@ describe('claim registry — evidence', () => {
         expect(entry.verifiedScope).toContain('scope_match N=3');
     });
 
-    test('draft reply is available from the verified DRAFT pipeline', () => {
+    test('voice auto-reply is fail-closed: code absent AND never production-verified', () => {
+        const entry = getClaim('voice.auto_reply');
+        // B1 regression: requiring only code_present let a "live-verified"
+        // sentence survive while production verification was never asserted.
+        expect(entry.requiredEvidence).toEqual([
+            'platform.voice.auto_reply.code_present',
+            'platform.voice.auto_reply.production_verified',
+        ]);
+        expect(entry.fallbackI18nKey).toEqual({
+            en: 'claims.voice.auto_reply.fallback.en',
+            bn: 'claims.voice.auto_reply.fallback.bn',
+        });
+        expect(PLATFORM_EVIDENCE['platform.voice.auto_reply.code_present'].value).toBe(false);
+        expect(PLATFORM_EVIDENCE['platform.voice.auto_reply.production_verified'].value).toBe(false);
+        expect(EVIDENCE_AUTHORITIES['platform.voice.auto_reply.production_verified']).toBeDefined();
+    });
+
+    test('draft reply is fail-closed: implemented and test-verified, never production-verified', () => {
         const entry = getClaim('ai.draft_reply');
-        expect(entry.fallbackI18nKey).toBeNull();
-        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(true);
+        // B2 regression: the cited receipt was a delivered AUTO send, not a
+        // draft verification, so the flag must be false and the claim fallback.
+        expect(entry.fallbackI18nKey).toEqual({
+            en: 'claims.ai.draft_reply.fallback.en',
+            bn: 'claims.ai.draft_reply.fallback.bn',
+        });
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.code_present'].value).toBe(true);
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(false);
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].evidence)
+            .toMatch(/tests\/meta-e2e/);
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].evidence)
+            .not.toMatch(/BILLING_OPERATIONS/);
     });
 
     test('the shadow meter is internal-only and never merchant-rendered', () => {

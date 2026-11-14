@@ -42,15 +42,19 @@ const RUN_DEC = new Date('2026-12-01T01:00:00.000Z');
 
 const uuid = () => crypto.randomUUID();
 
-async function seedCutover() {
+async function seedCutover(at = CUTOVER) {
     // `commercial_cutover_events` is migration 20261114_003's state table; the
     // billing engine reads its newest cutover_at. Seed it as the migration would.
     await sequelize.query(
         `INSERT INTO commercial_cutover_events
             (id, entity_type, contract_version, cutover_at, created_at, before, after)
          VALUES (:id, 'test_seed', '1.0.0', :at, :at, '{}'::jsonb, '{}'::jsonb)`,
-        { replacements: { id: uuid(), at: CUTOVER } },
+        { replacements: { id: uuid(), at } },
     );
+}
+
+async function clearCutover() {
+    await sequelize.query('DELETE FROM commercial_cutover_events');
 }
 
 async function makeShop(label) {
@@ -300,5 +304,195 @@ describe('A5/A6 delivered-order billing on PostgreSQL', () => {
         expect(await BillingLine.count({
             where: { shop_id: shop.id, order_id: order.id, line_kind: 'billable' },
         })).toBe(1);
+    });
+
+    it('A2 — catch-up dry run writes zero rows; apply writes the expected row', async () => {
+        const shop = await makeShop('A2');
+        await makeSubscription(shop);
+        await makeOrder(shop);
+
+        const dry = await billing.catchUpLines({
+            shopId: shop.id,
+            periodStart: OCT_START,
+            periodEnd: NOV_START,
+            cutoverAt: CUTOVER,
+            dryRun: true,
+        });
+        expect(dry).toMatchObject({ considered: 1, created: 0, skipped: 0, wouldCreate: 1 });
+        expect(await BillingLine.count({ where: { shop_id: shop.id } })).toBe(0);
+
+        const applied = await billing.catchUpLines({
+            shopId: shop.id,
+            periodStart: OCT_START,
+            periodEnd: NOV_START,
+            cutoverAt: CUTOVER,
+        });
+        expect(applied.created).toBe(1);
+        expect(await BillingLine.count({ where: { shop_id: shop.id } })).toBe(1);
+    });
+
+    it('A3 — a reversal between aggregation and stamping is not charged', async () => {
+        const shop = await makeShop('A3');
+        const subscription = await makeSubscription(shop);
+        const order = await makeOrder(shop);
+        await record(shop, order, 'DELIVERED', '2026-10-05');
+
+        // Read the candidates (amount 1000) exactly as the invoice job does...
+        const staleLines = await billing.aggregateUninvoicedLines({
+            shopId: shop.id,
+            periodStart: OCT_START,
+            periodEnd: NOV_START,
+            cutoverAt: CUTOVER,
+        });
+        expect(staleLines).toHaveLength(1);
+
+        // ...then a return reversal commits BEFORE the invoice transaction.
+        await billing.reverseLineForReturn({ shopId: shop.id, orderId: order.id });
+
+        const invoice = await new InvoiceGenerator().createDeliveredOrderInvoice(
+            subscription,
+            {
+                candidateLines: staleLines,
+                pendingAdjustments: [],
+                priorLineIds: [],
+                billingPeriodStart: OCT_START,
+                billingPeriodEnd: NOV_START,
+            },
+            RUN_NOV,
+        );
+
+        // Amount comes from the LOCKED rows, not the stale read.
+        expect(Number(invoice.amount)).toBe(0);
+        expect(invoice.metadata).toMatchObject({ grossMinor: 0, netMinor: 0, deliveredCount: 0, zeroRatedCount: 1 });
+
+        await staleLines[0].reload();
+        expect(staleLines[0].line_kind).toBe('zero_rated');
+        expect(staleLines[0].amount_minor).toBe(0);
+        expect(staleLines[0].invoice_id).toBe(invoice.id);
+    });
+
+    it('A4 — a mid-period cutover never charges pre-cutover lines forward', async () => {
+        const MID_CUTOVER = new Date(Date.UTC(2026, 9, 15));
+        await clearCutover();
+        await seedCutover(MID_CUTOVER);
+
+        const shop = await makeShop('A4');
+        await makeSubscription(shop);
+
+        // Pre-cutover delivery (September) that was never invoiced.
+        const preCutoverOrder = await makeOrder(shop, {
+            delivered_at: new Date('2026-09-20T10:00:00.000Z'),
+        });
+        await record(shop, preCutoverOrder, 'DELIVERED', '2026-09-20');
+
+        // Post-cutover delivery inside the billed October period.
+        const postCutoverOrder = await makeOrder(shop, {
+            delivered_at: new Date('2026-10-20T10:00:00.000Z'),
+        });
+        await record(shop, postCutoverOrder, 'DELIVERED', '2026-10-20');
+
+        await new InvoiceGenerator().run({ dryRun: false, runDate: RUN_NOV });
+
+        const invoice = await Invoice.findOne({
+            where: { shop_id: shop.id, invoice_type: 'delivered_order' },
+        });
+        expect(invoice).not.toBeNull();
+        // Only the post-cutover line is charged; the September line does not
+        // leak forward through the prior-period charge-forward path.
+        expect(Number(invoice.amount)).toBe(10);
+        expect(invoice.metadata).toMatchObject({ grossMinor: 1000, netMinor: 1000 });
+
+        const preCutoverLine = await BillingLine.findOne({
+            where: { shop_id: shop.id, order_id: preCutoverOrder.id },
+        });
+        expect(preCutoverLine.invoice_id).toBeNull();
+    });
+
+    it('A5 — an unavailable cutover instant defers billing (no invoice)', async () => {
+        await clearCutover();
+
+        const shop = await makeShop('A5-nocutover');
+        await makeSubscription(shop);
+        const order = await makeOrder(shop);
+        await record(shop, order, 'DELIVERED', '2026-10-05');
+
+        expect(await billing.aggregateUninvoicedLines({
+            shopId: shop.id,
+            periodStart: OCT_START,
+            periodEnd: NOV_START,
+            cutoverAt: null,
+        })).toEqual([]);
+
+        const result = await new InvoiceGenerator().run({ dryRun: false, runDate: RUN_NOV });
+        expect(result.invoicesGenerated).toBe(0);
+        expect(await Invoice.count({
+            where: { shop_id: shop.id, invoice_type: 'delivered_order' },
+        })).toBe(0);
+        expect((await BillingLine.findOne({ where: { shop_id: shop.id } })).invoice_id).toBeNull();
+    });
+
+    it('A6 — two concurrent transactional inserts leave one row and no aborted txn', async () => {
+        const shop = await makeShop('A6-txn');
+        await makeSubscription(shop);
+        const order = await makeOrder(shop);
+
+        const attempt = () => sequelize.transaction(async (transaction) => {
+            const result = await billing.recordOutcomeLine({
+                shopId: shop.id,
+                orderId: order.id,
+                outcome: 'DELIVERED',
+                occurredAt: '2026-10-05',
+                source: 'courier_webhook',
+            }, transaction);
+            // If the transaction were poisoned by 25P02 this statement throws.
+            const count = await BillingLine.count({
+                where: { shop_id: shop.id }, transaction,
+            });
+            return { result, count };
+        });
+
+        const outcomes = await Promise.allSettled([attempt(), attempt()]);
+        expect(outcomes.map((outcome) => outcome.status)).toEqual(['fulfilled', 'fulfilled']);
+        expect(await BillingLine.count({
+            where: { shop_id: shop.id, order_id: order.id },
+        })).toBe(1);
+    });
+
+    it('A7 — cancelled then delivered upgrades the zero line instead of billing BDT 0', async () => {
+        const shop = await makeShop('A7-cancelled');
+        await makeSubscription(shop);
+        const order = await makeOrder(shop, { order_status: 'confirmed', delivered_at: null });
+
+        await record(shop, order, 'CANCELLED', '2026-10-05');
+        const zeroLine = await BillingLine.findOne({ where: { shop_id: shop.id, order_id: order.id } });
+        expect(zeroLine.line_kind).toBe('zero_rated');
+
+        const delivered = await record(shop, order, 'DELIVERED', '2026-10-06');
+        expect(delivered.created).toBe(false);
+        expect(delivered.upgraded).toBe(true);
+
+        const lines = await BillingLine.findAll({ where: { shop_id: shop.id, order_id: order.id } });
+        expect(lines).toHaveLength(1);
+        expect(lines[0].line_kind).toBe('billable');
+        expect(lines[0].outcome).toBe('DELIVERED');
+        expect(lines[0].amount_minor).toBe(1000);
+    });
+
+    it('A7 — a RETURNED line is final and a later delivered callback stays BDT 0', async () => {
+        const shop = await makeShop('A7-returned');
+        await makeSubscription(shop);
+        const order = await makeOrder(shop, { order_status: 'confirmed', delivered_at: null });
+
+        await record(shop, order, 'RETURNED', '2026-10-05');
+        const delayed = await record(shop, order, 'DELIVERED', '2026-10-06');
+
+        expect(delayed.created).toBe(false);
+        expect(delayed.upgraded).toBeUndefined();
+
+        const lines = await BillingLine.findAll({ where: { shop_id: shop.id, order_id: order.id } });
+        expect(lines).toHaveLength(1);
+        expect(lines[0].line_kind).toBe('zero_rated');
+        expect(lines[0].outcome).toBe('RETURNED');
+        expect(lines[0].amount_minor).toBe(0);
     });
 });
