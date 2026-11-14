@@ -40,7 +40,13 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       VITE_API_BASE_URL: '/api',
-      VITE_APP_URL: baseURL,
+      // The apex serves the MARKETING entry (main-marketing.tsx), which is a
+      // different React root from the merchant app. isMarketingSurface()
+      // compares HOSTNAMES (not ports), so the app URL must use a different
+      // hostname (localhost vs 127.0.0.1) for the marketing entry to activate —
+      // the 2026-11-15 apex outage crashed because the landing e2e ran through
+      // the app entry's QueryClientProvider.
+      VITE_APP_URL: 'http://localhost:4273',
       VITE_MARKETING_URL: baseURL,
       VITE_BKASH_ENABLED: 'false',
       VITE_ENV: 'development',
