@@ -200,12 +200,23 @@ async function setupRoutes(page: Page, options: { failFirstOrderList?: boolean; 
       return fulfillJson(route, { success: true, data: [] });
     }
     if (path === '/api/subscription' && method === 'GET') {
+      // ADR-0011: the retired plan envelope is gone. getSubscription now returns
+      // the delivered-order contract summary, not a plan with a conversation
+      // allowance; there is no plan code other than MERCHANT.
       return fulfillJson(route, {
         success: true,
         data: {
-          subscription: { plan_code: 'SHURU', plan_name: 'Shuru', conversations_limit: 100, features: {} },
-          effective_conversation_limit: 100,
-          usage: { conversations: { used: 0, limit: 100 } },
+          subscription: {
+            plan_code: 'MERCHANT',
+            status: 'active',
+            billing_model: 'per_order',
+            current_period_start: '2026-11-01T00:00:00.000Z',
+          },
+          plan: { code: 'MERCHANT', name: 'Merchant', billing_model: 'per_order' },
+          contract: 'DELIVERED_ORDER',
+          contract_version: '1.0.0',
+          contract_hash: `sha256:${'b'.repeat(64)}`,
+          usage: { conversations: { used: 0, limit: -1 } },
           period: { start: '2026-11-01T00:00:00.000Z' },
         },
       });

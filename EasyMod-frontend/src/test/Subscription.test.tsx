@@ -76,7 +76,10 @@ vi.mock('@/api/domains/commercialContract', () => ({
   useClaimDecisions: mockUseClaimDecisions,
 }));
 
-vi.mock('@/api/domains/subscription', () => ({
+vi.mock('@/api/domains/subscription', async (importOriginal) => ({
+  // Keep the real module's remaining exports (the legacy api object in
+  // @/api/index.ts reads them at import time) and stub only what this page uses.
+  ...(await importOriginal<typeof import('@/api/domains/subscription')>()),
   getInvoices: mocks.getInvoices,
   getBillingLines: mocks.getBillingLines,
   payInvoice: mocks.payInvoice,
@@ -84,9 +87,26 @@ vi.mock('@/api/domains/subscription', () => ({
   cancelInvoicePayment: mocks.cancelInvoicePayment,
 }));
 
+// ClaimProvider tolerates rendering outside AuthProvider; stubbing the optional
+// auth hook keeps this unit test from bootstrapping the real auth service.
+vi.mock('@/features/auth/AuthProvider', () => ({
+  useOptionalAuth: () => null,
+}));
+
 vi.mock('@/app/lib/config', () => ({
   isBkashEnabled: mocks.isBkashEnabled,
   buildApiUrl: (path: string) => `https://api.test${path}`,
+  // Transitive imports still pull in shared/lib/http/client, which reads the
+  // config module's default object and toApiRequestPath at import time.
+  toApiRequestPath: (path: string) => path,
+  isMarketingSurface: () => false,
+  default: {
+    apiBaseUrl: 'https://api.test',
+    appUrl: 'https://app.test',
+    marketingUrl: 'https://marketing.test',
+    environment: 'development',
+    bkashEnabled: false,
+  },
 }));
 
 vi.mock('react-i18next', () => ({

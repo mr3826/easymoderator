@@ -34,7 +34,12 @@ const hasKey = (obj: unknown, key: string): boolean =>
 
 const keyPattern = /^[A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)+$/;
 const translationFiles = sourceFiles(SRC);
-const variableInitializers = new Map<string, Array<{ initializer: ts.Expression; file: string }>>();
+// Variable names are file-local, so initializers resolve within their own file.
+// A single global name map conflates unrelated declarations that happen to share
+// a name (e.g. `decision` in Claim.tsx and BillingStandingBanner.tsx) and pulled
+// key-shaped non-translation strings — claim registry ids and validator labels —
+// into the used-key set as false positives.
+const variableInitializers = new Map<string, Map<string, Array<{ initializer: ts.Expression; file: string }>>>();
 const parsedFiles = new Map<string, ts.SourceFile>();
 
 for (const file of translationFiles) {
@@ -47,13 +52,15 @@ for (const file of translationFiles) {
     file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   parsedFiles.set(file, source);
+  const fileVariables = new Map<string, Array<{ initializer: ts.Expression; file: string }>>();
+  variableInitializers.set(file, fileVariables);
   const collectVariables = (node: ts.Node) => {
     if (ts.isVariableDeclaration(node)
       && ts.isIdentifier(node.name)
       && node.initializer) {
-      const entries = variableInitializers.get(node.name.text) ?? [];
+      const entries = fileVariables.get(node.name.text) ?? [];
       entries.push({ initializer: node.initializer, file });
-      variableInitializers.set(node.name.text, entries);
+      fileVariables.set(node.name.text, entries);
     }
     ts.forEachChild(node, collectVariables);
   };
@@ -65,19 +72,19 @@ const usedKeys = (() => {
   const addKey = (key: string, file: string) => {
     if (!found.has(key)) found.set(key, path.relative(SRC, file).replace(/\\/g, '/'));
   };
-  const collectDynamicKeys = (node: ts.Node, seen: Set<ts.Expression>) => {
+  const collectDynamicKeys = (node: ts.Node, seen: Set<ts.Expression>, file: string) => {
     if (ts.isStringLiteralLike(node)) {
       if (keyPattern.test(node.text)) addKey(node.text, node.getSourceFile().fileName);
       return;
     }
     if (ts.isIdentifier(node)) {
-      for (const declaration of variableInitializers.get(node.text) ?? []) {
+      for (const declaration of variableInitializers.get(file)?.get(node.text) ?? []) {
         if (seen.has(declaration.initializer)) continue;
         seen.add(declaration.initializer);
-        collectDynamicKeys(declaration.initializer, seen);
+        collectDynamicKeys(declaration.initializer, seen, declaration.file);
       }
     }
-    ts.forEachChild(node, (child) => collectDynamicKeys(child, seen));
+    ts.forEachChild(node, (child) => collectDynamicKeys(child, seen, file));
   };
 
   for (const [file, source] of parsedFiles) {
@@ -88,7 +95,7 @@ const usedKeys = (() => {
         && node.arguments[0]) {
         const argument = node.arguments[0];
         if (ts.isStringLiteralLike(argument)) addKey(argument.text, file);
-        else collectDynamicKeys(argument, new Set());
+        else collectDynamicKeys(argument, new Set(), file);
       }
       ts.forEachChild(node, visit);
     };
