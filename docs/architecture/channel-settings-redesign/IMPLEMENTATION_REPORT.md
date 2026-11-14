@@ -75,6 +75,10 @@ All lanes re-executed on the merged tree (origin/main incl. PR #257, merge `83a1
 - Commits on branch: contracts freeze → EXISTING_BEHAVIOR → implementation → QA amendments → defect-fix round (see `git log`). Single push + single PR at the end (user standing preference). No deploy.
 - Working tree: clean except generated verification artifacts (untracked, excluded).
 
+## CI round 1 — cutover-drill compatibility fix
+
+PR #258 CI round 1: every gate passed except `PR Merge Gate`, failed solely by the **Backend integration** job's `Backend cutover drill` step: `CUTOVER-DRILL: FAIL — 003 must not be applied before the drill seeds data`. Root cause: #256's drill assumed `20261114_003` was the newest migration (single `migrate:down`); ADR-0013's additive 004/005 now sit above it, so one down reversed 005 instead of 003. Fix (preserves every drill assertion): loop `down` until 003 is unapplied; pre-apply post-cutover additive DDL without ledger rows so entity seeding works at the pre-cutover head (003 still applies FIRST against legacy-shaped data in step 4); rollback loop reverses the billing trio plus anything above it. Verified locally with `npm run test:backend:cutover-drill` (receipt appended).
+
 ## Independent review (complete)
 
 Code + security reviewers (independent agents) reviewed the full diff with adversarial refutation of critical/high findings. **No critical findings; no unsafe-send, tenant-leak, or data-loss path.** 2 confirmed high findings (controller dropped `handoff_reason`; business greeting >500 chars silently defaulted) + 6 medium/low (conversation display fail-open, boundary-tx subscription read, inbox billing badge, empty-hours silent disable, `greeting.enabled` no-op, stop-baked override) — **all fixed with regression tests** (R1–R8 in [SECURITY_REVIEW](SECURITY_REVIEW.md)). 0 refuted, 0 unverified high. Deliberate amendment added: `ai-messaging.test.js` legacy greeting-enabled no-op pin → enabled now controls custom text (mandatory disclosure unchanged).

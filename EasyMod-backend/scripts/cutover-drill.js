@@ -37,6 +37,7 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
@@ -150,9 +151,31 @@ async function main() {
     }
 
     // ── 1. pre-cutover head ──────────────────────────────────────────────────
-    console.log('== 1/7 disposable stack: migrate to head, then roll 003 back to the pre-cutover head');
+    console.log('== 1/7 disposable stack: migrate to head, then roll back to the pre-cutover head');
     migrate('up', env);
-    migrate('down', env); // 003 is the newest migration
+    // The runner's `down` reverses the NEWEST migration. Later missions may add
+    // migrations above 003 (e.g. ADR-0013's 004/005), so loop until 003 itself
+    // is unapplied instead of assuming a single down.
+    for (let i = 0; i < 20; i += 1) {
+        const [row] = await select(
+            'SELECT COUNT(*)::int AS c FROM migrations WHERE name = :name',
+            { name: CUTOVER_MIGRATION },
+        );
+        if (row.c === 0) break;
+        migrate('down', env);
+    }
+    // Pre-apply the DDL of post-cutover additive migrations WITHOUT ledger rows
+    // so entity-based seeding works at the pre-cutover head (their columns must
+    // exist for Sequelize inserts). They stay pending in the ledger, so step 4
+    // still applies 003 FIRST against legacy-shaped billing data; their up() is
+    // idempotent (IF NOT EXISTS) when the runner reaches them.
+    const migrationsDir = path.join(backendRoot, 'src/database/migrations');
+    const laterMigrations = fs.readdirSync(migrationsDir)
+        .filter((f) => f.endsWith('.js') && f.slice(0, -3) > CUTOVER_MIGRATION)
+        .sort();
+    for (const file of laterMigrations) {
+        await require(path.join(migrationsDir, file)).up(sequelize);
+    }
     const [stillApplied] = await select(
         "SELECT COUNT(*)::int AS c FROM migrations WHERE name IN ('20261114_001_billing_lines','20261114_002_delivered_order_invoice_index')",
     );
@@ -440,11 +463,16 @@ async function main() {
     const liveBillingLines = await countOf('billing_lines');
     const postEngineInvoices = await countOf('invoices');
 
-    // ── 6. roll back three migrations ────────────────────────────────────────
-    console.log('== 5/7 rolling back 003, 002 and 001 (three migrations)');
-    migrate('down', env);
-    migrate('down', env);
-    migrate('down', env);
+    // ── 6. roll back the billing trio (and anything above it) ───────────────
+    console.log('== 5/7 rolling back 003, 002 and 001 (plus any later migrations)');
+    for (let i = 0; i < 20; i += 1) {
+        const [row] = await select(
+            "SELECT COUNT(*)::int AS c FROM migrations WHERE name IN ('20261114_001_billing_lines','20261114_002_delivered_order_invoice_index',:name)",
+            { name: CUTOVER_MIGRATION },
+        );
+        if (row.c === 0) break;
+        migrate('down', env);
+    }
 
     const restoredSubs = await select('SELECT * FROM subscriptions');
     assert(restoredSubs.length === subs.length, 'subscription rows were lost in rollback');
