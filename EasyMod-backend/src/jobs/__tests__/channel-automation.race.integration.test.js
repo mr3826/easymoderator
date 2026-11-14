@@ -20,6 +20,12 @@
 const { randomUUID } = require('crypto');
 
 jest.mock('../message-queue', () => ({ connection: {} }));
+// Guard 4's manual-equivalent branch notifies the merchant. The notification
+// transport (BullMQ queue) is out of scope here; a real queue would reach the
+// notification worker, which this suite does not run.
+jest.mock('../../modules/notification/merchant-notification.service', () => ({
+    notifyShop: jest.fn(async () => ({ queued: false, skipped: true })),
+}));
 
 const {
     IDS, CUSTOMER_PSID, syncSchema, truncateAll, seed,
@@ -135,8 +141,11 @@ beforeAll(async () => {
 beforeEach(async () => {
     await setBusinessMode('AUTO');
     await clearEmergencyStop();
-    await MetaChannelSettings.destroy({ where: { channel_id: IDS.channelA } });
     await Message.destroy({ where: { conversation_id: CONVERSATION_ID } });
+    // The provider boundary loads an existing settings row (no INSERT inside the
+    // boundary transaction); Guard 4 would have created it on the first turn.
+    await MetaChannelSettings.destroy({ where: { channel_id: IDS.channelA } });
+    await MetaChannelSettings.create({ channel_id: IDS.channelA });
     await redis.cacheRedis.del(`ai:pause:${CONVERSATION_ID}`).catch(() => {});
     // The dedup namespace is real Redis; clear only this suite's conversation.
     const keys = await redis.cacheRedis.keys('msg:dedup:*').catch(() => []);
@@ -144,6 +153,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+    // Leave the shared disposable database empty for the next integration file.
+    await truncateAll().catch(() => {});
     if (typeof redis.closeAllRedis === 'function') await redis.closeAllRedis().catch(() => {});
     await sequelize.close();
 });
@@ -164,9 +175,8 @@ describe('real-Redis queue races — Guard 4', () => {
 
     test('an emergency stop while the job is queued skips every channel override', async () => {
         // A channel AUTO override cannot bypass the business-wide stop.
-        await MetaChannelSettings.create({
-            channel_id: IDS.channelA, overrides: { automation_mode: 'AUTO' },
-        });
+        const [row] = await MetaChannelSettings.findOrCreate({ where: { channel_id: IDS.channelA } });
+        await row.update({ overrides: { automation_mode: 'AUTO' } });
         await shopService.engageAiEmergencyStop(IDS.shopA, null, { source: 'merchant' });
 
         const result = await runInbound('is the panjabi available?');
@@ -239,9 +249,8 @@ describe('provider boundary — mid-flight flips and CAS', () => {
     test('an AUTO boundary is allowed when the channel override repeats the ceiling', async () => {
         const key = `race-allow-${randomUUID()}`;
         const candidate = await createClaimedCandidate(key);
-        await MetaChannelSettings.create({
-            channel_id: IDS.channelA, overrides: { automation_mode: 'AUTO' },
-        });
+        const [row] = await MetaChannelSettings.findOrCreate({ where: { channel_id: IDS.channelA } });
+        await row.update({ overrides: { automation_mode: 'AUTO' } });
 
         const result = await claimProviderSendBoundary(candidate, key, IDS.shopA, IDS.channelA);
         expect(result).toEqual({ allowed: true, reason: null });

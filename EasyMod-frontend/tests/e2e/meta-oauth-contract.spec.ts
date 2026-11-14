@@ -200,7 +200,8 @@ test('Connect Facebook Page opens a Login for Business dialog with config_id and
   await expect(page).toHaveURL(/\/manage-shop\/channels$/);
 
   const reveal = page.getByRole('button', { name: 'Connect a Page' });
-  if (await reveal.count()) await reveal.click();
+  await expect(reveal).toBeVisible();
+  await reveal.click();
 
   const connect = page.getByRole('button', { name: /Connect Facebook Page/i }).first();
   await expect(connect).toBeVisible();

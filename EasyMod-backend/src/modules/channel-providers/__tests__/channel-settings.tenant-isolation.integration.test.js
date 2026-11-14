@@ -89,6 +89,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+    // Integration suites share one disposable database (maxWorkers=1) and each
+    // leaves it empty for the next file — see message-worker.action-gate.
+    await truncateAll().catch(() => {});
     await sequelize.close();
 });
 
@@ -218,6 +221,8 @@ describe('channel settings — service and loader tenant assertions', () => {
     });
 
     test('the resolver loader resolves the owning shop and reports tenant-scoped state', async () => {
+        // The loader reads an existing row (it never INSERTs outside Guard 4).
+        await MetaChannelSettings.findOrCreate({ where: { channel_id: IDS.channelA } });
         const state = await loadEffectiveChannelAutomation(IDS.shopA, IDS.channelA);
         expect(state).not.toBeNull();
         expect(state.mode).toBe('AUTO');

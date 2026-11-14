@@ -694,6 +694,12 @@ test('Scenario C: Manual mode suppresses the automatic-reply claim while keeping
     return url.pathname === '/api/conversation/conv-1' && response.request().method() === 'PATCH';
   });
   await hitlControl.click();
+  // ADR-0013 §8: "Take over" now asks for an optional fixed-list reason before
+  // the pause is written. The takeover PATCH contract is unchanged; only the
+  // confirmation step is new.
+  const takeoverDialog = page.getByRole('dialog', { name: 'Take over this conversation?' });
+  await expect(takeoverDialog).toBeVisible();
+  await takeoverDialog.getByRole('button', { name: 'Take over' }).click();
   await hitlResponse;
   await expect(page.getByRole('button', { name: /Resume AI/ })).toBeVisible();
   fixture.assertNoUnexpectedApiRequests();
