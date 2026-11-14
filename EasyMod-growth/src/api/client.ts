@@ -387,26 +387,6 @@ export const growthApi = {
     await request('/api/auth/logout', { method: 'POST' });
   },
 
-  /**
-   * Generate a TOTP secret for the signed-in internal user. Used by the
-   * Super Admin MFA enrollment flow (a password-only session reaches this
-   * endpoint but every Growth data route).
-   */
-  async setupTwoFactor(): Promise<{ secret: string; qrUrl: string }> {
-    const payload = await request<{ success: true; data: { secret: string; qrUrl: string } }>(
-      '/api/auth/2fa/setup',
-      { method: 'POST' },
-    );
-    return payload.data;
-  },
-
-  async enableTwoFactor(token: string): Promise<void> {
-    await request('/api/auth/2fa/enable', {
-      method: 'POST',
-      body: JSON.stringify({ token }),
-    });
-  },
-
   async getProspects(filters: ProspectListFilters = {}): Promise<ProspectListResponse> {
     const params = new URLSearchParams();
     if (filters.status) params.set('status', filters.status);

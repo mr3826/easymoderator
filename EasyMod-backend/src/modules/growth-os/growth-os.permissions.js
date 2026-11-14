@@ -44,21 +44,6 @@ const ROLE_ALIASES = Object.freeze({
   [LEGACY_GROWTH_OS_ROLES.READ_ONLY_ANALYST]: GROWTH_OS_CANONICAL_ROLES.GROWTH_USER,
 });
 
-// Roles whose raw value requires the server-issued MFA claim. This includes
-// the legacy FOUNDER/GROWTH_MANAGER strings so existing accounts never get a
-// capability or assurance downgrade (or upgrade) from aliasing.
-// Every Growth OS session requires MFA assurance: canonical GROWTH_USER
-// operators hold full-ledger contact PII and write access, and every legacy
-// compatibility role aliases into a canonical member of this set, so the
-// middleware's role-or-rawRole check enrolls all of them. Production carries
-// no legacy grants; this closes the subordinate-MFA policy gap end to end.
-const MFA_REQUIRED_ROLES = Object.freeze(new Set([
-  GROWTH_OS_CANONICAL_ROLES.SUPER_ADMIN,
-  GROWTH_OS_CANONICAL_ROLES.GROWTH_USER,
-  LEGACY_GROWTH_OS_ROLES.FOUNDER,
-  LEGACY_GROWTH_OS_ROLES.GROWTH_MANAGER,
-]));
-
 const GROWTH_WORKSPACE_PERMISSIONS = Object.freeze([
   'growth_os.session.read',
   'growth_os.home.read',
@@ -184,7 +169,6 @@ module.exports = {
   GROWTH_OS_CANONICAL_ROLES,
   LEGACY_GROWTH_OS_ROLES,
   ROLE_ALIASES,
-  MFA_REQUIRED_ROLES,
   PERMISSIONS_BY_ROLE,
   isGrowthOsRole,
   isGrantableGrowthOsRole,

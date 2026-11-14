@@ -32,11 +32,12 @@ const privateTimelineReason = 'growth-e2e-private-timeline-reason';
 const tenantName = 'Growth OS browser E2E tenant';
 const shopCode = 'GROWTH-E2E-01';
 
-// Canonical two-role model: SUPER_ADMIN and GROWTH_USER (MFA mandatory for
-// every Growth operator). The legacy FOUNDER row stays seeded (MFA on) so the
-// alias mapping proves both the canonical role resolution and the historical
-// assurance. staleSession exists only to prove token-version rejection, which
-// the auth layer enforces before Growth assurance regardless of enrollment.
+// Canonical two-role model: SUPER_ADMIN and GROWTH_USER. MFA is optional shared
+// authentication and is not a Growth OS access precondition. The legacy FOUNDER
+// row stays seeded (TOTP on) so the alias mapping proves canonical role
+// resolution, and the super/legacy fixtures keep TOTP enrolled so the optional
+// sign-in path stays covered. staleSession exists only to prove token-version
+// rejection, which the auth layer enforces before Growth authorization.
 const userDefinitions = {
   super: {
     email: 'growth-e2e-super@example.test',
@@ -52,9 +53,6 @@ const userDefinitions = {
     phone: '01700000102',
     role: 'GROWTH_USER',
     shopRole: 'staff',
-    // Canonical GROWTH_USER sessions now carry the same MFA assurance as
-    // privileged roles; the seeded operator enrolls TOTP like a real one.
-    totp: true,
   },
   legacy: {
     email: 'growth-e2e-legacy@example.test',
@@ -70,7 +68,6 @@ const userDefinitions = {
     phone: '01700000104',
     role: 'GROWTH_USER',
     shopRole: 'staff',
-    totp: true,
   },
   merchant: {
     email: 'growth-e2e-merchant@example.test',

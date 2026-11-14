@@ -35,17 +35,17 @@ describe('Growth OS initial-admin authorization boundary', () => {
         mockRoleCache.clear();
     });
 
-    test('returns the MFA enrollment boundary without granting Growth access', async () => {
+    test('returns the pending role-grant boundary without granting Growth access', async () => {
         const { req, next } = await runGuard({ userId: 'bootstrap-user', bootstrapOperator: true });
 
         expect(next).toHaveBeenCalledWith(expect.objectContaining({
             status: 403,
-            code: 'GROWTH_OS_BOOTSTRAP_MFA_REQUIRED',
+            code: 'GROWTH_OS_BOOTSTRAP_PENDING',
         }));
         expect(req.growthOs).toBeUndefined();
     });
 
-    test('returns the pending grant boundary after MFA and still denies the workspace', async () => {
+    test('keeps the pending grant boundary even when an MFA claim is present', async () => {
         const { req, next } = await runGuard({
             userId: 'bootstrap-user',
             bootstrapOperator: true,

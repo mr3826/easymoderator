@@ -21,9 +21,10 @@ not override the current code, refs, or these two living documents.
 ## Access Boundary
 
 Growth routes are mounted at `/api/internal/growth-os` behind the existing
-authentication and server-side Growth role middleware. Every Growth OS
-session — canonical `GROWTH_USER` operators included — requires the existing
-MFA assurance claim. Prospect scope is
+authentication and server-side Growth role middleware. Access is authorized by
+the active Growth role record and the endpoint permission, not by an MFA
+assurance claim; the Growth OS MFA requirement was removed 2026-11-15. TOTP
+remains a platform feature outside the Growth access decision. Prospect scope is
 resolved from `req.growthOs.permissions`; client state never authorizes a row.
 
 ## Data Handling
