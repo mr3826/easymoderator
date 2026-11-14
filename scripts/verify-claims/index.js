@@ -31,8 +31,9 @@ const { checkRegistry } = require('./lib/registry-check');
 const { checkEvidence } = require('./lib/evidence-check');
 const { checkSnapshots } = require('./lib/snapshot-check');
 const { checkCollateral } = require('./lib/collateral-check');
+const { checkLanding } = require('./lib/landing-check');
 
-const CHECK_ORDER = Object.freeze(['tokens', 'retired', 'registry', 'evidence', 'snapshot', 'collateral']);
+const CHECK_ORDER = Object.freeze(['tokens', 'retired', 'registry', 'evidence', 'snapshot', 'collateral', 'landing']);
 
 const USAGE = `verify:claims — commercial truth gate
 
@@ -213,6 +214,21 @@ function runChecks(opts) {
             violations: report.violations,
             warnings: [],
             meta: report.updated.length ? { updated: report.updated } : {},
+        });
+    }
+
+    if (switches.includes('landing')) {
+        const report = checkLanding({ root: scanRoot, files });
+        results.push({
+            key: 'landing',
+            label: '(g) landing contract-derivation',
+            ok: report.violations.length === 0,
+            violations: report.violations,
+            warnings: [],
+            meta: {
+                scannedFiles: report.scannedFiles,
+                referencedClaims: report.referencedClaims.length,
+            },
         });
     }
 

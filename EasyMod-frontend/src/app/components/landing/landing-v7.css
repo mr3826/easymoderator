@@ -1,0 +1,214 @@
+/*
+ * Contract-derived landing — Direction C (Bold and Future-Facing).
+ * Scope: .landing-v7. Reuses the public-funnel palette names where equal and
+ * adds the four tokens the funnel lacked (ink-deep, delivered, returned,
+ * verify). Bangla-first: Hind Siliguri is loaded in index.html (preconnect +
+ * display=swap); no self-host/subset pipeline exists, so no @font-face here.
+ */
+
+.landing-v7 {
+  --ink: #17223b;
+  --ink-deep: #0f1729;
+  --violet: #7460d9;
+  --violet-deep: #5d49bb;
+  --lilac: #e8e4ff;
+  --taka: #f4c35e;
+  --delivered: #216a4b;
+  --returned: #aa2434;
+  --verify: #945500;
+  --paper: #f8f9fc;
+  --muted: #4e5870;
+  --line: rgba(23, 34, 59, 0.14);
+  --radius: 18px;
+  --shadow: 0 18px 50px rgba(7, 10, 28, 0.16);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-bn, system-ui, sans-serif);
+  overflow-x: clip;
+}
+
+.landing-v7 *,
+.landing-v7 *::before,
+.landing-v7 *::after { box-sizing: border-box; }
+
+.landing-v7 .lv7-container {
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
+  padding-inline: clamp(16px, 4vw, 40px);
+}
+
+.landing-v7 section { padding-block: clamp(48px, 7vw, 96px); }
+.landing-v7 .lv7-section-head { max-width: 44rem; margin-bottom: clamp(24px, 3vw, 40px); }
+.landing-v7 h2 { font-size: clamp(1.5rem, 3.6vw, 2.4rem); line-height: 1.15; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
+.landing-v7 .lv7-sub { color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.125rem); line-height: 1.6; margin: 0; }
+.landing-v7 p { line-height: 1.65; }
+.landing-v7 a { color: var(--violet-deep); }
+.landing-v7 :focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; border-radius: 6px; }
+
+/* Buttons: 44px minimum target */
+.landing-v7 .lv7-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  min-height: 44px; padding: 0.7rem 1.25rem; border-radius: 999px;
+  font-weight: 600; text-decoration: none; cursor: pointer; border: 1px solid transparent;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.landing-v7 .lv7-btn--primary { background: var(--violet-deep); color: #fff; }
+.landing-v7 .lv7-btn--primary:hover { background: var(--violet); }
+.landing-v7 .lv7-btn--ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.landing-v7 .lv7-btn--onDark { background: var(--taka); color: var(--ink-deep); }
+.landing-v7 .lv7-btn--ghostOnDark { background: transparent; color: #fff; border-color: rgba(255,255,255,0.4); }
+
+/* 1 — Hero */
+.landing-v7 .lv7-hero { background: var(--ink-deep); color: #fff; padding-block: clamp(64px, 9vw, 120px); }
+.landing-v7 .lv7-hero .lv7-eyebrow { color: var(--taka); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.8rem; margin: 0 0 1rem; }
+.landing-v7 .lv7-hero h1 { font-size: clamp(2rem, 5.4vw, 3.6rem); line-height: 1.08; margin: 0 0 1.25rem; letter-spacing: -0.02em; max-width: 20ch; }
+.landing-v7 .lv7-hero .lv7-sub { color: rgba(255,255,255,0.82); max-width: 46ch; }
+.landing-v7 .lv7-hero-grid { display: grid; gap: clamp(28px, 5vw, 56px); grid-template-columns: 1.1fr 0.9fr; align-items: center; }
+.landing-v7 .lv7-hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.75rem; }
+.landing-v7 .lv7-ledger-note { margin-top: 1.25rem; color: rgba(255,255,255,0.7); font-size: 0.95rem; }
+
+/* Phone mockup */
+.landing-v7 .lv7-phone { position: relative; justify-self: center; width: min(320px, 82vw); }
+.landing-v7 .lv7-phone-frame { border-radius: 34px; background: #0b1224; padding: 14px; box-shadow: var(--shadow); border: 1px solid rgba(255,255,255,0.12); }
+.landing-v7 .lv7-phone-screen { border-radius: 24px; background: linear-gradient(180deg, #17223b, #101a30); padding: 18px; min-height: 380px; }
+.landing-v7 .lv7-sample-tag { display: inline-block; font-size: 0.72rem; color: var(--ink-deep); background: var(--taka); padding: 3px 9px; border-radius: 999px; font-weight: 700; }
+.landing-v7 .lv7-thread { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; align-items: center; }
+.landing-v7 .lv7-thread-node { font-size: 0.78rem; padding: 6px 9px; border-radius: 10px; background: rgba(116,96,217,0.22); color: #fff; }
+.landing-v7 .lv7-thread-arrow { color: rgba(255,255,255,0.5); font-size: 0.8rem; }
+.landing-v7 .lv7-bubble { background: rgba(255,255,255,0.08); color: #fff; padding: 10px 12px; border-radius: 12px; font-size: 0.85rem; margin-top: 10px; }
+.landing-v7 .lv7-bubble--out { background: rgba(116,96,217,0.28); }
+.landing-v7 .lv7-mini-row { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: 0.78rem; color: rgba(255,255,255,0.8); }
+
+/* 2 — Scatter */
+.landing-v7 .lv7-scatter-grid { display: grid; gap: 16px; grid-template-columns: repeat(4, 1fr); }
+.landing-v7 .lv7-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: 0 2px 0 rgba(23,34,59,0.03); }
+.landing-v7 .lv7-card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.landing-v7 .lv7-card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.landing-v7 .lv7-resolve { margin-top: 20px; font-size: clamp(1.25rem, 3vw, 1.75rem); font-weight: 800; color: var(--violet-deep); }
+
+/* 3 — How (sticky phone on desktop) */
+.landing-v7 .lv7-how-grid { display: grid; gap: clamp(24px, 4vw, 48px); grid-template-columns: 1fr 0.8fr; align-items: start; }
+.landing-v7 .lv7-mech { display: grid; gap: 16px; }
+.landing-v7 .lv7-mech-item { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--violet); border-radius: 14px; padding: 18px 20px; }
+.landing-v7 .lv7-mech-item h3 { margin: 0 0 4px; font-size: 1.05rem; }
+.landing-v7 .lv7-mech-item p { margin: 0; color: var(--muted); }
+.landing-v7 .lv7-how-phone { position: sticky; top: 96px; align-self: start; }
+@media (max-width: 880px) { .landing-v7 .lv7-how-phone { position: static; } }
+
+/* 4 — Extras */
+.landing-v7 .lv7-extras-grid { display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); }
+.landing-v7 .lv7-extras-grid .lv7-card { display: flex; flex-direction: column; gap: 8px; }
+.landing-v7 .lv7-extras-grid h3 { font-size: 1rem; }
+.landing-v7 .lv7-claim { color: var(--muted); font-size: 0.92rem; line-height: 1.55; }
+.landing-v7 .lv7-claim[data-claim-render="fallback"] { color: var(--verify); }
+
+/* 5 — Price ZERO */
+.landing-v7 .lv7-price { background: var(--ink); color: #fff; }
+.landing-v7 .lv7-zero { display: flex; align-items: baseline; gap: 0.25rem; line-height: 1; margin: 0 0 0.5rem; }
+.landing-v7 .lv7-zero-currency { font-size: clamp(1.6rem, 4vw, 2.6rem); color: var(--taka); font-weight: 600; }
+.landing-v7 .lv7-zero-digit { font-size: clamp(5rem, 22vw, 12rem); font-weight: 800; color: var(--taka); letter-spacing: -0.04em; }
+.landing-v7 .lv7-zero-caption { color: rgba(255,255,255,0.85); font-size: clamp(1rem, 2vw, 1.25rem); margin: 0 0 2rem; }
+.landing-v7 .lv7-price-grid { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.landing-v7 .lv7-price-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: var(--radius); padding: 20px; }
+.landing-v7 .lv7-price-amount { font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 800; color: var(--taka); margin: 0 0 0.25rem; }
+.landing-v7 .lv7-price-card .lv7-claim { color: rgba(255,255,255,0.86); }
+.landing-v7 .lv7-price-card .lv7-claim[data-claim-render="fallback"] { color: var(--taka); }
+
+/* 6 — Calculator */
+.landing-v7 .lv7-calc-grid { display: grid; gap: clamp(24px, 4vw, 40px); grid-template-columns: 1.1fr 0.9fr; align-items: start; }
+.landing-v7 .lv7-control { margin-bottom: 16px; }
+.landing-v7 .lv7-control-head { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; }
+.landing-v7 .lv7-control-head output { color: var(--violet-deep); font-variant-numeric: tabular-nums; }
+.landing-v7 .lv7-slider { width: 100%; height: 32px; accent-color: var(--violet-deep); }
+.landing-v7 .lv7-calc-out { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; position: sticky; top: 96px; }
+.landing-v7 .lv7-calc-out h3 { margin: 0 0 12px; font-size: 1.1rem; }
+.landing-v7 .lv7-out-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 0.95rem; }
+.landing-v7 .lv7-out-row strong { font-variant-numeric: tabular-nums; }
+.landing-v7 .lv7-out-row--zero strong { color: var(--returned); }
+.landing-v7 .lv7-out-row--fee strong { color: var(--violet-deep); font-size: 1.15rem; }
+.landing-v7 .lv7-arithmetic-note { color: var(--muted); font-size: 0.82rem; margin-top: 12px; line-height: 1.5; }
+.landing-v7 .lv7-reset { margin-top: 14px; }
+
+/* 7 — Trust */
+.landing-v7 .lv7-trust-grid { display: grid; gap: 24px; grid-template-columns: 1fr 1fr; }
+.landing-v7 .lv7-wont { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.landing-v7 .lv7-wont li { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+.landing-v7 .lv7-perms { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.landing-v7 .lv7-perms li { background: var(--lilac); border-radius: 12px; padding: 12px 16px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.86rem; }
+.landing-v7 .lv7-neutral { margin-top: 12px; color: var(--muted); font-size: 0.92rem; }
+
+/* 8 — Start */
+.landing-v7 .lv7-start-steps { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); margin-bottom: 18px; }
+.landing-v7 .lv7-start-steps .lv7-card { display: flex; flex-direction: column; gap: 8px; }
+.landing-v7 .lv7-step-num { width: 34px; height: 34px; border-radius: 999px; background: var(--violet-deep); color: #fff; display: grid; place-items: center; font-weight: 700; }
+.landing-v7 .lv7-no-time { color: var(--muted); font-size: 0.9rem; margin-bottom: 16px; }
+
+/* 9 — FAQ */
+.landing-v7 .lv7-faq details { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 0 18px; margin-bottom: 10px; }
+.landing-v7 .lv7-faq summary { cursor: pointer; list-style: none; padding: 16px 0; font-weight: 600; display: flex; justify-content: space-between; gap: 12px; min-height: 44px; align-items: center; }
+.landing-v7 .lv7-faq summary::-webkit-details-marker { display: none; }
+.landing-v7 .lv7-faq summary::after { content: "+"; color: var(--violet-deep); font-size: 1.4rem; line-height: 1; }
+.landing-v7 .lv7-faq details[open] summary::after { content: "\2212"; }
+.landing-v7 .lv7-faq details p { margin: 0 0 16px; color: var(--muted); }
+
+/* 10 — Close */
+.landing-v7 .lv7-close { background: var(--ink-deep); color: #fff; text-align: center; }
+.landing-v7 .lv7-close .lv7-zero { justify-content: center; }
+.landing-v7 .lv7-close h2 { color: #fff; }
+
+/* 11 — Footer with generated status */
+.landing-v7 .lv7-status { background: var(--ink); color: #fff; padding-block: clamp(40px, 6vw, 72px); }
+.landing-v7 .lv7-status-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.landing-v7 .lv7-status-item { display: flex; justify-content: space-between; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px 16px; }
+.landing-v7 .lv7-badge { font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+.landing-v7 .lv7-badge--verified { background: rgba(33,106,75,0.9); color: #fff; }
+.landing-v7 .lv7-badge--partial { background: rgba(148,85,0,0.92); color: #fff; }
+.landing-v7 .lv7-badge--notLaunched { background: rgba(170,36,52,0.9); color: #fff; }
+.landing-v7 .lv7-footer-meta { color: rgba(255,255,255,0.7); font-size: 0.82rem; margin-top: 18px; }
+
+/* 12 — Sticky mobile CTA */
+.landing-v7 .lv7-sticky {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(15,23,41,0.96); backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(255,255,255,0.12);
+  transform: translateY(0); transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.landing-v7 .lv7-sticky .lv7-btn { width: 100%; }
+.landing-v7 .lv7-sticky[hidden] { display: none; }
+@media (min-width: 881px) { .landing-v7 .lv7-sticky { display: none; } }
+.landing-v7 .lv7-failclosed { background: #fff3f3; border: 1px solid var(--returned); color: var(--returned); border-radius: 12px; padding: 16px; margin: 24px auto; max-width: 640px; }
+
+/* Muted text on dark surfaces: #4e5870 fails WCAG AA on ink. Lighten it so
+ * contrast passes on the price, close and status sections and the price cards. */
+.landing-v7 .lv7-price .lv7-sub,
+.landing-v7 .lv7-price .lv7-arithmetic-note,
+.landing-v7 .lv7-price-card .lv7-arithmetic-note,
+.landing-v7 .lv7-close .lv7-sub,
+.landing-v7 .lv7-status .lv7-sub,
+.landing-v7 .lv7-footer-meta,
+.landing-v7 .lv7-ledger-note { color: #cdd4e6; }
+
+@media (max-width: 880px) {
+  .landing-v7 .lv7-hero-grid,
+  .landing-v7 .lv7-how-grid,
+  .landing-v7 .lv7-calc-grid,
+  .landing-v7 .lv7-trust-grid { grid-template-columns: 1fr; }
+  .landing-v7 .lv7-scatter-grid,
+  .landing-v7 .lv7-extras-grid,
+  .landing-v7 .lv7-start-steps,
+  .landing-v7 .lv7-price-grid,
+  .landing-v7 .lv7-status-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .landing-v7 .lv7-scatter-grid,
+  .landing-v7 .lv7-extras-grid,
+  .landing-v7 .lv7-start-steps,
+  .landing-v7 .lv7-price-grid,
+  .landing-v7 .lv7-status-list { grid-template-columns: 1fr; }
+  .landing-v7 .lv7-sticky { display: block; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-v7 *, .landing-v7 *::before, .landing-v7 *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}

@@ -2,7 +2,17 @@ import { publicApiRequest } from "@/shared/lib/http/public-client";
 
 export type FunnelEvent =
   | "landing_view"
-  | "signup_started";
+  | "signup_started"
+  // Contract-derived landing instrumentation (anonymous, first-party).
+  | "page_view"
+  | "cta_click"
+  | "signup_click"
+  | "scroll_depth"
+  | "section_view"
+  | "mechanism_view"
+  | "faq_open"
+  | "calc_state"
+  | "calc_reset";
 
 // Privileged lifecycle milestones are recorded by trusted backend producers;
 // browser code must not be able to forge them.

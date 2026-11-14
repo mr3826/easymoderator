@@ -44,6 +44,21 @@ const FROZEN_IDS = [
     'addons.ads_studio.pilot',
     'addons.storefront.pilot',
     'ai.reply_shadow_meter',
+    // Landing-page claims (contract-derived marketing surface), appended in
+    // registry insertion order.
+    'price.unit',
+    'price.zero',
+    'price.nosub',
+    'courier.booking',
+    'courier.payout',
+    'rto.verify',
+    'voice.transcribe',
+    'ai.notrain',
+    'order.fromchat',
+    'customer.ledger',
+    'knowledge.gaps',
+    'queue.priority',
+    'handoff.human',
 ];
 
 describe('claim registry — frozen interface', () => {

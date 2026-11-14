@@ -13,6 +13,7 @@
     "test:e2e:firefox": "playwright test --browser=firefox --reporter=line",
     "test:e2e:public": "playwright test --config=playwright.public.config.ts",
     "test:e2e:truth-gate": "playwright test --config=playwright.truth-gate.config.ts",
+    "test:e2e:landing": "playwright test --config=playwright.landing.config.ts",
     "test:all": "npm run test:unit && npm run test:e2e"
   },
   "dependencies": {
