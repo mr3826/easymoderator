@@ -179,11 +179,10 @@ exist (NXDOMAIN) and must not be used in any production URL.
 | Action | Why | Current evidence |
 |---|---|---|
 | Verify Namecheap auto-renew | Registration expires **2027-01-22**, 19 days before the certificates (2027-02-11). Registered 2026-01-22, never renewed, auto-renew unverified. | Namecheap panel; only `clientTransferProhibited` status |
-| Add CAA record `0 issue "letsencrypt.org"` | No CAA record exists and Caddy uses Let's Encrypt. | Cloudflare DNS |
+| ~~Add CAA record~~ **Done** | `0 issue "letsencrypt.org"` + `0 issuewild "letsencrypt.org"` live (verified via DoH 2026-11-14, alongside Cloudflare's edge-managed Universal-SSL CAA records). | Cloudflare DNS |
 | Consider DNSSEC + registry lock | Zone is not DNSSEC-signed; transfer lock is only `clientTransferProhibited`. | Cloudflare / Namecheap |
 | Meta Tech Provider Access Verification | Deadline **2026-11-21**. | Meta dashboard |
-| Restore Android device-proof evidence | The `mobile-e2e` production proof (`43545688253`) failed before the emulator steps: no `mobile-release-production-<sha>` artifact exists (newest successful `mobile-release.yml` run `37415393394` reports `total_count=0`). Until a signed artifact is republished, there is **no Android device proof** for the deployed SHA. | [run 43545688253](https://github.com/mr3826/easymoderator/actions/runs/43545688253) |
-| Close the DigitalOcean account | Only after the first green OCI off-site backup run, once the Spaces bucket and `DO_TOKEN` are deleted. | Pending run |
+| Close the DigitalOcean account | All DO resources are deleted (droplet, Spaces bucket + key, `DO_TOKEN`, and the 4 orphaned weekly backups via convert→snapshot→delete on 2026-11-14). Only account closure remains. | DO dashboard |
 
 ## Receipts
 
@@ -241,26 +240,25 @@ exist (NXDOMAIN) and must not be used in any production URL.
 - `ACME_CONTACT`: **registered** — the Caddy ACME account contact is supplied from
   the environment instead of being hard-coded (PR #252).
 - `WATCH`: `production-watch.yml` green for the deployed SHA.
-- `MOBILE_PROOF`: **FAIL — API half green, device half not run.** Run
-  `43545688253`.
-  - API checks: 50 total — 47 passed, 0 failed, 3 skipped (benign: "no order entity
-    on Home", "no conversation entity on Home", "second shop has no
-    order/conversation on Home"). The suite is **50 checks, not 18**. Production
-    `gitSha=d427f1431c68f6c16a398daa223961f3a0a28dd8` was confirmed via HTTP 200 on
-    the commit check; app on `https://api.easymod.tech`;
-    `database=connected redis=connected`.
-  - Device proof: **not run.** The job failed at step 6, "Locate the signed release
-    of the current mobile source" — `gh run download … -n
-    mobile-release-production-<sha>` printed "no valid artifacts found to
-    download". The newest successful `mobile-release.yml` run on `main` is
-    `37415393394` (head `981f8f74595e0c17f3e779b91708e9d5ba79facc`, 2026-10-06) and
-    its artifacts API reports `total_count=0`; repo-wide there are 61 artifacts and
-    none match `mobile-release-*`. Steps 7–10 (APK signature verify, Maestro
-    install, KVM, signed APK on API 34 emulator) and step 13 ("Signed APK against
-    production on API 34 (x86_64)") were skipped.
-  - Uploaded artifact `mobile-production-proof-43545688253` is only 2,794 bytes —
-    API proof only, **no device evidence**. This receipt records a failed mobile
-    proof; it is not evidence for the Android release.
+- `MOBILE_PROOF`: **PASS — API and device proof green at the deployed SHA.** Run
+  `43549565230` (success 2026-11-14T03:15Z).
+  - API checks: 50 total — 47 passed, 0 failed, 3 skipped (benign: no order /
+    conversation entities on production Home pre-launch). Production
+    `gitSha=d427f1431c68f6c16a398daa223961f3a0a28dd8` confirmed via HTTP 200 on the
+    commit check; `database=connected redis=connected`.
+  - Signed artifact: the first proof attempt (`43545688253`) failed before the
+    emulator steps because the signed `mobile-release-production-<sha>` artifact
+    had expired from Actions storage (its API half was already green). The
+    artifact was re-produced by `mobile-release.yml` run `43546632124` (source
+    `79743ded41103b54e8ad34b5207fb97bf75359ab`, 90-day retention; EasyMod-mobile
+    unchanged since the previous signed build). `verify-android-artifact.js`
+    `RESULT=PASS`, `SIGNING=DISTRIBUTABLE`: signer SHA-256 `9d8e323c…` = the pinned
+    upload key, schemes v2+v3, ABIs arm64-v8a/armeabi-v7a/x86/x86_64, version
+    1.0.0 (1345), `DEBUGGABLE=null CLEARTEXT=false`, embedded config source
+    `79743ded…`.
+  - Device (API 34 x86_64 emulator, Maestro 2.6.0): `01-journey=PASS`,
+    `05-logout-relogin=PASS`, `app-crashes=0`, 1/1 flow passed (52 s). Deeplink
+    flows SKIP — no order/conversation on production Home pre-launch.
 
 ## Verification limits
 
