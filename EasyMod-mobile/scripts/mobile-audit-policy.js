@@ -11,24 +11,33 @@ if (!auditPath || !sourceMapPath) {
 
 const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
 const sourceMap = JSON.parse(fs.readFileSync(sourceMapPath, 'utf8'));
+
+// Fail closed when npm audit itself failed: an error payload carries only
+// message/error, and iterating zero advisories must never read as a pass.
+if (!audit.metadata || !audit.vulnerabilities) {
+    console.error('::error::npm audit output has no metadata/vulnerabilities — the audit did not complete; refusing to pass.');
+    process.exit(1);
+}
+
+// Reviewed 2026-11-15: the shell-quote (critical), node-forge, decode-uri-component,
+// zod, glob and minimatch advisories were remediated with real version fixes in
+// package.json (overrides + expo ~57.0.33, whose @expo/cli dropped zod entirely).
+// The former braces/sprintf-js entries were stale (those advisories no longer
+// appear in npm audit) and are removed. deepmerge is the only remaining advisory:
+// no patched release exists (4.3.1 is latest), it is dev-only (jest-config), and
+// npm's proposed remediation is a jest downgrade to 25.1.0, which is rejected.
+// The bundle check below still proves it is absent from the shipped Android JS
+// bundle.
+// Note: query-string stays at 7.1.3 (CJS) because 8/9 are default-export-only
+// ESM and break expo-router 57's __importStar usage. decode-uri-component 0.5.x
+// is ESM-only, so query-string 7's parse() — reached only for URLs carrying a
+// query string, which the app's deep links do not — retains a pre-existing
+// interop limitation to resolve at the SDK 58 upgrade.
 const allowedBuildAdvisories = new Map([
-    [1240992, {
-        packageName: 'braces',
-        url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm',
-        remediations: [
-            { name: 'jest', version: '30.5.2', isSemVerMajor: true },
-            { name: 'expo', version: '44.0.6', isSemVerMajor: true },
-        ],
-    }],
-    [1240912, {
-        packageName: 'node-forge',
-        url: 'https://github.com/advisories/GHSA-86w9-cpqp-85rv',
-        remediations: [{ name: 'expo', version: '44.0.6', isSemVerMajor: true }],
-    }],
-    [1241202, {
-        packageName: 'sprintf-js',
-        url: 'https://github.com/advisories/GHSA-hp3w-g68c-fv3c',
-        remediations: [{ name: 'jest', version: '30.5.2', isSemVerMajor: true }],
+    [1243505, {
+        packageName: 'deepmerge',
+        url: 'https://github.com/advisories/GHSA-gcqx-w48m-w2h4',
+        remediations: [{ name: 'jest', version: '25.1.0', isSemVerMajor: true }],
     }],
 ]);
 
@@ -41,7 +50,12 @@ for (const vulnerability of Object.values(audit.vulnerabilities || {})) {
 }
 
 const failures = [];
-const bundleSources = sourceMap.sources || [];
+// Metro emits absolute paths; on Windows those use backslashes, so normalize
+// before matching or the bundle-absence proof would silently match nothing.
+const bundleSources = (sourceMap.sources || []).map((source) => String(source).replace(/\\/g, '/'));
+if (bundleSources.length === 0) {
+    failures.push('the Android source map has no sources — bundle absence cannot be proven');
+}
 
 if ((audit.metadata?.vulnerabilities?.critical || 0) > 0) {
     failures.push('critical vulnerabilities are present');
