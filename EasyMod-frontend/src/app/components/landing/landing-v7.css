@@ -180,6 +180,16 @@
 @media (min-width: 881px) { .landing-v7 .lv7-sticky { display: none; } }
 .landing-v7 .lv7-failclosed { background: #fff3f3; border: 1px solid var(--returned); color: var(--returned); border-radius: 12px; padding: 16px; margin: 24px auto; max-width: 640px; }
 
+/* Muted text on dark surfaces: #4e5870 fails WCAG AA on ink. Lighten it so
+ * contrast passes on the price, close and status sections and the price cards. */
+.landing-v7 .lv7-price .lv7-sub,
+.landing-v7 .lv7-price .lv7-arithmetic-note,
+.landing-v7 .lv7-price-card .lv7-arithmetic-note,
+.landing-v7 .lv7-close .lv7-sub,
+.landing-v7 .lv7-status .lv7-sub,
+.landing-v7 .lv7-footer-meta,
+.landing-v7 .lv7-ledger-note { color: #cdd4e6; }
+
 @media (max-width: 880px) {
   .landing-v7 .lv7-hero-grid,
   .landing-v7 .lv7-how-grid,
