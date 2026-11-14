@@ -9,7 +9,6 @@ const {
   getPermissionsForRole,
   hasPermission,
   resolveCanonicalRole,
-  MFA_REQUIRED_ROLES,
 } = require('./growth-os.permissions');
 
 const ROLE_CACHE_TTL_SECONDS = 60;
@@ -90,7 +89,10 @@ function buildAccess(rawRole) {
 
 function getInitialBootstrapState(user) {
   if (user?.bootstrapOperator !== true) return null;
-  return user.mfaVerified === true ? 'pending' : 'mfa-required';
+  // A seeded bootstrap operator has no role yet; the only observable state at
+  // this layer is that the audited role grant is pending. MFA is not a Growth
+  // OS precondition.
+  return 'pending';
 }
 
 function requireGrowthOsAccess(requiredPermission = 'growth_os.session.read') {
@@ -115,16 +117,9 @@ function requireGrowthOsAccess(requiredPermission = 'growth_os.session.read') {
         if (!access) {
           // Rotation is enforced one layer below: the temporary session can
           // reach nothing but /auth/change-password, and bootstrapRole
-          // refuses un-rotated targets. Only the MFA enrollment state is
-          // observable at this layer.
+          // refuses un-rotated targets. The only observable bootstrap state at
+          // this layer is that the audited role grant is still pending.
           const bootstrapState = getInitialBootstrapState(req.user);
-          if (bootstrapState === 'mfa-required') {
-            throw new AppError(
-              'The initial Growth OS administrator must enroll MFA first.',
-              403,
-              'GROWTH_OS_BOOTSTRAP_MFA_REQUIRED',
-            );
-          }
           if (bootstrapState === 'pending') {
             throw new AppError(
               'The initial Growth OS administrator is ready for the audited role grant.',
@@ -147,21 +142,10 @@ function requireGrowthOsAccess(requiredPermission = 'growth_os.session.read') {
         );
       }
 
-      // Growth roles are global internal roles. Require an authentication
-      // assurance claim for the roles that can view or mutate broad operating
-      // data; merchant/frontend claims are never accepted here. The raw
-      // (possibly legacy) role is checked too so alias mapping never becomes
-      // an MFA-assurance downgrade.
-      const requiresMfa = MFA_REQUIRED_ROLES.has(access.role)
-        || MFA_REQUIRED_ROLES.has(access.rawRole);
-      if (requiresMfa && req.user.mfaVerified !== true) {
-        throw new AppError(
-          'Multi-factor authentication is required for this Growth OS role.',
-          403,
-          'GROWTH_OS_MFA_REQUIRED',
-        );
-      }
-
+      // Growth roles are global internal roles. Authorization is the active
+      // role plus the endpoint permission; the server-issued MFA assertion is
+      // not required (Founder decision, 2026-11-15). Merchant/frontend claims
+      // are never accepted here.
       req.growthOs = access;
       next();
     } catch (err) {

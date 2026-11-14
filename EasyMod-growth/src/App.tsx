@@ -9,7 +9,6 @@ import { AccessDeniedPage } from '@/pages/AccessDeniedPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { CapturePage } from '@/pages/CapturePage';
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage';
-import { EnrollMfaPage } from '@/pages/EnrollMfaPage';
 import { FollowUpsPage } from '@/pages/FollowUpsPage';
 import { GrowthUsersPage } from '@/pages/GrowthUsersPage';
 import { AccessControlPage } from '@/pages/AccessControlPage';
@@ -40,21 +39,15 @@ function BootstrapPendingRoute() {
     navigate('/login', { replace: true });
   };
 
+  if (auth.status === 'loading') return <LoadingState />;
+  if (auth.status !== 'bootstrap-pending') return <Navigate to="/login" replace />;
+
   return (
-    <MessageState eyebrow="Initial operator" title="MFA verified; access grant pending">
+    <MessageState eyebrow="Initial operator" title="Access grant pending">
       <p>The protected Growth OS role grant must complete before workspace access is available.</p>
       <button className="primary-button" type="button" onClick={returnToSignIn}>Return to sign in</button>
     </MessageState>
   );
-}
-
-function MfaSetupRoute() {
-  const { status } = useGrowthAuth();
-  if (status === 'bootstrap-pending') return <BootstrapPendingRoute />;
-  if (status === 'bootstrap-mfa-required') return <EnrollMfaPage />;
-  if (status === 'mfa-required' || status === 'authenticated') return <EnrollMfaPage />;
-  if (status === 'loading') return <LoadingState />;
-  return <Navigate to="/login" replace />;
 }
 
 export function App() {
@@ -68,7 +61,7 @@ export function App() {
             <Route path="/access-denied" element={<AccessDeniedPage />} />
             <Route path="/session-expired" element={<SessionExpiredPage />} />
             <Route path="/unavailable" element={<GrowthUnavailablePage />} />
-            <Route path="/enroll-mfa" element={<MfaSetupRoute />} />
+            <Route path="/bootstrap-pending" element={<BootstrapPendingRoute />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<GrowthShell />}>
                 <Route element={<RequirePermission permission="growth_os.prospects.read_all" />}>

@@ -131,7 +131,7 @@ describe('Growth OS role and merchant membership boundary', () => {
     );
   });
 
-  it('refuses first Super Admin bootstrap before password rotation or MFA', async () => {
+  it('refuses first Super Admin bootstrap before password rotation', async () => {
     process.env.GROWTH_BOOTSTRAP_ACTOR_EMAIL = 'bootstrap@example.com';
     User.findByPk
       .mockResolvedValueOnce({ id: ACTOR_ID, email: 'bootstrap@example.com' })
@@ -155,6 +155,52 @@ describe('Growth OS role and merchant membership boundary', () => {
       code: 'GROWTH_OS_BOOTSTRAP_PASSWORD_CHANGE_REQUIRED',
     });
     expect(GrowthOsUserRole.create).not.toHaveBeenCalled();
+  });
+
+  it('bootstraps the first Super Admin when password rotation is complete without TOTP enrollment', async () => {
+    // Regression proof for the 2026-11-15 lockout fix: a rotated, seeded
+    // operator must be grantable even when settings.totp_enabled is absent.
+    process.env.GROWTH_BOOTSTRAP_ACTOR_EMAIL = 'bootstrap@example.com';
+    const bootstrapTarget = {
+      id: ACTOR_ID,
+      email: 'bootstrap@example.com',
+      full_name: 'Bootstrap Operator',
+      is_active: true,
+      must_change_password: false,
+      settings: { internal_growth_bootstrap: true },
+      update: jest.fn(),
+    };
+    const roleRecord = {
+      id: 'role-bootstrap',
+      user_id: ACTOR_ID,
+      role: 'SUPER_ADMIN',
+      granted_at: new Date(),
+      revoked_at: null,
+    };
+    User.findByPk
+      .mockResolvedValueOnce({ id: ACTOR_ID, email: 'bootstrap@example.com' })
+      .mockResolvedValueOnce(bootstrapTarget);
+    GrowthOsUserRole.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    GrowthOsUserRole.create.mockResolvedValue(roleRecord);
+
+    await expect(roles.bootstrapRole({
+      actorUserId: ACTOR_ID,
+      targetUserId: ACTOR_ID,
+      role: 'SUPER_ADMIN',
+      reason: 'Initial Growth OS bootstrap',
+    })).resolves.toMatchObject({ role: 'SUPER_ADMIN', userId: ACTOR_ID });
+
+    expect(GrowthOsUserRole.create).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: ACTOR_ID,
+      role: 'SUPER_ADMIN',
+      granted_by: ACTOR_ID,
+    }), expect.objectContaining({ transaction: mockTransaction }));
+    expect(bootstrapTarget.update).toHaveBeenCalledWith(
+      { settings: { internal_growth_bootstrap: false } },
+      { transaction: mockTransaction },
+    );
   });
 
   it('refuses first Super Admin bootstrap for an unmarked shop-less account', async () => {

@@ -101,7 +101,7 @@ export function AccessControlPage() {
         </div>
         <ul className="work-list">
           <li className="work-item"><span>There is no self-registration. Growth OS access is granted only by a Super Admin.</span></li>
-          <li className="work-item"><span>Multi-factor authentication is required for Super Admin sign-in.</span></li>
+          <li className="work-item"><span>TOTP is optional; Growth access is authorized by an active role plus the endpoint permission.</span></li>
           <li className="work-item"><span>Revoked users are denied server-side, even with a stale browser session.</span></li>
           <li className="work-item"><span>Each user holds exactly one active Growth OS role at a time.</span></li>
           <li className="work-item"><span>The last Super Admin cannot be demoted, suspended, or revoked — the API returns a clear 409 conflict.</span></li>

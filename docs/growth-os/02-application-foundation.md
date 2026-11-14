@@ -189,8 +189,9 @@ secret supplies the temporary password at execution time; the script hashes it
 through the existing auth utility, creates no merchant membership or shop, and
 sets forced password rotation plus a private bootstrap marker. It deliberately
 does not create a Growth role. The canonical role workflow refuses the target
-until rotation and real MFA are complete, then clears the marker transactionally
-with the audited `SUPER_ADMIN` grant and session invalidation. This implementation
+until password rotation is complete, then clears the marker transactionally
+with the audited `SUPER_ADMIN` grant and session invalidation. There is no MFA
+enrollment precondition (removed 2026-11-15). This implementation
 receipt supersedes the old account-provisioning gap; the historical SQL above
 remains non-executable.
 

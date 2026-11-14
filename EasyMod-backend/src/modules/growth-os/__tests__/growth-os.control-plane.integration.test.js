@@ -51,20 +51,18 @@ async function api(user, method, path, body, headers = {}) {
     email: user.email,
     shopId: user.last_logged_shop_id || null,
     tokenVersion: fresh ? fresh.token_version : 0,
-    mfaVerified: user.__mfa !== false,
   });
   const req = request(app)[method](`${API}${path}`).set('Authorization', `Bearer ${token}`);
   if (Object.keys(headers).length > 0) req.set(headers);
   return body === undefined ? req : req.send(body);
 }
 
-function tokenFor(user, { mfa = true, tokenVersion = 0 } = {}) {
+function tokenFor(user, { tokenVersion = 0 } = {}) {
   return `Bearer ${generateAccessToken({
     userId: user.id,
     email: user.email,
     shopId: user.last_logged_shop_id || null,
     tokenVersion,
-    mfaVerified: mfa,
   })}`;
 }
 
@@ -92,7 +90,7 @@ describe('Growth OS control plane on real PostgreSQL and Redis', () => {
     const subscriptionService = require('../../subscription/subscription.service');
     await subscriptionService.createDefaultSubscription(shop.id);
 
-    const mk = async (name, role, opts = {}) => {
+    const mk = async (name, role) => {
       const user = await User.create({
         email: `cp-${name}-${s}@example.test`,
         password: 'integration-only',
@@ -118,7 +116,6 @@ describe('Growth OS control plane on real PostgreSQL and Redis', () => {
           is_active: true,
         });
       }
-      user.__mfa = opts.mfa !== false;
       return user;
     };
     superAdmin = await mk('super', 'SUPER_ADMIN');
@@ -224,21 +221,20 @@ describe('Growth OS control plane on real PostgreSQL and Redis', () => {
       await User.destroy({ where: { id: stranger.id } });
     });
 
-    test('SUPER_ADMIN without the MFA claim is denied at every Growth route', async () => {
+    test('SUPER_ADMIN without an MFA claim reaches every Growth route', async () => {
       const res = await request(app)
         .get(`${API}/session`)
-        .set('Authorization', tokenFor(superAdmin, { mfa: false }));
-      expect(res.status).toBe(403);
-      expect(res.body.code).toBe('GROWTH_OS_MFA_REQUIRED');
+        .set('Authorization', tokenFor(superAdmin));
+      expect(res.status).toBe(200);
+      expect(res.body.data.role).toBe('SUPER_ADMIN');
     });
 
-    test('GROWTH_USER without the MFA claim is denied at every Growth route', async () => {
+    test('GROWTH_USER without an MFA claim reaches the workspace routes', async () => {
       for (const path of ['/session', '/home', '/prospects']) {
         const res = await request(app)
           .get(`${API}${path}`)
-          .set('Authorization', tokenFor(growthUser, { mfa: false }));
-        expect(res.status).toBe(403);
-        expect(res.body.code).toBe('GROWTH_OS_MFA_REQUIRED');
+          .set('Authorization', tokenFor(growthUser));
+        expect(res.status).toBe(200);
       }
     });
 

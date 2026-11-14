@@ -1,6 +1,6 @@
 # Growth OS Execution State
 
-Updated: 2026-09-26
+Updated: 2026-11-15
 
 ## Current execution
 
@@ -76,7 +76,7 @@ Growth OS reuses EasyModerator's authenticated JWT/httpOnly-cookie identity and 
 - `CUSTOMER_SUCCESS`
 - `READ_ONLY_ANALYST`
 
-`FOUNDER` and `GROWTH_MANAGER` require the server-issued `mfaVerified=true` assurance claim. Normal password sessions issue `mfaVerified=false`; only the existing TOTP verification path issues the privileged claim. `users.platform_role` and merchant `user_shops.role` do not authorize Growth OS.
+Access is authorized solely by an active `growth_os_user_roles` record and the permission required by the endpoint. Growth OS has no MFA precondition for any role: the platform TOTP flow remains available and the server may still issue an `mfaVerified` claim, but Growth authorization ignores it, so a password-only session with a valid Growth role is authorized. `users.platform_role` and merchant `user_shops.role` do not authorize Growth OS. (MFA requirement removed 2026-11-15; see the receipt below.)
 
 ### Unauthorized identities and roles
 
@@ -84,7 +84,6 @@ Growth OS reuses EasyModerator's authenticated JWT/httpOnly-cookie identity and 
 - ordinary merchant accounts, even when they know the URL or supply a different shop/merchant identifier;
 - EasyModerator platform/admin accounts without an explicit Growth OS role;
 - internal users with no active Growth role or without the permission required by an endpoint;
-- privileged Growth roles whose session lacks the required MFA assurance;
 - any request that attempts to use a frontend-only claim or client-side state as authorization.
 
 ### Enforcement and data scope
@@ -99,7 +98,6 @@ Growth OS reuses EasyModerator's authenticated JWT/httpOnly-cookie identity and 
 
 - missing, malformed, expired, revoked, or invalid-version authentication: sanitized `401`;
 - authenticated without Growth authorization: sanitized `403 GROWTH_OS_FORBIDDEN`;
-- privileged role without MFA assurance: `403 GROWTH_OS_MFA_REQUIRED`;
 - Growth disabled by configuration: `503 GROWTH_OS_DISABLED`;
 - unavailable role database/authentication store: sanitized `503`;
 - unavailable deployed Redis authorization cache, including strict-cache read/write failure: sanitized `503`, never an in-memory authorization decision;
@@ -110,7 +108,7 @@ Growth OS reuses EasyModerator's authenticated JWT/httpOnly-cookie identity and 
 | Capability | Status | Current evidence and expected property | Remaining gap |
 | --- | --- | --- | --- |
 | Authentication | COMPLETE for bounded gate | Shared JWT/cookie auth, token-version and blacklist checks; invalid/expired claims return `401`; revocation-store failures return sanitized `503`. | Live browser/session proof remains outside the local gate. |
-| Internal Growth authorization | COMPLETE for bounded gate | Explicit six-role table, permission policy, default-deny middleware, MFA assurance for Founder/Growth Manager. | Operator bootstrap and production enablement remain separate gates. |
+| Internal Growth authorization | COMPLETE for bounded gate | Explicit six-role table, permission policy, default-deny middleware; MFA is not a Growth OS access precondition (removed 2026-11-15). | Operator bootstrap and production enablement remain separate gates. |
 | Frontend route protection | PARTIAL | Growth provider/route guard reflects `401`, `403`, `503`, refresh, and logout failure states. | Live cross-origin browser verification is not available in this worktree. |
 | Backend Growth APIs | COMPLETE for bounded gate | Session, analytics, prospect, and role routes enforce backend auth and server-side permission/scope predicates; remote Test & Build Gate passed for the merged release. | No live host proof. |
 | Direct endpoint bypass | COMPLETE | Real integration and mocked security tests call protected endpoints directly; merchant calls receive `403`. | No live host proof. |
@@ -1425,3 +1423,88 @@ https://growth.easymod.tech/build-info.json.commit=8e83f17839b21331bbda52f164a3c
 The live image predates this branch and its CSP does not yet contain the new
 API-origin allowance; this is evidence of the current deployed state, not a
 claim that the branch has been deployed.
+
+## 2026-11-15 Growth OS MFA requirement removal receipt
+
+Founder decision: remove multi-factor authentication as a Growth OS access
+requirement. The founder was locked out of Growth OS by the end-to-end TOTP
+gate; the requirement is removed rather than weakened with a bypass.
+
+- `DECISION`: founder-directed, 2026-11-15; scope is the Growth OS access chain only.
+- `ACCEPTED_RISK`: with this change a stolen password alone yields Growth OS
+  (cross-shop prospect PII and the Admin Control Plane, including role grants).
+  This is an explicit, founder-accepted security-posture change, not a silent
+  simplification. Shared merchant/mobile TOTP, the `mfaVerified` claim
+  issuance, and every fail-closed Redis/role/merchant-context guard remain.
+- `CHANGED`:
+  - `growth-os.middleware.js`: `requireGrowthOsAccess` no longer evaluates
+    `mfaVerified`; `GROWTH_OS_MFA_REQUIRED` is retired. Fail-closed Redis
+    startup/probe/strict-cache behavior, `GROWTH_OS_DISABLED`,
+    `GROWTH_OS_MERCHANT_CONTEXT_FORBIDDEN`, role/permission resolution, and the
+    sanitized `GROWTH_OS_AUTHZ_UNAVAILABLE` path are unchanged.
+  - bootstrap: `getInitialBootstrapState` reports `pending` for a bootstrap
+    operator (no `mfa-required` state); `GROWTH_OS_BOOTSTRAP_MFA_REQUIRED` and
+    the `totp_enabled` precondition are removed from the middleware and
+    `growth-os.roles.service.js`. The seed marker, forced password rotation,
+    audited transactional `SUPER_ADMIN` grant, marker clear, and session
+    invalidation remain.
+  - `growth-os.permissions.js`: `MFA_REQUIRED_ROLES` removed.
+  - `seed-growth-e2e.js`: MFA comment corrected; `growth` and `staleSession`
+    fixtures no longer enroll TOTP (`super` and `legacy` stay enrolled so the
+    optional TOTP sign-in path is still covered).
+  - `EasyMod-growth`: enrollment-required redirects/route and `EnrollMfaPage`
+    removed; the `MFA: Yes/No` column remains only as the informational
+    `users.service` `mfaEnabled` display. The Access Control "Key security
+    facts" list no longer claims MFA is required for Super Admin sign-in; it
+    now states TOTP is optional and access is an active role plus the endpoint
+    permission.
+  - workflows: `grant-growth-role.yml` and `seed-initial-growth-admin.yml`
+    comments/input description no longer require MFA enrollment. Gates
+    (main-only, actor, environment, confirmation literals) are unchanged.
+  - docs: this access/failure contract, `05-internal-control-plane.md`,
+    `02-application-foundation.md`, and `README.md` updated;
+    `GROWTH_OS_CURRENT_STATE.md` carries a superseded banner. Dated receipts
+    are not rewritten; this receipt supersedes their MFA requirement
+    statements.
+- `KEPT`: shared `auth.service.js` / `totp.service.js` / `totp.controller.js` /
+  `auth.middleware.js` TOTP issuance untouched; `mfaVerified` may still be
+  issued and is simply not a Growth precondition.
+- `NEW_CONTRACT`: active Growth role + endpoint permission only; MFA is not
+  required for any Growth role; frontend checks remain UX only.
+- `VALIDATION` (local battery run 2026-11-15, re-run green after FIX_ROUND_1;
+  local Node v25.6.1 vs CI Node 20 — no version-specific failures observed):
+  - backend Growth Jest suites: `PASS` — 12 suites / 89 tests
+    (`jest --runInBand`: authz, middleware.bootstrap, roles.service,
+    audit-sanitizer, time, workspace.analytics/home/search,
+    prospect.identity/lifecycle/scope, prospects.security)
+  - Growth PostgreSQL/Redis integration: `PASS` — 4 suites / 45 tests against
+    a disposable Postgres 16 + Redis 7 stack (`docker-compose.test.yml`, full
+    migration chain; access, control-plane, prospect-import, prospects);
+    stack torn down with volumes after the run
+  - shared-auth regression: `PASS` — auth-token-version.security +
+    native-sid-revocation, 40 tests (`mfaVerified` claim issuance unbroken)
+  - ancillary Growth script suites: `PASS` — 9 files / 42 tests
+    (grant-growth-role, seed-initial-growth-admin, both import-growth-prospects,
+    growth-metrics.service, 4 growth-os migration suites)
+  - `npm run test:security` (full): `CI_ONLY` — targeted security suites above
+    passed locally; full script runs in CI
+  - `npm test` (backend full): `CI_ONLY` — targeted suites above ran locally
+  - `npm test --workspace=easymod-growth`: `PASS` — vitest `--pool=threads`,
+    25 files / 157 tests
+  - `npm run typecheck --workspace=easymod-growth`: `PASS` — `tsc --noEmit`
+    exit 0
+  - `npm run lint:growth -- --max-warnings=0`: `CI_ONLY`
+  - `npm run build --workspace=easymod-growth`: `CI_ONLY`
+  - `npm run test:growthos:e2e`: `CI_ONLY` — specs updated to the no-MFA
+    contract; not run locally
+  - `npm run test:growthos:image`: `CI_ONLY`
+  - CI run IDs: `PENDING_PR`
+  - adversarial review: initial pass found 1 blocking item (stale Access
+    Control copy) → FIX_ROUND_1; re-review `PASS`, completeness critic `PASS`
+    (full seed → rotation → grant → login → first API call trace confirms no
+    step demands TOTP)
+- `FIX_ROUND_1` (2026-11-15): stale Access Control copy corrected;
+  `npx vitest run src/pages/AccessControlPage.test.tsx --pool=threads` passed
+  4/4 after the edit. No test asserted the removed sentence.
+- `CLAIMS_NOT_MADE`: no production deploy, credential, role grant, or live
+  browser walkthrough is claimed.

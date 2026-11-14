@@ -73,13 +73,21 @@ describe('Growth prospect route permissions', () => {
     authState.permissions = [];
   });
 
-  it('shows the protected pending-grant boundary after bootstrap MFA', () => {
+  it('shows the protected pending-grant boundary without an MFA step', () => {
     authState.status = 'bootstrap-pending';
+
+    renderAt('/bootstrap-pending');
+
+    expect(screen.getByText('Access grant pending')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Return to sign in' })).toBeInTheDocument();
+  });
+
+  it('no longer serves an MFA enrollment route', () => {
+    authState.status = 'authenticated';
 
     renderAt('/enroll-mfa');
 
-    expect(screen.getByText('MFA verified; access grant pending')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Return to sign in' })).toBeInTheDocument();
+    expect(screen.getByText('Not found route')).toBeInTheDocument();
   });
 
   it('allows a read permission to reach the prospect list route', () => {
