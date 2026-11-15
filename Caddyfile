@@ -151,6 +151,11 @@ easymod.tech {
 	@legacy_merchant_users path /app/admin/users
 	redir @legacy_merchant_users https://app.easymod.tech/team/users 302
 
+	# The static zero-landing footer links /privacy; the live legal route is
+	# /privacy-policy. One indexable home for the policy either way.
+	@legacy_privacy path /privacy
+	redir @legacy_privacy https://easymod.tech/privacy-policy 301
+
 	# Strip the obsolete /app namespace while keeping the suffix and query.
 	@legacy_app_prefixed path /app/*
 	handle @legacy_app_prefixed {
@@ -208,8 +213,14 @@ easymod.tech {
 		}
 	}
 
-	# Marketing/public site.
+	# Marketing/public site. The apex root serves the founder-approved static
+	# zero-landing (ADR-0014) via an internal rewrite — the URL stays "/" and
+	# the canonical tag holds. Every other path falls through to the SPA
+	# (pricing, legal pages). The app hostname is untouched: its "/" must keep
+	# serving the merchant SPA root loader.
 	handle {
+		@apexroot path /
+		rewrite @apexroot /landing-zero.html
 		reverse_proxy frontend:8080
 	}
 

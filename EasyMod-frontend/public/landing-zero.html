@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EasyModerator — ডেলিভারি না হলে ৳০ | মেসেজ থেকে ডেলিভারি, একটাই খাতা</title>
+<meta name="description" content="মেসেজ, অর্ডার, পার্সেল আর কাস্টমারের হিসাব এক খাতায়। ডেলিভারি না হলে খরচ শূন্য। ডেলিভারি হলে প্রতি অর্ডারে ৳১০। কোনো সাবস্ক্রিপশন নেই।">
+<meta name="theme-color" content="#0F1729">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://easymod.tech/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EasyModerator">
+<meta property="og:locale" content="bn_BD">
+<meta property="og:url" content="https://easymod.tech/">
+<meta property="og:title" content="EasyModerator — ডেলিভারি না হলে খরচ শূন্য">
+<meta property="og:description" content="মেসেজ থেকে ডেলিভারি, একটাই খাতা। ডেলিভারি হলে প্রতি অর্ডারে ৳১০। না হলে ৳০।">
+<meta property="og:image" content="/og-cover.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="EasyModerator — ডেলিভারি না হলে খরচ শূন্য">
+<meta name="twitter:description" content="মেসেজ থেকে ডেলিভারি, একটাই খাতা। ডেলিভারি না হলে ৳০।">
+<meta name="twitter:image" content="/og-cover.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Organization","name":"EasyModerator","legalName":"Hexabyte Technologies","url":"https://easymod.tech/","areaServed":"BD","description":"মেসেঞ্জার-ভিত্তিক দোকানের জন্য অর্ডার, কুরিয়ার ও কাস্টমারের হিসাব এক খাতায় রাখার কর্মক্ষেত্র।"}
+</script>
+<style>
+/* ============================================================
+   EasyModerator · Direction C
+   Palette from the subject: the shopkeeper's ledger.
+   midnight ink · taka amber · delivered green · return red ·
+   verify amber · paper lilac · brand violet · cool paper
+   Signature: the commerce thread (মেসেজ → টাকা) + the ZERO mark.
+   ============================================================ */
+:root{
+  --ink:#17223B; --ink-deep:#0F1729; --ink-soft:#293050; --ink-line:#3B4468;
+  --violet:#7460D9; --violet-deep:#5D49BB; --violet-strong:#49369E; --lilac:#E8E4FF; --lavender:#BFB6FF;
+  --taka:#F4C35E; --taka-deep:#D9A233; --taka-pale:#FFF3D6;
+  --green:#216A4B; --green-soft:#E6F4EC; --green-bright:#8FE0B6; --green-mid:#2E8C63;
+  --red:#AA2434; --red-soft:#FDECEE; --red-bright:#FF8A9A;
+  --verify:#945500; --verify-soft:#FDF3E3;
+  --paper:#F8F9FC; --card:#FFFFFF; --text-soft:#4A5470; --text-mute:#6B7590; --rule:#E3E7F0;
+  --nav:58px;
+  --a1:4px; --a2:8px; --a3:12px; --a4:16px; --a5:24px; --a6:32px; --a7:48px; --a8:64px; --a9:92px;
+  --r1:8px; --r2:12px; --r3:18px;
+  --e1:0 1px 2px rgba(23,34,59,.06),0 2px 8px rgba(23,34,59,.05);
+  --e2:0 4px 12px rgba(23,34,59,.08),0 12px 30px rgba(23,34,59,.07);
+  --e3:0 12px 28px rgba(15,23,41,.2),0 30px 60px rgba(15,23,41,.16);
+  --ez:cubic-bezier(.22,.61,.36,1);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Hind Siliguri',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:16px;line-height:1.74;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;font-size:inherit;cursor:pointer;border:0;background:none;color:inherit}
+a{color:inherit;text-decoration:none}
+h1,h2,h3,h4{margin:0;line-height:1.3;font-weight:700;letter-spacing:-.01em}
+p{margin:0}
+ul{margin:0;padding:0;list-style:none}
+:focus-visible{outline:3px solid var(--violet);outline-offset:3px;border-radius:4px}
+.dk :focus-visible,.dp :focus-visible{outline-color:var(--taka)}
+.skip{position:absolute;left:-9999px;top:0;z-index:200;background:var(--taka);color:var(--ink);font-weight:700;padding:12px 20px}
+.skip:focus{left:0}
+*{scrollbar-width:thin;scrollbar-color:var(--violet-deep) var(--lilac)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--lilac)}
+::-webkit-scrollbar-thumb{background:var(--violet-deep);border-radius:99px;border:3px solid var(--lilac)}
+::-webkit-scrollbar-thumb:hover{background:var(--violet-strong)}
+
+.wrap{width:100%;max-width:1140px;margin:0 auto;padding:0 20px}
+.sec{position:relative;padding:var(--a8) 0;scroll-margin-top:calc(var(--nav) + 16px)}
+.dk{background:var(--ink);color:#fff}
+.dp{background:var(--ink-deep);color:#fff}
+.dk h1,.dk h2,.dk h3,.dp h2,.dp h3{color:#fff}
+.sec>.wrap{position:relative;z-index:2}
+.grain::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;opacity:.5;background-image:radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
+.glow{position:absolute;inset:-18% -12%;z-index:0;overflow:hidden;pointer-events:none}
+.glow i{position:absolute;display:block;border-radius:50%;will-change:transform;animation:drift 28s var(--ez) infinite alternate;background:radial-gradient(circle,rgba(116,96,217,.4),rgba(116,96,217,0) 66%)}
+.glow i:nth-child(1){width:min(76vw,620px);aspect-ratio:1;top:-12%;left:-14%}
+.glow i:nth-child(2){width:min(64vw,520px);aspect-ratio:1;bottom:-18%;right:-12%;animation-duration:36s;animation-direction:alternate-reverse;background:radial-gradient(circle,rgba(244,195,94,.24),rgba(244,195,94,0) 66%)}
+.glow i:nth-child(3){width:min(50vw,400px);aspect-ratio:1;top:38%;left:46%;animation-duration:44s;background:radial-gradient(circle,rgba(46,140,99,.2),rgba(46,140,99,0) 68%)}
+@keyframes drift{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(5%,-4%,0) scale(1.08)}100%{transform:translate3d(-4%,5%,0) scale(1.02)}}
+
+.kick{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--violet-deep);margin-bottom:var(--a3)}
+.kick::before{content:'';width:22px;height:2px;border-radius:2px;background:currentColor}
+.dk .kick,.dp .kick{color:var(--taka)}
+.h2{font-size:clamp(23px,5.2vw,35px)}
+.lead{font-size:clamp(15.5px,3.6vw,18px);color:var(--text-soft);line-height:1.78}
+.dk .lead,.dp .lead{color:rgba(255,255,255,.76)}
+.head{max-width:680px;margin-bottom:var(--a6)}
+.n{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* nav */
+.nav{position:fixed;inset:0 0 auto;height:var(--nav);z-index:95;display:flex;align-items:center;background:rgba(15,23,41,.9);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,.08);transition:background .3s var(--ez),box-shadow .3s}
+.nav.stuck{background:rgba(15,23,41,.98);box-shadow:0 6px 22px rgba(15,23,41,.32)}
+.nav .wrap{display:flex;align-items:center;gap:var(--a4);width:100%}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px;color:#fff;flex-shrink:0}
+.logo .g{width:27px;height:27px;border-radius:8px;display:grid;place-items:center;flex-shrink:0;background:linear-gradient(145deg,var(--violet),var(--violet-strong) 60%,var(--ink-soft));box-shadow:0 2px 10px rgba(116,96,217,.5)}
+.logo .g i{width:9px;height:9px;border-radius:2px;background:var(--taka)}
+.logo em{font-style:normal;color:var(--lavender)}
+.nlinks{display:none;margin-left:auto;align-items:center;gap:2px}
+.nlinks a{position:relative;padding:8px 11px;border-radius:var(--r1);font-size:14.5px;font-weight:500;color:rgba(255,255,255,.72);transition:.2s}
+.nlinks a:hover{color:#fff;background:rgba(255,255,255,.07)}
+.nlinks a[aria-current="true"]{color:var(--taka)}
+.nlinks a[aria-current="true"]::after{content:'';position:absolute;left:11px;right:11px;bottom:2px;height:2px;border-radius:2px;background:var(--taka)}
+.nbtn{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 15px;border-radius:99px;background:var(--taka);color:var(--ink);font-weight:700;font-size:14px;box-shadow:0 3px 14px rgba(244,195,94,.32);transition:transform .18s var(--ez)}
+.nbtn:hover{transform:translateY(-1px)}
+.burger{margin-left:6px;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.16);flex-shrink:0}
+.burger i{display:block;width:16px;height:2px;background:#fff;border-radius:2px;position:relative;transition:.24s var(--ez)}
+.burger i::before,.burger i::after{content:'';position:absolute;left:0;width:16px;height:2px;background:#fff;border-radius:2px;transition:.24s var(--ez)}
+.burger i::before{top:-5px}.burger i::after{top:5px}
+.burger[aria-expanded="true"] i{background:transparent}
+.burger[aria-expanded="true"] i::before{top:0;transform:rotate(45deg)}
+.burger[aria-expanded="true"] i::after{top:0;transform:rotate(-45deg)}
+.drawer{position:fixed;top:var(--nav);left:0;right:0;z-index:94;padding:var(--a3) 20px var(--a5);background:var(--ink-deep);border-bottom:1px solid rgba(255,255,255,.1);display:grid;gap:2px;transform:translateY(-10px);opacity:0;visibility:hidden;transition:.26s var(--ez)}
+.drawer.open{transform:none;opacity:1;visibility:visible}
+.drawer a{padding:12px;border-radius:var(--r1);color:rgba(255,255,255,.86);font-weight:500;border-bottom:1px solid rgba(255,255,255,.06)}
+.drawer .btn{margin-top:var(--a3);border-bottom:0}
+
+/* thread rail */
+.rail{display:none}
+.thread-box{margin-top:var(--a6);padding-top:var(--a5);border-top:1px solid rgba(255,255,255,.1)}
+.thread{display:flex;align-items:center;overflow:hidden}
+.tn{display:grid;justify-items:center;gap:6px;flex:0 0 auto;width:56px;text-align:center}
+.td{width:13px;height:13px;border-radius:50%;border:2.5px solid rgba(255,255,255,.26);background:var(--ink);transition:.5s var(--ez)}
+.tn b{font-size:10.5px;font-weight:600;color:rgba(255,255,255,.52);line-height:1.3;transition:color .5s}
+.tn.on .td{border-color:var(--taka);background:var(--taka);box-shadow:0 0 0 5px rgba(244,195,94,.16)}
+.tn.on b{color:var(--taka)}
+.tn.last .td{width:17px;height:17px}
+.ts{flex:1;height:2.5px;min-width:6px;border-radius:2px;background:rgba(255,255,255,.15);position:relative;overflow:hidden}
+.ts i{position:absolute;inset:0;background:var(--taka);transform:scaleX(0);transform-origin:left;transition:transform .6s var(--ez)}
+.ts.on i{transform:scaleX(1)}
+.tcap{margin-top:var(--a3);font-size:12.5px;color:rgba(255,255,255,.6);text-align:center;line-height:1.65}
+.tcap b{color:var(--taka)}
+
+/* buttons + chips */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:52px;padding:0 24px;border-radius:var(--r2);font-weight:700;font-size:16.5px;text-align:center;transition:transform .18s var(--ez),box-shadow .2s,background .2s}
+.btn-taka{background:var(--taka);color:var(--ink);box-shadow:0 6px 20px rgba(244,195,94,.3)}
+.btn-taka:hover{transform:translateY(-2px);background:#F8CE76;box-shadow:0 12px 30px rgba(244,195,94,.42)}
+.btn-violet{background:var(--violet-deep);color:#fff;box-shadow:0 6px 20px rgba(93,73,187,.28)}
+.btn-violet:hover{transform:translateY(-2px);background:var(--violet-strong)}
+.btn-line{border:1.5px solid rgba(255,255,255,.28);color:#fff}
+.btn-line:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.5)}
+.btn-full{width:100%}
+.btn .ar{transition:transform .2s var(--ez)}
+.btn:hover .ar{transform:translateX(4px)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:99px;font-size:13.5px;font-weight:600;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:rgba(255,255,255,.92)}
+.chip.zero{background:rgba(244,195,94,.18);border-color:rgba(244,195,94,.5);color:var(--taka);font-weight:700}
+.chip.ok{background:rgba(33,106,75,.24);border-color:rgba(90,190,145,.4);color:var(--green-bright)}
+
+/* hero */
+.hero{padding:calc(var(--nav) + var(--a7)) 0 var(--a8);overflow:hidden}
+.hgrid{display:grid;gap:var(--a7);align-items:center}
+.hero h1{font-size:clamp(28px,7.2vw,49px);line-height:1.28;letter-spacing:-.02em}
+.hero h1 .mk{color:var(--taka);position:relative;display:inline-block;isolation:isolate}
+.hero h1 .mk::after{content:'';position:absolute;left:0;right:0;bottom:3px;height:9px;border-radius:4px;background:rgba(244,195,94,.2);z-index:-1}
+.hero .lead{margin-top:var(--a4);max-width:540px}
+.htags{display:flex;flex-wrap:wrap;gap:8px;margin-top:var(--a5)}
+.hcta{margin-top:var(--a6);display:grid;gap:10px;max-width:430px}
+.cnote{font-size:13.5px;color:rgba(255,255,255,.62);text-align:center;line-height:1.6}
+.cnote b{color:var(--taka)}
+
+/* phone */
+.phone{position:relative;width:100%;max-width:292px;margin:0 auto;border-radius:32px;padding:9px;background:linear-gradient(160deg,#3D4569,#1B2438 52%,#2A3350);box-shadow:var(--e3),inset 0 1px 0 rgba(255,255,255,.16)}
+.phone::before{content:'';position:absolute;top:14px;left:50%;transform:translateX(-50%);width:70px;height:5px;border-radius:99px;background:rgba(0,0,0,.5);z-index:3}
+.scr{border-radius:25px;overflow:hidden;background:var(--paper);display:flex;flex-direction:column;min-height:442px}
+.sb{display:flex;align-items:center;justify-content:space-between;padding:21px 14px 9px;font-size:11.5px;font-weight:600;color:var(--text-mute);background:#fff;border-bottom:1px solid var(--rule)}
+.sb .d{display:flex;gap:3px}
+.sb .d i{width:4px;height:4px;border-radius:50%;background:var(--text-mute);opacity:.5}
+.sbody{padding:13px;display:grid;gap:10px;flex:1;align-content:start}
+.sc{background:#fff;border:1px solid var(--rule);border-radius:var(--r2);padding:12px;box-shadow:var(--e1)}
+.sl{font-size:11.5px;color:var(--text-mute);font-weight:600;margin-bottom:3px}
+.sr{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;font-size:12.5px;padding:7px 0;border-top:1px solid var(--rule)}
+.sr:first-of-type{border-top:0}
+.sr .k{color:var(--text-soft);line-height:1.5}
+.sr .v{font-weight:700;white-space:nowrap}
+.sn{font-size:11px;color:var(--text-mute);text-align:center;line-height:1.6}
+.sbtn{display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px;border-radius:9px;font-size:12.5px;font-weight:700;width:100%}
+.sbtn.mute{background:#EEF0F6;color:#A2AABF;border:1px dashed #C8CFDE}
+.sbtn.act{background:var(--violet-deep);color:#fff}
+.sbtn.gold{background:var(--taka);color:var(--ink)}
+.sbg{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:99px;font-size:11.5px;font-weight:700;align-self:start}
+.sbg.hold{background:var(--verify-soft);color:var(--verify)}
+.sbg.warn{background:var(--red-soft);color:var(--red)}
+.sbg.good{background:var(--green-soft);color:var(--green)}
+.sev{background:var(--lilac);border-radius:9px;padding:10px;display:grid;gap:6px}
+.sev div{font-size:11.5px;color:var(--violet-strong);font-weight:600;line-height:1.55;display:flex;gap:6px}
+.sev.g{background:var(--green-soft)}
+.sev.g div{color:var(--green)}
+.sflag{display:inline-flex;align-items:center;gap:5px;align-self:start;font-size:10.5px;font-weight:700;color:var(--text-mute);background:#EEF1F8;border:1px solid var(--rule);padding:3px 9px;border-radius:99px}
+.sbars{display:grid;gap:9px}
+.sbr{display:grid;gap:4px}
+.sbr .t{display:flex;justify-content:space-between;font-size:11.5px;font-weight:600}
+.str{height:7px;border-radius:99px;background:#EDF0F7;overflow:hidden}
+.stf{height:100%;border-radius:99px;transform-origin:left;animation:grow 1s var(--ez) both}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.sampn{margin-top:12px;font-size:11.5px;color:rgba(255,255,255,.5);text-align:center;line-height:1.6}
+.mini-zero{display:flex;align-items:baseline;justify-content:center;gap:2px;line-height:1}
+.mini-zero .c{font-size:15px;font-weight:700;color:var(--taka-deep)}
+.mini-zero .z{font-size:30px;font-weight:700;color:var(--taka-deep);letter-spacing:-.03em}
+
+/* scatter */
+.scatter{display:grid;gap:var(--a4)}
+.scd{background:var(--card);border:1px solid var(--rule);border-radius:var(--r2);padding:var(--a5);box-shadow:var(--e1);transition:transform .24s var(--ez),box-shadow .24s}
+.scd:hover{transform:translateY(-3px);box-shadow:var(--e2)}
+.sci{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-size:19px;margin-bottom:var(--a3);background:var(--lilac)}
+.scd h3{font-size:18px;margin-bottom:7px}
+.scd p{font-size:14.5px;color:var(--text-soft)}
+.scq{margin-top:var(--a3);font-size:14px;font-weight:600;color:var(--violet-strong);line-height:1.6}
+.resolve{margin-top:var(--a6);padding:var(--a6) var(--a5);border-radius:var(--r3);text-align:center;background:linear-gradient(135deg,var(--ink) 0%,#20304F 55%,var(--ink-soft) 100%);color:#fff;box-shadow:var(--e2)}
+.resolve .four{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lavender);margin-bottom:var(--a3)}
+.resolve p{font-size:clamp(18px,4.4vw,24px);font-weight:700;line-height:1.5}
+.resolve b{color:var(--taka)}
+.resolve small{display:block;margin-top:12px;font-size:13.5px;font-weight:400;color:rgba(255,255,255,.68);line-height:1.7}
+
+/* mechanisms */
+.mdesk{display:none}
+.mmob{display:grid;gap:var(--a5)}
+.mi{background:var(--card);border:1px solid var(--rule);border-radius:var(--r3);padding:var(--a5);box-shadow:var(--e1)}
+.mn{display:inline-grid;place-items:center;width:29px;height:29px;border-radius:9px;background:var(--violet-deep);color:#fff;font-weight:700;font-size:14px;margin-bottom:var(--a3)}
+.mi h3{font-size:19.5px;margin-bottom:9px}
+.mi>p{font-size:15px;color:var(--text-soft);margin-bottom:var(--a4)}
+.ml{display:grid;gap:7px;margin-bottom:var(--a4)}
+.ml li{display:flex;gap:8px;font-size:14px;color:var(--text-soft);line-height:1.6}
+.ml li::before{content:'✓';color:var(--green);font-weight:700;flex-shrink:0}
+
+/* extras */
+.extras{display:grid;gap:var(--a3);margin-top:var(--a6)}
+.ex{display:flex;gap:12px;align-items:flex-start;padding:var(--a4);border-radius:var(--r2);background:var(--card);border:1px solid var(--rule);box-shadow:var(--e1);transition:transform .2s var(--ez)}
+.ex:hover{transform:translateY(-2px)}
+.exi{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:15px;flex-shrink:0;background:var(--green-soft)}
+.ex h4{font-size:14.5px;margin-bottom:3px}
+.ex p{font-size:13px;color:var(--text-soft);line-height:1.6}
+
+/* ============ ZERO PRICE ============ */
+.pwrap{text-align:center;max-width:660px;margin:0 auto}
+.prelab{font-size:clamp(14px,3.4vw,17px);font-weight:600;color:rgba(255,255,255,.72);margin-bottom:var(--a2)}
+.zero{position:relative;display:flex;align-items:baseline;justify-content:center;gap:6px;margin:var(--a2) 0 var(--a3);isolation:isolate}
+.zero::before{content:'';position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);width:min(74vw,340px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,rgba(244,195,94,.2),rgba(244,195,94,0) 62%);z-index:-1}
+.zero .cur{font-size:clamp(30px,7.4vw,58px);font-weight:600;color:rgba(244,195,94,.72);line-height:1;transform:translateY(-.18em)}
+.zero .digit{font-size:clamp(104px,30vw,224px);font-weight:700;color:var(--taka);line-height:.82;letter-spacing:-.05em;text-shadow:0 10px 60px rgba(244,195,94,.3)}
+.zline{font-size:clamp(19px,4.8vw,28px);font-weight:700;line-height:1.42;color:#fff}
+.zline b{color:var(--taka)}
+.zsub{margin-top:var(--a3);font-size:clamp(14.5px,3.5vw,17px);color:rgba(255,255,255,.7);line-height:1.7}
+.pthen{margin:var(--a7) auto 0;max-width:520px;padding:var(--a5);border-radius:var(--r3);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}
+.pthen .lab{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lavender);margin-bottom:var(--a2)}
+.pthen .amt{display:flex;align-items:baseline;justify-content:center;gap:4px;line-height:1}
+.pthen .amt .c{font-size:clamp(20px,4.6vw,30px);font-weight:600;color:rgba(255,255,255,.66)}
+.pthen .amt .v{font-size:clamp(44px,11vw,72px);font-weight:700;color:#fff;letter-spacing:-.035em}
+.pthen .per{margin-top:6px;font-size:15px;font-weight:600;color:rgba(255,255,255,.8)}
+.rules{display:grid;gap:1px;margin:var(--a5) auto 0;max-width:520px;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.11);border-radius:var(--r2);overflow:hidden}
+.rr{display:flex;align-items:center;justify-content:space-between;gap:var(--a4);padding:14px var(--a5);background:var(--ink-deep);font-size:15.5px}
+.rr .k{color:rgba(255,255,255,.82)}
+.rr .v{font-weight:700;font-size:17px;white-space:nowrap}
+.rr .v.z{color:var(--green-bright)}
+.rr .v.no{color:rgba(255,255,255,.5)}
+.pfine{margin:var(--a4) auto 0;max-width:560px;font-size:13px;color:rgba(255,255,255,.55);line-height:1.75}
+.pcta{margin:var(--a6) auto 0;max-width:400px}
+
+/* calculator */
+.calc{display:grid;gap:var(--a5)}
+.panel{background:var(--card);border:1px solid var(--rule);border-radius:var(--r3);padding:var(--a5);box-shadow:var(--e2)}
+.phead{display:flex;align-items:center;justify-content:space-between;gap:var(--a3);margin-bottom:var(--a4);flex-wrap:wrap}
+.phead h3{font-size:17px}
+.pbtn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 13px;border-radius:99px;border:1.5px solid var(--rule);background:#fff;font-size:13px;font-weight:700;color:var(--violet-deep);transition:.18s var(--ez)}
+.pbtn:hover{background:var(--lilac);border-color:var(--violet)}
+.fld{padding:12px 0;border-bottom:1px solid var(--rule)}
+.fld:last-of-type{border-bottom:0;padding-bottom:0}
+.ftop{display:flex;align-items:baseline;justify-content:space-between;gap:var(--a3);margin-bottom:8px}
+.ftop label{font-size:14.5px;font-weight:600;line-height:1.5}
+.fval{font-size:15px;font-weight:700;color:var(--violet-deep);background:var(--lilac);padding:2px 10px;border-radius:7px;white-space:nowrap}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:26px;background:transparent;cursor:pointer;margin:0;display:block}
+input[type=range]::-webkit-slider-runnable-track{height:7px;border-radius:99px;background:linear-gradient(90deg,var(--violet-deep) var(--p,50%),#E6E9F2 var(--p,50%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3.5px solid var(--violet-deep);margin-top:-8.5px;box-shadow:0 2px 8px rgba(23,34,59,.22);transition:transform .15s var(--ez)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.15)}
+input[type=range]::-moz-range-track{height:7px;border-radius:99px;background:#E6E9F2}
+input[type=range]::-moz-range-progress{height:7px;border-radius:99px;background:var(--violet-deep)}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3.5px solid var(--violet-deep)}
+.fhint{font-size:12px;color:var(--text-mute);margin-top:5px;line-height:1.6}
+.res{background:var(--ink);border-radius:var(--r3);padding:var(--a5);color:#fff;box-shadow:var(--e3);position:relative;overflow:hidden}
+.res-in{position:relative;z-index:2}
+.rlab{font-size:12.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+.rbig{font-size:clamp(36px,9.6vw,52px);font-weight:700;line-height:1.08;letter-spacing:-.035em;color:var(--red-bright);margin:6px 0 2px}
+.rsub{font-size:13.5px;color:rgba(255,255,255,.62)}
+.rsplit{display:grid;gap:1px;margin:var(--a5) 0;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.12);border-radius:var(--r2);overflow:hidden}
+.rrow{display:flex;align-items:center;justify-content:space-between;gap:var(--a3);padding:12px var(--a4);background:var(--ink);font-size:14px}
+.rrow .k{color:rgba(255,255,255,.78);line-height:1.5}
+.rrow .v{font-weight:700;font-size:16px;white-space:nowrap}
+.rrow.soft{background:#1D2942}
+.rrow.soft .v{color:rgba(255,255,255,.82)}
+.rrow.fee{background:var(--ink-soft)}
+.rrow.fee .v{color:var(--taka)}
+.rzero{margin-top:var(--a4);padding:var(--a4) var(--a5);border-radius:var(--r2);display:flex;align-items:center;justify-content:space-between;gap:var(--a4);background:rgba(244,195,94,.15);border:1px solid rgba(244,195,94,.4)}
+.rzero .t{font-size:14px;font-weight:600;color:rgba(255,255,255,.86);line-height:1.5}
+.rzero .m{display:flex;align-items:baseline;gap:2px;line-height:1;flex-shrink:0}
+.rzero .m .c{font-size:16px;font-weight:600;color:rgba(244,195,94,.8)}
+.rzero .m .z{font-size:38px;font-weight:700;color:var(--taka);letter-spacing:-.03em}
+.rgain{margin-top:var(--a4);padding:var(--a4);border-radius:var(--r2);background:rgba(33,106,75,.22);border:1px solid rgba(90,190,145,.32)}
+.rgain .l{font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--green-bright)}
+.rgain .v{font-size:clamp(24px,6.2vw,30px);font-weight:700;color:var(--green-bright);line-height:1.2;margin-top:2px}
+.rgain .s{font-size:12.5px;color:rgba(255,255,255,.66);margin-top:4px;line-height:1.6}
+.verd{margin-top:var(--a4);padding:var(--a4);border-radius:var(--r2);text-align:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14)}
+.verd .big{font-size:17px;font-weight:700;color:#fff;line-height:1.45}
+.verd .small{font-size:13px;color:rgba(255,255,255,.7);margin-top:5px;line-height:1.6}
+.rhon{margin-top:var(--a4);font-size:12px;color:rgba(255,255,255,.5);line-height:1.75;text-align:center}
+.nojs{padding:12px 14px;border-radius:var(--r1);background:var(--verify-soft);color:var(--verify);font-size:13.5px;font-weight:600;margin-bottom:var(--a4)}
+
+/* trust */
+.trust{display:grid;gap:var(--a4)}
+.tc{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.11);border-radius:var(--r3);padding:var(--a5)}
+.tc h3{font-size:16px;margin-bottom:var(--a4);display:flex;align-items:center;gap:9px}
+.tc.no{border-color:rgba(170,36,52,.36);background:rgba(170,36,52,.1)}
+.tc.no h3{color:var(--red-bright)}
+.tc.yes{border-color:rgba(90,190,145,.32);background:rgba(33,106,75,.14)}
+.tc.yes h3{color:var(--green-bright)}
+.tl{display:grid;gap:10px}
+.tl li{display:flex;gap:10px;font-size:14.5px;line-height:1.66;color:rgba(255,255,255,.84)}
+.tl li i{flex-shrink:0;font-style:normal;font-weight:700;width:15px}
+.tl li b{color:#fff}
+.tc.no li i{color:var(--red-bright)}
+.tc.yes li i{color:var(--green-bright)}
+.perm{margin-top:var(--a4);padding:var(--a5);border-radius:var(--r3);background:var(--ink-deep);border:1px solid rgba(255,255,255,.1)}
+.perm h4{font-size:15px;margin-bottom:var(--a3);color:var(--lavender)}
+.pcodes{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:var(--a3)}
+.pcodes code{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;padding:6px 11px;border-radius:7px;background:rgba(116,96,217,.2);border:1px solid rgba(191,182,255,.28);color:var(--lavender)}
+.perm p{font-size:13.5px;color:rgba(255,255,255,.62);line-height:1.75}
+
+/* start — outcome led */
+.starts{display:grid;gap:var(--a4)}
+.st{position:relative;background:var(--card);border:1px solid var(--rule);border-radius:var(--r3);padding:var(--a5);box-shadow:var(--e1);overflow:hidden;transition:transform .22s var(--ez),box-shadow .22s}
+.st::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg,var(--violet),var(--taka))}
+.st:hover{transform:translateY(-3px);box-shadow:var(--e2)}
+.stn{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--violet-deep);margin-bottom:var(--a3)}
+.stn span{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:var(--lilac);font-size:13px;letter-spacing:0}
+.st h3{font-size:17.5px;margin-bottom:8px}
+.st>p{font-size:14.5px;color:var(--text-soft);margin-bottom:var(--a4)}
+.get{padding:12px 14px;border-radius:var(--r1);background:var(--green-soft);border:1px solid rgba(33,106,75,.16)}
+.get b{display:block;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--green);margin-bottom:3px}
+.get span{font-size:14px;font-weight:600;color:#1B5540;line-height:1.6}
+.send{margin-top:var(--a5);padding:var(--a6) var(--a5);border-radius:var(--r3);text-align:center;background:linear-gradient(135deg,var(--lilac) 0%,#F2EFFF 48%,var(--taka-pale) 100%);border:1px solid #DCD6FA}
+.send .big{font-size:clamp(17px,4.2vw,22px);font-weight:700;color:var(--violet-strong);line-height:1.5;margin-bottom:var(--a2)}
+.send .sm{font-size:14px;color:#5A4B9E;margin-bottom:var(--a5);line-height:1.7}
+
+/* faq */
+.faq{display:grid;gap:10px;max-width:800px}
+.qa{background:var(--card);border:1px solid var(--rule);border-radius:var(--r2);overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.qa.open{border-color:var(--violet);box-shadow:var(--e2)}
+.qa h3{margin:0}
+.qq{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:var(--a4);padding:var(--a4) var(--a5);text-align:left;font-size:15.5px;font-weight:600;min-height:56px;line-height:1.6}
+.qq:hover{background:#FBFCFE}
+.qi{flex-shrink:0;width:26px;height:26px;border-radius:7px;background:var(--lilac);display:grid;place-items:center;color:var(--violet-deep);font-weight:700;font-size:17px;margin-top:1px;transition:transform .26s var(--ez),background .2s}
+.qa.open .qi{transform:rotate(45deg);background:var(--violet-deep);color:#fff}
+.qan{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s var(--ez)}
+.qa.open .qan{grid-template-rows:1fr}
+.qan>div{overflow:hidden}
+.qan p{padding:0 var(--a5) var(--a5);font-size:14.5px;color:var(--text-soft);line-height:1.8}
+.qan b{color:var(--ink)}
+
+/* close */
+.close{text-align:center;padding:var(--a9) 0}
+.close h2{font-size:clamp(25px,6.2vw,40px);line-height:1.32;max-width:680px;margin:0 auto}
+.close h2 b{color:var(--taka)}
+.close .lead{margin:var(--a4) auto 0;max-width:500px}
+.czero{display:flex;align-items:baseline;justify-content:center;gap:5px;margin:var(--a5) 0 var(--a2);line-height:1}
+.czero .c{font-size:clamp(22px,5vw,36px);font-weight:600;color:rgba(244,195,94,.72)}
+.czero .z{font-size:clamp(72px,20vw,140px);font-weight:700;color:var(--taka);letter-spacing:-.05em;text-shadow:0 8px 44px rgba(244,195,94,.28)}
+.czcap{font-size:clamp(15px,3.6vw,18px);font-weight:600;color:rgba(255,255,255,.82)}
+.ccta{margin:var(--a6) auto 0;max-width:400px;display:grid;gap:11px}
+.ctags{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:var(--a5)}
+.motto{margin-top:var(--a7);padding-top:var(--a5);border-top:1px solid rgba(255,255,255,.11);font-size:15px;font-weight:600;color:var(--lavender)}
+
+/* footer */
+.foot{background:var(--ink-deep);color:rgba(255,255,255,.62);padding:var(--a7) 0 var(--a6);font-size:14px}
+.fgrid{display:grid;gap:var(--a6)}
+.foot h4{font-size:12.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--lavender);margin-bottom:var(--a3)}
+.foot ul{display:grid;gap:9px}
+.foot a:hover{color:#fff}
+.foot .y{color:var(--green-bright)}
+.foot .p{color:var(--taka)}
+.foot .nn{color:rgba(255,255,255,.38)}
+.fend{margin-top:var(--a6);padding-top:var(--a5);border-top:1px solid rgba(255,255,255,.09);display:flex;flex-wrap:wrap;gap:var(--a3);justify-content:space-between;font-size:12.5px}
+.fend .lk{display:flex;gap:16px;flex-wrap:wrap}
+
+/* sticky */
+.sticky{position:fixed;left:0;right:0;bottom:0;z-index:93;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:rgba(15,23,41,.98);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.13);display:flex;align-items:center;gap:12px;transform:translateY(115%);transition:transform .34s var(--ez);box-shadow:0 -8px 26px rgba(15,23,41,.3)}
+.sticky.show{transform:none}
+.stxt{flex:1;min-width:0;display:flex;align-items:center;gap:9px}
+.stxt .m{display:flex;align-items:baseline;gap:1px;line-height:1;flex-shrink:0}
+.stxt .m .c{font-size:13px;font-weight:600;color:rgba(244,195,94,.8)}
+.stxt .m .z{font-size:27px;font-weight:700;color:var(--taka);letter-spacing:-.03em}
+.stxt .w{min-width:0}
+.stxt .w strong{display:block;font-size:13px;font-weight:700;color:#fff;line-height:1.35}
+.stxt .w span{font-size:11px;color:rgba(255,255,255,.6)}
+.sticky .btn{min-height:46px;padding:0 18px;font-size:15px;flex-shrink:0}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(20px);transition:opacity .6s var(--ez),transform .6s var(--ez)}
+.rv.in{opacity:1;transform:none}
+.rv[data-d="1"]{transition-delay:.07s}
+.rv[data-d="2"]{transition-delay:.14s}
+.rv[data-d="3"]{transition-delay:.21s}
+.rv[data-d="4"]{transition-delay:.28s}
+
+@media(min-width:600px){
+  .scatter{grid-template-columns:1fr 1fr}
+  .extras{grid-template-columns:1fr 1fr}
+  .trust{grid-template-columns:1fr 1fr}
+  .starts{grid-template-columns:repeat(3,1fr)}
+  .fgrid{grid-template-columns:1.4fr 1fr 1fr}
+  .hcta{grid-template-columns:auto auto;align-items:center;max-width:none}
+  .hcta .cnote{grid-column:1/-1;text-align:left}
+  .rr{padding:16px var(--a6);font-size:16.5px}
+}
+@media(min-width:900px){
+  :root{--nav:66px}
+  .sec{padding:var(--a9) 0}
+  .nlinks{display:flex}
+  .nbtn{margin-left:var(--a4)}
+  .burger,.drawer{display:none}
+  .hero{padding:calc(var(--nav) + var(--a9)) 0 var(--a9)}
+  .hgrid{grid-template-columns:1.05fr .95fr;gap:var(--a8)}
+  .scatter{grid-template-columns:repeat(4,1fr)}
+  .extras{grid-template-columns:repeat(3,1fr)}
+  .mmob{display:none}
+  .mdesk{display:grid;grid-template-columns:348px 1fr;gap:var(--a8);align-items:start}
+  .mstick{position:sticky;top:calc(var(--nav) + 40px)}
+  .mstack{position:relative}
+  .msc{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .4s var(--ez);display:flex;flex-direction:column}
+  .msc.active{opacity:1;visibility:visible;position:relative}
+  .mbs{display:grid;gap:var(--a6)}
+  .mb{padding:var(--a6);border-radius:var(--r3);border:1px solid transparent;transition:.34s var(--ez)}
+  .mb.active{background:var(--card);border-color:var(--rule);box-shadow:var(--e2)}
+  .mb h3{font-size:23px;margin-bottom:11px}
+  .mb>p{font-size:16px;color:var(--text-soft);margin-bottom:var(--a4)}
+  .mdots{display:flex;justify-content:center;gap:7px;margin-top:var(--a4)}
+  .mdots button{width:9px;height:9px;border-radius:99px;background:#CFD5E4;transition:.24s var(--ez)}
+  .mdots button[aria-current="true"]{width:26px;background:var(--violet-deep)}
+  .calc{grid-template-columns:1fr 1fr;gap:var(--a6);align-items:start}
+  .res{position:sticky;top:calc(var(--nav) + 40px)}
+  .sticky{display:none}
+}
+@media(min-width:1280px){
+  .rail{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:80;width:80px}
+  .rail .line{position:absolute;left:9px;top:8px;bottom:8px;width:2px;background:var(--rule);border-radius:2px;overflow:hidden}
+  .rail .line i{position:absolute;inset:0;background:linear-gradient(180deg,var(--violet),var(--taka));transform:scaleY(0);transform-origin:top;transition:transform .2s linear}
+  .rail ul{display:grid;gap:26px;position:relative}
+  .rail li{display:flex;align-items:center;gap:9px}
+  .rail .rd{width:20px;height:20px;border-radius:50%;background:#fff;border:2.5px solid var(--rule);flex-shrink:0;transition:.35s var(--ez);position:relative;z-index:1}
+  .rail b{font-size:11px;font-weight:700;color:var(--text-mute);opacity:.55;transition:.35s var(--ez);white-space:nowrap}
+  .rail li.on .rd{border-color:var(--violet-deep);background:var(--violet-deep);box-shadow:0 0 0 4px rgba(93,73,187,.14)}
+  .rail li.on b{color:var(--violet-deep);opacity:1}
+  .rail li.done .rd{border-color:var(--taka-deep);background:var(--taka)}
+}
+@media(min-width:1100px){
+  .hero h1{font-size:51px}
+  .mdesk{grid-template-columns:380px 1fr}
+  .wrap{padding:0 28px}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  .rv{opacity:1;transform:none}
+  .glow{display:none}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">মূল কনটেন্টে যান</a>
+
+<nav class="nav" id="nav" aria-label="প্রধান নেভিগেশন">
+  <div class="wrap">
+    <a href="#top" class="logo" aria-label="EasyModerator হোম"><span class="g" aria-hidden="true"><i></i></span>Easy<em>Moderator</em></a>
+    <div class="nlinks" id="nlinks">
+      <a href="#scatter">সমস্যা</a>
+      <a href="#how">কীভাবে</a>
+      <a href="#price">দাম</a>
+      <a href="#calc">আপনার হিসাব</a>
+      <a href="#start">শুরু</a>
+      <a href="#faq">প্রশ্ন</a>
+    </div>
+    <a href="/signup?source=landing_zero&offer=delivered_10" class="nbtn js-cta" data-loc="nav">ফ্রি শুরু <span aria-hidden="true">→</span></a>
+    <button class="burger" id="burger" type="button" aria-expanded="false" aria-controls="drawer" aria-label="মেনু খুলুন"><i aria-hidden="true"></i></button>
+  </div>
+</nav>
+<div class="drawer" id="drawer">
+  <a href="#scatter">সমস্যা — কাজ ছড়িয়ে আছে</a>
+  <a href="#how">খাতা কীভাবে জোড়া লাগে</a>
+  <a href="#price">দাম — ডেলিভারি না হলে ৳০</a>
+  <a href="#calc">আপনার হিসাব কষুন</a>
+  <a href="#start">শুরু করলে যা পাবেন</a>
+  <a href="#faq">সাধারণ প্রশ্ন</a>
+  <a href="/signup?source=landing_zero&offer=delivered_10" class="btn btn-taka btn-full js-cta" data-loc="drawer">ফ্রি শুরু করুন <span class="ar" aria-hidden="true">→</span></a>
+</div>
+
+<div class="rail" id="rail" aria-hidden="true">
+  <div class="line"><i id="railFill"></i></div>
+  <ul>
+    <li data-stage="0"><span class="rd"></span><b>মেসেজ</b></li>
+    <li data-stage="1"><span class="rd"></span><b>অর্ডার</b></li>
+    <li data-stage="2"><span class="rd"></span><b>কুরিয়ার</b></li>
+    <li data-stage="3"><span class="rd"></span><b>ডেলিভারি</b></li>
+    <li data-stage="4"><span class="rd"></span><b>টাকা</b></li>
+  </ul>
+</div>
+
+<main id="main">
+
+<!-- ════════ HERO ════════ -->
+<header class="sec dk hero grain" id="top" data-stage="0">
+  <div class="glow" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="wrap">
+    <div class="hgrid">
+      <div>
+        <span class="kick rv">মেসেজ থেকে ডেলিভারি</span>
+        <h1 class="rv" data-d="1">সারাদিন দোকান চালাচ্ছেন।<br><span class="mk">হিসাবটা কি সাথে চলছে?</span></h1>
+        <p class="lead rv" data-d="2">মেসেজ আসে এক জায়গায়। অর্ডার লেখা হয় আরেক জায়গায়। পার্সেল যায় কুরিয়ারে। টাকা আসে মাস শেষে। <b style="color:#fff;font-weight:600">EasyModerator এই পুরো পথটা এক খাতায় রাখে</b> — যাতে অর্ডার, কাস্টমার বা টাকা কিছুই হারায় না।</p>
+        <div class="htags rv" data-d="3">
+          <span class="chip zero">ডেলিভারি না হলে ৳০</span>
+          <span class="chip">ডেলিভারি হলে ৳১০</span>
+          <span class="chip ok">কার্ড লাগে না</span>
+        </div>
+        <div class="hcta rv" data-d="4">
+          <a href="/signup?source=landing_zero&offer=delivered_10" class="btn btn-taka js-cta" data-loc="hero_primary">ফ্রি শুরু করুন <span class="ar" aria-hidden="true">→</span></a>
+          <a href="#how" class="btn btn-line js-cta" data-loc="hero_secondary">কীভাবে কাজ করে <span aria-hidden="true">↓</span></a>
+          <p class="cnote">সাবস্ক্রিপশন নেই। <b>আপনার অর্ডার না পৌঁছালে আমাদের বিলও নেই।</b></p>
+        </div>
+        <div class="thread-box rv" data-d="4" id="thread">
+          <div class="thread" aria-hidden="true">
+            <div class="tn"><span class="td"></span><b>মেসেজ</b></div>
+            <div class="ts"><i></i></div>
+            <div class="tn"><span class="td"></span><b>অর্ডার</b></div>
+            <div class="ts"><i></i></div>
+            <div class="tn"><span class="td"></span><b>কুরিয়ার</b></div>
+            <div class="ts"><i></i></div>
+            <div class="tn"><span class="td"></span><b>ডেলিভারি</b></div>
+            <div class="ts"><i></i></div>
+            <div class="tn last"><span class="td"></span><b>আপনার টাকা</b></div>
+          </div>
+          <p class="tcap">পথের শেষে গিয়ে <b>আমাদের ৳১০</b>। মাঝপথে পার্সেল ফিরলে <b>৳০</b>।</p>
+        </div>
+      </div>
+
+      <div class="rv" data-d="2">
+        <div class="phone">
+          <div class="scr">
+            <div class="sb"><span>আজকের খাতা</span><span class="d" aria-hidden="true"><i></i><i></i><i></i></span></div>
+            <div class="sbody">
+              <span class="sflag">নমুনা স্ক্রিন · আসল ডেটা নয়</span>
+              <div class="sc">
+                <p class="sl">আজ যা সামলাতে হবে</p>
+                <div class="sr"><span class="k">💬 উত্তর বাকি</span><span class="v n">৭টি</span></div>
+                <div class="sr"><span class="k">📝 কনফার্ম বাকি</span><span class="v n">৪টি</span></div>
+                <div class="sr"><span class="k">🛑 যাচাই করে পাঠাবেন</span><span class="v n" style="color:var(--verify)">২টি</span></div>
+                <div class="sr"><span class="k">📦 পথে আছে</span><span class="v n">১৯টি</span></div>
+              </div>
+              <div class="sc" style="border-color:rgba(33,106,75,.3)">
+                <p class="sl">এই মাসে</p>
+                <div class="sr"><span class="k">ডেলিভারি হয়েছে</span><span class="v n" style="color:var(--green)">৪২০টি</span></div>
+                <div class="sr"><span class="k">ফেরত এসেছে</span><span class="v n" style="color:var(--red)">১১২টি</span></div>
+                <div class="sr"><span class="k" style="font-weight:700;color:var(--ink)">আমাদের বিল</span><span class="v n" style="color:var(--violet-deep)">৳৪,২০০</span></div>
+              </div>
+              <div class="sc" style="background:var(--taka-pale);border-color:rgba(217,162,51,.4);text-align:center">
+                <p class="sl" style="color:#8A6410">ফেরত আসা ১১২টার জন্য বিল</p>
+                <div class="mini-zero"><span class="c">৳</span><span class="z n">০</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="sampn">উপরের সংখ্যাগুলো নমুনা — কোনো মার্চেন্টের প্রকৃত ফলাফল নয়।</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ════════ SCATTER · 4 ════════ -->
+<section class="sec" id="scatter" data-stage="1">
+  <div class="wrap">
+    <div class="head rv">
+      <span class="kick">আসল সমস্যাটা</span>
+      <h2 class="h2">কাজটা ছড়িয়ে আছে — দোষটা আপনার না</h2>
+      <p class="lead" style="margin-top:12px">একজন মানুষই চারটা কাজ করছেন। প্রতিটা কাজের জায়গা আলাদা। তাই মাস শেষে হিসাব মেলাতে গিয়ে কিছু না কিছু বাদ পড়েই যায়।</p>
+    </div>
+    <div class="scatter">
+      <article class="scd rv" data-d="1">
+        <div class="sci" aria-hidden="true">💬</div>
+        <h3>মেসেজ</h3>
+        <p>ইনবক্সে জমে আছে। কোন মেসেজটা অর্ডার হলো, কোনটা শুধু দাম জিজ্ঞেস করা — আলাদা করা নেই।</p>
+        <p class="scq">কোনটা আগে ধরবেন?</p>
+      </article>
+      <article class="scd rv" data-d="2">
+        <div class="sci" aria-hidden="true">📝</div>
+        <h3>অর্ডার</h3>
+        <p>কোনোটা কাগজে, কোনোটা এক্সেলে, কোনোটা মাথায়। কোনটা পাঠালেন আর কোনটা বাকি — মেলাতে সময় যায়।</p>
+        <p class="scq">কোনটা এখনো পাঠাননি?</p>
+      </article>
+      <article class="scd rv" data-d="3">
+        <div class="sci" aria-hidden="true">📦</div>
+        <h3>পার্সেল</h3>
+        <p>কুরিয়ারে দেওয়ার পর খবরটা আর আপনার খাতায় ফেরে না। কোনটা পৌঁছালো, কোনটা ফিরলো — আলাদা করে দেখতে হয়।</p>
+        <p class="scq">কোনটা ফেরত এলো?</p>
+      </article>
+      <article class="scd rv" data-d="4">
+        <div class="sci" aria-hidden="true">👤</div>
+        <h3>কাস্টমার</h3>
+        <p>কে আগে কিনেছিল, কে শুধু জিজ্ঞেস করে চলে গেছিল — মনে রাখার কোনো খাতা নেই।</p>
+        <p class="scq">কে আবার কিনতে পারে?</p>
+      </article>
+    </div>
+    <div class="resolve rv">
+      <span class="four">৪ জায়গা → ১ খাতা</span>
+      <p>চারটা আলাদা জায়গায় থাকলে হিসাব মেলে না।<br><b>এক খাতায় থাকলে মেলে।</b></p>
+      <small>সেটাই EasyModerator — মেসেজ থেকে টাকা পর্যন্ত একটাই খাতা।</small>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ HOW ════════ -->
+<section class="sec" id="how" data-stage="2" style="background:linear-gradient(180deg,#F8F9FC,#F2F4FB 50%,#F8F9FC)">
+  <div class="wrap">
+    <div class="head rv">
+      <span class="kick">কীভাবে কাজ করে</span>
+      <h2 class="h2">খাতাটা জোড়া লাগে যেভাবে</h2>
+      <p class="lead" style="margin-top:12px">ছড়িয়ে থাকা চারটে কাজ এক সুতোয় বাঁধা হয় — মেসেজ থেকে টাকা পর্যন্ত। প্রতিটা ধাপে রেকর্ডটা নিজে থেকেই এগোয়।</p>
+    </div>
+
+    <div class="mdesk">
+      <div class="mstick">
+        <div class="phone">
+          <div class="scr mstack" id="mstack">
+            <div class="msc active" data-screen="0">
+              <div class="sb"><span>কথা থেকে অর্ডার</span><span class="d" aria-hidden="true"><i></i><i></i><i></i></span></div>
+              <div class="sbody">
+                <span class="sbg good">✓ অর্ডার তৈরি হয়েছে</span>
+                <div class="sc">
+                  <p class="sl">কাস্টমার যা বেছে দিয়েছে</p>
+                  <div class="sr"><span class="k">পণ্য</span><span class="v">থ্রি-পিস · নীল</span></div>
+                  <div class="sr"><span class="k">সাইজ</span><span class="v">L</span></div>
+                  <div class="sr"><span class="k">ঠিকানা</span><span class="v">টাঙ্গাইল সদর</span></div>
+                  <div class="sr"><span class="k" style="font-weight:700;color:var(--ink)">মোট</span><span class="v n" style="color:var(--violet-deep)">৳১,৮৫০</span></div>
+                </div>
+                <div class="sev g"><div><span aria-hidden="true">💡</span><span>আগের কথাবার্তা অর্ডারের সাথেই জোড়া আছে</span></div></div>
+                <span class="sbtn act" aria-hidden="true">কনফার্ম করুন</span>
+                <p class="sn">কাস্টমারকে আবার সব লিখতে হয়নি</p>
+              </div>
+            </div>
+            <div class="msc" data-screen="1">
+              <div class="sb"><span>পাঠানোর আগে যাচাই</span><span class="d" aria-hidden="true"><i></i><i></i><i></i></span></div>
+              <div class="sbody">
+                <span class="sbg hold">🛑 যাচাই করার জন্য আটকানো</span>
+                <div class="sc">
+                  <p class="sl">অর্ডার #৪৮২১</p>
+                  <p style="font-weight:700;font-size:15px" class="n">৳১,৮৫০ · টাঙ্গাইল সদর</p>
+                </div>
+                <div class="sev">
+                  <div><span aria-hidden="true">📋</span><span>এই নাম্বার থেকে আগে ৩টা পার্সেল ফিরে এসেছে</span></div>
+                  <div><span aria-hidden="true">📋</span><span>এই এলাকায় ফেরতের হার বেশি</span></div>
+                </div>
+                <span class="sbtn mute" aria-hidden="true">এখনই পাঠান</span>
+                <span class="sbtn act" aria-hidden="true">কল করে নিশ্চিত হন</span>
+                <p class="sn">অর্ডার মুছে যায়নি — আপনার সিদ্ধান্তের অপেক্ষায়</p>
+              </div>
+            </div>
+            <div class="msc" data-screen="2">
+              <div class="sb"><span>ডেলিভারির পর হিসাব</span><span class="d" aria-hidden="true"><i></i><i></i><i></i></span></div>
+              <div class="sbody">
+                <span class="sbg warn">⚠️ হিসাবে গরমিল</span>
+                <div class="sc">
+                  <p class="sl">একটা পার্সেলের দুই রেকর্ড</p>
+                  <div class="sr"><span class="k">কুরিয়ারের রিপোর্ট</span><span class="v" style="color:var(--red)">ডেলিভারি হয়নি</span></div>
+                  <div class="sr"><span class="k">আপনার রেকর্ড</span><span class="v" style="color:var(--green)">কনফার্ম করা ছিল</span></div>
+                </div>
+                <div class="sev"><div><span aria-hidden="true">🔎</span><span>দুই রেকর্ড না মিললে আলাদা করে দেখানো হয়</span></div></div>
+                <span class="sbtn gold" aria-hidden="true">গরমিলের তালিকা দেখুন</span>
+                <p class="sn">সিদ্ধান্ত আপনার — আমরা শুধু দেখাই</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mdots" id="mdots">
+          <button type="button" aria-current="true" aria-label="কথা থেকে অর্ডার"></button>
+          <button type="button" aria-current="false" aria-label="পাঠানোর আগে যাচাই"></button>
+          <button type="button" aria-current="false" aria-label="ডেলিভারির পর হিসাব"></button>
+        </div>
+      </div>
+      <div class="mbs" id="mbs">
+        <article class="mb active" data-block="0">
+          <span class="mn" aria-hidden="true">১</span>
+          <h3>কথা থেকেই অর্ডার — আবার লিখতে হয় না</h3>
+          <p>কাস্টমার কথার মধ্যেই সাইজ, রং আর ঠিকানা বেছে দেয়। সেই তথ্য থেকে অর্ডার তৈরি হয়, আর আগের কথাবার্তা অর্ডারের সাথে জোড়া থাকে। পরে খুঁজলে সব এক জায়গায় পাবেন।</p>
+          <ul class="ml">
+            <li>কাস্টমার অপশন থেকে বেছে দেয় — ভুল লেখা কমে</li>
+            <li>আগের কথা হারায় না, অর্ডারের সাথেই থাকে</li>
+            <li>কোন মেসেজ থেকে কোন অর্ডার — সরাসরি দেখা যায়</li>
+          </ul>
+        </article>
+        <article class="mb" data-block="1">
+          <span class="mn" aria-hidden="true">২</span>
+          <h3>পাঠানোর আগে একবার যাচাই</h3>
+          <p>যে নাম্বার থেকে আগে পার্সেল ফিরে এসেছে, বা যে এলাকায় ফেরতের হার বেশি — সেই অর্ডার পাঠানোর আগে আপনাকে দেখানো হয়। কল করে নিশ্চিত হয়ে পাঠাবেন, নাকি কারণ লিখে ছাড় দেবেন — সিদ্ধান্ত আপনার।</p>
+          <ul class="ml">
+            <li>আপনার নিজের আগের রেকর্ড থেকে প্রমাণ দেখায়</li>
+            <li>আটকানো অর্ডার মুছে যায় না — অপেক্ষায় থাকে</li>
+            <li>যাচাই না করে পাঠানোর ঝুঁকিটা কমে</li>
+          </ul>
+        </article>
+        <article class="mb" data-block="2">
+          <span class="mn" aria-hidden="true">৩</span>
+          <h3>পার্সেলের খবর আর টাকার হিসাব — এক খাতায়</h3>
+          <p>কুরিয়ার থেকে পার্সেলের অবস্থা আপনার খাতায় ফিরে আসে। যেখানে কুরিয়ারের রিপোর্ট আর আপনার রেকর্ড মেলে না, সেটা আলাদা করে দেখানো হয়। ডেলিভারি হওয়া আর টাকা হাতে আসা — দুটো আলাদা করে দেখা যায়।</p>
+          <ul class="ml">
+            <li>পার্সেলের অবস্থা নিজে থেকেই খাতায় আপডেট হয়</li>
+            <li>দুই রেকর্ডের গরমিল আলাদা তালিকায় আসে</li>
+            <li>কোন এলাকায় ফেরত বেশি — এক নজরে দেখা যায়</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+
+    <div class="mmob">
+      <article class="mi rv">
+        <span class="mn" aria-hidden="true">১</span>
+        <h3>কথা থেকেই অর্ডার</h3>
+        <p>কাস্টমার কথার মধ্যেই সাইজ, রং, ঠিকানা বেছে দেয়। অর্ডার তৈরি হয়, আগের কথাবার্তা সাথেই জোড়া থাকে।</p>
+        <div class="phone"><div class="scr">
+          <div class="sb"><span>কথা থেকে অর্ডার</span><span class="d" aria-hidden="true"><i></i><i></i><i></i></span></div>
+          <div class="sbody">
+            <span class="sbg good">✓ অর্ডার তৈরি হয়েছে</span>
+            <div class="sc">
+              <p class="sl">কাস্টমার যা বেছে দিয়েছে</p>
+              <div class="sr"><span class="k">পণ্য</span><span class="v">থ্রি-পিস · নীল</span></div>
+              <div class="sr"><span class="k">সাইজ</span><span class="v">L</span></div>
+              <div class="sr"><span class="k">ঠিকানা</span><span class="v">টাঙ্গাইল সদর</span></div>
+              <div class="sr"><span class="k" style="font-weight:700;color:var(--ink)">মোট</span><span class="v n" style="color:var(--violet-deep)">৳১,৮৫০</span></div>
+            </div>
+            <span class="sbtn act" aria-hidden="true">কনফার্ম করুন</span>
+          </div>
+        </div></div>
+      </article>
+      <article class="mi rv">
+        <span class="mn" aria-hidden="true">২</span>
+        <h3>পাঠানোর আগে একবার যাচাই</h3>
+        <p>আগে পার্সেল ফেরত আসা নাম্বার হলে পাঠানোর আগে দেখানো হয়। কল করে নিশ্চিত হন, তারপর পাঠান। অর্ডার মুছে যায় না।</p>
+        <div class="phone"><div class="scr">
+          <div class="sb"><span>পাঠানোর আগে যাচাই</span><span class="d" aria-hidden="true"><i></i><i></i><i></i></span></div>
+          <div class="sbody">
+            <span class="sbg hold">🛑 যাচাই করার জন্য আটকানো</span>
+            <div class="sc"><p class="sl">অর্ডার #৪৮২১</p><p style="font-weight:700;font-size:15px" class="n">৳১,৮৫০ · টাঙ্গাইল সদর</p></div>
+            <div class="sev">
+              <div><span aria-hidden="true">📋</span><span>এই নাম্বার থেকে আগে ৩টা পার্সেল ফিরে এসেছে</span></div>
+              <div><span aria-hidden="true">📋</span><span>এই এলাকায় ফেরতের হার বেশি</span></div>
+            </div>
+            <span class="sbtn mute" aria-hidden="true">এখনই পাঠান</span>
+            <span class="sbtn act" aria-hidden="true">কল করে নিশ্চিত হন</span>
+          </div>
+        </div></div>
+      </article>
+      <article class="mi rv">
+        <span class="mn" aria-hidden="true">৩</span>
+        <h3>পার্সেল আর টাকার হিসাব একসাথে</h3>
+        <p>কুরিয়ারের রিপোর্ট আর আপনার রেকর্ড মিলিয়ে দেখা হয়। না মিললে আলাদা তালিকায় আসে। কোন এলাকায় ফেরত বেশি — দেখা যায়।</p>
+        <div class="phone"><div class="scr">
+          <div class="sb"><span>ডেলিভারির পর হিসাব</span><span class="d" aria-hidden="true"><i></i><i></i><i></i></span></div>
+          <div class="sbody">
+            <span class="sbg warn">⚠️ হিসাবে গরমিল</span>
+            <div class="sc">
+              <p class="sl">একটা পার্সেলের দুই রেকর্ড</p>
+              <div class="sr"><span class="k">কুরিয়ারের রিপোর্ট</span><span class="v" style="color:var(--red)">ডেলিভারি হয়নি</span></div>
+              <div class="sr"><span class="k">আপনার রেকর্ড</span><span class="v" style="color:var(--green)">কনফার্ম ছিল</span></div>
+            </div>
+            <span class="sbtn gold" aria-hidden="true">গরমিলের তালিকা দেখুন</span>
+          </div>
+        </div></div>
+      </article>
+    </div>
+
+    <div class="extras">
+      <div class="ex rv" data-d="1"><span class="exi" aria-hidden="true">📋</span><div><h4>আজকের কাজের তালিকা</h4><p>কোন মেসেজ আগে ধরবেন, কোন অর্ডার বাকি — এক তালিকায় সাজানো।</p></div></div>
+      <div class="ex rv" data-d="2"><span class="exi" aria-hidden="true">👤</span><div><h4>কাস্টমারের খাতা</h4><p>কে কবে কিনেছে, কে শুধু জিজ্ঞেস করেছে — নোট আর ট্যাগসহ এক জায়গায়।</p></div></div>
+      <div class="ex rv" data-d="3"><span class="exi" aria-hidden="true">❓</span><div><h4>উত্তর নেই এমন প্রশ্ন</h4><p>কাস্টমার বারবার যা জিজ্ঞেস করছে আর উত্তর পাচ্ছে না — গুনে দেখানো হয়।</p></div></div>
+      <div class="ex rv" data-d="1"><span class="exi" aria-hidden="true">✋</span><div><h4>AI থামলে আপনি ধরেন</h4><p>কঠিন কথা এলে AI সরে দাঁড়ায়। আগের সব কথা মনে রেখে আপনি চালিয়ে যান।</p></div></div>
+      <div class="ex rv" data-d="2"><span class="exi" aria-hidden="true">🎙️</span><div><h4>ভয়েস নোট → লেখা</h4><p>কাস্টমার কথা বলে পাঠালে সেটা লেখায় দেখতে পান। শুনে সময় নষ্ট হয় না।</p></div></div>
+      <div class="ex rv" data-d="3"><span class="exi" aria-hidden="true">👥</span><div><h4>কে কোন কাজ দেখবে</h4><p>কোন কথা কার দায়িত্বে — ঠিক করে দেওয়া যায়। দুইজন একসাথে উত্তর দেয় না।</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ PRICE · THE ZERO ════════ -->
+<section class="sec dp grain" id="price" data-stage="3">
+  <div class="glow" aria-hidden="true"><i></i><i></i></div>
+  <div class="wrap">
+    <div class="pwrap">
+      <span class="kick rv" style="justify-content:center">একটাই দাম</span>
+      <p class="prelab rv" data-d="1">ডেলিভারি না হলে আপনার খরচ</p>
+      <div class="zero rv" data-d="1" role="img" aria-label="শূন্য টাকা">
+        <span class="cur" aria-hidden="true">৳</span><span class="digit n" aria-hidden="true">০</span>
+      </div>
+      <p class="zline rv" data-d="2">শূন্য। পার্সেল ফেরত এলেও <b>শূন্য।</b></p>
+      <p class="zsub rv" data-d="2">কোনো সাবস্ক্রিপশন নেই। সেটআপ ফি নেই। মাসিক বিল নেই।<br>আপনার অর্ডার না পৌঁছালে আমাদের কোনো আয় নেই।</p>
+
+      <div class="pthen rv" data-d="3">
+        <p class="lab">ডেলিভারি হলে</p>
+        <div class="amt"><span class="c" aria-hidden="true">৳</span><span class="v n" aria-hidden="true">১০</span></div>
+        <p class="per">প্রতি ডেলিভারি হওয়া অর্ডারে — এর বেশি কিছু না</p>
+      </div>
+
+      <div class="rules rv" data-d="3">
+        <div class="rr"><span class="k">পার্সেল ফেরত এলে?</span><span class="v z n">৳০</span></div>
+        <div class="rr"><span class="k">অর্ডার ক্যানসেল হলে?</span><span class="v z n">৳০</span></div>
+        <div class="rr"><span class="k">মাসিক সাবস্ক্রিপশন?</span><span class="v no">নেই</span></div>
+        <div class="rr"><span class="k">সেটআপ ফি?</span><span class="v no">নেই</span></div>
+        <div class="rr"><span class="k">লুকানো খরচ?</span><span class="v no">নেই</span></div>
+      </div>
+
+      <p class="pfine rv">বিল হয় যখন অর্ডারটি ডেলিভারি সম্পন্ন হিসেবে চিহ্নিত হয়। মাস শেষে হিসাব, তারপর পরিশোধ। কোনো অর্ডার ডেলিভারি না হলে ওই অর্ডারে বিল ৳০।</p>
+      <div class="pcta rv">
+        <a href="/signup?source=landing_zero&offer=delivered_10" class="btn btn-taka btn-full js-cta" data-loc="price">ফ্রি শুরু করুন <span class="ar" aria-hidden="true">→</span></a>
+        <p class="cnote" style="margin-top:10px">কার্ড লাগে না। প্রথম ডেলিভারির আগ পর্যন্ত খরচ <b>৳০</b>।</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ CALCULATOR ════════ -->
+<section class="sec" id="calc" data-stage="4">
+  <div class="wrap">
+    <div class="head rv">
+      <span class="kick">আপনার নিজের হিসাব</span>
+      <h2 class="h2">সংখ্যাটা আপনার। হিসাবটাও আপনার।</h2>
+      <p class="lead" style="margin-top:12px">আমরা কোনো ফলাফল বিক্রি করি না। নিজের সংখ্যা বসিয়ে দেখুন ফেরতের খরচ কত, আর আমাদের বিল কত হতো। স্লাইডার নাড়ালেই হিসাব বদলাবে।</p>
+    </div>
+    <noscript><p class="nojs">ক্যালকুলেটর চালাতে এই ব্রাউজারে JavaScript দরকার। বাকি সব তথ্য পড়তে সমস্যা নেই।</p></noscript>
+    <div class="calc">
+      <div class="panel rv" data-d="1">
+        <div class="phead"><h3>আপনার সংখ্যা বসান</h3><button class="pbtn" type="button" id="reset">↺ আবার শুরু</button></div>
+        <div class="fld">
+          <div class="ftop"><label for="fOrd">মাসে কতটা অর্ডার কনফার্ম হয়</label><span class="fval n" id="vOrd">৫০০টি</span></div>
+          <input type="range" id="fOrd" min="20" max="5000" step="20" value="500">
+        </div>
+        <div class="fld">
+          <div class="ftop"><label for="fRate">তার মধ্যে কত % ফেরত আসে</label><span class="fval n" id="vRate">২৫%</span></div>
+          <input type="range" id="fRate" min="0" max="60" step="1" value="25">
+          <p class="fhint">কুরিয়ারের রিপোর্ট থেকে আসল হারটা বসান</p>
+        </div>
+        <div class="fld">
+          <div class="ftop"><label for="fFwd">যাওয়ার ডেলিভারি চার্জ</label><span class="fval n" id="vFwd">৳৭০</span></div>
+          <input type="range" id="fFwd" min="40" max="180" step="5" value="70">
+        </div>
+        <div class="fld">
+          <div class="ftop"><label for="fRet">ফেরত আসার চার্জ</label><span class="fval n" id="vRet">৳৩৫</span></div>
+          <input type="range" id="fRet" min="0" max="180" step="5" value="35">
+          <p class="fhint">আপনার কুরিয়ার চুক্তি অনুযায়ী বসান</p>
+        </div>
+        <div class="fld">
+          <div class="ftop"><label for="fAov">গড়ে একটা অর্ডারের দাম</label><span class="fval n" id="vAov">৳১,৫০০</span></div>
+          <input type="range" id="fAov" min="200" max="15000" step="100" value="1500">
+        </div>
+        <div class="fld">
+          <div class="ftop"><label for="fMar">প্রোডাক্টে আপনার প্রফিট</label><span class="fval n" id="vMar">৩০%</span></div>
+          <input type="range" id="fMar" min="5" max="70" step="1" value="30">
+        </div>
+        <div class="fld">
+          <div class="ftop"><label for="fMis">দাম জিজ্ঞেস করে কত জন কেনেনি</label><span class="fval n" id="vMis">১২০ জন</span></div>
+          <input type="range" id="fMis" min="0" max="1000" step="10" value="120">
+          <p class="fhint">আনুমানিক — ইনবক্সে পড়ে থাকা কাস্টমার</p>
+        </div>
+      </div>
+
+      <div class="res grain rv" data-d="2">
+        <div class="glow" aria-hidden="true"><i></i></div>
+        <div class="res-in">
+          <p class="rlab">ফেরত পার্সেলে মাসে যাচ্ছে</p>
+          <p class="rbig n" id="oCost" aria-live="polite">৳১৩,১২৫</p>
+          <p class="rsub" id="oSub">১২৫টা ফেরত পার্সেল · যাওয়া-আসার চার্জ</p>
+
+          <div class="rsplit">
+            <div class="rrow soft"><span class="k">📉 ফেরতে হারানো প্রফিট</span><span class="v n" id="oLost">৳৫৬,২৫০</span></div>
+            <div class="rrow"><span class="k">📦 ডেলিভারি হয়েছে</span><span class="v n" id="oDel">৩৭৫টি</span></div>
+            <div class="rrow fee"><span class="k">EasyModerator-এর বিল হতো</span><span class="v n" id="oBill">৳৩,৭৫০</span></div>
+          </div>
+
+          <div class="rzero">
+            <span class="t">ফেরত আসা <b class="n" id="oBack">১২৫</b>টার জন্য আমাদের বিল</span>
+            <span class="m"><span class="c" aria-hidden="true">৳</span><span class="z n" aria-hidden="true">০</span></span>
+          </div>
+
+          <div class="rgain">
+            <p class="l">ইনবক্সে পড়ে থাকা সম্ভাব্য প্রফিট</p>
+            <p class="v n" id="oMis">৳৫৪,০০০</p>
+            <p class="s" id="oMisSub">১২০ জন × ৳১,৫০০ × ৩০% — সম্ভাবনা, গ্যারান্টি নয়।</p>
+          </div>
+
+          <div class="verd">
+            <p class="big n" id="oRatio">ফেরতের খরচের তুলনায় বিল ৩.৫ গুণ কম</p>
+            <p class="small" id="oBreak">মাসে ৩৬টা ফেরত আটকাতে পারলেই বিল উঠে আসে</p>
+          </div>
+
+          <p class="rhon">এটা আপনার দেওয়া সংখ্যার হিসাব — আমাদের গ্যারান্টি নয়। কতটা খরচ কমবে বা কত বিক্রি ফিরবে, সেটা আপনার নিজের ডেটা দিয়ে মাপব। অনুমান বিক্রি করি না।</p>
+          <a href="/signup?source=landing_zero&offer=delivered_10" class="btn btn-taka btn-full js-cta" data-loc="calc" style="margin-top:20px">নিজের ডেটায় হিসাব দেখুন <span class="ar" aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ TRUST ════════ -->
+<section class="sec dk grain" id="trust" data-stage="4">
+  <div class="glow" aria-hidden="true"><i></i></div>
+  <div class="wrap">
+    <div class="head rv">
+      <span class="kick">আমাদের সীমা</span>
+      <h2 class="h2">আমরা যা বলব না — সেটাও লিখে রাখলাম</h2>
+      <p class="lead" style="margin-top:12px">বাজারে সবাই বেশি প্রতিশ্রুতি দেয়। আমরা কম দিই, কিন্তু যা দিই সেটা রাখি।</p>
+    </div>
+    <div class="trust">
+      <div class="tc no rv" data-d="1">
+        <h3><span aria-hidden="true">✕</span> আমরা বলব না</h3>
+        <ul class="tl">
+          <li><i aria-hidden="true">✕</i><span>“আপনার বিক্রি ৩০% বাড়বে”</span></li>
+          <li><i aria-hidden="true">✕</i><span>“সব ফেরত বন্ধ হয়ে যাবে”</span></li>
+          <li><i aria-hidden="true">✕</i><span>“১০০% ঝুঁকিপূর্ণ অর্ডার ধরা পড়বে”</span></li>
+          <li><i aria-hidden="true">✕</i><span>“কুরিয়ারের সব টাকা আমরা ফেরত আনিয়ে দেব”</span></li>
+          <li><i aria-hidden="true">✕</i><span>“এই কাস্টমার খারাপ” — আগের রেকর্ড মানে প্রমাণিত প্রতারণা নয়</span></li>
+        </ul>
+      </div>
+      <div class="tc yes rv" data-d="2">
+        <h3><span aria-hidden="true">✓</span> আমরা বলি</h3>
+        <ul class="tl">
+          <li><i aria-hidden="true">✓</i><span>পার্সেল ফেরত এলে আমরা <b>৳০</b> পাই — তাই খরচ কমানোতে আমাদের নিজের লাভ</span></li>
+          <li><i aria-hidden="true">✓</i><span>প্রতিটা সংকেতের পাশে আপনার নিজের রেকর্ডের প্রমাণ থাকে</span></li>
+          <li><i aria-hidden="true">✓</i><span>গরমিল আমরা দেখাই — এরপর কী করবেন, সিদ্ধান্ত আপনার</span></li>
+          <li><i aria-hidden="true">✓</i><span>আপনার ডেটা দিয়ে কোনো AI মডেল ট্রেনিং করি না</span></li>
+          <li><i aria-hidden="true">✓</i><span>আটকানো অর্ডার মুছে যায় না — ছাড় দেওয়ার সিদ্ধান্ত আপনার</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="perm rv">
+      <h4>আপনার ফেসবুক পেজ থেকে আমরা শুধু ৩টা পারমিশন চাই</h4>
+      <div class="pcodes"><code>pages_show_list</code><code>pages_messaging</code><code>pages_manage_metadata</code></div>
+      <p>বিজ্ঞাপনের পারমিশন চাই না। আপনার পেজের অ্যাডমিন আমরা নই। যেকোনো সময় সংযোগ বিচ্ছিন্ন করতে পারেন এবং ডেটা মুছে ফেলতে বলতে পারেন।</p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ START · outcome led ════════ -->
+<section class="sec" id="start" data-stage="4">
+  <div class="wrap">
+    <div class="head rv">
+      <span class="kick">শুরু করলে যা পাবেন</span>
+      <h2 class="h2">প্রথম দিনেই খাতাটা কাজ শুরু করে</h2>
+      <p class="lead" style="margin-top:12px">কোনো কোডিং লাগে না। টেকনিক্যাল লোক লাগে না। কার্ড লাগে না। যা যুক্ত করবেন, সাথে সাথে তার কাজ শুরু হবে।</p>
+    </div>
+    <div class="starts">
+      <article class="st rv" data-d="1">
+        <span class="stn"><span aria-hidden="true">১</span> যুক্ত করুন</span>
+        <h3>আপনার ফেসবুক পেজ</h3>
+        <p>ফেসবুক দিয়ে লগইন করে পেজ বাছাই করুন। একাধিক পেজ থাকলে সব একসাথে।</p>
+        <div class="get"><b>সাথে সাথে পাবেন</b><span>সব মেসেজ এক ইনবক্সে — কোনটা আগে ধরবেন, সাজানো তালিকায়।</span></div>
+      </article>
+      <article class="st rv" data-d="2">
+        <span class="stn"><span aria-hidden="true">২</span> যুক্ত করুন</span>
+        <h3>কুরিয়ারের অ্যাকাউন্ট</h3>
+        <p>আপনি যে কুরিয়ার সেবা ব্যবহার করেন, তার অ্যাকাউন্ট যুক্ত করুন।</p>
+        <div class="get"><b>সাথে সাথে পাবেন</b><span>পার্সেলের খবর নিজে থেকে খাতায় — কোনটা পৌঁছালো, কোনটা ফিরলো।</span></div>
+      </article>
+      <article class="st rv" data-d="3">
+        <span class="stn"><span aria-hidden="true">৩</span> বসান</span>
+        <h3>পণ্য ও ডেলিভারির নিয়ম</h3>
+        <p>আপনার দাম, চার্জ, এলাকা আর পেমেন্টের নিয়ম। পুরো তালিকা এক ফাইলে তুলে দিতে পারেন।</p>
+        <div class="get"><b>সাথে সাথে পাবেন</b><span>সঠিক দাম আর চার্জের উত্তর — এবং পাঠানোর আগে যাচাই-সংকেত।</span></div>
+      </article>
+    </div>
+    <div class="send rv">
+      <p class="big">যতদিন একটা অর্ডারও ডেলিভারি হয়নি — ততদিন আপনার খরচ ৳০।</p>
+      <p class="sm">তাই তাড়াহুড়ো করে কিনতে হবে না। যুক্ত করুন, নিজের ডেটায় দেখুন, তারপর সিদ্ধান্ত নিন।</p>
+      <a href="/signup?source=landing_zero&offer=delivered_10" class="btn btn-violet js-cta" data-loc="start">ফ্রি অ্যাকাউন্ট খুলুন <span class="ar" aria-hidden="true">→</span></a>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ FAQ ════════ -->
+<section class="sec" id="faq" data-stage="4" style="background:linear-gradient(180deg,#F8F9FC,#F1F3FA)">
+  <div class="wrap">
+    <div class="head rv"><span class="kick">সাধারণ প্রশ্ন</span><h2 class="h2">আপনার মনে যে প্রশ্নগুলো আসছে</h2></div>
+    <div class="faq" id="faqList">
+      <div class="qa rv"><h3><button class="qq" type="button" id="q1" aria-expanded="false" aria-controls="a1"><span>EasyModerator আসলে কী? এক লাইনে বলুন।</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a1" role="region" aria-labelledby="q1"><div><p>মেসেজ থেকে ডেলিভারি পর্যন্ত <b>আপনার দোকানের একটাই খাতা।</b> কাস্টমারের কথা, অর্ডার, পার্সেলের অবস্থা, কাস্টমারের ইতিহাস আর টাকার হিসাব — সব এক জায়গায় জমা হয়, যাতে কিছু হারায় না।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q2" aria-expanded="false" aria-controls="a2"><span>“ডেলিভারি না হলে ৳০” — এটা কি সত্যিই পুরোপুরি?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a2" role="region" aria-labelledby="q2"><div><p><b>হ্যাঁ।</b> কোনো সাবস্ক্রিপশন নেই, সেটআপ ফি নেই, মাসিক ন্যূনতম বিল নেই। একটা অর্ডার ডেলিভারি সম্পন্ন হিসেবে চিহ্নিত হলে শুধু সেই অর্ডারে ৳১০। ফেরত, ক্যানসেল বা আটকে থাকা অর্ডারে ৳০। একটাও ডেলিভারি না হলে ওই মাসের বিল ৳০।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q3" aria-expanded="false" aria-controls="a3"><span>অটো-রিপ্লাই তো ফ্রি-তেই পাওয়া যায়। এটা কেন নেব?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a3" role="region" aria-labelledby="q3"><div><p>অটো-রিপ্লাই শুধু <b>কথার উত্তর</b> দেয়। তারপর অর্ডারটা কোথায় গেল, পার্সেল পৌঁছালো কি না, টাকা এলো কি না — সেই হিসাব কেউ রাখে না। EasyModerator কথার পরের পুরো পথটা রাখে। কথা আর হিসাব — দুটো আলাদা জিনিস।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q4" aria-expanded="false" aria-controls="a4"><span>টাকা কখন আর কীভাবে দেব?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a4" role="region" aria-labelledby="q4"><div><p>মাস শেষে হিসাব। বিল আসার <b>৭ দিনের মধ্যে মোবাইল ব্যাংকিংয়ে</b> পরিশোধ করবেন। শুরু করতে কোনো কার্ড বা অগ্রিম টাকা লাগে না।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q5" aria-expanded="false" aria-controls="a5"><span>আমার কুরিয়ার সেবা কি সাপোর্ট করে?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a5" role="region" aria-labelledby="q5"><div><p>বাংলাদেশের <b>তিনটা প্রধান কুরিয়ার সেবায়</b> বুকিং, ট্র্যাকিং আর ডেলিভারির অবস্থা আনা যায়। <b>টাকার পেআউট মিলিয়ে দেখা এখন একটা সেবায় চালু আছে</b> — বাকিগুলোতে কাজ চলছে। আপনি কোনটা ব্যবহার করেন, সাইনআপের সময় দেখে নিতে পারবেন।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q6" aria-expanded="false" aria-controls="a6"><span>কুরিয়ারের হিসাব মেলাতে কি ফাইল আপলোড করতে হবে?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a6" role="region" aria-labelledby="q6"><div><p>যে সেবায় পেআউট মেলানো চালু, সেখানে <b>না</b> — অ্যাকাউন্ট যুক্ত করলেই হিসাব নিজে থেকে আসে আর আপনার অর্ডারের সাথে মিলে যায়। বাকি সেবাগুলোতে পার্সেলের অবস্থা আসে, টাকার হিসাব আপনাকে এখন নিজেকেই মেলাতে হয়।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q7" aria-expanded="false" aria-controls="a7"><span>কাস্টমার ভয়েস নোট পাঠালে?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a7" role="region" aria-labelledby="q7"><div><p>ভয়েস নোটের কথা <b>লেখায় রূপান্তর হয়</b>, যাতে শুনে সময় নষ্ট না হয়। তবে ভয়েস শুনে AI নিজে থেকে উত্তর দেয় — সেটা এখন চালু নেই। উত্তর আপনি দেবেন।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q8" aria-expanded="false" aria-controls="a8"><span>ভালো অর্ডার আটকে দিলে আমার বিক্রি কমবে না?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a8" role="region" aria-labelledby="q8"><div><p>আটকানো অর্ডার <b>মুছে যায় না</b> — যাচাইয়ের অপেক্ষায় থাকে। কল করে নিশ্চিত হয়ে পাঠাতে পারেন, বা কারণ লিখে ছাড় দিয়ে পাঠাতে পারেন। সিদ্ধান্ত সবসময় আপনার হাতে।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q9" aria-expanded="false" aria-controls="a9"><span>আমার ডেটা কি নিরাপদ?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a9" role="region" aria-labelledby="q9"><div><p>আমরা শুধু ৩টা পারমিশন চাই — পেজের তালিকা, মেসেজ পড়া-পাঠানো, আর পেজ সংযোগ। আপনার পেজের অ্যাডমিন আমরা নই। <b>আপনার ডেটা দিয়ে কোনো AI মডেল ট্রেনিং করি না।</b> যেকোনো সময় সংযোগ বিচ্ছিন্ন করতে পারেন, ডেটা মুছে ফেলতে বলতে পারেন।</p></div></div></div>
+
+      <div class="qa rv"><h3><button class="qq" type="button" id="q10" aria-expanded="false" aria-controls="a10"><span>আমি নিজে ডেলিভারি করি। তবু কি চলবে?</span><span class="qi" aria-hidden="true">+</span></button></h3>
+        <div class="qan" id="a10" role="region" aria-labelledby="q10"><div><p>হ্যাঁ। মেসেজ, অর্ডার, কাস্টমারের খাতা সব ব্যবহার করতে পারবেন। অর্ডার ডেলিভারি সম্পন্ন হিসেবে চিহ্নিত হলে সেই অর্ডারে ৳১০ — একই নিয়ম। ফেরত বা ক্যানসেলে ৳০।</p></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ CLOSE ════════ -->
+<section class="sec dp grain close" id="close" data-stage="4">
+  <div class="glow" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="wrap">
+    <span class="kick rv" style="justify-content:center">আজই শুরু</span>
+    <h2 class="rv" data-d="1">আজ রাতের মেসেজগুলো থেকেই<br><b>খাতাটা শুরু হোক।</b></h2>
+    <div class="czero rv" data-d="2" role="img" aria-label="শূন্য টাকা">
+      <span class="c" aria-hidden="true">৳</span><span class="z n" aria-hidden="true">০</span>
+    </div>
+    <p class="czcap rv" data-d="2">ডেলিভারি না হলে আপনার খরচ। কার্ড লাগে না।</p>
+    <div class="ccta rv" data-d="3">
+      <a href="/signup?source=landing_zero&offer=delivered_10" class="btn btn-taka btn-full js-cta" data-loc="close" style="min-height:58px;font-size:18px">ফ্রি শুরু করুন <span class="ar" aria-hidden="true">→</span></a>
+      <p class="cnote">ডেলিভারি হলে প্রতি অর্ডারে ৳১০ · সাবস্ক্রিপশন নেই</p>
+    </div>
+    <div class="ctags rv" data-d="4">
+      <span class="chip">কার্ড লাগে না</span><span class="chip">সেটআপ ফি নেই</span><span class="chip ok">AI ট্রেনিংয়ে ডেটা যায় না</span>
+    </div>
+    <p class="motto rv">যদি প্রমাণ না থাকে, দাবিও থাকবে না।</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="fgrid">
+      <div>
+        <a href="#top" class="logo" style="margin-bottom:14px"><span class="g" aria-hidden="true"><i></i></span>Easy<em>Moderator</em></a>
+        <p style="max-width:330px;font-size:13.5px;line-height:1.75">মেসেজ থেকে ডেলিভারি — বাংলাদেশের অনলাইন দোকানের জন্য একটাই খাতা। অর্ডার, পার্সেল, কাস্টমার আর টাকার হিসাব এক জায়গায়।</p>
+      </div>
+      <div>
+        <h4>পণ্য</h4>
+        <ul>
+          <li><a href="#scatter">আসল সমস্যাটা</a></li>
+          <li><a href="#how">খাতা কীভাবে জোড়া লাগে</a></li>
+          <li><a href="#price">ডেলিভারি না হলে ৳০</a></li>
+          <li><a href="#calc">আপনার হিসাব</a></li>
+          <li><a href="#faq">সাধারণ প্রশ্ন</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>আজ যা চালু আছে</h4>
+        <ul>
+          <li class="y">ফেসবুক মেসেঞ্জার DM ✓</li>
+          <li class="y">কথা থেকে অর্ডার ✓</li>
+          <li class="y">পাঠানোর আগে যাচাই ✓</li>
+          <li class="y">৩ কুরিয়ার সেবায় বুকিং ও ট্র্যাকিং ✓</li>
+          <li class="p">পেআউট মেলানো — ১ সেবায়</li>
+          <li class="p">ভয়েস → লেখা (অটো-উত্তর নয়)</li>
+          <li class="nn">পোস্ট কমেন্ট — চালু হয়নি</li>
+        </ul>
+      </div>
+    </div>
+    <div class="fend">
+      <span>© ২০২৬ EasyModerator · Hexabyte Technologies · ঢাকা, বাংলাদেশ</span>
+      <span class="lk"><a href="/terms">শর্তাবলি</a><a href="/privacy">প্রাইভেসি ও ডেটা</a><a href="/support">সাপোর্ট</a></span>
+    </div>
+  </div>
+</footer>
+
+<div class="sticky" id="sticky" aria-hidden="true">
+  <div class="stxt">
+    <span class="m" aria-hidden="true"><span class="c">৳</span><span class="z n">০</span></span>
+    <span class="w"><strong>ডেলিভারি না হলে</strong><span>হলে প্রতি অর্ডারে ৳১০</span></span>
+  </div>
+  <a href="/signup?source=landing_zero&offer=delivered_10" class="btn btn-taka js-cta" data-loc="sticky">শুরু করুন <span class="ar" aria-hidden="true">→</span></a>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var hasIO='IntersectionObserver' in window;
+  function $(i){return document.getElementById(i);}
+  function on(el,e,f,o){if(el)el.addEventListener(e,f,o);}
+  function each(l,f){Array.prototype.forEach.call(l,f);}
+
+  /* analytics */
+  window.emEvents=window.emEvents||[];
+  function track(n,d){
+    var p={event:n,ts:Date.now(),page:location.pathname,data:d||{}};
+    window.emEvents.push(p);
+    window.dataLayer=window.dataLayer||[];window.dataLayer.push(p);
+    if(window.EM_ANALYTICS_ENDPOINT&&navigator.sendBeacon){
+      try{navigator.sendBeacon(window.EM_ANALYTICS_ENDPOINT,JSON.stringify(p));}catch(e){}
+    }
+  }
+  var cn=navigator.connection||navigator.webkitConnection||null;
+  track('page_view',{ref:document.referrer||'direct',vw:innerWidth,vh:innerHeight,net:cn?cn.effectiveType:'unknown',lang:navigator.language,variant:'zero_v7'});
+
+  /* numerals */
+  var D=['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+  function bn(v){return String(v).replace(/[0-9]/g,function(d){return D[+d];});}
+  function grp(n){
+    n=Math.round(n);var s=String(Math.abs(n)),a=s.slice(-3),b=s.slice(0,-3);
+    if(b)a=','+a;
+    while(b.length>2){a=','+b.slice(-2)+a;b=b.slice(0,-2);}
+    if(b)a=b+a;
+    return (n<0?'-':'')+a;
+  }
+  function g(n){return bn(grp(n));}
+  function tk(n){return '৳'+g(n);}
+  function dec(n){return bn(Number(n).toFixed(1));}
+
+  /* cta */
+  each(document.querySelectorAll('.js-cta'),function(el){
+    on(el,'click',function(){track('cta_click',{loc:el.getAttribute('data-loc')||'',label:(el.textContent||'').trim().slice(0,60)});});
+  });
+  each(document.querySelectorAll('a[href^="/signup"]'),function(a){
+    on(a,'click',function(){track('signup_click',{loc:a.getAttribute('data-loc')||'link'});});
+  });
+
+  /* nav · rail · depth */
+  var nav=$('nav'),burger=$('burger'),drawer=$('drawer');
+  var railFill=$('railFill'),railItems=document.querySelectorAll('#rail li');
+  var stages=document.querySelectorAll('[data-stage]');
+  var marks=[25,50,75,100],hit={},ticking=false;
+  function frame(){
+    var y=window.scrollY||0;
+    if(nav)nav.classList.toggle('stuck',y>12);
+    var h=document.documentElement.scrollHeight-innerHeight;
+    var pct=h>0?Math.min(y/h,1):1;
+    if(railFill)railFill.style.transform='scaleY('+pct+')';
+    var st=0;
+    each(stages,function(el){
+      var r=el.getBoundingClientRect();
+      if(r.top<=innerHeight*0.45)st=parseInt(el.getAttribute('data-stage'),10)||0;
+    });
+    each(railItems,function(li){
+      var s=parseInt(li.getAttribute('data-stage'),10);
+      li.classList.toggle('on',s===st);
+      li.classList.toggle('done',s<st);
+    });
+    marks.forEach(function(m){if(pct*100>=m&&!hit[m]){hit[m]=true;track('scroll_depth',{pct:m});}});
+    ticking=false;
+  }
+  function req(){if(!ticking){ticking=true;requestAnimationFrame(frame);}}
+  on(window,'scroll',req,{passive:true});
+  on(window,'resize',req,{passive:true});
+  frame();
+
+  function shut(){if(!drawer||!burger)return;drawer.classList.remove('open');burger.setAttribute('aria-expanded','false');burger.setAttribute('aria-label','মেনু খুলুন');}
+  on(burger,'click',function(){
+    if(!drawer)return;
+    var o=drawer.classList.toggle('open');
+    burger.setAttribute('aria-expanded',o?'true':'false');
+    burger.setAttribute('aria-label',o?'মেনু বন্ধ করুন':'মেনু খুলুন');
+    track('nav_drawer',{open:o});
+  });
+  on(drawer,'click',function(e){if(e.target.tagName==='A')shut();});
+  on(document,'keydown',function(e){if(e.key==='Escape'&&drawer&&drawer.classList.contains('open')){shut();if(burger)burger.focus();}});
+
+  /* reveal */
+  var revs=document.querySelectorAll('.rv');
+  if(hasIO&&!reduce){
+    var ro=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIntersecting){en.target.classList.add('in');ro.unobserve(en.target);}});},{rootMargin:'0px 0px -8% 0px',threshold:0.08});
+    each(revs,function(el){ro.observe(el);});
+  } else each(revs,function(el){el.classList.add('in');});
+
+  /* scrollspy */
+  var links=Array.prototype.slice.call(document.querySelectorAll('#nlinks a'));
+  var targets=links.map(function(a){return document.querySelector(a.getAttribute('href'));}).filter(Boolean);
+  var seen={};
+  if(hasIO&&targets.length){
+    var so=new IntersectionObserver(function(es){
+      es.forEach(function(en){
+        if(!en.isIntersecting)return;
+        var id=en.target.id;
+        links.forEach(function(a){a.setAttribute('aria-current',a.getAttribute('href')==='#'+id?'true':'false');});
+        if(!seen[id]){seen[id]=true;track('section_view',{section:id});}
+      });
+    },{rootMargin:'-25% 0px -65% 0px'});
+    targets.forEach(function(t){so.observe(t);});
+  }
+
+  /* hero thread */
+  var thread=$('thread');
+  function runThread(){
+    if(!thread)return;
+    var n=thread.querySelectorAll('.tn'),s=thread.querySelectorAll('.ts');
+    if(reduce){each(n,function(x){x.classList.add('on');});each(s,function(x){x.classList.add('on');});return;}
+    each(n,function(x,i){setTimeout(function(){x.classList.add('on');},240+i*360);});
+    each(s,function(x,i){setTimeout(function(){x.classList.add('on');},420+i*360);});
+  }
+  if(thread){
+    if(hasIO&&!reduce){var to=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIntersecting){runThread();to.disconnect();}});},{threshold:0.4});to.observe(thread);}
+    else runThread();
+  }
+
+  /* mechanisms */
+  var stack=$('mstack'),mbs=$('mbs'),mdots=$('mdots');
+  if(stack&&mbs){
+    var screens=stack.querySelectorAll('.msc'),bs=mbs.querySelectorAll('.mb'),db=mdots?mdots.querySelectorAll('button'):[];
+    var cur=0;
+    function set(i){
+      if(i===cur)return;cur=i;
+      each(screens,function(s,k){s.classList.toggle('active',k===i);});
+      each(bs,function(b,k){b.classList.toggle('active',k===i);});
+      each(db,function(d,k){d.setAttribute('aria-current',k===i?'true':'false');});
+      track('mechanism_view',{index:i});
+    }
+    each(db,function(d,k){on(d,'click',function(){set(k);if(bs[k])bs[k].scrollIntoView({behavior:reduce?'auto':'smooth',block:'center'});});});
+    if(hasIO){
+      var bo=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIntersecting)set(parseInt(en.target.getAttribute('data-block'),10)||0);});},{rootMargin:'-40% 0px -40% 0px'});
+      each(bs,function(b){bo.observe(b);});
+    }
+  }
+
+  /* calculator */
+  var F={ord:$('fOrd'),rate:$('fRate'),fwd:$('fFwd'),ret:$('fRet'),aov:$('fAov'),mar:$('fMar'),mis:$('fMis')};
+  var V={ord:$('vOrd'),rate:$('vRate'),fwd:$('vFwd'),ret:$('vRet'),aov:$('vAov'),mar:$('vMar'),mis:$('vMis')};
+  var O={cost:$('oCost'),sub:$('oSub'),lost:$('oLost'),del:$('oDel'),bill:$('oBill'),back:$('oBack'),mis:$('oMis'),misSub:$('oMisSub'),ratio:$('oRatio'),brk:$('oBreak')};
+  var rb=$('reset');
+  var DEF={ord:500,rate:25,fwd:70,ret:35,aov:1500,mar:30,mis:120};
+  var touched=false,timer=null;
+
+  function paint(el){
+    if(!el)return;
+    var a=parseFloat(el.min),b=parseFloat(el.max),v=parseFloat(el.value);
+    el.style.setProperty('--p',(b>a?((v-a)/(b-a))*100:0)+'%');
+  }
+  function calc(){
+    if(!F.ord)return;
+    var ord=+F.ord.value,rate=+F.rate.value,fw=+F.fwd.value,rt=+F.ret.value,av=+F.aov.value,mg=+F.mar.value,ms=+F.mis.value;
+    var back=Math.round(ord*rate/100),del=ord-back;
+    var cost=back*(fw+rt);
+    var lost=Math.round(back*av*mg/100);
+    var bill=del*10;
+    var misP=Math.round(ms*av*mg/100);
+    var per=fw+rt;
+
+    if(V.ord)V.ord.textContent=g(ord)+'টি';
+    if(V.rate)V.rate.textContent=bn(rate)+'%';
+    if(V.fwd)V.fwd.textContent=tk(fw);
+    if(V.ret)V.ret.textContent=tk(rt);
+    if(V.aov)V.aov.textContent=tk(av);
+    if(V.mar)V.mar.textContent=bn(mg)+'%';
+    if(V.mis)V.mis.textContent=g(ms)+' জন';
+    Object.keys(F).forEach(function(k){paint(F[k]);});
+
+    if(O.cost)O.cost.textContent=tk(cost);
+    if(O.sub)O.sub.textContent=g(back)+'টা ফেরত পার্সেল · যাওয়া-আসার চার্জ';
+    if(O.lost)O.lost.textContent=tk(lost);
+    if(O.del)O.del.textContent=g(del)+'টি';
+    if(O.bill)O.bill.textContent=tk(bill);
+    if(O.back)O.back.textContent=g(back);
+    if(O.mis)O.mis.textContent=tk(misP);
+    if(O.misSub)O.misSub.textContent=g(ms)+' জন × '+tk(av)+' × '+bn(mg)+'% — সম্ভাবনা, গ্যারান্টি নয়।';
+
+    if(O.ratio){
+      if(cost<=0)O.ratio.textContent='এই হিসাবে ফেরতের খরচ নেই';
+      else if(bill<=0)O.ratio.textContent='কোনো ডেলিভারি নেই — তাই বিলও ৳০';
+      else{
+        var r=cost/bill;
+        O.ratio.textContent=r>=1?'ফেরতের খরচের তুলনায় বিল '+dec(r)+' গুণ কম':'বিল ফেরত-খরচের চেয়ে বেশি — এই ভলিউমে হিসাব মিলছে না';
+      }
+    }
+    if(O.brk){
+      if(per<=0)O.brk.textContent='ফেরতের চার্জ ৳০ ধরেছেন — আসল চার্জটা বসান';
+      else if(bill<=0)O.brk.textContent='ডেলিভারি না হলে আমাদের বিল নেই — এটাই নিয়ম';
+      else{
+        var need=Math.ceil(bill/per);
+        O.brk.textContent=need<=back
+          ?'মাসে '+g(need)+'টা ফেরত আটকাতে পারলেই বিল উঠে আসে (মোট '+g(back)+'টার মধ্যে)'
+          :'এই ভলিউমে সব ফেরত আটকালেও বিল ওঠে না — বড় ভলিউমে হিসাব লাভে থাকে';
+      }
+    }
+    if(touched){
+      clearTimeout(timer);
+      timer=setTimeout(function(){track('calc_state',{orders:ord,rate:rate,fwd:fw,ret:rt,aov:av,margin:mg,missed:ms,cost:cost,bill:bill});},600);
+    }
+  }
+  Object.keys(F).forEach(function(k){on(F[k],'input',function(){touched=true;calc();});});
+  on(rb,'click',function(){
+    Object.keys(DEF).forEach(function(k){if(F[k])F[k].value=DEF[k];});
+    calc();track('calc_reset',{});
+  });
+  calc();
+
+  /* faq */
+  var fl=$('faqList');
+  if(fl)on(fl,'click',function(e){
+    var b=e.target&&e.target.closest?e.target.closest('.qq'):null;
+    if(!b||!fl.contains(b))return;
+    var qa=b.closest('.qa');if(!qa)return;
+    var o=qa.classList.toggle('open');
+    b.setAttribute('aria-expanded',o?'true':'false');
+    if(o)track('faq_open',{q:(b.textContent||'').trim().slice(0,60)});
+  });
+
+  /* sticky */
+  var st=$('sticky'),hero=$('top'),cl=$('close');
+  if(st&&hero&&cl&&hasIO){
+    var out=false,atEnd=false;
+    function sync(){var s=out&&!atEnd;st.classList.toggle('show',s);st.setAttribute('aria-hidden',s?'false':'true');}
+    new IntersectionObserver(function(es){es.forEach(function(en){out=!en.isIntersecting;sync();});},{threshold:0,rootMargin:'-70% 0px 0px 0px'}).observe(hero);
+    new IntersectionObserver(function(es){es.forEach(function(en){atEnd=en.isIntersecting;sync();});},{threshold:0.12}).observe(cl);
+  }
+})();
+</script>
+</body>
+</html>

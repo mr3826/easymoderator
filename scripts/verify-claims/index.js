@@ -4,7 +4,7 @@
 /**
  * verify:claims — the commercial truth gate.
  *
- * Six independent checks, each failing the process (exit 1) with an actionable
+ * Independent checks, each failing the process (exit 1) with an actionable
  * report:
  *
  *   (a) tokens      forbidden retired copy in the four modules + root scripts
@@ -13,6 +13,8 @@
  *   (d) evidence    every evidence flag has a resolvable authority / doc pointer
  *   (e) snapshot    contractHash / registryHash / token ids match both receipts
  *   (f) collateral  committed one-pager matches the contract render
+ *   (g) landing     live React landing is contract-derived, claim-registered
+ *   (h) static-landing  static apex landing carries the contract price (ADR-0014)
  *
  * Dependency-free (node builtins only) so the PR merge gate can run it without
  * `npm ci`. It requires the pure backend contract/registry/evidence modules
@@ -32,8 +34,9 @@ const { checkEvidence } = require('./lib/evidence-check');
 const { checkSnapshots } = require('./lib/snapshot-check');
 const { checkCollateral } = require('./lib/collateral-check');
 const { checkLanding } = require('./lib/landing-check');
+const { checkStaticLanding } = require('./lib/static-landing-check');
 
-const CHECK_ORDER = Object.freeze(['tokens', 'retired', 'registry', 'evidence', 'snapshot', 'collateral', 'landing']);
+const CHECK_ORDER = Object.freeze(['tokens', 'retired', 'registry', 'evidence', 'snapshot', 'collateral', 'landing', 'static-landing']);
 
 const USAGE = `verify:claims — commercial truth gate
 
@@ -228,6 +231,21 @@ function runChecks(opts) {
             meta: {
                 scannedFiles: report.scannedFiles,
                 referencedClaims: report.referencedClaims.length,
+            },
+        });
+    }
+
+    if (switches.includes('static-landing')) {
+        const report = checkStaticLanding({ root: scanRoot });
+        results.push({
+            key: 'static-landing',
+            label: '(h) static apex landing contract parity',
+            ok: report.violations.length === 0,
+            violations: report.violations,
+            warnings: [],
+            meta: {
+                scannedFiles: report.scannedFiles,
+                expected: `${report.expected.unitBn}|${report.expected.zeroBn}`,
             },
         });
     }
