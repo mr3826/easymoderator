@@ -1,8 +1,11 @@
 /**
  * InboxComposer — Message input bar with attachments and quick replies.
+ * Restyled to the guardrails --em-* scope. Send/attachment/idempotency/
+ * template logic is verbatim; successPulse/errorShake motion removed (§19
+ * duration bands), the composer input keeps its exact placeholders and gains
+ * data-testid="message-input" for the shared-inbox proof locator.
  */
 import { useRef, useState, ChangeEvent } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import {
   Send, Loader2, X, Paperclip, Zap, AlertTriangle, Search, Pencil,
   Trash2, Plus, Save, FileText, Image as ImageIcon,
@@ -12,9 +15,12 @@ import { useTranslation } from "react-i18next";
 import type { ResponseTemplate } from "@/api/types/conversation";
 import type { Conversation, Message } from "@/api/types/conversation";
 import { apiClient } from "@/api";
-import { successPulse, errorShake } from "@/lib/motion";
 import { getDenyMessage } from "@/lib/policy/deny-messages";
 import { getErrorMessage } from "@shared/lib/http/errors";
+import { EmButton } from "../dashboard/EmButton";
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
 
 interface InboxComposerProps {
   selectedConversation: Conversation;
@@ -81,9 +87,6 @@ export function InboxComposer({
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
-
-  const [sendState, setSendState] = useState<"idle" | "pulse">("idle");
-  const [shakeState, setShakeState] = useState<"idle" | "shake">("idle");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickReplyRef = useRef<HTMLDivElement>(null);
@@ -196,16 +199,12 @@ export function InboxComposer({
       onMessageSent(message);
       setEditingMessage("");
       handleAttachmentClear();
-      setSendState("pulse");
-      setTimeout(() => setSendState("idle"), 600);
     } catch (err: unknown) {
       onSendFailed?.();
       const rawMsg = getErrorMessage(err, "");
       const friendly = getDenyMessage(rawMsg || "error", lang as "bn" | "en");
       setSendError(friendly);
       toast.error(friendly);
-      setShakeState("shake");
-      setTimeout(() => setShakeState("idle"), 600);
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
@@ -293,23 +292,27 @@ export function InboxComposer({
   const sendLabel = sendPhase === "uploading" ? "Uploading" : sendPhase === "sending" ? t("inbox.sending") : t("inbox.send");
 
   return (
-    <div className="bg-white border-t border-gray-200 p-4 shrink-0">
+    <div className="bg-em-bg-surface border-t border-em-border p-4 shrink-0">
       {(is24hWarning || is24hExpired) && (
         <div className={`mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
           is24hExpired
-            ? "border-red-200 bg-red-50 text-red-700"
-            : "border-amber-200 bg-amber-50 text-amber-700"
+            ? "border-em-danger-700/20 bg-em-danger-100 text-em-danger-700"
+            : "border-em-sunlight-600/30 bg-em-sunlight-100 text-em-sunlight-700"
         }`}>
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
           <span>{is24hExpired ? t("inbox.outsideWindowDisabled") : t("inbox.windowWarning")}</span>
         </div>
       )}
       {selectedAttachment && (
-        <div className="mb-3 inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-          {selectedAttachment.type.startsWith("image/") ? <ImageIcon className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+        <div className="mb-3 inline-flex items-center gap-2 rounded-lg border border-em-info-700/20 bg-em-info-100 px-3 py-2 text-sm text-em-info-700">
+          {selectedAttachment.type.startsWith("image/") ? <ImageIcon className="w-4 h-4" aria-hidden="true" /> : <FileText className="w-4 h-4" aria-hidden="true" />}
           <span className="max-w-56 truncate">{selectedAttachment.name}</span>
-          <button onClick={handleAttachmentClear} className="text-blue-700 hover:text-blue-900" aria-label="Remove attachment">
-            <X className="w-4 h-4" />
+          <button
+            onClick={handleAttachmentClear}
+            className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-info-700 hover:text-em-midnight-900 ${FOCUS_RING}`}
+            aria-label="Remove attachment"
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}
@@ -320,72 +323,65 @@ export function InboxComposer({
         accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx"
         onChange={handleAttachmentPick}
       />
-      <AnimatePresence>
-        {sendError && (
-          <motion.div
-            key="send-error"
-            role="alert"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="mb-3 text-sm text-destructive flex items-center gap-1 font-bn overflow-hidden"
-          >
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            <span>{sendError}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {sendError && (
+        <div
+          role="alert"
+          className="mb-3 text-sm text-em-danger-700 flex items-center gap-1"
+        >
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+          <span>{sendError}</span>
+        </div>
+      )}
 
-      <motion.div
-        className="flex items-center gap-2 md:gap-3 relative"
-        variants={errorShake}
-        animate={shakeState}
-      >
+      <div className="flex items-center gap-2 md:gap-3 relative">
         {showQuickReplies && (
           <div
             ref={quickReplyRef}
-            className="absolute bottom-full left-0 mb-2 w-80 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-lg shadow-xl z-20 overflow-hidden"
+            className="absolute bottom-full left-0 mb-2 w-80 max-w-[calc(100vw-2rem)] bg-em-bg-surface border border-em-border rounded-lg shadow-xl z-20 overflow-hidden"
           >
-            <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-gray-600">Quick replies</span>
+            <div className="px-3 py-2 border-b border-em-border bg-em-bg-muted flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-em-text-secondary">{t("inbox.composer.quickReplies")}</span>
               <button
                 onClick={() => setShowTemplateManager(true)}
-                className="text-xs text-blue-700 hover:text-blue-900 font-medium"
+                className={`min-h-11 text-xs text-em-violet-700 hover:text-em-violet-900 font-medium ${FOCUS_RING}`}
               >
-                Manage quick replies
+                {t("inbox.composer.manageQuickReplies")}
               </button>
-              <button onClick={() => setShowQuickReplies(false)} className="text-gray-400 hover:text-gray-600" aria-label="Close quick replies">
-                <X className="w-3 h-3" />
+              <button
+                onClick={() => setShowQuickReplies(false)}
+                className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-text-primary ${FOCUS_RING}`}
+                aria-label={t("inbox.composer.closeQuickReplies")}
+              >
+                <X className="w-3 h-3" aria-hidden="true" />
               </button>
             </div>
-            <div className="p-2 border-b border-gray-100">
+            <div className="p-2 border-b border-em-border">
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-2 top-2.5 text-gray-400" />
+                <Search className="w-4 h-4 absolute left-2 top-3.5 text-em-text-disabled" aria-hidden="true" />
                 <input
                   value={quickSearch}
                   onChange={(e) => setQuickSearch(e.target.value)}
-                  placeholder="Search quick replies"
-                  className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={t("inbox.composer.searchQuickReplies")}
+                  className={`w-full min-h-11 pl-8 pr-3 py-2 text-sm border border-em-border rounded-lg bg-em-bg-surface text-em-text-primary focus:outline-none ${FOCUS_RING}`}
                 />
               </div>
             </div>
-            <div className="max-h-56 overflow-y-auto divide-y divide-gray-50">
+            <div className="max-h-56 overflow-y-auto divide-y divide-em-border">
               {loadingTemplates && (
-                <div className="px-3 py-2 text-xs text-gray-500">Loading quick replies...</div>
+                <div className="px-3 py-2 text-xs text-em-text-secondary">{t("inbox.composer.loadingQuickReplies")}</div>
               )}
               {filteredQuickTemplates.map((template) => (
                 <button
                   key={template.id}
                   onClick={() => handleTemplateInsert(template)}
-                  className="w-full text-left px-3 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors leading-snug"
+                  className={`w-full text-left px-3 py-2.5 text-sm text-em-text-primary hover:bg-em-violet-50 hover:text-em-violet-700 transition-colors leading-snug ${FOCUS_RING}`}
                 >
-                  <div className="font-medium text-gray-900">{template.name}</div>
-                  <div className="line-clamp-2 text-xs text-gray-500 mt-1">{template.content}</div>
+                  <div className="font-medium text-em-text-primary">{template.name}</div>
+                  <div className="line-clamp-2 text-xs text-em-text-secondary mt-1">{template.content}</div>
                 </button>
               ))}
               {!loadingTemplates && filteredQuickTemplates.length === 0 && (
-                <div className="px-3 py-3 text-xs text-gray-500">No quick replies yet. Save common delivery, payment, and order answers here.</div>
+                <div className="px-3 py-3 text-xs text-em-text-secondary">No quick replies yet. Save common delivery, payment, and order answers here.</div>
               )}
             </div>
           </div>
@@ -393,22 +389,23 @@ export function InboxComposer({
 
         <button
           onClick={() => setShowQuickReplies((v) => !v)}
-          title="Quick replies"
-          aria-label="Quick replies"
-          className="p-2.5 text-amber-500 hover:text-amber-600 hover:bg-amber-50 border border-gray-300 rounded-lg transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+          title={t("inbox.composer.quickReplies")}
+          aria-label={t("inbox.composer.quickReplies")}
+          className={`p-2.5 text-em-sunlight-600 hover:text-em-sunlight-700 hover:bg-em-sunlight-50 border border-em-border-strong rounded-lg transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center ${FOCUS_RING}`}
         >
-          <Zap className="w-4 h-4" />
+          <Zap className="w-4 h-4" aria-hidden="true" />
         </button>
         <button
           onClick={() => fileInputRef.current?.click()}
-          title="Attach file"
-          aria-label="Attach file"
-          className="p-2.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 border border-gray-300 rounded-lg transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+          title={t("inbox.composer.attachFile")}
+          aria-label={t("inbox.composer.attachFile")}
+          className={`p-2.5 text-em-text-secondary hover:text-em-violet-700 hover:bg-em-violet-50 border border-em-border-strong rounded-lg transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center ${FOCUS_RING}`}
         >
-          <Paperclip className="w-4 h-4" />
+          <Paperclip className="w-4 h-4" aria-hidden="true" />
         </button>
         <input
           type="text"
+          data-testid="message-input"
           value={editingMessage}
           onChange={(e) => setEditingMessage(e.target.value)}
           placeholder={is24hExpired ? t("inbox.outsideWindowPlaceholder") : t("inbox.messagePlaceholder")}
@@ -419,129 +416,129 @@ export function InboxComposer({
               handleSendMessage();
             }
           }}
-          className={`flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            is24hExpired ? "bg-gray-100 cursor-not-allowed" : ""
+          className={`flex-1 min-h-11 px-4 py-3 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary placeholder:text-em-text-disabled focus:outline-none ${FOCUS_RING} ${
+            is24hExpired ? "bg-em-bg-muted cursor-not-allowed" : ""
           }`}
         />
-        <motion.button
+        <EmButton
+          variant="secondary"
           onClick={handleSendMessage}
           aria-label={isSending ? sendLabel : t("inbox.send")}
+          loading={isSending}
           disabled={
             isSending ||
             (!editingMessage.trim() && !selectedAttachment) ||
             is24hExpired
           }
-          variants={successPulse}
-          animate={sendState}
-          className={`px-4 md:px-6 py-3 bg-blue-600 text-white rounded-lg flex items-center gap-2 min-h-[44px] flex-shrink-0 ${
-            isSending || (!editingMessage.trim() && !selectedAttachment) || is24hExpired
-              ? "opacity-60 cursor-not-allowed"
-              : "hover:bg-blue-700"
-          }`}
+          data-testid="inbox-send"
+          className="flex-shrink-0 justify-center gap-2 px-4 md:px-6"
         >
-          {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+          {!isSending && <Send className="w-4 h-4" aria-hidden="true" />}
           <span className="hidden sm:inline">{sendLabel}</span>
-        </motion.button>
-      </motion.div>
+        </EmButton>
+      </div>
 
       {showTemplateManager && (
         <div
-          className="fixed inset-0 bg-gray-900/50 z-50 flex justify-end"
+          className="fixed inset-0 bg-em-midnight-950/50 z-50 flex justify-end"
           onClick={(event) => {
             if (event.target === event.currentTarget) setShowTemplateManager(false);
           }}
         >
-          <div className="h-full w-full max-w-lg bg-white shadow-2xl flex flex-col">
-            <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-900">Manage quick replies</h2>
-              <button onClick={() => setShowTemplateManager(false)} className="text-gray-500 hover:text-gray-700" aria-label="Close quick reply manager">
-                <X className="w-5 h-5" />
+          <div className="h-full w-full max-w-lg bg-em-bg-surface shadow-2xl flex flex-col">
+            <div className="px-5 py-4 border-b border-em-border flex items-center justify-between">
+              <h2 className="text-base font-semibold text-em-text-primary">{t("inbox.composer.manageQuickReplies")}</h2>
+              <button
+                onClick={() => setShowTemplateManager(false)}
+                className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-text-primary ${FOCUS_RING}`}
+                aria-label="Close quick reply manager"
+              >
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
-            <div className="p-5 border-b border-gray-100 space-y-3">
+            <div className="p-5 border-b border-em-border space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input
                   value={templateForm.name}
                   onChange={(e) => setTemplateForm((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder="Quick reply name"
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={t("inbox.composer.quickReplyName")}
+                  className={`min-h-11 px-3 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
                 />
                 <input
                   value={templateForm.category}
                   onChange={(e) => setTemplateForm((prev) => ({ ...prev, category: e.target.value }))}
                   placeholder="Category"
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`min-h-11 px-3 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
                 />
               </div>
               <textarea
                 value={templateForm.content}
                 onChange={(e) => setTemplateForm((prev) => ({ ...prev, content: e.target.value }))}
-                placeholder="Quick reply message"
+                placeholder={t("inbox.composer.quickReplyMessage")}
                 rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full px-3 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
               />
               <div className="flex flex-wrap items-center gap-2">
-                <button
+                <EmButton
+                  variant="primary"
                   onClick={handleSaveTemplate}
                   disabled={templateSaving}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                  loading={templateSaving}
+                  className="gap-2"
                 >
-                  {templateSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : editingTemplateId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  {!templateSaving && (editingTemplateId ? <Save className="w-4 h-4" aria-hidden="true" /> : <Plus className="w-4 h-4" aria-hidden="true" />)}
                   {editingTemplateId ? "Save" : "Create"}
-                </button>
+                </EmButton>
                 {editingTemplateId && (
-                  <button
-                    onClick={resetTemplateForm}
-                    className="px-3 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50"
-                  >
+                  <EmButton variant="secondary" onClick={resetTemplateForm}>
                     Cancel
-                  </button>
+                  </EmButton>
                 )}
               </div>
             </div>
-            <div className="p-5 border-b border-gray-100">
+            <div className="p-5 border-b border-em-border">
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
+                <Search className="w-4 h-4 absolute left-3 top-3.5 text-em-text-disabled" aria-hidden="true" />
                 <input
                   value={templateSearch}
                   onChange={(e) => setTemplateSearch(e.target.value)}
-                  placeholder="Search quick replies"
-                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={t("inbox.composer.searchQuickReplies")}
+                  className={`w-full min-h-11 pl-9 pr-3 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
                 />
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+            <div className="flex-1 overflow-y-auto divide-y divide-em-border">
               {filteredManagedTemplates.map((template) => (
                 <div key={template.id} className="p-4 flex items-start gap-3">
                   <button
                     onClick={() => handleTemplateInsert(template)}
-                    className="flex-1 text-left min-w-0"
+                    className={`flex-1 text-left min-w-0 ${FOCUS_RING}`}
                   >
-                    <div className="text-sm font-semibold text-gray-900 truncate">{template.name}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{template.category || "Quick Reply"}</div>
-                    <div className="text-sm text-gray-700 mt-2 line-clamp-3">{template.content}</div>
+                    <div className="text-sm font-semibold text-em-text-primary truncate">{template.name}</div>
+                    <div className="text-xs text-em-text-secondary mt-0.5">{template.category || "Quick Reply"}</div>
+                    <div className="text-sm text-em-text-primary mt-2 line-clamp-3">{template.content}</div>
                   </button>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => handleEditTemplate(template)}
-                      className="p-2 text-gray-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
+                      className={`h-11 w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-violet-700 hover:bg-em-violet-50 rounded-lg ${FOCUS_RING}`}
                       aria-label={`Edit ${template.name}`}
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="w-4 h-4" aria-hidden="true" />
                     </button>
                     <button
                       onClick={() => handleDeleteTemplate(template.id)}
                       disabled={deletingTemplateId === template.id}
-                      className="p-2 text-gray-500 hover:text-red-700 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                      className={`h-11 w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-danger-700 hover:bg-em-danger-100 rounded-lg disabled:opacity-50 ${FOCUS_RING}`}
                       aria-label={`Delete ${template.name}`}
                     >
-                      {deletingTemplateId === template.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      {deletingTemplateId === template.id ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <Trash2 className="w-4 h-4" aria-hidden="true" />}
                     </button>
                   </div>
                 </div>
               ))}
               {!loadingTemplates && filteredManagedTemplates.length === 0 && (
-                <div className="p-5 text-sm text-gray-500">No saved quick replies yet. Add answers you send often to save time in customer conversations.</div>
+                <div className="p-5 text-sm text-em-text-secondary">{t("inbox.composer.noSavedQuickReplies")}</div>
               )}
             </div>
           </div>

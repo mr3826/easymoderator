@@ -736,7 +736,8 @@
       "search": "No conversations match this search on this page.",
       "filter": "No conversations match this filter on this page.",
       "page": "No conversations on this page.",
-      "currentPageOnly": "Search and filters apply only to this page. Choose another page to check there."
+      "currentPageOnly": "Search and filters apply only to this page. Choose another page to check there.",
+      "connectChannel": "Connect a channel"
     },
     "pagination": {
       "label": "Inbox conversation pages",
@@ -750,10 +751,85 @@
       "previous": "Previous page",
       "next": "Next page"
     },
-    "agentHandling": "🙋 You're replying",
+    "agentHandling": "You're replying",
     "resumeAi": "Resume AI",
-    "aiActive": "🤖 AI is replying",
+    "aiActive": "AI is replying",
     "modeLabel": "AI reply mode",
+    "breadcrumb": {
+      "workspace": "Workspace"
+    },
+    "signal": {
+      "blocked": "AI stopped",
+      "pending": "Loading",
+      "review": "Needs review",
+      "drafts": "AI drafts waiting",
+      "unread": "Unread messages",
+      "healthy": "All caught up",
+      "empty": "Waiting for messages",
+      "reason": {
+        "emergency": "Automatic replies are paused for every channel.",
+        "review": "{{count}} on this page need a reply.",
+        "drafts": "{{count}} on this page have a draft to review.",
+        "unread": "{{count}} unread on this page.",
+        "caughtUp": "No reply tasks on this page.",
+        "empty": "Customer messages will appear here.",
+        "error": "The conversation list could not load."
+      }
+    },
+    "whyHere": {
+      "loading": "Loading your shared inbox.",
+      "error": "Conversations could not load, so replies may be missing.",
+      "review": "Customers are waiting for a reply on this page.",
+      "drafts": "AI drafts need your approval before anything is sent.",
+      "unread": "New customer messages have not been read yet.",
+      "caughtUp": "Every conversation on this page has been handled.",
+      "empty": "This shop has not received customer messages yet."
+    },
+    "whereNext": {
+      "work": "Open the next task, reply, then return to the queue.",
+      "caughtUp": "Refresh to check for new messages, or review Done conversations.",
+      "error": "Retry loading; your drafts and history are safe on the server.",
+      "empty": "Connect a channel to start receiving customer messages."
+    },
+    "primary": {
+      "retry": "Retry loading",
+      "openNextReply": "Open next reply",
+      "openNextDraft": "Open next draft",
+      "openFirstUnread": "Open first unread",
+      "refresh": "Refresh inbox",
+      "loading": "Loading…"
+    },
+    "evidence": {
+      "title": "Evidence & sync",
+      "conversation": "Conversation",
+      "customer": "Customer",
+      "source": "Source",
+      "replyTask": "Reply task",
+      "lastActivity": "Last activity",
+      "delivery": "Last outbound result",
+      "deliveryConfirmed": "Provider confirmed the send",
+      "replyTaskSentence": "Reported reply task: {{reason}}",
+      "deliveryPending": "Provider confirmation pending",
+      "deliveryFailed": "Provider did not confirm",
+      "deliveryNone": "No outbound reply yet",
+      "syncSse": "Live updates connected (SSE)",
+      "syncOffline": "Live updates offline — reconnecting",
+      "lastSync": "Last sync {{time}}",
+      "noSync": "Not synced yet",
+      "grounding": "Grounded in {{count}} saved sources",
+      "customerUnlinked": "Not linked to a customer record"
+    },
+    "composer": {
+      "quickReplies": "Quick replies",
+      "manageQuickReplies": "Manage quick replies",
+      "searchQuickReplies": "Search quick replies",
+      "quickReplyName": "Quick reply name",
+      "quickReplyMessage": "Quick reply message",
+      "loadingQuickReplies": "Loading quick replies...",
+      "closeQuickReplies": "Close quick replies",
+      "attachFile": "Attach file",
+      "noSavedQuickReplies": "No saved quick replies yet. Add answers you send often to save time in customer conversations."
+    },
     "mode": {
       "auto": "Automatic replies",
       "draft": "Drafts for review",
@@ -772,7 +848,7 @@
       "archived": "Archived"
     },
     "agentBanner": "You're replying yourself — AI is paused for this conversation.",
-    "windowClosingSoon": "⚠ Time to reply directly to this customer is almost up — reply now.",
+    "windowClosingSoon": "Time to reply directly to this customer is almost up — reply now.",
     "windowExpired": "This customer messaged over 24h ago. Direct Messenger replies are blocked until the customer messages again.",
     "noMessages": "No messages in this conversation",
     "aiSuggestion": "AI's reply",
@@ -795,7 +871,7 @@
     "outsideWindowDisabled": "Meta's 24-hour messaging window has expired. EasyModerator will not send out-of-window Messenger messages in this launch version.",
     "windowWarning": "The Messenger reply window is closing soon. Reply only if this is part of the active customer conversation.",
     "selectConversation": "Select a conversation to view messages",
-    "imageProcessed": "Image processed ✓",
+    "imageProcessed": "Image processed",
     "imageSkipped": "Image skipped (limit reached)",
     "attachmentUnavailable": "Attachment unavailable",
     "humanTooltip": "Human agent active — click to take over",
@@ -954,7 +1030,8 @@
         "resume_checkout": "Resume checkout",
         "review_opportunity": "Review deal",
         "review_knowledge_gap": "Review question"
-      }
+      },
+      "partial": "Some action sources could not load — this queue may be incomplete."
     },
     "viewCustomer": "View customer profile",
     "noSearchMatchesOnPage": "No search matches on this page. Try another page or refine your search.",

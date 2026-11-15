@@ -3,7 +3,8 @@
  * shared kit Button without editing it: violet primary, midnight-border
  * secondary, ghost, danger, and sunlight attention (midnight text — never
  * white on sunlight). 44px minimum target; focus handled by the .em-dashboard
- * scope outline.
+ * scope outline. aria-label passthrough lets callers keep exact accessible
+ * names (inbox composer Send) while the visible label stays responsive.
  */
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -32,6 +33,7 @@ interface EmButtonProps {
   className?: string;
   title?: string;
   "data-testid"?: string;
+  "aria-label"?: string;
 }
 
 export function EmButton({
@@ -44,6 +46,7 @@ export function EmButton({
   className,
   title,
   "data-testid": testId,
+  "aria-label": ariaLabel,
 }: EmButtonProps) {
   const isDisabled = Boolean(disabled || action?.disabled || loading);
   const label = children ?? action?.label;
@@ -68,7 +71,10 @@ export function EmButton({
   if (action?.to && !isDisabled) {
     return (
       <Button asChild variant="ghost" className={classes} data-testid={testId} title={title}>
-        <Link to={action.to} aria-label={typeof label === "string" ? label : undefined}>
+        <Link
+          to={action.to}
+          aria-label={ariaLabel ?? (typeof label === "string" ? label : undefined)}
+        >
           {content}
         </Link>
       </Button>
@@ -82,6 +88,7 @@ export function EmButton({
       onClick={action?.onClick ?? onClick}
       disabled={isDisabled}
       aria-busy={loading || undefined}
+      aria-label={ariaLabel}
       title={title ?? (isDisabled ? disabledReason : undefined)}
       data-testid={testId}
     >

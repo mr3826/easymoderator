@@ -1,7 +1,10 @@
 /**
  * Page header (guardrails §24): context bar → title + dominant signal +
- * WHY HERE → primary action bar (WHAT NOW).
+ * WHY HERE → primary action bar (WHAT NOW). signalTestId/primaryTestId/meta
+ * are additive slots so other redesigned pages (inbox) reuse the anatomy
+ * without forking it; defaults preserve the dashboard proof hooks.
  */
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +20,12 @@ interface PageHeaderProps {
   primaryAction?: Action;
   secondaryActions?: Action[];
   loading?: boolean;
+  signalTestId?: string;
+  primaryTestId?: string;
+  meta?: ReactNode;
+  /** Inbox keeps role="status" reserved for thread-level claims; the header
+   *  signal still announces politely through a live-region wrapper. */
+  signalAnnounce?: boolean;
 }
 
 export function PageHeader({
@@ -27,6 +36,10 @@ export function PageHeader({
   primaryAction,
   secondaryActions,
   loading,
+  signalTestId = "dashboard-signal",
+  primaryTestId,
+  meta,
+  signalAnnounce = true,
 }: PageHeaderProps) {
   const { t } = useTranslation();
   return (
@@ -51,15 +64,23 @@ export function PageHeader({
       )}
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold text-em-text-primary">{title}</h1>
-        {signal && <SignalBadge signal={signal} size="md" announce data-testid="dashboard-signal" />}
+        {signal && (signalAnnounce ? (
+          <SignalBadge signal={signal} size="md" announce data-testid={signalTestId} />
+        ) : (
+          <span aria-live="polite">
+            <SignalBadge signal={signal} size="md" data-testid={signalTestId} />
+          </span>
+        ))}
       </div>
       <p className="mt-1 max-w-[70ch] text-sm text-em-text-secondary">{whyHere}</p>
+      {meta && <div className="mt-3">{meta}</div>}
       {primaryAction && (
         <ActionBar
           className="mt-4"
           primaryAction={primaryAction}
           secondaryActions={secondaryActions}
           loading={loading}
+          primaryTestId={primaryTestId}
         />
       )}
     </header>

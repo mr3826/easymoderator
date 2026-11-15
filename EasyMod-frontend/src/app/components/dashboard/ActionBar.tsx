@@ -2,7 +2,8 @@
  * Primary action bar (guardrails §24): exactly one primary action, secondary
  * actions beside it. The dashboard has no destructive operations, so
  * isDestructive/confirmationRequired are accepted for contract parity but
- * never set here.
+ * never set here. primaryTestId lets other redesigned pages (inbox) keep
+ * their own proof hooks without forking the bar.
  */
 import { cn } from "../ui/utils";
 import { EmButton } from "./EmButton";
@@ -15,6 +16,7 @@ interface ActionBarProps {
   isDestructive?: boolean;
   confirmationRequired?: boolean;
   className?: string;
+  primaryTestId?: string;
 }
 
 export function ActionBar({
@@ -23,6 +25,7 @@ export function ActionBar({
   loading,
   isDestructive,
   className,
+  primaryTestId = "dashboard-primary-action",
 }: ActionBarProps) {
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
@@ -30,7 +33,7 @@ export function ActionBar({
         variant={isDestructive ? "danger" : "primary"}
         action={primaryAction}
         loading={loading}
-        data-testid="dashboard-primary-action"
+        data-testid={primaryTestId}
       />
       {secondaryActions?.map((action) => (
         <EmButton key={action.label} variant="secondary" action={action} />

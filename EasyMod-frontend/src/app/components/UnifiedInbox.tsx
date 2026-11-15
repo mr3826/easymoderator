@@ -8,7 +8,7 @@
  * This file: state management, SSE wiring, data loading only (~250 lines).
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -30,6 +30,23 @@ import { InboxThreadDetail } from "./inbox/InboxThreadDetail";
 import CustomerContextPanel from "./inbox/CustomerContextPanel";
 import { ActionQueuePanel } from "./inbox/ActionQueuePanel";
 import { BADGE_LABEL_KEYS } from "./channels/channelAutomation";
+import { motion, MotionConfig } from "motion/react";
+import { fadeUp } from "@/lib/motion";
+import { PageHeader } from "./dashboard/PageHeader";
+import {
+  deriveInboxSignal,
+  deriveInboxPrimaryAction,
+  deriveInboxNarrative,
+  type InboxDeriveInput,
+  type InboxPhase,
+} from "./inbox/derive";
+import { authService } from "../lib/auth";
+import { formatRelative } from "./customers/customerDisplay";
+import { EmButton } from "./dashboard/EmButton";
+import { useDialogFocus } from "./inbox/useDialogFocus";
+
+// Entrance motion only on first paint; unit/e2e environments render immediately.
+const ANIMATE = import.meta.env.MODE !== "test";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -288,6 +305,8 @@ export default function UnifiedInbox() {
   // ADR-0013 §8: optional manual-takeover reason (fixed list).
   const [takeoverOpen, setTakeoverOpen] = useState(false);
   const [takeoverReason, setTakeoverReason] = useState<ManualHandoffReason>("manual_takeover");
+  const takeoverDialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(takeoverDialogRef, takeoverOpen);
   const [aiReplyMode, setAiReplyMode] = useState<AiReplyMode>(DEFAULT_AI_REPLY_MODE);
   const [aiReplyStatuses, setAiReplyStatuses] = useState<Record<string, AiReplyStatus>>({});
   const aiReplyModeRef = useRef<AiReplyMode>(DEFAULT_AI_REPLY_MODE);
@@ -326,6 +345,11 @@ export default function UnifiedInbox() {
     actionQueueRefreshRef.current = refresh;
   }, []);
   const refreshActionQueue = useCallback(() => { actionQueueRefreshRef.current?.(); }, []);
+
+  // Presentation-only sync evidence for the guardrails PROVEN RESULT line.
+  // State bookkeeping only: never fetches, never alters SSE/merge behavior.
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const noteSync = useCallback(() => { setLastSyncAt(Date.now()); }, []);
 
   const { features: planFeatures } = useSubscriptionFeatures();
   const PAGE_SIZE = 30;
@@ -421,6 +445,7 @@ export default function UnifiedInbox() {
         requestRevisions,
       );
       setConversations(mergedConversations);
+      noteSync();
       setCurrentPage(effectivePage);
       currentPageRef.current = effectivePage;
       setTotalConversations(effectiveTotal);
@@ -716,6 +741,7 @@ export default function UnifiedInbox() {
       conversationProjectionRevisionRef.current[conversation_id] =
         (conversationProjectionRevisionRef.current[conversation_id] || 0) + 1;
       liveMessageIdsRef.current.add(message.id);
+      noteSync();
       const selectedId = selectedConversationRef.current?.id;
       const isSelected = selectedId === conversation_id;
       if (isSelected) seenMessageIdsRef.current.add(message.id);
@@ -825,6 +851,7 @@ export default function UnifiedInbox() {
         assignee_id?: string | null;
         assignee?: { id: string; name: string | null } | null;
       }) => {
+      noteSync();
       refreshActionQueue();
       conversationProjectionRevisionRef.current[conversation_id] =
         (conversationProjectionRevisionRef.current[conversation_id] || 0) + 1;
@@ -884,6 +911,7 @@ export default function UnifiedInbox() {
       content?: string | null;
       created_at?: string | null;
     }) => {
+      noteSync();
       refreshActionQueue();
       conversationProjectionRevisionRef.current[conversation_id] =
         (conversationProjectionRevisionRef.current[conversation_id] || 0) + 1;
@@ -1058,6 +1086,7 @@ export default function UnifiedInbox() {
 
     onSSEOnline: useCallback(() => {
       setSseConnected(true);
+      noteSync();
       if (sseEverConnectedRef.current) {
         void loadConversationsRef.current();
         const selectedId = selectedConversationRef.current?.id;
@@ -1071,6 +1100,7 @@ export default function UnifiedInbox() {
       last_read_message_id?: string | null;
       last_read_message_at?: string | null;
     }) => {
+      noteSync();
       setConversations((prev) => prev.map((conversation) => {
         if (conversation.id !== conversation_id) return conversation;
         return mergeReadProjection(conversation, {
@@ -1120,6 +1150,7 @@ export default function UnifiedInbox() {
     // ADR-0013 §6: the shop-wide stop engaged or resumed.
     onEmergencyStopChanged: useCallback((payload: { active: boolean }) => {
       setEmergencyStopActive(payload.active === true);
+      noteSync();
       void loadConversationsRef.current();
     }, []),
   });
@@ -1429,6 +1460,19 @@ export default function UnifiedInbox() {
     void loadConversations(failedPageRef.current ?? currentPageRef.current);
   };
 
+  // Verbatim extraction of the list's selection path so the header primary
+  // action and the rows share one URL-syncing behavior.
+  const selectConversation = useCallback((conv: Conversation) => {
+    const sameConversation = selectedConversationRef.current?.id === conv.id;
+    setSelectedConversation(conv);
+    updateSearchParams({ conversation: conv.id });
+    if (!sameConversation) {
+      setMessages([]);
+      setLoadingMessages(true);
+    }
+    setMobilePanelOpen(true);
+  }, [updateSearchParams]);
+
   const filteredConversations = conversations.filter((conv) => {
     const matchesSearch =
       !searchQuery ||
@@ -1443,6 +1487,52 @@ export default function UnifiedInbox() {
   const needsReviewCount = conversations.filter(needsMerchantReply).length;
   const closedCount = conversations.filter((c) => c.status === "closed").length;
   const unreadTotal = conversations.reduce((total, conversation) => total + (conversation.unreadCount || 0), 0);
+
+  // ─── Guardrails derivation (pure; page-scoped honesty) ─────────────────────
+  const draftCount = conversations.filter((conversation) => conversation.hasAiSuggestion === true).length;
+  const inboxPhase: InboxPhase = loadingConversations && conversations.length === 0
+    ? "loading"
+    : error
+      ? "error"
+      : conversations.length === 0
+        ? "empty"
+        : "ready";
+  const deriveInput: InboxDeriveInput = {
+    phase: inboxPhase,
+    emergencyStop: emergencyStopActive || selectedConversation?.emergency_stop?.active === true,
+    needsReviewCount,
+    draftCount,
+    unreadTotal,
+    conversationCount: conversations.length,
+    nextReplyId: conversations.find(needsMerchantReply)?.id ?? null,
+    nextDraftId: conversations.find((conversation) => conversation.hasAiSuggestion === true)?.id ?? null,
+    firstUnreadId: conversations.find((conversation) => (conversation.unreadCount || 0) > 0)?.id ?? null,
+  };
+  const inboxSignal = deriveInboxSignal(deriveInput, t);
+  const inboxPrimary = deriveInboxPrimaryAction(deriveInput, t);
+  const lastSyncLabel = lastSyncAt
+    ? formatRelative(new Date(lastSyncAt).toISOString(), i18n.language)
+    : undefined;
+  const inboxNarrative = deriveInboxNarrative(deriveInput, t, { lastSyncLabel });
+  const shopName = authService.getCurrentShop()?.shop_name || t("inbox.breadcrumb.workspace");
+
+  const handlePrimaryAction = () => {
+    if (inboxPrimary.intent === "retry") {
+      handleRetryConversations();
+      return;
+    }
+    if (inboxPrimary.intent === "open-conversation" && inboxPrimary.conversationId) {
+      // Synchronous click path: read the rendered page, not the async ref.
+      const target = conversations.find(
+        (conversation) => conversation.id === inboxPrimary.conversationId,
+      );
+      if (target) selectConversation(target);
+      return;
+    }
+    if (inboxPrimary.intent === "refresh") {
+      void loadConversations(currentPageRef.current);
+    }
+  };
 
   const latestInboundAt = messages.length
     ? [...messages].reverse().find((message) => message.sender === "customer")?.created_at
@@ -1459,39 +1549,64 @@ export default function UnifiedInbox() {
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="shrink-0 bg-white border-b border-gray-200 flex items-center px-4 md:px-8 py-3 gap-2 flex-wrap">
-        <h1 className="text-lg md:text-xl font-semibold text-gray-900 whitespace-nowrap font-bn">
-          {t("inbox.title")}
-        </h1>
-        <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm whitespace-nowrap">
-          {t("inbox.active", { count: conversations.filter((c) => c.status === "active").length })}
-        </span>
-        {unreadTotal > 0 && (
-          <span data-testid="inbox-unread-total" className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm whitespace-nowrap">
-            {t("inbox.unread", { count: unreadTotal })}
-          </span>
-        )}
-        <span
-          data-testid="inbox-ai-reply-mode"
-          className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm whitespace-nowrap"
-        >
-          {t("inbox.modeLabel")}:{" "}
-          {selectedConversation?.billing_ai_active === false
-            ? t(BADGE_LABEL_KEYS.billingPaused)
-            : t(
-                AI_REPLY_MODE_LABEL_KEYS[
-                  selectedConversation?.effective_ai_reply_mode ?? aiReplyMode
-                ],
+    <MotionConfig reducedMotion="user">
+    <div className="em-inbox h-full flex flex-col overflow-hidden">
+      {/* Header — guardrails §5 anatomy: context → title + signal → WHY HERE →
+          meta pills → one primary action. Pill logic/testids unchanged. */}
+      <motion.div
+        variants={fadeUp}
+        initial={ANIMATE ? "hidden" : false}
+        animate="visible"
+        className="shrink-0 border-b border-em-border bg-em-bg-surface px-4 md:px-6 py-3"
+      >
+        <PageHeader
+          title={t("inbox.title")}
+          breadcrumb={[{ label: shopName }]}
+          signal={inboxSignal}
+          signalTestId="inbox-signal"
+          signalAnnounce={false}
+          whyHere={inboxNarrative.whyHere}
+          primaryAction={{
+            label: inboxPrimary.label,
+            onClick: handlePrimaryAction,
+            disabled: inboxPrimary.disabled,
+          }}
+          primaryTestId="inbox-primary-action"
+          meta={
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                {t("inbox.active", { count: conversations.filter((c) => c.status === "active").length })}
+              </span>
+              {unreadTotal > 0 && (
+                <span
+                  data-testid="inbox-unread-total"
+                  className="em-tabular whitespace-nowrap rounded-full border border-em-sunlight-600/30 bg-em-sunlight-100 px-3 py-1 text-xs font-semibold text-em-sunlight-700"
+                >
+                  {t("inbox.unread", { count: unreadTotal })}
+                </span>
               )}
-        </span>
-      </div>
+              <span
+                data-testid="inbox-ai-reply-mode"
+                className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary"
+              >
+                {t("inbox.modeLabel")}:{" "}
+                {selectedConversation?.billing_ai_active === false
+                  ? t(BADGE_LABEL_KEYS.billingPaused)
+                  : t(
+                      AI_REPLY_MODE_LABEL_KEYS[
+                        selectedConversation?.effective_ai_reply_mode ?? aiReplyMode
+                      ],
+                    )}
+              </span>
+            </div>
+          }
+        />
+      </motion.div>
 
       {/* Offline banner */}
       {!sseConnected && (
-        <div className="shrink-0 bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-sm text-yellow-800 flex items-center gap-2 font-bn">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+        <div role="status" className="shrink-0 border-b border-em-warning-700/20 bg-em-warning-100 px-4 py-2 text-sm text-em-warning-700 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
           <span>{t("inbox.offlineBanner")}</span>
         </div>
       )}
@@ -1501,9 +1616,9 @@ export default function UnifiedInbox() {
         <div
           role="alert"
           data-testid="emergency-stop-banner"
-          className="shrink-0 bg-red-50 border-b border-red-200 px-4 py-2 text-sm text-red-800 flex items-center gap-2 font-bn"
+          className="shrink-0 border-b border-em-danger-700/20 bg-em-danger-100 px-4 py-2 text-sm text-em-danger-700 flex items-center gap-2"
         >
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
           <span>{t("inbox.emergencyBanner")}</span>
         </div>
       )}
@@ -1530,16 +1645,7 @@ export default function UnifiedInbox() {
           onFilterChange={handleFilterChange}
           onPageChange={handlePageChange}
           onRetry={handleRetryConversations}
-          onSelectConversation={(conv) => {
-            const sameConversation = selectedConversationRef.current?.id === conv.id;
-            setSelectedConversation(conv);
-            updateSearchParams({ conversation: conv.id });
-            if (!sameConversation) {
-              setMessages([]);
-              setLoadingMessages(true);
-            }
-            setMobilePanelOpen(true);
-          }}
+          onSelectConversation={selectConversation}
         />
 
         {selectedConversation ? (
@@ -1575,6 +1681,9 @@ export default function UnifiedInbox() {
             onSetResolveNote={setResolveNote}
             onToggleContext={() => setContextOpen((o) => !o)}
             contextOpen={contextOpen}
+            narrative={inboxNarrative}
+            lastSyncAt={lastSyncAt}
+            sseConnected={sseConnected}
             onMessageSent={handleMessageSent}
             onSendFailed={handleMessageSendFailed}
             onTemplatesChanged={loadTemplates}
@@ -1587,8 +1696,23 @@ export default function UnifiedInbox() {
           )}
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-500 lg:flex hidden">
-            <p className="font-bn">{t("inbox.selectConversation")}</p>
+          <div className="flex-1 flex items-center justify-center lg:flex hidden">
+            <div className="max-w-[46ch] space-y-2 p-6 text-center">
+              <p className="text-sm font-semibold text-em-text-primary">{t("inbox.selectConversation")}</p>
+              <p className="text-sm text-em-text-secondary">{inboxNarrative.whyHere}</p>
+              <p className="text-xs text-em-text-secondary">{inboxNarrative.whereNext}</p>
+              <p aria-live="polite" className="em-tabular text-xs font-medium text-em-text-secondary">
+                {inboxNarrative.provenResult}
+              </p>
+              {totalConversations === 0 && (
+                <Link
+                  to="/manage-shop/channels"
+                  className="inline-flex min-h-11 items-center rounded-lg border border-em-border-strong bg-em-bg-surface px-4 text-sm font-semibold text-em-text-primary hover:bg-em-bg-muted"
+                >
+                  {t("inbox.empty.connectChannel")}
+                </Link>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1599,14 +1723,18 @@ export default function UnifiedInbox() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="inbox-takeover-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-em-midnight-950/60 p-4"
+          onKeyDown={(event) => { if (event.key === "Escape") setTakeoverOpen(false); }}
         >
-          <div className="w-full max-w-sm space-y-4 rounded-lg bg-white p-6 shadow-xl">
-            <h3 id="inbox-takeover-title" className="text-lg font-semibold text-gray-900 font-bn">
+          <div
+            ref={takeoverDialogRef}
+            className="w-full max-w-sm space-y-4 rounded-lg bg-em-bg-surface p-6 shadow-xl"
+          >
+            <h3 id="inbox-takeover-title" className="text-lg font-semibold text-em-text-primary">
               {t("inbox.takeoverDialog.title")}
             </h3>
-            <p className="text-sm text-gray-600 font-bn">{t("inbox.takeoverDialog.desc")}</p>
-            <label className="block text-xs font-medium text-gray-700 font-bn">
+            <p className="text-sm text-em-text-secondary">{t("inbox.takeoverDialog.desc")}</p>
+            <label className="block text-xs font-medium text-em-text-primary">
               {t("inbox.takeoverDialog.reason")}
               <select
                 data-testid="takeover-reason-select"
@@ -1614,7 +1742,7 @@ export default function UnifiedInbox() {
                 onChange={(event) =>
                   setTakeoverReason(event.target.value as ManualHandoffReason)
                 }
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-sm"
+                className="mt-1 block w-full min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-2.5 py-1.5 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none"
               >
                 {TAKEOVER_REASONS.map((reason) => (
                   <option key={reason} value={reason}>
@@ -1624,25 +1752,22 @@ export default function UnifiedInbox() {
               </select>
             </label>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setTakeoverOpen(false)}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 font-bn"
-              >
+              <EmButton variant="secondary" onClick={() => setTakeoverOpen(false)}>
                 {t("inbox.takeoverDialog.cancel")}
-              </button>
-              <button
-                type="button"
+              </EmButton>
+              <EmButton
+                variant="attention"
                 disabled={togglingHITL}
+                loading={togglingHITL}
                 onClick={confirmTakeover}
-                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 font-bn"
               >
                 {t("inbox.takeoverDialog.confirm")}
-              </button>
+              </EmButton>
             </div>
           </div>
         </div>
       )}
     </div>
+    </MotionConfig>
   );
 }

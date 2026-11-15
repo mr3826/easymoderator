@@ -18,7 +18,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
-import type { SetupStatus, SetupTask, SetupTaskKey } from '@/api/types';
+import type { SetupStatus, SetupTaskKey } from '@/api/types';
 import { EmButton } from './dashboard/EmButton';
 import { PageHeader } from './dashboard/PageHeader';
 import { ResultBanner } from './dashboard/ResultBanner';

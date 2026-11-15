@@ -284,10 +284,11 @@
   --color-em-focus-dark: var(--em-focus-dark);
 }
 
-/* Page scope for the /dashboard redesign. Inter covers Latin; Hind Siliguri
-   (production-approved, Bengali-first) covers Bengali glyphs via per-glyph
-   fallback. The shared shell keeps its own typography. */
-.em-dashboard {
+/* Page scope for the /dashboard and /inbox redesigns. Inter covers Latin; Hind
+   Siliguri (production-approved, Bengali-first) covers Bengali glyphs via
+   per-glyph fallback. The shared shell keeps its own typography. */
+.em-dashboard,
+.em-inbox {
   font-family:
     "Inter",
     "Hind Siliguri",
@@ -302,19 +303,31 @@
   color: var(--em-text-primary);
 }
 
-.em-dashboard :focus-visible {
+.em-dashboard :focus-visible,
+.em-inbox :focus-visible {
   outline: 2px solid var(--em-focus-light) !important;
   outline-offset: 2px !important;
 }
 
-.em-dashboard .em-tabular {
+.em-dashboard .em-tabular,
+.em-inbox .em-tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Shared entity links wear the shell brand green (#00a651, 3.19:1 on white —
+   below AA). Inside the inbox scope they adopt the violet link tone; the
+   shared component itself stays untouched for other pages. */
+.em-inbox .text-brand {
+  color: var(--em-violet-700);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .em-dashboard *,
   .em-dashboard *::before,
-  .em-dashboard *::after {
+  .em-dashboard *::after,
+  .em-inbox *,
+  .em-inbox *::before,
+  .em-inbox *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }

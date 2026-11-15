@@ -14,11 +14,21 @@ const routerState = vi.hoisted(() => ({
 
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>()
+  const React = await import('react')
   return {
     ...actual,
     useLocation: () => routerState.location,
     useNavigate: () => routerState.navigate,
     useParams: () => ({}),
+    // Harness-only: the redesign renders real <Link>s (evidence rail, empty
+    // state) while most cases render without a Router. Anchor stand-in keeps
+    // every existing assertion untouched.
+    Link: ({ to, children, ...rest }: { to?: string; children?: import('react').ReactNode; [key: string]: unknown }) =>
+      React.createElement(
+        'a',
+        { href: to ?? '#', ...rest } as import('react').AnchorHTMLAttributes<HTMLAnchorElement>,
+        children,
+      ),
   }
 })
 

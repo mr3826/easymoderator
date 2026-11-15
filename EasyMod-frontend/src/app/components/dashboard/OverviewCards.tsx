@@ -68,10 +68,9 @@ interface CashPositionCardProps {
   data: { amount: number; count: number } | null;
   icon: LucideIcon;
   formatCurrency: (v: number) => string;
-  formatCount: (v: number) => string;
 }
 
-function CashPositionCard({ label, subLabel, data, icon: Icon, formatCurrency, formatCount }: CashPositionCardProps) {
+function CashPositionCard({ label, subLabel, data, icon: Icon, formatCurrency }: CashPositionCardProps) {
   const { t } = useTranslation();
   return (
     <section className="min-h-[112px] rounded-xl border border-em-border bg-em-bg-surface">
@@ -85,7 +84,7 @@ function CashPositionCard({ label, subLabel, data, icon: Icon, formatCurrency, f
           <>
             <p className="em-tabular mt-1 text-2xl font-semibold text-em-text-primary md:text-3xl">{formatCurrency(data.amount)}</p>
             <p className="mt-1 text-sm font-semibold text-em-text-secondary">
-              {t("dashboard.pulse.cashPosition.ordersUnit", { count: formatCount(data.count) })}
+              {t("dashboard.pulse.cashPosition.ordersUnit", { count: data.count })}
             </p>
           </>
         ) : (
@@ -132,7 +131,6 @@ export function OverviewCards({ ordersToday, cashPosition, chartData, formatCurr
           data={cashPosition?.inTransit ?? null}
           icon={Truck}
           formatCurrency={formatCurrency}
-          formatCount={formatCount}
         />
         <CashPositionCard
           label={t("dashboard.pulse.cashPosition.atRisk")}
@@ -140,7 +138,6 @@ export function OverviewCards({ ordersToday, cashPosition, chartData, formatCurr
           data={cashPosition?.atRisk ?? null}
           icon={AlertTriangle}
           formatCurrency={formatCurrency}
-          formatCount={formatCount}
         />
       </div>
       <p role="note" className="mt-3 text-xs text-em-text-secondary">
