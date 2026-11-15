@@ -44,6 +44,9 @@ export interface SignupRequest {
   full_name: string;
   phone?: string;
   accepted_terms: true;
+  /** Marketing acquisition attribution (bounded slugs, e.g. landing_zero). */
+  source?: string;
+  offer?: string;
 }
 
 export interface CreateShopRequest {

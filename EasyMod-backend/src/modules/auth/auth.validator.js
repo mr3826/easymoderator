@@ -37,7 +37,21 @@ const signupValidator = Joi.object({
         .messages({
             'any.only': 'You must accept the terms and conditions',
             'any.required': 'You must accept the terms and conditions'
-        })
+        }),
+    // Marketing acquisition attribution from landing CTAs. Bounded URL-safe
+    // slugs only; stored as analytics/lead metadata, never used in queries.
+    source: Joi.string()
+        .trim()
+        .lowercase()
+        .pattern(/^[a-z0-9][a-z0-9_-]{0,63}$/)
+        .optional()
+        .messages({ 'string.pattern.base': 'source must be a short URL-safe slug' }),
+    offer: Joi.string()
+        .trim()
+        .lowercase()
+        .pattern(/^[a-z0-9][a-z0-9_-]{0,63}$/)
+        .optional()
+        .messages({ 'string.pattern.base': 'offer must be a short URL-safe slug' })
 });
 
 const signinValidator = Joi.object({
