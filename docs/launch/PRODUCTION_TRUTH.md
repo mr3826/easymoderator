@@ -63,7 +63,7 @@ exist (NXDOMAIN) and must not be used in any production URL.
 
 | Host | Role | DNS |
 |---|---|---|
-| `easymod.tech` (apex) | Marketing, pricing, privacy, terms | A → `130.210.21.100` |
+| `easymod.tech` (apex) | Static zero-landing at `/` (ADR-0014), pricing, privacy, terms | A → `130.210.21.100` |
 | `www.easymod.tech` | 301 → apex | A → `130.210.21.100` |
 | `app.easymod.tech` | Merchant/admin SPA | A → `130.210.21.100` |
 | `api.easymod.tech` | JSON API, webhooks, health, uploads, SSE | A → `130.210.21.100` |
@@ -74,8 +74,13 @@ exist (NXDOMAIN) and must not be used in any production URL.
   end to end.
 - MX, TXT (SPF/DMARC/DKIM) and Resend rows were preserved unchanged through the
   2026-11-13 cutover; transactional mail continues through Resend.
-- `www` answers 301 to the apex. Caddy host blocks live in `Caddyfile` at ~line 23
-  (`www`), 28 (`api`), 87 (`app`), 122 (apex) and 204 (`growth`).
+- `www` answers 301 to the apex. Caddy host blocks live in the repo-root
+  `Caddyfile` (`www`, `api`, `app`, apex, `growth`).
+- Apex `/` is an **internal rewrite** to `/landing-zero.html` (the founder-approved
+  static landing shipped in `EasyMod-frontend/public/`, ADR-0014) — URL stays `/`,
+  no redirect. Other apex paths still serve the React marketing SPA. The app
+  hostname's `/` is untouched and keeps serving the merchant SPA root loader.
+  `/privacy` 301s to `/privacy-policy`.
 
 ## TLS and certificate renewal
 

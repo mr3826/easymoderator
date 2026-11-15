@@ -261,3 +261,26 @@ test('build:collateral renders the frozen terms', () => {
     assert.match(text, /contractVersion|v1\.0\.0/);
     assert.match(text, /registry `sha256:[0-9a-f]{64}`/);
 });
+
+test('(h) the static apex landing passes when it carries the contract prices', () => {
+    const { expectedPriceStrings, STATIC_LANDING } = require('../lib/static-landing-check');
+    const { unitBn, zeroBn } = expectedPriceStrings();
+    withTree({
+        [STATIC_LANDING]: `<h1>ডেলিভারি হলে ${unitBn}</h1><p>না হলে ${zeroBn}</p>\n`,
+    }, (root) => {
+        const result = run(root, 'static-landing');
+        assert.equal(result.status, 0, result.stdout);
+        assert.match(result.stdout, /PASS \(h\) static apex landing contract parity/);
+    });
+});
+
+test('(h) a missing static apex landing fails with exit 1', () => {
+    withTree({
+        'EasyMod-frontend/src/App.tsx': 'export const A = () => null;\n',
+    }, (root) => {
+        const result = run(root, 'static-landing');
+        assert.equal(result.status, 1);
+        assert.match(result.stdout, /FAIL \(h\) static apex landing contract parity/);
+        assert.match(result.stdout, /missing or unreadable/);
+    });
+});
