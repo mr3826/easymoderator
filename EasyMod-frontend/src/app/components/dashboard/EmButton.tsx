@@ -50,7 +50,10 @@ export function EmButton({
   const classes = cn(
     // Explicit focus-visible outline utilities: the kit base ships outline-none,
     // and a scoped descendant rule alone proved engine-dependent in CI.
-    "min-h-11 rounded-lg px-4 text-sm font-semibold focus-visible:ring-[0px] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light",
+    // transition-none on focus: the kit's transition-all otherwise animates
+    // outline-width/color from their pre-focus values, so the ring fades in
+    // (and CI read computed style mid-transition as width 0).
+    "min-h-11 rounded-lg px-4 text-sm font-semibold focus-visible:transition-none focus-visible:ring-[0px] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light",
     variantClasses[variant],
     className,
   );

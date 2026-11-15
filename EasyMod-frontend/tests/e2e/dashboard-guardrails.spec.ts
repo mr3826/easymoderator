@@ -215,6 +215,8 @@ test('keyboard Tab reaches the primary action with a visible focus ring', async 
     if (focused) break;
   }
   expect(focused).toBe(true);
+  // Let any focus transition settle before reading computed styles.
+  await page.waitForTimeout(300);
   const outline = await page.evaluate(() => {
     const el = document.activeElement as HTMLElement;
     const style = window.getComputedStyle(el);
