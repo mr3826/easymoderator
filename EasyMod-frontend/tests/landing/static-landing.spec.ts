@@ -127,13 +127,16 @@ test('S7 — no uncaught JS exceptions through a full interaction pass', async (
 });
 
 for (const width of [360, 1440]) {
-  test(`S8 — axe reports zero critical violations at ${width}px`, async ({ page }) => {
+  // Critical-only filtering previously let serious WCAG AA defects (invisible
+  // white-on-white mock values, aria-hidden-focus on the retracted sticky CTA,
+  // sub-AA contrast) pass the gate. Assert critical AND serious are both zero.
+  test(`S8 — axe reports zero critical/serious violations at ${width}px`, async ({ page }) => {
     await openStatic(page, width, width === 360 ? 800 : 900);
     await revealAll(page);
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
-    const critical = results.violations.filter((v) => v.impact === 'critical');
-    expect(critical, JSON.stringify(critical.map((v) => v.id))).toEqual([]);
+    const blocking = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+    expect(blocking, JSON.stringify(blocking.map((v) => `${v.id}:${v.impact}`))).toEqual([]);
   });
 }
