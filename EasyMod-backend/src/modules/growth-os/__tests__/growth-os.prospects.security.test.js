@@ -450,14 +450,13 @@ describe('Growth OS prospect route security', () => {
     expect(legacyAdmin.status).toBe(403);
   });
 
-  it('enforces MFA for broad Growth roles before prospect access', async () => {
+  it('grants prospect access to a broad Growth role without the MFA claim', async () => {
     setIdentity({ id: FOUNDER_ID, role: 'FOUNDER', mfaVerified: false });
 
     const response = await request(app).get('/api/internal/growth-os/prospects');
 
-    expect(response.status).toBe(403);
-    expect(response.body.code).toBe('GROWTH_OS_MFA_REQUIRED');
-    expect(mockProspectRepository.listProspects).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mockProspectRepository.listProspects).toHaveBeenCalled();
   });
 
   it('rejects malformed prospect input at the HTTP boundary', async () => {

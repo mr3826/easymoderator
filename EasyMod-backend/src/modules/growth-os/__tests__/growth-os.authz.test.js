@@ -135,7 +135,7 @@ describe('Growth OS session authorization', () => {
     expect(res.status).toBe(403);
   });
 
-  it('exposes only the MFA enrollment boundary for the marked seed identity', async () => {
+  it('reports the pending role-grant boundary for the marked seed identity without an MFA step', async () => {
     roleHolder.user = {
       userId: 'bootstrap-1',
       email: 'growth-admin@easymod.tech',
@@ -146,10 +146,10 @@ describe('Growth OS session authorization', () => {
     const res = await request(app).get('/api/internal/growth-os/session');
 
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe('GROWTH_OS_BOOTSTRAP_MFA_REQUIRED');
+    expect(res.body.code).toBe('GROWTH_OS_BOOTSTRAP_PENDING');
   });
 
-  it('does not grant Growth access after MFA until the audited role grant completes', async () => {
+  it('does not grant Growth access until the audited role grant completes', async () => {
     roleHolder.user = {
       userId: 'bootstrap-1',
       email: 'growth-admin@easymod.tech',
@@ -251,17 +251,20 @@ describe('Growth OS session authorization', () => {
     expect(res.body.data.permissions).not.toContain('growth_os.admin.merchants.mutate');
   });
 
-  it('requires MFA assurance for the canonical GROWTH_USER role', async () => {
-    roleHolder.user = { userId: 'growth-1', email: 'growth@easymod.tech', mfaVerified: false };
+  it('grants the canonical GROWTH_USER role access without an MFA claim', async () => {
+    // The claim is omitted entirely: a password-only session with an active
+    // Growth role must be authorized.
+    roleHolder.user = { userId: 'growth-1', email: 'growth@easymod.tech' };
     roleHolder.growthRole = 'GROWTH_USER';
 
     const res = await request(app).get('/api/internal/growth-os/session');
 
-    expect(res.status).toBe(403);
-    expect(res.body.code).toBe('GROWTH_OS_MFA_REQUIRED');
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('GROWTH_USER');
+    expect(res.body.data.permissions).toContain('growth_os.prospects.read_all');
   });
 
-  it('grants a canonical GROWTH_USER full workspace without admin or user-management access when MFA-assured', async () => {
+  it('grants a canonical GROWTH_USER full workspace without admin or user-management access', async () => {
     roleHolder.user = { userId: 'growth-1', email: 'growth@easymod.tech', mfaVerified: true };
     roleHolder.growthRole = 'GROWTH_USER';
 
@@ -303,34 +306,34 @@ describe('Growth OS session authorization', () => {
     expect(res.body.code).toBe('GROWTH_OS_MERCHANT_CONTEXT_FORBIDDEN');
   });
 
-  it('requires MFA assurance for legacy scoped roles that alias into canonical members', async () => {
+  it('grants legacy scoped roles that alias into canonical members without an MFA claim', async () => {
     roleHolder.user = { userId: 'executive-2', email: 'exec2@easymod.tech', mfaVerified: false };
     roleHolder.growthRole = 'BUSINESS_EXECUTIVE';
 
     const res = await request(app).get('/api/internal/growth-os/session');
 
-    expect(res.status).toBe(403);
-    expect(res.body.code).toBe('GROWTH_OS_MFA_REQUIRED');
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('GROWTH_USER');
   });
 
-  it('requires MFA assurance for the canonical SUPER_ADMIN role too', async () => {
+  it('grants the canonical SUPER_ADMIN role without an MFA claim', async () => {
     roleHolder.user = { userId: 'sa-1', email: 'sa@easymod.tech', mfaVerified: false };
     roleHolder.growthRole = 'SUPER_ADMIN';
 
     const res = await request(app).get('/api/internal/growth-os/session');
 
-    expect(res.status).toBe(403);
-    expect(res.body.code).toBe('GROWTH_OS_MFA_REQUIRED');
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('SUPER_ADMIN');
   });
 
-  it('requires MFA assurance for privileged Growth roles', async () => {
+  it('grants privileged Growth roles without an MFA claim', async () => {
     roleHolder.user = { userId: 'founder-1', email: 'founder@easymod.tech', mfaVerified: false };
     roleHolder.growthRole = 'FOUNDER';
 
     const res = await request(app).get('/api/internal/growth-os/session');
 
-    expect(res.status).toBe(403);
-    expect(res.body.code).toBe('GROWTH_OS_MFA_REQUIRED');
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('SUPER_ADMIN');
   });
 
   it('does not trust a frontend route guard claim without backend access', async () => {

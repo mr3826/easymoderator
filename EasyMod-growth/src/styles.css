@@ -1166,19 +1166,6 @@ a:focus-visible {
   font: inherit;
 }
 .global-search-form input:focus-visible { outline: 2px solid #317970; outline-offset: 1px; }
-.mfa-secret {
-  display: block;
-  margin: 6px 0 12px;
-  padding: 10px 12px;
-  background: #e7eeea;
-  border-radius: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  word-break: break-all;
-}
-.mfa-url-hint { margin: 12px 0 0; font-size: 12px; color: #60716b; }
-.mfa-otpauth { font-size: 11px; }
-.mfa-done { margin: 16px 0; padding: 12px; border-radius: 8px; background: #e7eeea; color: #15201d; }
 .status-onboarding { background: #fff3e0; color: #8a4b12; }
 .attention-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .attention-card { display: grid; gap: 4px; align-content: start; }

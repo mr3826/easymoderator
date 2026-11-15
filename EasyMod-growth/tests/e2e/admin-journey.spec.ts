@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import {
   authStatePath,
   fixtures,
-  freshTotpCode,
   pageRequest,
   runStamp,
   signIn,
@@ -11,7 +10,7 @@ import {
 test.describe.configure({ mode: 'serial' });
 test.use({ storageState: authStatePath('super') });
 
-const created: { email: string; fullName: string; password: string; totpSecret?: string }[] = [];
+const created: { email: string; fullName: string; password: string }[] = [];
 
 async function createUserViaUi(
   page: import('@playwright/test').Page,
@@ -66,9 +65,8 @@ test('the created user is server-enforced GROWTH_USER; suspend and revoke deny f
 
   const createdContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   const createdPage = await createdContext.newPage();
-  // GROWTH_USER now carries the same server-required MFA assurance as the
-  // privileged roles: password-only sessions must be steered to enrollment,
-  // not into the ledger.
+  // MFA is no longer a Growth OS precondition: a password-only GROWTH_USER
+  // session goes straight into the ledger.
   const initialSignIn = await signIn(
     createdPage,
     { id: '', email: fresh.email, password: fresh.password, role: 'GROWTH_USER' },
@@ -96,33 +94,8 @@ test('the created user is server-enforced GROWTH_USER; suspend and revoke deny f
     );
   }
 
-  // Server-enforced subordinate MFA: a password-only GROWTH_USER session is
-  // denied at every Growth route and steered through enrollment, not into
-  // the ledger.
-  await expect(createdPage).toHaveURL(/\/enroll-mfa$/);
-  await expect(createdPage.getByRole('heading', { name: 'Add multi-factor authentication' })).toBeVisible();
-  const deniedBeforeMfa = await pageRequest(createdPage, '/api/internal/growth-os/session');
-  expect(deniedBeforeMfa.status).toBe(403);
-  expect(deniedBeforeMfa.body?.code).toBe('GROWTH_OS_MFA_REQUIRED');
-
-  const secret = ((await createdPage.getByTestId('mfa-secret').textContent()) ?? '').trim();
-  expect(secret.length).toBeGreaterThan(16);
-  await createdPage.getByLabel('Current 6-digit code').fill(await freshTotpCode(secret));
-  const enableResponse = createdPage.waitForResponse((response) => (
-    response.request().method() === 'POST'
-    && response.url().endsWith('/api/auth/2fa/enable')
-    && response.status() === 200
-  ));
-  await createdPage.getByRole('button', { name: 'Verify and enable' }).click();
-  await enableResponse;
-  await expect(createdPage).toHaveURL(/\/login$/);
-  await expect(createdPage.getByText('MFA enabled. Sign in again to complete verification.')).toBeVisible();
-
-  fresh.totpSecret = secret;
-  await signIn(
-    createdPage,
-    { id: '', email: fresh.email, password: fresh.password, role: 'GROWTH_USER', totpSecret: secret },
-  );
+  // No MFA step: the created operator reaches the workspace directly.
+  await expect(createdPage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(createdPage.getByText('GROWTH_USER', { exact: true })).toBeVisible();
 
   const session = await pageRequest(createdPage, '/api/internal/growth-os/session');
@@ -228,7 +201,7 @@ test('internal search finds a Growth user and the seeded merchant for super admi
   await expect(merchantGroup.getByRole('link', { name: fixtures.shop.shopName })).toBeVisible();
 });
 
-test('a super admin created without MFA is forced through the enroll-mfa flow', async ({ page, browser }) => {
+test('a super admin created without MFA reaches the workspace after password rotation', async ({ page, browser }) => {
   const stamp = runStamp();
   const fullName = `E2E Needs MFA Admin ${stamp}`;
   const email = `growth-e2e-needs-mfa-${stamp}@example.test`;
@@ -236,7 +209,7 @@ test('a super admin created without MFA is forced through the enroll-mfa flow', 
     email,
     fullName,
     role: 'admin',
-    reason: 'MFA-assurance regression during browser E2E.',
+    reason: 'Password-only access regression during browser E2E.',
   });
 
   const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
@@ -261,13 +234,11 @@ test('a super admin created without MFA is forced through the enroll-mfa flow', 
     await expect(unenrolled).toHaveURL(/\/login$/);
     await signIn(unenrolled, { id: '', email, password, role: 'SUPER_ADMIN' }, { assertAuthorized: false });
   }
-  await expect(unenrolled).toHaveURL(/\/enroll-mfa$/);
-  await expect(unenrolled.getByRole('heading', { name: 'Add multi-factor authentication' })).toBeVisible();
-  const secret = unenrolled.getByTestId('mfa-secret');
-  await expect(secret).toBeVisible();
-  await expect(secret).not.toBeEmpty();
-  await expect(unenrolled.getByLabel('Current 6-digit code')).toBeVisible();
-  await expect(unenrolled.getByRole('button', { name: 'Verify and enable' })).toBeVisible();
+  await expect(unenrolled.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+  await expect(unenrolled.getByText('SUPER_ADMIN', { exact: true })).toBeVisible();
+  const session = await pageRequest(unenrolled, '/api/internal/growth-os/session');
+  expect(session.status).toBe(200);
+  expect(session.body?.data?.role).toBe('SUPER_ADMIN');
   await context.close();
 });
 

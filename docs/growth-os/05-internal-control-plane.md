@@ -44,14 +44,14 @@ permission maps until an explicit, audited migration changes them. The session
 may expose a canonical display alias, but that alias is not privilege
 equivalence and must never be used as authorization.
 
-| Raw historical value | Display alias only | Retained permissions until audited migration | MFA claim required |
-| --- | --- | --- | --- |
-| `FOUNDER` | `SUPER_ADMIN` | `session.read`, `roles.manage`, `prospects.read_all`, `prospects.manage_all`, `reports.read_all` | Yes |
-| `GROWTH_MANAGER` | `GROWTH_USER` | `session.read`, `prospects.read_all`, `prospects.manage_all` | Yes |
-| `BUSINESS_EXECUTIVE` | `GROWTH_USER` | `session.read`, `prospects.read_assigned`, `prospects.update_assigned` | No |
-| `MARKETER` | `GROWTH_USER` | `session.read`, `prospects.read_source_scope` with redacted prospect output | No |
-| `CUSTOMER_SUCCESS` | `GROWTH_USER` | `session.read` only | No |
-| `READ_ONLY_ANALYST` | `GROWTH_USER` | `session.read` only | No |
+| Raw historical value | Display alias only | Retained permissions until audited migration |
+| --- | --- | --- |
+| `FOUNDER` | `SUPER_ADMIN` | `session.read`, `roles.manage`, `prospects.read_all`, `prospects.manage_all`, `reports.read_all` |
+| `GROWTH_MANAGER` | `GROWTH_USER` | `session.read`, `prospects.read_all`, `prospects.manage_all` |
+| `BUSINESS_EXECUTIVE` | `GROWTH_USER` | `session.read`, `prospects.read_assigned`, `prospects.update_assigned` |
+| `MARKETER` | `GROWTH_USER` | `session.read`, `prospects.read_source_scope` with redacted prospect output |
+| `CUSTOMER_SUCCESS` | `GROWTH_USER` | `session.read` only |
+| `READ_ONLY_ANALYST` | `GROWTH_USER` | `session.read` only |
 
 The compatibility `/roles` endpoint still accepts only the two canonical role
 values. A raw `FOUNDER` can retain its historical `roles.manage` permission,
@@ -113,9 +113,11 @@ Denials are fail-closed and are not inferred from client state:
 | --- | --- |
 | Missing, invalid, expired, blacklisted, or token-version-mismatched credential | HTTP `401` |
 | No Growth role or missing required permission | HTTP `403`, code `GROWTH_OS_FORBIDDEN` |
-| Required MFA claim missing for a protected raw role | HTTP `403`, code `GROWTH_OS_MFA_REQUIRED` |
 | Growth disabled, Redis authorization cache unavailable, or authorization service unavailable | HTTP `503` |
 | Invalid body/query | HTTP `400`; object scope and lifecycle conflicts remain `404`/`409` |
+
+MFA is not a Growth OS denial condition; `GROWTH_OS_MFA_REQUIRED` was retired on
+2026-11-15.
 
 The server resolves scope from the raw permission map. Full-scope roles use an
 all-record query; assigned roles are constrained by `owner_user_id`; source
@@ -125,17 +127,15 @@ a transaction, so an ID alone is not an authorization grant. Growth lookup
 endpoints share a `120` requests/minute limiter; Growth mutations share a
 `40` requests/minute per-user/IP limiter.
 
-### MFA and sessions
+### Sessions
 
-TOTP is stored encrypted with AES-256-GCM. When TOTP is enabled, sign-in
-returns a short-lived temporary challenge; only successful verification issues
-the full session cookies with `mfaVerified: true`. Every Growth OS session
-requires the MFA assurance claim: canonical `SUPER_ADMIN` and `GROWTH_USER`
-(held PII/write policy), legacy `FOUNDER`/`GROWTH_MANAGER` by raw role, and
-all remaining legacy compatibility roles through their canonical alias. A
-password-only Growth session is rejected with `GROWTH_OS_MFA_REQUIRED` before
-any workspace route, and the SPA steers the operator through TOTP enrollment
-rather than into an error state.
+TOTP remains a shared platform authentication feature: it is stored encrypted
+with AES-256-GCM and, when enabled, sign-in still issues the short-lived
+temporary challenge and then the full session cookies with `mfaVerified: true`.
+Growth OS does not require that claim for any role; a session with an active
+Growth role and the endpoint permission is authorized whether or not the
+account has TOTP enabled, and the SPA has no enrollment-required redirect.
+`GROWTH_OS_MFA_REQUIRED` is retired as of 2026-11-15.
 
 Logout blacklists the access token and clears the refresh token. Role grant,
 role change, revoke, suspension, password reset, and explicit session revoke

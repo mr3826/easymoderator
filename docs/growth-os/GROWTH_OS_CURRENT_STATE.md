@@ -11,6 +11,14 @@ reviewer, credential, and runtime receipts.
 > The historical findings and receipts below remain evidence for how the
 > current contract was recovered. The 2026-10-07 completion plan and the latest
 > completion entry in `EXECUTION_STATE.md` supersede older verdict lines.
+>
+> **Contract update 2026-11-15:** Growth OS no longer requires MFA for any
+> role. The MFA statements below (notably the Authentication and authorization
+> table row for Founder/Growth Manager, P0-3 acceptance item 4, P0-4 acceptance
+> item 3, and the definition-of-done row about an MFA-backed session) are
+> historical evidence for the 2026-10-07 determination only. The current
+> contract is the Access contract in `EXECUTION_STATE.md` and its 2026-11-15
+> receipt.
 
 This document is a current-state determination, not a product vision. It uses
 the current code, tests, deployment configuration, and `EXECUTION_STATE.md` as

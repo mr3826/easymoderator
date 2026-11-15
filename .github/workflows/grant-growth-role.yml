@@ -8,16 +8,16 @@ name: Grant Growth OS Role
 # Admin exists. The operator identity is a protected environment secret, never
 # a workflow-dispatch input.
 #
-# The target email MUST already exist as the shop-less, MFA-enrolled identity
-# created by seed-initial-growth-admin.yml. This workflow changes Growth OS
-# access; it does not create or modify user accounts.
+# The target email MUST already exist as the shop-less identity created by
+# seed-initial-growth-admin.yml. This workflow changes Growth OS access; it does
+# not create or modify user accounts.
 # -----------------------------------------------------------------------------
 
 on:
   workflow_dispatch:
     inputs:
       email:
-        description: 'Email of the seeded, MFA-enrolled initial operator'
+        description: 'Email of the seeded initial operator'
         required: true
         default: growth-admin@easymod.tech
         type: string

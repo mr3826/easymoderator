@@ -20,7 +20,7 @@ test.describe('sign-in experiences', () => {
     expect(session.body?.data?.permissions).not.toContain('growth_os.admin.users.read');
   });
 
-  test('growth operator signs in with password and TOTP (MFA assured)', async ({ page }) => {
+  test('growth operator signs in with password', async ({ page }) => {
     await signIn(page, fixtures.users.growth);
     await expect(page.getByText('GROWTH_USER', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Growth Users', exact: true })).toHaveCount(0);

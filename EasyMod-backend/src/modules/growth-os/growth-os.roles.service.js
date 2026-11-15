@@ -90,13 +90,6 @@ function assertBootstrapTargetReady(target) {
       'GROWTH_OS_BOOTSTRAP_PASSWORD_CHANGE_REQUIRED',
     );
   }
-  if (target.settings?.totp_enabled !== true) {
-    throw new AppError(
-      'The initial Growth OS administrator must enroll MFA first.',
-      409,
-      'GROWTH_OS_BOOTSTRAP_MFA_REQUIRED',
-    );
-  }
 }
 
 async function invalidateRoleCache(userId, transaction) {

@@ -5,7 +5,7 @@ name: Seed Initial Growth OS Admin
 #
 # This workflow creates only a shop-less, temporary-password identity. It does
 # not grant SUPER_ADMIN; grant-growth-role.yml remains the canonical audited
-# role mutation after password rotation and real MFA enrollment.
+# role mutation after password rotation.
 # -----------------------------------------------------------------------------
 
 on:

@@ -9,7 +9,7 @@ export function ProtectedRoute() {
 
   if (auth.status === 'loading') return <LoadingState />;
   if (auth.status === 'authenticated') return <Outlet />;
-  if (auth.status === 'mfa-required') return <Navigate to="/enroll-mfa" replace />;
+  if (auth.status === 'bootstrap-pending') return <Navigate to="/bootstrap-pending" replace />;
   if (auth.status === 'access-denied') return <Navigate to="/access-denied" replace />;
   if (auth.status === 'session-expired') return <Navigate to="/session-expired" replace />;
   if (auth.status === 'unavailable') return <GrowthUnavailablePage />;
