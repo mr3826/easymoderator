@@ -16,7 +16,9 @@ interface PageHeaderProps {
   title: string;
   breadcrumb: BreadcrumbItem[];
   signal?: Signal;
-  whyHere: string;
+  /** Overview pages answer WHY HERE in the header; execution pages (guardrails
+   *  §29) answer it inside the work area and omit this paragraph entirely. */
+  whyHere?: string;
   primaryAction?: Action;
   secondaryActions?: Action[];
   loading?: boolean;
@@ -72,7 +74,7 @@ export function PageHeader({
           </span>
         ))}
       </div>
-      <p className="mt-1 max-w-[70ch] text-sm text-em-text-secondary">{whyHere}</p>
+      {whyHere && <p className="mt-1 max-w-[70ch] text-sm text-em-text-secondary">{whyHere}</p>}
       {meta && <div className="mt-3">{meta}</div>}
       {primaryAction && (
         <ActionBar

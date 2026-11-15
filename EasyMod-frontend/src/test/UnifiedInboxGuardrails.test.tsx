@@ -1,8 +1,9 @@
 /**
- * Guardrails anatomy contracts for /inbox (additive suite; the legacy
- * UnifiedInbox.test.tsx contract is untouched). Header signal + single
- * primary, primary navigation without extra fetches, refresh-on-click only,
- * evidence rail presence, resolve dialog semantics, composer proof hook.
+ * Guardrails contracts for /inbox as an EXECUTION page (founder addendum §29):
+ * header = title + dominant signal + factual pills only (no WHY HERE paragraph,
+ * no header CTA); the merchant drives work from rows/composer/queue; evidence
+ * rail carries PROVEN RESULT / WHERE NEXT; resolve dialog semantics; composer
+ * proof hook. Additive suite — the legacy UnifiedInbox contract is untouched.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
@@ -118,49 +119,54 @@ beforeEach(() => {
   vi.mocked(apiClient.markConversationRead).mockResolvedValue(conv('conv-1', 'Alice') as never)
 })
 
-describe('inbox guardrails anatomy', () => {
-  it('renders the Shared Inbox title, one dominant signal and exactly one primary', async () => {
-    vi.mocked(apiClient.getConversations).mockResolvedValue(list([conv('conv-1', 'Alice')]) as never)
-    renderInbox()
-    await screen.findByRole('heading', { name: 'Shared Inbox', level: 1 })
-    const signal = await screen.findByTestId('inbox-signal')
-    expect(signal.textContent).toContain('All caught up')
-    expect(screen.getAllByTestId('inbox-primary-action')).toHaveLength(1)
-    expect(screen.getByTestId('inbox-ai-reply-mode').textContent).toBe('AI reply mode: Manual replies only')
-    expect(screen.queryByTestId('inbox-unread-total')).toBeNull()
-  })
-
-  it('primary opens the first reply task and syncs the URL without extra fetches', async () => {
+describe('inbox execution-page header (§29)', () => {
+  it('renders title + dominant signal + factual pills, and no subtitle or header CTA', async () => {
     vi.mocked(apiClient.getConversations).mockResolvedValue(
       list([conv('conv-1', 'Alice'), conv('conv-2', 'Bob', { needs_merchant_reply: true, needs_merchant_reply_reason: 'CUSTOMER_UNANSWERED' })]) as never,
     )
     renderInbox()
-    const primary = await screen.findByTestId('inbox-primary-action')
-    expect(primary.textContent).toContain('Open next reply')
+    await screen.findByRole('heading', { name: 'Shared Inbox', level: 1 })
+    const signal = await screen.findByTestId('inbox-signal')
+    expect(signal.textContent).toContain('Needs review')
+    expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
+    expect(screen.queryByText('Customers are waiting for a reply on this page.')).toBeNull()
+    expect(screen.getByTestId('inbox-ai-reply-mode').textContent).toBe('AI reply mode: Manual replies only')
+    expect(screen.queryByTestId('inbox-unread-total')).toBeNull()
+    // The work surface, not a header persuasion block, owns the viewport.
+    expect(document.querySelector('.mw-inbox-workbench')).toBeTruthy()
+  })
+
+  it('merchant opens a reply task from the row; URL syncs without extra fetches', async () => {
+    vi.mocked(apiClient.getConversations).mockResolvedValue(
+      list([conv('conv-1', 'Alice'), conv('conv-2', 'Bob', { needs_merchant_reply: true, needs_merchant_reply_reason: 'CUSTOMER_UNANSWERED' })]) as never,
+    )
+    renderInbox()
+    const row = await screen.findByRole('button', { name: /Bob/ })
     const fetchesBefore = vi.mocked(apiClient.getConversations).mock.calls.length
-    fireEvent.click(primary)
+    fireEvent.click(row)
     await waitFor(() => expect(routerState.navigate).toHaveBeenCalled())
     expect(routerState.navigate).toHaveBeenLastCalledWith({ search: '?conversation=conv-2' }, { replace: true })
     expect(vi.mocked(apiClient.getConversations).mock.calls.length).toBe(fetchesBefore)
   })
 
-  it('caught-up primary refreshes on click only (no polling)', async () => {
+  it('caught-up state adds no CTA and never polls', async () => {
     vi.mocked(apiClient.getConversations).mockResolvedValue(list([conv('conv-1', 'Alice')]) as never)
     renderInbox()
-    const primary = await screen.findByTestId('inbox-primary-action')
-    expect(primary.textContent).toContain('Refresh inbox')
+    await screen.findByTestId('inbox-signal')
+    expect(screen.getByTestId('inbox-signal').textContent).toContain('All caught up')
+    expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
     await waitFor(() => expect(vi.mocked(apiClient.getConversations)).toHaveBeenCalledTimes(1))
-    fireEvent.click(primary)
-    await waitFor(() => expect(vi.mocked(apiClient.getConversations)).toHaveBeenCalledTimes(2))
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(vi.mocked(apiClient.getConversations)).toHaveBeenCalledTimes(1)
   })
 
-  it('list error offers retry as the primary', async () => {
+  it('error state keeps the compact header and exposes the list retry', async () => {
     vi.mocked(apiClient.getConversations).mockRejectedValue(new Error('boom'))
     renderInbox()
-    const primary = await screen.findByTestId('inbox-primary-action')
-    expect(primary.textContent).toContain('Retry loading')
+    const retry = await screen.findByRole('button', { name: /try again/i })
+    expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
     expect(screen.getByTestId('inbox-signal').textContent).toContain('AI stopped')
-    fireEvent.click(primary)
+    fireEvent.click(retry)
     await waitFor(() => expect(vi.mocked(apiClient.getConversations)).toHaveBeenCalledTimes(2))
   })
 

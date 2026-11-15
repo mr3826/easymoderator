@@ -35,7 +35,6 @@ import { fadeUp } from "@/lib/motion";
 import { PageHeader } from "./dashboard/PageHeader";
 import {
   deriveInboxSignal,
-  deriveInboxPrimaryAction,
   deriveInboxNarrative,
   type InboxDeriveInput,
   type InboxPhase,
@@ -1509,30 +1508,12 @@ export default function UnifiedInbox() {
     firstUnreadId: conversations.find((conversation) => (conversation.unreadCount || 0) > 0)?.id ?? null,
   };
   const inboxSignal = deriveInboxSignal(deriveInput, t);
-  const inboxPrimary = deriveInboxPrimaryAction(deriveInput, t);
   const lastSyncLabel = lastSyncAt
     ? formatRelative(new Date(lastSyncAt).toISOString(), i18n.language)
     : undefined;
   const inboxNarrative = deriveInboxNarrative(deriveInput, t, { lastSyncLabel });
   const shopName = authService.getCurrentShop()?.shop_name || t("inbox.breadcrumb.workspace");
 
-  const handlePrimaryAction = () => {
-    if (inboxPrimary.intent === "retry") {
-      handleRetryConversations();
-      return;
-    }
-    if (inboxPrimary.intent === "open-conversation" && inboxPrimary.conversationId) {
-      // Synchronous click path: read the rendered page, not the async ref.
-      const target = conversations.find(
-        (conversation) => conversation.id === inboxPrimary.conversationId,
-      );
-      if (target) selectConversation(target);
-      return;
-    }
-    if (inboxPrimary.intent === "refresh") {
-      void loadConversations(currentPageRef.current);
-    }
-  };
 
   const latestInboundAt = messages.length
     ? [...messages].reverse().find((message) => message.sender === "customer")?.created_at
@@ -1565,13 +1546,6 @@ export default function UnifiedInbox() {
           signal={inboxSignal}
           signalTestId="inbox-signal"
           signalAnnounce={false}
-          whyHere={inboxNarrative.whyHere}
-          primaryAction={{
-            label: inboxPrimary.label,
-            onClick: handlePrimaryAction,
-            disabled: inboxPrimary.disabled,
-          }}
-          primaryTestId="inbox-primary-action"
           meta={
             <div className="flex flex-wrap items-center gap-2">
               <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">

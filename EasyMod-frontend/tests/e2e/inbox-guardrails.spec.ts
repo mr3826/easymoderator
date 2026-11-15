@@ -2,8 +2,9 @@
  * /inbox guardrails proof (mock-only, CI subset). Mirrors the ai-reply-mode
  * fixture discipline: every /api/* path outside the allowlist is aborted and
  * recorded, so a redesign that invents backend calls fails here. Covers the
- * Core Design Test anatomy, single violet primary, keyboard focus, 390px
- * overflow, scoped axe, queue partial honesty and SSE-offline honesty.
+ * execution-page header (§29: title + signal only, no subtitle/CTA),
+ * merchant-driven row navigation, keyboard focus, 390px overflow, scoped axe,
+ * queue partial honesty and SSE-offline honesty.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -212,46 +213,49 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('anatomy: title, one dominant signal, one primary above the fold', async ({ page }) => {
+test('execution header: title + signal only, no subtitle or CTA, work area owns the fold', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Shared Inbox', level: 1 })).toBeVisible();
     const signal = page.getByTestId('inbox-signal');
     await expect(signal).toBeVisible();
     await expect(signal).toContainText('Needs review');
-    const primary = page.getByTestId('inbox-primary-action');
-    await expect(primary).toHaveCount(1);
-    const box = await primary.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.y + box!.height).toBeLessThan(720);
-    await expect(page.locator('.em-inbox header p').first()).not.toHaveText('');
+    await expect(page.getByTestId('inbox-primary-action')).toHaveCount(0);
+    await expect(page.getByText('Customers are waiting for a reply on this page.')).toHaveCount(0);
+    const headerBox = await page.locator('.em-inbox header').boundingBox();
+    expect(headerBox).not.toBeNull();
+    expect(headerBox!.height).toBeLessThan(170);
+    const workbench = await page.locator('.mw-inbox-workbench').boundingBox();
+    expect(workbench!.y).toBeLessThan(300);
     expect(state.unexpected).toEqual([]);
 });
 
-test('primary opens the next reply task without refetching the list', async ({ page }) => {
+test('merchant opens a reply task from the row without refetching the list', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    const primary = page.getByTestId('inbox-primary-action');
-    await expect(primary).toContainText('Open next reply');
+    // Measure only after the initial list load has landed (lazy chunk + fetch).
+    const row = page.getByRole('button', { name: /Bob/ }).first();
+    await expect(row).toBeVisible();
     const before = state.conversationFetches;
-    await primary.click();
+    await row.click();
     await page.waitForURL(/conversation=conv-2/);
-    await expect(page.getByRole('heading', { name: 'Bob', exact: true }).last()).toBeVisible();
+    // Selection itself must not refetch the list.
     expect(state.conversationFetches).toBe(before);
+    await expect(page.getByRole('heading', { name: 'Bob', exact: true }).last()).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
 
-test('exactly one violet primary on the base screen', async ({ page }) => {
+test('no header CTA: zero violet primaries on the base screen', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('inbox-primary-action')).toBeVisible();
+    await expect(page.getByTestId('inbox-signal')).toBeVisible();
     const count = await page.evaluate(
         () => document.querySelectorAll('.em-inbox button.bg-em-violet-600').length,
     );
-    expect(count).toBe(1);
+    expect(count).toBe(0);
 });
 
-test('held draft keeps one violet primary; approval is sunlight', async ({ page }) => {
+test('held draft approval is sunlight, never a violet primary', async ({ page }) => {
     const state = await setupRoutes(page, {
         messagesFor: (id) => [customerMessage(id), heldDraft(id)],
     });
@@ -261,20 +265,21 @@ test('held draft keeps one violet primary; approval is sunlight', async ({ page 
     const count = await page.evaluate(
         () => document.querySelectorAll('.em-inbox button.bg-em-violet-600').length,
     );
-    expect(count).toBe(1);
+    expect(count).toBe(0);
     expect(state.unexpected).toEqual([]);
 });
 
-test('keyboard: visible focus ring on the primary action', async ({ page }) => {
+test('keyboard: visible focus ring on conversation rows', async ({ page }) => {
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('inbox-primary-action')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Alice/ }).first()).toBeVisible();
     let focused = false;
-    for (let i = 0; i < 25; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
         await page.keyboard.press('Tab');
         focused = await page.evaluate(
-            () => document.activeElement?.getAttribute('data-testid') === 'inbox-primary-action',
+            () => document.activeElement?.getAttribute('role') === 'button'
+                && Boolean(document.activeElement?.closest('.mw-inbox-workbench')),
         );
         if (focused) break;
     }
