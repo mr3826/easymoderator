@@ -10,9 +10,11 @@ Amends: [ADR-0011](0011-delivered-order-commercial-contract.md) (apex surface on
 ADR-0011 made the merchant landing a contract-derived React surface
 (`LandingV7`): prices render from `/api/public/commercial-contract`, claims are
 registry-gated, and the page fails closed when the contract is unavailable.
-That doctrine produced a truthful but design-constrained page, and the
-fail-closed path participated in the 2026-11-15 apex landing outage
-(`9124b916`).
+That doctrine produced a truthful but design-constrained page. Separately, the
+2026-11-14 apex landing outage (deploy `a4f9324a`, fixed by `9124b916` / PR #262)
+was a missing `QueryClientProvider` on the marketing React entry — a runtime
+wiring crash, not the fail-closed contract path — but it underscored the
+fragility of a render-time-dependent apex surface.
 
 On 2026-11-15 the founder ruled that the current apex landing needs major
 design improvement and approved a replacement design: a self-contained Bengali
