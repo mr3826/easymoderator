@@ -303,8 +303,8 @@
 }
 
 .em-dashboard :focus-visible {
-  outline: 2px solid var(--em-focus-light);
-  outline-offset: 2px;
+  outline: 2px solid var(--em-focus-light) !important;
+  outline-offset: 2px !important;
 }
 
 .em-dashboard .em-tabular {

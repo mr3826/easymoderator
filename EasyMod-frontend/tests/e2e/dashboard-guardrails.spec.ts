@@ -200,9 +200,13 @@ test('dashboard answers the Core Design Test with one signal and one primary act
 });
 
 test('keyboard Tab reaches the primary action with a visible focus ring', async ({ page }) => {
+  // Reduced motion removes the entrance fade so focus styling is scanned on a
+  // settled page (same determinism as the axe test).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
   await expect(page.getByTestId('dashboard-primary-action')).toBeVisible();
+  await page.waitForTimeout(500);
 
   let focused = false;
   for (let i = 0; i < 20; i += 1) {
@@ -214,8 +218,9 @@ test('keyboard Tab reaches the primary action with a visible focus ring', async 
   const outline = await page.evaluate(() => {
     const el = document.activeElement as HTMLElement;
     const style = window.getComputedStyle(el);
-    return { width: style.outlineWidth, style: style.outlineStyle };
+    return { width: style.outlineWidth, style: style.outlineStyle, color: style.outlineColor, tag: el.tagName };
   });
+  console.log('focus outline:', JSON.stringify(outline));
   expect(outline.style).not.toBe('none');
   expect(parseFloat(outline.width)).toBeGreaterThan(0);
 });
