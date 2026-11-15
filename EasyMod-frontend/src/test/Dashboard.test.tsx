@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { apiClient } from '@/api'
 import Dashboard from '@/app/components/Dashboard'
 
@@ -57,7 +58,7 @@ describe('Dashboard', () => {
   })
 
   it('renders dashboard with pulse data', async () => {
-    render(<Dashboard />)
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
 
     // Wait for async data load — heading is always present after load.
     await waitFor(() => {
@@ -81,7 +82,7 @@ describe('Dashboard', () => {
         : [{ id: 'latest-order', total: 1250, status: 'confirmed', items: [{ productName: 'Item A', quantity: 1 }] }]
     ))
 
-    render(<Dashboard />)
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
 
     const orderCard = await screen.findByText('Orders today')
     expect(orderCard.parentElement).toHaveTextContent('51')
@@ -94,7 +95,7 @@ describe('Dashboard', () => {
       data: [], total: 101, page: 1, pageSize: 100, ai_reply_mode: 'MANUAL',
     })
 
-    render(<Dashboard />)
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
 
     expect(await screen.findByText(/could not verify all work sources/i)).toBeInTheDocument()
     expect(screen.queryByText('No verified work items remain. You are caught up.')).not.toBeInTheDocument()

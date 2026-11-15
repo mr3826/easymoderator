@@ -390,10 +390,10 @@
         "unavailable": "Unavailable"
       },
       "status": {
-        "confirmed": "Confirmed ✅",
-        "cancelled": "Cancelled ❌",
-        "processing": "Pending 🕐",
-        "paymentPending": "Payment Due 💳",
+        "confirmed": "Confirmed",
+        "cancelled": "Cancelled",
+        "processing": "Pending",
+        "paymentPending": "Payment Due",
         "draft": "Draft",
         "delivered": "Delivered",
         "returned": "Returned",
@@ -476,7 +476,8 @@
         "title": "Business overview",
         "subtitle": "Order counts and courier cash are separate measures.",
         "ordersToday": "Orders today",
-        "openReports": "View reports"
+        "openReports": "View reports",
+        "trendSummary": "Orders per day, last {{count}} days: minimum {{min}}, maximum {{max}}, latest {{latest}}."
       },
       "botActivity": {
         "title": "Reply Performance",
@@ -486,7 +487,7 @@
         "analyticsCalls": "AI analytics calls: {{count}}",
         "unavailable": "AI activity data is unavailable."
       },
-      "atRisk": "⚠️ {{count}} customers at risk — check now",
+      "atRisk": "{{count}} customers at risk — check now",
       "latestOrders": {
         "title": "Last 5 Orders",
         "viewAll": "View All",
@@ -535,7 +536,58 @@
       "unavailable": "This data could not be loaded.",
       "cashUnavailable": "Order delivery totals are unavailable.",
       "lastChecked": "Task sources last checked: {{time}}",
-      "timeUnavailable": "time unavailable"
+      "timeUnavailable": "time unavailable",
+      "signal": {
+        "healthy": "Healthy",
+        "attention": "Attention",
+        "review": "Review",
+        "blocked": "Blocked",
+        "resolved": "Resolved",
+        "pending": "Pending",
+        "reason": {
+          "exceptions": "Delivery exceptions: {{count}}",
+          "work": "Replies: {{replies}} · drafts: {{drafts}}",
+          "partial": "Cannot confirm all clear"
+        }
+      },
+      "primary": {
+        "reply": "Reply to customer",
+        "draft": "Review draft order",
+        "exception": "Review delivery exception"
+      },
+      "whyHere": {
+        "loading": "Checking today's verified work and business signals.",
+        "error": "The dashboard could not load, so counts and tasks may be out of date.",
+        "setup": "Your shop needs a few setup steps before EasyModerator can turn conversations into confirmed orders.",
+        "setupComplete": "All setup steps are verified complete.",
+        "work": "Verified work is waiting — replies: {{replies}} · draft orders: {{drafts}} · delivery exceptions: {{exceptions}}.",
+        "caughtUp": "No verified work items remain.",
+        "partial": "Some work sources could not be verified, so this page shows only what is confirmed."
+      },
+      "whereNext": {
+        "loading": "The page fills in as soon as the sources respond.",
+        "error": "Try again. If it keeps failing, check your connection and retry.",
+        "setup": "Finish the next step below; progress updates after each one.",
+        "setupComplete": "Go to the dashboard to start working today's queue.",
+        "work": "After you finish an item, return here — the list refreshes every 60 seconds.",
+        "caughtUp": "New replies and orders appear here automatically.",
+        "partial": "Check the full Inbox and Orders lists before assuming all clear."
+      },
+      "staleWarning": "Data may be out of date — the last refresh is older than usual.",
+      "queueChips": {
+        "note": "Counts are aggregates, not verified tasks.",
+        "unavailable": "Unavailable"
+      },
+      "evidence": {
+        "title": "Evidence and next steps",
+        "coverageComplete": "All work sources were fully checked.",
+        "auditLog": "View audit log",
+        "nextSteps": "Next steps"
+      },
+      "context": {
+        "breadcrumb": "Breadcrumb",
+        "workspace": "Workspace"
+      }
     },
     "setup": {
       "loading": "Checking shop setup...",
@@ -612,7 +664,8 @@
         "AI_NOT_DRAFT": "Review first is recommended for first launch verification."
       },
       "stateUnavailable": "Shop setup status could not be loaded.",
-      "nextStep": "Start here"
+      "nextStep": "Start here",
+      "verifiedAt": "Verified {{time}}"
     },
     "nav": {
       "dashboard": "Dashboard",

@@ -1,20 +1,31 @@
+/**
+ * First-time setup variant of /dashboard — guardrails restyle. Same props,
+ * same localStorage gating, same three sub-variants (welcome / in-progress /
+ * complete). One primary action per screen: welcome → Start, in-progress →
+ * the NEXT incomplete task's CTA (other tasks secondary, completed tasks a
+ * resolved badge with no CTA), complete → Go to dashboard.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowRight,
   CheckCircle2,
-  Circle,
   Facebook,
   MessageCircle,
   Package,
-  RefreshCw,
-  Sparkles,
   Store,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
 import type { SetupStatus, SetupTask, SetupTaskKey } from '@/api/types';
+import { EmButton } from './dashboard/EmButton';
+import { PageHeader } from './dashboard/PageHeader';
+import { ResultBanner } from './dashboard/ResultBanner';
+import { SignalBadge } from './dashboard/SignalBadge';
+import { EvidenceFooter } from './dashboard/EvidenceFooter';
+import { deriveNarrative } from './dashboard/derive';
+import type { Action, Signal } from './dashboard/types';
 
 type FirstTimeSetupDashboardProps = {
   setupStatus: SetupStatus;
@@ -30,24 +41,6 @@ const iconByTask: Record<SetupTaskKey, LucideIcon> = {
   ai_settings: MessageCircle,
 };
 
-function getTaskTone(task: SetupTask) {
-  if (task.status === 'complete') {
-    return {
-      border: 'border-green-200',
-      background: 'bg-green-50',
-      icon: 'text-green-700',
-      badge: 'bg-green-100 text-green-800',
-    };
-  }
-
-  return {
-    border: 'border-border',
-    background: 'bg-card',
-    icon: 'text-gray-700',
-    badge: 'bg-amber-100 text-amber-800',
-  };
-}
-
 function stringList(value: unknown, fallback: string[]) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : fallback;
 }
@@ -59,7 +52,8 @@ export default function FirstTimeSetupDashboard({
   storageKeyPrefix = 'easymod:business-setup',
 }: FirstTimeSetupDashboardProps) {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = i18n?.language === 'bn' ? 'bn-BD' : 'en-BD';
   const welcomeStartedKey = `${storageKeyPrefix}:started`;
   const [hasStarted, setHasStarted] = useState(() => {
     if (setupStatus.completedCount > 0 || setupStatus.isComplete) return true;
@@ -110,214 +104,256 @@ export default function FirstTimeSetupDashboard({
     'Reduce manual work',
   ]);
 
+  const verifiedAtLabel = useMemo(() => {
+    if (!setupStatus.generatedAt) return '';
+    const date = new Date(setupStatus.generatedAt);
+    if (!Number.isFinite(date.getTime())) return '';
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'Asia/Dhaka',
+    }).format(date);
+  }, [setupStatus.generatedAt, locale]);
+
+  const shell = 'em-dashboard min-h-full p-4 md:p-6';
+  const inner = 'mx-auto w-full max-w-[1440px]';
+  const breadcrumb = [{ label: t('dashboard.pulse.context.workspace') }, { label: t('dashboard.setup.eyebrow') }];
+  const attentionSignal: Signal = { kind: 'attention', label: t('dashboard.pulse.signal.attention') };
+  const resolvedSignal: Signal = { kind: 'resolved', label: t('dashboard.pulse.signal.resolved') };
+  const setupNarrative = (provenResultOverride?: string) =>
+    deriveNarrative(
+      { phase: setupStatus.isComplete ? 'setup-complete' : 'setup', pulse: null, workItems: [], caughtUp: false, hasAllWorkSources: false },
+      t,
+      { provenResultOverride },
+    );
+  const setupEvidence = verifiedAtLabel
+    ? `${progressLabel} · ${t('dashboard.setup.verifiedAt', { time: verifiedAtLabel })}`
+    : progressLabel;
+
   if (!setupStatus.isComplete && !hasStarted) {
+    const narrative = setupNarrative(setupEvidence);
+    const primary: Action = { label: t('dashboard.setup.startCta'), onClick: handleStartSetup };
     return (
-      <div className="min-h-full bg-background p-4 md:p-6">
-        <section className="mx-auto flex min-h-[calc(100vh-7rem)] max-w-4xl items-center">
-          <div className="w-full rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm font-bold text-green-700">
-              <Sparkles className="h-4 w-4" />
-              {t('dashboard.setup.welcomeEyebrow')}
-            </div>
-            <h1 className="text-3xl font-black text-foreground md:text-4xl">
-              {t('dashboard.setup.welcomeTitle')}
-            </h1>
-            <p className="mt-3 max-w-2xl text-base font-medium leading-7 text-muted-foreground">
-              {t('dashboard.setup.welcomeSubtitle')}
-            </p>
-
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
+      <div className={shell}>
+        <div className={inner}>
+          <PageHeader
+            title={t('dashboard.setup.welcomeTitle')}
+            breadcrumb={breadcrumb}
+            signal={attentionSignal}
+            whyHere={t('dashboard.setup.welcomeSubtitle')}
+            primaryAction={primary}
+          />
+          <section className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4" aria-labelledby="setup-welcome-list">
+            <h2 id="setup-welcome-list" className="text-sm font-semibold text-em-text-primary">
+              {t('dashboard.setup.eyebrow')}
+            </h2>
+            <ul className="mt-3 grid gap-2 md:grid-cols-2">
               {welcomeBullets.map((item) => (
-                <div key={item} className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-700" />
-                  <span className="text-sm font-semibold text-gray-700">{item}</span>
-                </div>
+                <li key={item} className="flex items-start gap-2 rounded-lg bg-em-bg-app p-3">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-em-success-700" aria-hidden="true" />
+                  <span className="text-sm font-medium text-em-text-primary">{item}</span>
+                </li>
               ))}
-            </div>
-
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm font-semibold text-muted-foreground">
-                {t('dashboard.setup.estimatedTime')}
-              </p>
-              <button
-                type="button"
-                onClick={handleStartSetup}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm hover:bg-green-700"
-              >
-                {t('dashboard.setup.startCta')}
-                <ArrowRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </section>
+            </ul>
+            <p className="mt-3 text-xs font-medium text-em-text-secondary">{t('dashboard.setup.estimatedTime')}</p>
+          </section>
+          <EvidenceFooter
+            provenResult={narrative.provenResult}
+            whereNext={narrative.whereNext}
+            isStale={false}
+            coverageComplete={false}
+            onRefresh={() => void onRefresh?.()}
+          />
+        </div>
       </div>
     );
   }
 
   if (setupStatus.isComplete) {
+    const narrative = setupNarrative(setupEvidence);
+    const primary: Action = { label: t('dashboard.setup.goToDashboard'), onClick: onDismissCompletion };
+    const secondary: Action = {
+      label: t('dashboard.setup.reviewReplySettings'),
+      onClick: () => {
+        onDismissCompletion?.();
+        navigate('/manage-shop/business-info');
+      },
+    };
     return (
-      <div className="min-h-full bg-background p-4 md:p-6">
-        <section className="mx-auto flex min-h-[calc(100vh-7rem)] max-w-4xl items-center">
-          <div className="w-full rounded-2xl border border-green-200 bg-card p-6 shadow-sm md:p-8">
-            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-green-700">
-              <CheckCircle2 className="h-8 w-8" />
-            </div>
-            <p className="text-sm font-bold uppercase tracking-normal text-green-700">
-              {t('dashboard.setup.completeEyebrow')}
-            </p>
-            <h1 className="mt-2 text-3xl font-black text-foreground md:text-4xl">
-              {t('dashboard.setup.completeTitle')}
-            </h1>
-            <p className="mt-3 max-w-2xl text-base font-medium leading-7 text-muted-foreground">
-              {t('dashboard.setup.completeSubtitle')}
-            </p>
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
+      <div className={shell}>
+        <div className={inner}>
+          <PageHeader
+            title={t('dashboard.setup.completeTitle')}
+            breadcrumb={breadcrumb}
+            signal={resolvedSignal}
+            whyHere={t('dashboard.setup.completeSubtitle')}
+            primaryAction={primary}
+            secondaryActions={[secondary]}
+          />
+          <ResultBanner
+            status="success"
+            title={t('dashboard.setup.completeEyebrow')}
+            description={readinessLabel}
+            evidenceId={setupEvidence}
+            className="mb-4"
+          />
+          <section className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4" aria-labelledby="setup-complete-list">
+            <h2 id="setup-complete-list" className="text-sm font-semibold text-em-text-primary">
+              {t('dashboard.setup.eyebrow')}
+            </h2>
+            <ul className="mt-3 grid gap-2 md:grid-cols-2">
               {completeBullets.map((item) => (
-                <div key={item} className="flex items-start gap-3 rounded-xl border border-green-100 bg-green-50 p-4">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-700" />
-                  <span className="text-sm font-semibold text-green-900">{item}</span>
-                </div>
+                <li key={item} className="flex items-start gap-2 rounded-lg bg-em-success-100 p-3">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-em-success-700" aria-hidden="true" />
+                  <span className="text-sm font-medium text-em-success-700">{item}</span>
+                </li>
               ))}
-            </div>
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={onDismissCompletion}
-                className="inline-flex min-h-12 items-center justify-center rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm hover:bg-green-700"
-              >
-                {t('dashboard.setup.goToDashboard')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onDismissCompletion?.();
-                  navigate('/manage-shop/business-info');
-                }}
-                className="inline-flex min-h-12 items-center justify-center rounded-xl border border-border bg-card px-5 text-sm font-bold text-foreground hover:bg-gray-50"
-              >
-                {t('dashboard.setup.reviewReplySettings')}
-              </button>
-            </div>
-          </div>
-        </section>
+            </ul>
+          </section>
+          <EvidenceFooter
+            provenResult={narrative.provenResult}
+            whereNext={narrative.whereNext}
+            isStale={false}
+            coverageComplete
+            onRefresh={() => void onRefresh?.()}
+          />
+        </div>
       </div>
     );
   }
 
+  const nextTask = setupStatus.tasks.find((task) => task.status !== 'complete');
+  const narrative = setupNarrative(setupEvidence);
+  const refreshAction: Action = { label: t('dashboard.setup.refresh'), onClick: () => void onRefresh?.() };
+
   return (
-    <div className="min-h-full bg-background p-4 md:p-6">
-      <header className="mb-5 flex flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between">
-        <div className="max-w-3xl">
-          <p className="mb-1 text-sm font-bold uppercase tracking-normal text-green-700">
-            {t('dashboard.setup.eyebrow')}
-          </p>
-          <h1 className="text-2xl font-black text-foreground md:text-3xl">
-            {t('dashboard.setup.title')}
-          </h1>
-          <p className="mt-2 text-sm font-medium leading-6 text-muted-foreground md:text-base">
-            {t('dashboard.setup.subtitle')}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void onRefresh?.()}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-bold text-foreground"
-        >
-          <RefreshCw className="h-4 w-4" />
-          {t('dashboard.setup.refresh')}
-        </button>
-      </header>
+    <div className={shell}>
+      <div className={inner}>
+        <PageHeader
+          title={t('dashboard.setup.title')}
+          breadcrumb={breadcrumb}
+          signal={attentionSignal}
+          whyHere={t('dashboard.setup.subtitle')}
+          secondaryActions={[refreshAction]}
+        />
 
-      <section className="mb-5 rounded-lg border border-border bg-card p-4">
-        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-base font-bold text-card-foreground">{t('dashboard.setup.progressTitle')}</h2>
-            <p className="text-sm font-medium text-muted-foreground">{readinessLabel}</p>
+        <section className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4" aria-labelledby="setup-progress-heading">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 id="setup-progress-heading" className="text-sm font-semibold text-em-text-primary">
+                {t('dashboard.setup.progressTitle')}
+              </h2>
+              <p className="text-sm text-em-text-secondary">{readinessLabel}</p>
+            </div>
+            <span className="em-tabular text-2xl font-semibold text-em-violet-700">{setupStatus.progressPercent}%</span>
           </div>
-          <span className="text-2xl font-black text-green-700">{setupStatus.progressPercent}%</span>
-        </div>
-        <div className="h-3 overflow-hidden rounded-full bg-gray-100">
           <div
-            className="h-full rounded-full bg-green-600 transition-all"
-            style={{ width: `${Math.max(0, Math.min(100, setupStatus.progressPercent))}%` }}
-          />
-        </div>
-        <p className="mt-2 text-xs font-semibold text-muted-foreground">{progressLabel}</p>
-      </section>
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.max(0, Math.min(100, setupStatus.progressPercent))}
+            aria-label={t('dashboard.setup.progressTitle')}
+            className="h-3 overflow-hidden rounded-full bg-em-bg-muted"
+          >
+            <div
+              className="h-full rounded-full bg-em-violet-600 transition-all"
+              style={{ width: `${Math.max(0, Math.min(100, setupStatus.progressPercent))}%` }}
+            />
+          </div>
+          <p className="em-tabular mt-2 text-xs font-medium text-em-text-secondary">{progressLabel}</p>
+        </section>
 
-      <section className="grid gap-3">
-        {setupStatus.tasks.map((task) => {
-          const Icon = iconByTask[task.key];
-          const tone = getTaskTone(task);
-          const isComplete = task.status === 'complete';
-          const StatusIcon = isComplete ? CheckCircle2 : Circle;
-
-          return (
-            <article
-              key={task.key}
-              className={`rounded-lg border ${tone.border} ${tone.background} p-4`}
-            >
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div className="flex min-w-0 gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
-                    <Icon className={`h-5 w-5 ${tone.icon}`} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-black text-card-foreground">
-                        {t(`dashboard.setup.tasks.${task.key}.title`, { defaultValue: task.title })}
-                      </h3>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold ${tone.badge}`}>
-                        <StatusIcon className="h-3.5 w-3.5" />
-                        {isComplete ? t('dashboard.setup.complete') : t('dashboard.setup.incomplete')}
-                      </span>
+        <section className="grid gap-3" aria-labelledby="setup-tasks-heading">
+          <h2 id="setup-tasks-heading" className="sr-only">{t('dashboard.setup.eyebrow')}</h2>
+          {setupStatus.tasks.map((task) => {
+            const Icon = iconByTask[task.key];
+            const isComplete = task.status === 'complete';
+            const isNext = nextTask?.key === task.key;
+            const taskSignal: Signal = isComplete ? resolvedSignal : attentionSignal;
+            return (
+              <article
+                key={task.key}
+                className={`rounded-xl border p-4 ${isNext ? 'border-em-violet-300 bg-em-violet-50' : 'border-em-border bg-em-bg-surface'}`}
+              >
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="flex min-w-0 gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-em-bg-surface shadow-sm">
+                      <Icon className={`h-5 w-5 ${isComplete ? 'text-em-success-700' : 'text-em-violet-700'}`} aria-hidden="true" />
                     </div>
-                    <p className="text-sm font-medium leading-6 text-muted-foreground">
-                      {t(`dashboard.setup.tasks.${task.key}.description`, { defaultValue: task.description })}
-                    </p>
-                    {!isComplete && task.missing.length > 0 && (
-                      <p className="mt-2 text-sm font-semibold text-amber-800">
-                        {t('dashboard.setup.missingPrefix')}{' '}
-                        {task.missing
-                          .map((key) => t(`dashboard.setup.missing.${key}`, { defaultValue: key.replace(/_/g, ' ') }))
-                          .join(', ')}
-                      </p>
-                    )}
-                    {task.warnings.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {task.warnings.map((warning) => (
-                          <p key={warning.code} className="flex gap-2 text-sm font-semibold text-amber-800">
-                            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                            <span>
-                              {t(`dashboard.setup.warnings.${warning.code}`, { defaultValue: warning.message })}
-                            </span>
-                          </p>
-                        ))}
+                    <div className="min-w-0">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <h3 className="text-base font-semibold text-em-text-primary">
+                          {t(`dashboard.setup.tasks.${task.key}.title`, { defaultValue: task.title })}
+                        </h3>
+                        <SignalBadge signal={taskSignal} />
+                        {isNext && (
+                          <span className="rounded-full bg-em-sunlight-100 px-2 py-0.5 text-xs font-semibold text-em-sunlight-700">
+                            {t('dashboard.setup.nextStep')}
+                          </span>
+                        )}
                       </div>
-                    )}
+                      <p className="text-sm leading-6 text-em-text-secondary">
+                        {t(`dashboard.setup.tasks.${task.key}.description`, { defaultValue: task.description })}
+                      </p>
+                      {!isComplete && task.missing.length > 0 && (
+                        <p className="mt-2 text-sm font-medium text-em-warning-700">
+                          {t('dashboard.setup.missingPrefix')}{' '}
+                          {task.missing
+                            .map((key) => t(`dashboard.setup.missing.${key}`, { defaultValue: key.replace(/_/g, ' ') }))
+                            .join(', ')}
+                        </p>
+                      )}
+                      {task.warnings.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {task.warnings.map((warning) => (
+                            <p key={warning.code} className="flex gap-2 text-sm font-medium text-em-warning-700">
+                              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                              <span>
+                                {t(`dashboard.setup.warnings.${warning.code}`, { defaultValue: warning.message })}
+                              </span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {!isComplete && (
+                    <EmButton
+                      variant={isNext ? 'primary' : 'secondary'}
+                      className="shrink-0"
+                      action={{
+                        label: t(`dashboard.setup.tasks.${task.key}.cta`, { defaultValue: task.ctaLabel }),
+                        to: task.href,
+                      }}
+                      data-testid={isNext ? 'dashboard-primary-action' : undefined}
+                    >
+                      {t(`dashboard.setup.tasks.${task.key}.cta`, { defaultValue: task.ctaLabel })}
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </EmButton>
+                  )}
                 </div>
+              </article>
+            );
+          })}
+        </section>
 
-                <button
-                  type="button"
-                  onClick={() => navigate(task.href)}
-                  className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-green-600 px-4 text-sm font-bold text-white"
-                >
-                  {t(`dashboard.setup.tasks.${task.key}.cta`, { defaultValue: task.ctaLabel })}
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
-            </article>
-          );
-        })}
-      </section>
+        <section className="mt-4 rounded-xl border border-em-sunlight-600/30 bg-em-sunlight-50 p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-em-sunlight-700">
+            <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+            {t('dashboard.setup.noteTitle')}
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-em-text-primary">{t('dashboard.setup.noteBody')}</p>
+        </section>
 
-      <section className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
-        <h2 className="text-base font-black text-amber-950">{t('dashboard.setup.noteTitle')}</h2>
-        <p className="mt-1 text-sm font-semibold leading-6 text-amber-900">
-          {t('dashboard.setup.noteBody')}
-        </p>
-      </section>
+        <EvidenceFooter
+          provenResult={narrative.provenResult}
+          whereNext={narrative.whereNext}
+          isStale={false}
+          coverageComplete={false}
+          onRefresh={() => void onRefresh?.()}
+        />
+      </div>
     </div>
   );
 }
