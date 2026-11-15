@@ -8,17 +8,22 @@
 <meta name="theme-color" content="#0F1729">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://easymod.tech/">
+<link rel="icon" type="image/svg+xml" href="/brand/mark.svg?v=2">
+<link rel="icon" type="image/png" href="/icon-512.png?v=2">
+<link rel="apple-touch-icon" href="/icon-512.png?v=2">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="EasyModerator">
 <meta property="og:locale" content="bn_BD">
 <meta property="og:url" content="https://easymod.tech/">
 <meta property="og:title" content="EasyModerator — ডেলিভারি না হলে খরচ শূন্য">
 <meta property="og:description" content="মেসেজ থেকে ডেলিভারি, একটাই খাতা। ডেলিভারি হলে প্রতি অর্ডারে ৳১০। না হলে ৳০।">
-<meta property="og:image" content="/og-cover.png">
+<meta property="og:image" content="https://easymod.tech/og-cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="EasyModerator — ডেলিভারি না হলে খরচ শূন্য">
 <meta name="twitter:description" content="মেসেজ থেকে ডেলিভারি, একটাই খাতা। ডেলিভারি না হলে ৳০।">
-<meta name="twitter:image" content="/og-cover.png">
+<meta name="twitter:image" content="https://easymod.tech/og-cover.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -40,7 +45,7 @@
   --green:#216A4B; --green-soft:#E6F4EC; --green-bright:#8FE0B6; --green-mid:#2E8C63;
   --red:#AA2434; --red-soft:#FDECEE; --red-bright:#FF8A9A;
   --verify:#945500; --verify-soft:#FDF3E3;
-  --paper:#F8F9FC; --card:#FFFFFF; --text-soft:#4A5470; --text-mute:#6B7590; --rule:#E3E7F0;
+  --paper:#F8F9FC; --card:#FFFFFF; --text-soft:#4A5470; --text-mute:#5A6478; --rule:#E3E7F0;
   --nav:58px;
   --a1:4px; --a2:8px; --a3:12px; --a4:16px; --a5:24px; --a6:32px; --a7:48px; --a8:64px; --a9:92px;
   --r1:8px; --r2:12px; --r3:18px;
@@ -51,7 +56,7 @@
 }
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
-body{margin:0;background:var(--paper);color:var(--ink);font-family:'Hind Siliguri',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:16px;line-height:1.74;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Hind Siliguri',system-ui,-apple-system,'Segoe UI','Nirmala UI','Vrinda',sans-serif;font-size:16px;line-height:1.74;overflow-x:hidden;-webkit-font-smoothing:antialiased}
 button{font-family:inherit;font-size:inherit;cursor:pointer;border:0;background:none;color:inherit}
 a{color:inherit;text-decoration:none}
 h1,h2,h3,h4{margin:0;line-height:1.3;font-weight:700;letter-spacing:-.01em}
@@ -61,6 +66,7 @@ ul{margin:0;padding:0;list-style:none}
 .dk :focus-visible,.dp :focus-visible{outline-color:var(--taka)}
 .skip{position:absolute;left:-9999px;top:0;z-index:200;background:var(--taka);color:var(--ink);font-weight:700;padding:12px 20px}
 .skip:focus{left:0}
+#main:focus{outline:none}
 *{scrollbar-width:thin;scrollbar-color:var(--violet-deep) var(--lilac)}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:var(--lilac)}
@@ -69,8 +75,8 @@ ul{margin:0;padding:0;list-style:none}
 
 .wrap{width:100%;max-width:1140px;margin:0 auto;padding:0 20px}
 .sec{position:relative;padding:var(--a8) 0;scroll-margin-top:calc(var(--nav) + 16px)}
-.dk{background:var(--ink);color:#fff}
-.dp{background:var(--ink-deep);color:#fff}
+.dk{background:var(--ink);color:#fff;overflow:hidden;overflow:clip}
+.dp{background:var(--ink-deep);color:#fff;overflow:hidden;overflow:clip}
 .dk h1,.dk h2,.dk h3,.dp h2,.dp h3{color:#fff}
 .sec>.wrap{position:relative;z-index:2}
 .grain::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;opacity:.5;background-image:radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
@@ -103,7 +109,7 @@ ul{margin:0;padding:0;list-style:none}
 .nlinks a:hover{color:#fff;background:rgba(255,255,255,.07)}
 .nlinks a[aria-current="true"]{color:var(--taka)}
 .nlinks a[aria-current="true"]::after{content:'';position:absolute;left:11px;right:11px;bottom:2px;height:2px;border-radius:2px;background:var(--taka)}
-.nbtn{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 15px;border-radius:99px;background:var(--taka);color:var(--ink);font-weight:700;font-size:14px;box-shadow:0 3px 14px rgba(244,195,94,.32);transition:transform .18s var(--ez)}
+.nbtn{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:38px;white-space:nowrap;padding:0 15px;border-radius:99px;background:var(--taka);color:var(--ink);font-weight:700;font-size:14px;box-shadow:0 3px 14px rgba(244,195,94,.32);transition:transform .18s var(--ez)}
 .nbtn:hover{transform:translateY(-1px)}
 .burger{margin-left:6px;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.16);flex-shrink:0}
 .burger i{display:block;width:16px;height:2px;background:#fff;border-radius:2px;position:relative;transition:.24s var(--ez)}
@@ -168,7 +174,7 @@ ul{margin:0;padding:0;list-style:none}
 .sb .d{display:flex;gap:3px}
 .sb .d i{width:4px;height:4px;border-radius:50%;background:var(--text-mute);opacity:.5}
 .sbody{padding:13px;display:grid;gap:10px;flex:1;align-content:start}
-.sc{background:#fff;border:1px solid var(--rule);border-radius:var(--r2);padding:12px;box-shadow:var(--e1)}
+.sc{background:#fff;color:var(--ink);border:1px solid var(--rule);border-radius:var(--r2);padding:12px;box-shadow:var(--e1)}
 .sl{font-size:11.5px;color:var(--text-mute);font-weight:600;margin-bottom:3px}
 .sr{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;font-size:12.5px;padding:7px 0;border-top:1px solid var(--rule)}
 .sr:first-of-type{border-top:0}
@@ -196,8 +202,8 @@ ul{margin:0;padding:0;list-style:none}
 @keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 .sampn{margin-top:12px;font-size:11.5px;color:rgba(255,255,255,.5);text-align:center;line-height:1.6}
 .mini-zero{display:flex;align-items:baseline;justify-content:center;gap:2px;line-height:1}
-.mini-zero .c{font-size:15px;font-weight:700;color:var(--taka-deep)}
-.mini-zero .z{font-size:30px;font-weight:700;color:var(--taka-deep);letter-spacing:-.03em}
+.mini-zero .c{font-size:15px;font-weight:700;color:#8A6410}
+.mini-zero .z{font-size:30px;font-weight:700;color:#8A6410;letter-spacing:-.03em}
 
 /* scatter */
 .scatter{display:grid;gap:var(--a4)}
@@ -229,7 +235,7 @@ ul{margin:0;padding:0;list-style:none}
 .ex{display:flex;gap:12px;align-items:flex-start;padding:var(--a4);border-radius:var(--r2);background:var(--card);border:1px solid var(--rule);box-shadow:var(--e1);transition:transform .2s var(--ez)}
 .ex:hover{transform:translateY(-2px)}
 .exi{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:15px;flex-shrink:0;background:var(--green-soft)}
-.ex h4{font-size:14.5px;margin-bottom:3px}
+.ex h3{font-size:14.5px;margin-bottom:3px}
 .ex p{font-size:13px;color:var(--text-soft);line-height:1.6}
 
 /* ============ ZERO PRICE ============ */
@@ -320,7 +326,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 .tc.no li i{color:var(--red-bright)}
 .tc.yes li i{color:var(--green-bright)}
 .perm{margin-top:var(--a4);padding:var(--a5);border-radius:var(--r3);background:var(--ink-deep);border:1px solid rgba(255,255,255,.1)}
-.perm h4{font-size:15px;margin-bottom:var(--a3);color:var(--lavender)}
+.perm h3{font-size:15px;margin-bottom:var(--a3);color:var(--lavender)}
 .pcodes{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:var(--a3)}
 .pcodes code{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;padding:6px 11px;border-radius:7px;background:rgba(116,96,217,.2);border:1px solid rgba(191,182,255,.28);color:var(--lavender)}
 .perm p{font-size:13.5px;color:rgba(255,255,255,.62);line-height:1.75}
@@ -377,13 +383,13 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 .foot a:hover{color:#fff}
 .foot .y{color:var(--green-bright)}
 .foot .p{color:var(--taka)}
-.foot .nn{color:rgba(255,255,255,.38)}
+.foot .nn{color:rgba(255,255,255,.62)}
 .fend{margin-top:var(--a6);padding-top:var(--a5);border-top:1px solid rgba(255,255,255,.09);display:flex;flex-wrap:wrap;gap:var(--a3);justify-content:space-between;font-size:12.5px}
 .fend .lk{display:flex;gap:16px;flex-wrap:wrap}
 
 /* sticky */
-.sticky{position:fixed;left:0;right:0;bottom:0;z-index:93;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:rgba(15,23,41,.98);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.13);display:flex;align-items:center;gap:12px;transform:translateY(115%);transition:transform .34s var(--ez);box-shadow:0 -8px 26px rgba(15,23,41,.3)}
-.sticky.show{transform:none}
+.sticky{position:fixed;left:0;right:0;bottom:0;z-index:93;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:rgba(15,23,41,.98);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.13);display:flex;align-items:center;gap:12px;transform:translateY(115%);visibility:hidden;transition:transform .34s var(--ez),visibility .34s;box-shadow:0 -8px 26px rgba(15,23,41,.3)}
+.sticky.show{transform:none;visibility:visible}
 .stxt{flex:1;min-width:0;display:flex;align-items:center;gap:9px}
 .stxt .m{display:flex;align-items:baseline;gap:1px;line-height:1;flex-shrink:0}
 .stxt .m .c{font-size:13px;font-weight:600;color:rgba(244,195,94,.8)}
@@ -401,6 +407,13 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 .rv[data-d="3"]{transition-delay:.21s}
 .rv[data-d="4"]{transition-delay:.28s}
 
+@media(max-width:400px){
+  .nav .wrap{gap:10px;padding:0 14px}
+  .logo{font-size:15.5px;gap:7px}
+  .logo .g{width:24px;height:24px;border-radius:7px}
+  .nbtn{padding:0 12px;font-size:13px;gap:4px;min-height:36px}
+  .burger{width:36px;height:36px;margin-left:4px}
+}
 @media(min-width:600px){
   .scatter{grid-template-columns:1fr 1fr}
   .extras{grid-template-columns:1fr 1fr}
@@ -441,12 +454,15 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 }
 @media(min-width:1280px){
   .rail{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:80;width:80px}
+  /* Light legend backdrop: the rail is a fixed overlay that crosses dark and
+     light sections; a single label colour cannot meet AA on both. */
+  .rail::before{content:'';position:absolute;inset:-12px -10px;background:rgba(248,249,252,.94);border:1px solid var(--rule);border-radius:14px;box-shadow:var(--e1);z-index:-1}
   .rail .line{position:absolute;left:9px;top:8px;bottom:8px;width:2px;background:var(--rule);border-radius:2px;overflow:hidden}
   .rail .line i{position:absolute;inset:0;background:linear-gradient(180deg,var(--violet),var(--taka));transform:scaleY(0);transform-origin:top;transition:transform .2s linear}
   .rail ul{display:grid;gap:26px;position:relative}
   .rail li{display:flex;align-items:center;gap:9px}
   .rail .rd{width:20px;height:20px;border-radius:50%;background:#fff;border:2.5px solid var(--rule);flex-shrink:0;transition:.35s var(--ez);position:relative;z-index:1}
-  .rail b{font-size:11px;font-weight:700;color:var(--text-mute);opacity:.55;transition:.35s var(--ez);white-space:nowrap}
+  .rail b{font-size:11px;font-weight:700;color:var(--text-soft);opacity:1;transition:.35s var(--ez);white-space:nowrap}
   .rail li.on .rd{border-color:var(--violet-deep);background:var(--violet-deep);box-shadow:0 0 0 4px rgba(93,73,187,.14)}
   .rail li.on b{color:var(--violet-deep);opacity:1}
   .rail li.done .rd{border-color:var(--taka-deep);background:var(--taka)}
@@ -463,6 +479,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
   .glow{display:none}
 }
 </style>
+<noscript><style>.rv{opacity:1;transform:none}</style></noscript>
 </head>
 <body>
 <a class="skip" href="#main">মূল কনটেন্টে যান</a>
@@ -503,7 +520,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
   </ul>
 </div>
 
-<main id="main">
+<main id="main" tabindex="-1">
 
 <!-- ════════ HERO ════════ -->
 <header class="sec dk hero grain" id="top" data-stage="0">
@@ -774,12 +791,12 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
     </div>
 
     <div class="extras">
-      <div class="ex rv" data-d="1"><span class="exi" aria-hidden="true">📋</span><div><h4>আজকের কাজের তালিকা</h4><p>কোন মেসেজ আগে ধরবেন, কোন অর্ডার বাকি — এক তালিকায় সাজানো।</p></div></div>
-      <div class="ex rv" data-d="2"><span class="exi" aria-hidden="true">👤</span><div><h4>কাস্টমারের খাতা</h4><p>কে কবে কিনেছে, কে শুধু জিজ্ঞেস করেছে — নোট আর ট্যাগসহ এক জায়গায়।</p></div></div>
-      <div class="ex rv" data-d="3"><span class="exi" aria-hidden="true">❓</span><div><h4>উত্তর নেই এমন প্রশ্ন</h4><p>কাস্টমার বারবার যা জিজ্ঞেস করছে আর উত্তর পাচ্ছে না — গুনে দেখানো হয়।</p></div></div>
-      <div class="ex rv" data-d="1"><span class="exi" aria-hidden="true">✋</span><div><h4>AI থামলে আপনি ধরেন</h4><p>কঠিন কথা এলে AI সরে দাঁড়ায়। আগের সব কথা মনে রেখে আপনি চালিয়ে যান।</p></div></div>
-      <div class="ex rv" data-d="2"><span class="exi" aria-hidden="true">🎙️</span><div><h4>ভয়েস নোট → লেখা</h4><p>কাস্টমার কথা বলে পাঠালে সেটা লেখায় দেখতে পান। শুনে সময় নষ্ট হয় না।</p></div></div>
-      <div class="ex rv" data-d="3"><span class="exi" aria-hidden="true">👥</span><div><h4>কে কোন কাজ দেখবে</h4><p>কোন কথা কার দায়িত্বে — ঠিক করে দেওয়া যায়। দুইজন একসাথে উত্তর দেয় না।</p></div></div>
+      <div class="ex rv" data-d="1"><span class="exi" aria-hidden="true">📋</span><div><h3>আজকের কাজের তালিকা</h3><p>কোন মেসেজ আগে ধরবেন, কোন অর্ডার বাকি — এক তালিকায় সাজানো।</p></div></div>
+      <div class="ex rv" data-d="2"><span class="exi" aria-hidden="true">👤</span><div><h3>কাস্টমারের খাতা</h3><p>কে কবে কিনেছে, কে শুধু জিজ্ঞেস করেছে — নোট আর ট্যাগসহ এক জায়গায়।</p></div></div>
+      <div class="ex rv" data-d="3"><span class="exi" aria-hidden="true">❓</span><div><h3>উত্তর নেই এমন প্রশ্ন</h3><p>কাস্টমার বারবার যা জিজ্ঞেস করছে আর উত্তর পাচ্ছে না — গুনে দেখানো হয়।</p></div></div>
+      <div class="ex rv" data-d="1"><span class="exi" aria-hidden="true">✋</span><div><h3>AI থামলে আপনি ধরেন</h3><p>কঠিন কথা এলে AI সরে দাঁড়ায়। আগের সব কথা মনে রেখে আপনি চালিয়ে যান।</p></div></div>
+      <div class="ex rv" data-d="2"><span class="exi" aria-hidden="true">🎙️</span><div><h3>ভয়েস নোট → লেখা</h3><p>কাস্টমার কথা বলে পাঠালে সেটা লেখায় দেখতে পান। শুনে সময় নষ্ট হয় না।</p></div></div>
+      <div class="ex rv" data-d="3"><span class="exi" aria-hidden="true">👥</span><div><h3>কে কোন কাজ দেখবে</h3><p>কোন কথা কার দায়িত্বে — ঠিক করে দেওয়া যায়। দুইজন একসাথে উত্তর দেয় না।</p></div></div>
     </div>
   </div>
 </section>
@@ -934,7 +951,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
       </div>
     </div>
     <div class="perm rv">
-      <h4>আপনার ফেসবুক পেজ থেকে আমরা শুধু ৩টা পারমিশন চাই</h4>
+      <h3>আপনার ফেসবুক পেজ থেকে আমরা শুধু ৩টা পারমিশন চাই</h3>
       <div class="pcodes"><code>pages_show_list</code><code>pages_messaging</code><code>pages_manage_metadata</code></div>
       <p>বিজ্ঞাপনের পারমিশন চাই না। আপনার পেজের অ্যাডমিন আমরা নই। যেকোনো সময় সংযোগ বিচ্ছিন্ন করতে পারেন এবং ডেটা মুছে ফেলতে বলতে পারেন।</p>
     </div>
@@ -1070,7 +1087,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
     </div>
     <div class="fend">
       <span>© ২০২৬ EasyModerator · Hexabyte Technologies · ঢাকা, বাংলাদেশ</span>
-      <span class="lk"><a href="/terms">শর্তাবলি</a><a href="/privacy">প্রাইভেসি ও ডেটা</a><a href="/support">সাপোর্ট</a></span>
+      <span class="lk"><a href="/terms">শর্তাবলি</a><a href="/privacy">প্রাইভেসি ও ডেটা</a><a href="#faq">সাপোর্ট</a></span>
     </div>
   </div>
 </footer>
@@ -1242,7 +1259,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
     var back=Math.round(ord*rate/100),del=ord-back;
     var cost=back*(fw+rt);
     var lost=Math.round(back*av*mg/100);
-    var bill=del*10;
+    var bill=del*10; /* contract anchor: unitPriceMinor/100 — verify-claims check (h) guards the page price strings */
     var misP=Math.round(ms*av*mg/100);
     var per=fw+rt;
 
@@ -1275,6 +1292,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
     if(O.brk){
       if(per<=0)O.brk.textContent='ফেরতের চার্জ ৳০ ধরেছেন — আসল চার্জটা বসান';
       else if(bill<=0)O.brk.textContent='ডেলিভারি না হলে আমাদের বিল নেই — এটাই নিয়ম';
+      else if(back<=0)O.brk.textContent='ফেরত ০% ধরেছেন — এই হিসাবে আটকানোর কিছু নেই';
       else{
         var need=Math.ceil(bill/per);
         O.brk.textContent=need<=back

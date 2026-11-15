@@ -54,6 +54,30 @@ jobs:
           probe https://www.easymod.tech/ 301 www-redirect
           exit "$fail"
 
+      # Status-only probes cannot distinguish the static zero-landing from the
+      # React SPA (both answer 200 at /). Assert the apex BODY is the landing
+      # (ADR-0014) and the app host BODY is still the SPA, so a reverted or
+      # mis-scoped Caddy rewrite fails monitoring instead of staying green.
+      - name: Apex landing content contract
+        run: |
+          set -euo pipefail
+          fail=0
+          apex=$(curl -fsS -m 30 https://easymod.tech/)
+          if printf '%s' "$apex" | grep -q 'id="thread"' && ! printf '%s' "$apex" | grep -q 'id="root"'; then
+            echo "PASS apex-content static zero-landing (ADR-0014)"
+          else
+            echo "::error::APEX_CONTENT https://easymod.tech/ is not the static zero-landing (missing id=thread or present id=root) — Caddy apex rewrite reverted or mis-scoped?"
+            fail=1
+          fi
+          app=$(curl -fsS -m 30 https://app.easymod.tech/)
+          if printf '%s' "$app" | grep -q 'id="root"' && ! printf '%s' "$app" | grep -q 'id="thread"'; then
+            echo "PASS app-content merchant SPA"
+          else
+            echo "::error::APP_CONTENT https://app.easymod.tech/ is not the merchant SPA — apex rewrite leaked onto the app hostname?"
+            fail=1
+          fi
+          exit "$fail"
+
       - name: Readiness contract
         run: |
           set -euo pipefail

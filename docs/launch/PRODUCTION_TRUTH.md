@@ -3,8 +3,10 @@
 The single record of **what is running in production** and **how it got there**.
 Update this file on every production deploy and on every infrastructure cutover.
 
-**Last verified:** 2026-11-14 by the post-cutover audit, then re-verified by the
-`d427f143` batched deploy launch check (receipts below).
+**Last verified:** 2026-11-15 by live probes after the static zero-landing frontend
+deploy (run `43657934293`, main `b17e3b64`, PR #264 / ADR-0014); backend identity
+re-confirmed unchanged at `5256853f` (77 migrations). Earlier: 2026-11-14
+post-cutover audit + `d427f143` batched deploy launch check (receipts below).
 **Verification method:** live probes against the public hosts — `https://api.easymod.tech/api/version`
 (git SHA and migration ledger), `https://api.easymod.tech/health/ready` (database and
 Redis readiness), public DNS resolvers for all five A records, and the served TLS
@@ -36,7 +38,7 @@ Two health-probe traps are recorded here because they have caused false passes:
    worker version == backend image tag. Production deployment must not use
    `:latest`.
 
-## Current runtime (2026-11-14)
+## Current runtime (2026-11-15)
 
 | Field | Value |
 |---|---|
@@ -49,12 +51,13 @@ Two health-probe traps are recorded here because they have caused false passes:
 | Object Storage namespace | `bm1siqos8k1u` |
 | Deploy root | `/opt/easymod` (Docker Compose) |
 | Stack | `backend`, `worker`, `frontend`, `growth`, `postgres`, `redis`, `qdrant`, `caddy`; Caddy is the only public listener and terminates TLS |
-| Running commit | `d427f143` — "feat(readiness): env-driven Caddy ACME contact + PING-verified Redis readiness" (PR #252, merged 2026-11-14T02:00:16Z) |
-| Runtime identity | `/api/version` reports `gitSha=d427f143…` (canonical API-origin path `/version`) |
-| Migrations | 72 applied at the 2026-11-13 cutover (latest `20261103_001_courier_collection_recon_state`); ledger not re-enumerated for `d427f143` |
-| Readiness | `/health/ready` HTTP 200; database `connected`; Redis `connected` verified by an actual PING from the readiness probe (no longer only per-client classification) |
-| Cutover deploy | Latest protected `workflow_dispatch` run `43543879447` — success 2026-11-14T02:19:28Z, deployed `d427f143` (previous cutover run `43353881466`, success 2026-11-13T02:48:55Z) |
-| Image digests | Deploy pulls digest-pinned GHCR images; per-image digests for `d427f143` are not recorded in this receipt (2026-11-13 cutover digests were backend `sha256:b8d9abc5…`, frontend `sha256:c1ed9d23…`, growth `sha256:4d0ceebc…`) |
+| Running commit (backend) | `5256853f` — "fix(frontend): marketing entry QueryClientProvider — apex landing outage" (PR #262, merged 2026-11-14T21:59Z); backend container NOT restarted by the 2026-11-15 frontend deploy |
+| Runtime identity | `/api/version` reports `gitSha=5256853fd3e87753d92468be2f652355ae79d65e`, `startedAt=2026-11-14T22:42:03.124Z` (canonical API-origin path `/version`) |
+| Migrations | 77 applied (latest `20261114_005_shop_ai_emergency_stop`); applied at the `a4f9324a` deploy (run `43637079206`), unchanged since |
+| Apex surface | `easymod.tech/` serves the STATIC zero-landing `EasyMod-frontend/public/landing-zero.html` via Caddy internal rewrite (ADR-0014, PR #264); other apex paths + `app.easymod.tech/` serve the React SPA |
+| Readiness | `/health/ready` HTTP 200; database `connected`; Redis `connected` (all six sub-channels ready) verified by actual PING |
+| Cutover deploy | Latest protected `workflow_dispatch` run `43657934293` — success 2026-11-15T00:33:47Z, frontend-only at main `b17e3b64` (PR #264); backend pinned to digest `sha256:8f073dfe…` / candidate `5256853f`. Prior: `43645713275` (5256853f), `43637079206` (a4f9324a), `43543879447` (d427f143) |
+| Image digests | Frontend for `b17e3b64` = `sha256:0917b8e7…` (deployed); backend pinned `sha256:8f073dfe…`; growth carried forward from running container. Deploy pulls digest-pinned GHCR images only |
 
 ## Domain and DNS authority
 
@@ -178,6 +181,9 @@ exist (NXDOMAIN) and must not be used in any production URL.
 | 2026-11-12/13 | `3dda3037` → `90e66d65` (multi-arch image builds, PR #246 merged 2026-11-12T22:13Z); OCI cutover deploy run `43353881466` succeeded 2026-11-13T02:48:55Z. |
 | 2026-11-13 ~10:27 UTC | DigitalOcean droplet `easymod-prod` destroyed on founder confirmation; OCI became the only production host. |
 | 2026-11-14 02:19Z | `6b367939` → `d427f143` (env-driven Caddy ACME contact + PING-verified Redis readiness, PR #252); protected deploy run `43543879447` succeeded. |
+| 2026-11-14 ~20:32Z | `d427f143` → `a4f9324a` (PR #258 channel automation + #256 commercial cutover + #257 landing); deploy run `43637079206`; migrations `20261114_001..005` applied (77 total). |
+| 2026-11-14 ~22:17Z | `a4f9324a` → `5256853f` (PR #262 marketing-entry QueryClientProvider hotfix after apex outage); deploy run `43645713275`. |
+| 2026-11-15 ~00:33Z | Frontend-only deploy at main `b17e3b64` (PR #264, ADR-0014): apex `/` now serves the static zero-landing; backend pinned `5256853f`/`8f073dfe` (not restarted); deploy run `43657934293`, deployment `7796144473`. |
 
 ## Open founder actions
 
