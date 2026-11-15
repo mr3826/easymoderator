@@ -49,6 +49,15 @@ jest.mock('src/utils/cache.service', () => ({
     deleteForShop: jest.fn(async (shopId, key) => mockCacheStore.delete(`${shopId}:${key}`)),
 }));
 
+// ── Mock analytics side-effect producers (signup attribution assertions) ──
+jest.mock('src/modules/analytics/funnel-events.service', () => ({
+    recordInternalFunnelEvent: jest.fn(() => Promise.resolve({})),
+    recordFunnelEvent: jest.fn(() => Promise.resolve({})),
+}));
+jest.mock('src/modules/analytics/crm-leads.service', () => ({
+    recordCrmLead: jest.fn(() => Promise.resolve({})),
+}));
+
 // ── Mock Sequelize (must support .define() for entity files) ───────────
 const mockModel = {
     findOne: jest.fn(),
@@ -246,6 +255,91 @@ describe('Auth API', () => {
                 conversations_limit: -1,
                 status: 'active',
             }), expect.objectContaining({ transaction: expect.any(Object) }));
+        });
+
+        it('forwards landing source/offer attribution to signup_completed and the CRM lead', async () => {
+            const funnel = require('src/modules/analytics/funnel-events.service');
+            const crm = require('src/modules/analytics/crm-leads.service');
+            funnel.recordInternalFunnelEvent.mockClear();
+            crm.recordCrmLead.mockClear();
+
+            const user = { ...mockUser, id: 'attr-user', email: 'attr@example.com', update: jest.fn(() => Promise.resolve()) };
+            const shop = { id: 'attr-shop', unique_code: 'ATTR1', shop_name: 'Attr Shop', name: 'Attr Shop' };
+            User.findOne.mockResolvedValueOnce(null);
+            User.create.mockResolvedValueOnce(user);
+            Tenant.create.mockResolvedValueOnce({ id: 'attr-tenant' });
+            Shop.findOne.mockResolvedValue(null);
+            Shop.create.mockResolvedValueOnce(shop);
+            UserShop.create.mockResolvedValueOnce({});
+            Subscription.create.mockResolvedValueOnce({ id: 'attr-subscription' });
+
+            await authService.createUserWithShop({
+                email: user.email,
+                password: 'correct-password',
+                full_name: 'Attr User',
+                phone: '01700000000',
+                accepted_terms: true,
+                source: 'landing_zero',
+                offer: 'delivered_10',
+            });
+
+            expect(funnel.recordInternalFunnelEvent).toHaveBeenCalledWith(expect.objectContaining({
+                event: 'signup_completed',
+                userId: user.id,
+                shopId: shop.id,
+                metadata: { source: 'landing_zero', offer: 'delivered_10' },
+            }));
+            expect(crm.recordCrmLead).toHaveBeenCalledWith(expect.objectContaining({
+                leadSource: 'landing_zero',
+                metadata: expect.objectContaining({ offer: 'delivered_10' }),
+            }));
+        });
+
+        it('keeps historical attribution defaults when source/offer are absent', async () => {
+            const funnel = require('src/modules/analytics/funnel-events.service');
+            const crm = require('src/modules/analytics/crm-leads.service');
+            funnel.recordInternalFunnelEvent.mockClear();
+            crm.recordCrmLead.mockClear();
+
+            const user = { ...mockUser, id: 'def-user', email: 'def@example.com', update: jest.fn(() => Promise.resolve()) };
+            const shop = { id: 'def-shop', unique_code: 'DEF1', shop_name: 'Def Shop', name: 'Def Shop' };
+            User.findOne.mockResolvedValueOnce(null);
+            User.create.mockResolvedValueOnce(user);
+            Tenant.create.mockResolvedValueOnce({ id: 'def-tenant' });
+            Shop.findOne.mockResolvedValue(null);
+            Shop.create.mockResolvedValueOnce(shop);
+            UserShop.create.mockResolvedValueOnce({});
+            Subscription.create.mockResolvedValueOnce({ id: 'def-subscription' });
+
+            await authService.createUserWithShop({
+                email: user.email,
+                password: 'correct-password',
+                full_name: 'Def User',
+                phone: '01700000000',
+                accepted_terms: true,
+            });
+
+            expect(funnel.recordInternalFunnelEvent).toHaveBeenCalledWith(expect.objectContaining({
+                event: 'signup_completed',
+                metadata: { source: 'backend_signup' },
+            }));
+            expect(crm.recordCrmLead).toHaveBeenCalledWith(expect.objectContaining({
+                leadSource: 'self_signup',
+            }));
+        });
+
+        it('rejects non-slug signup source/offer at the validator', async () => {
+            const res = await request(app)
+                .post('/api/auth/signup')
+                .send({
+                    email: 'test@example.com',
+                    password: 'Correct-pass1!',
+                    accepted_terms: true,
+                    source: 'https://evil.invalid/x',
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.success).toBe(false);
         });
 
         it('should return 400 when email is missing', async () => {

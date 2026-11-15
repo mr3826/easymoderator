@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getSignupAttribution,
   getSignupSuccessPath,
   isGrowthUpgradeIntent,
 } from "../signupIntent";
@@ -28,5 +29,35 @@ describe("signup intent", () => {
 
     expect(isGrowthUpgradeIntent(params)).toBe(false);
     expect(getSignupSuccessPath(params, "en")).toBe("/dashboard");
+  });
+});
+
+describe("signup attribution", () => {
+  it("captures the landing CTA source and offer slugs", () => {
+    const params = new URLSearchParams("source=landing_zero&offer=delivered_10");
+
+    expect(getSignupAttribution(params)).toEqual({
+      source: "landing_zero",
+      offer: "delivered_10",
+    });
+  });
+
+  it("returns only the keys that are present", () => {
+    expect(getSignupAttribution(new URLSearchParams("source=landing_zero"))).toEqual({
+      source: "landing_zero",
+    });
+    expect(getSignupAttribution(new URLSearchParams())).toEqual({});
+  });
+
+  it("drops unsafe or oversized attribution values", () => {
+    const params = new URLSearchParams(
+      "source=" + encodeURIComponent("https://evil.invalid/x") +
+      "&offer=" + encodeURIComponent("<script>") +
+      "&extra=ignored",
+    );
+
+    expect(getSignupAttribution(params)).toEqual({});
+    expect(getSignupAttribution(new URLSearchParams("source=" + "a".repeat(65)))).toEqual({});
+    expect(getSignupAttribution(new URLSearchParams("source=UPPER"))).toEqual({});
   });
 });

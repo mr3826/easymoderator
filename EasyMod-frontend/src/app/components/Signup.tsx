@@ -15,7 +15,7 @@ import { PasswordStrengthMeter } from "@/features/auth/components/PasswordStreng
 import { trackFunnelEvent } from "@/app/lib/funnel";
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { buildMarketingUrlWithLocale } from "@/app/lib/config";
-import { getSignupSuccessPath } from "@/app/lib/signupIntent";
+import { getSignupAttribution, getSignupSuccessPath } from "@/app/lib/signupIntent";
 import { useCommercialContract } from "@/api/domains/commercialContract";
 import { formatBdt, formatBdtBn } from "@/shared/contracts/commercial-contract";
 import Seo from "./Seo";
@@ -25,6 +25,7 @@ import "./landing-v6.css";
 export default function Signup() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const attribution = useMemo(() => getSignupAttribution(searchParams), [searchParams]);
   const { t, i18n } = useTranslation();
   const { signup } = useAuth();
   const locale = i18n.resolvedLanguage || i18n.language;
@@ -61,8 +62,8 @@ export default function Signup() {
   const acceptedTerms = watch("acceptedTerms");
 
   useEffect(() => {
-    trackFunnelEvent("signup_started", { surface: "signup" }, { onceKey: "signup_started" });
-  }, []);
+    trackFunnelEvent("signup_started", { surface: "signup", ...attribution }, { onceKey: "signup_started" });
+  }, [attribution]);
 
   const onSubmit = async (data: SignupFormData) => {
     if (!data.acceptedTerms) {
@@ -77,6 +78,7 @@ export default function Signup() {
         full_name: data.fullName,
         phone: data.phone.trim(),
         accepted_terms: true,
+        ...attribution,
       });
       navigate(getSignupSuccessPath(searchParams, locale));
     } catch (error: unknown) {

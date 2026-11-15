@@ -171,7 +171,7 @@ const createUserWithShop = async (userData) => {
     const transaction = await sequelize.transaction();
 
     try {
-        const { email, password, full_name, phone, shop_name } = userData;
+        const { email, password, full_name, phone, shop_name, source, offer } = userData;
 
         // Check if user already exists
         const existingUser = await User.findOne({ where: { email } });
@@ -263,6 +263,12 @@ const createUserWithShop = async (userData) => {
             role: 'owner'
         };
 
+        // Acquisition attribution forwarded by the signup form (landing CTA
+        // source/offer). Falls back to the historical defaults when absent so
+        // existing clients and direct API signups are unchanged.
+        const attributionSource = source || 'backend_signup';
+        const attributionMetadata = offer ? { source: attributionSource, offer } : { source: attributionSource };
+
         try {
             require('../analytics/funnel-events.service')
                 .recordInternalFunnelEvent({
@@ -270,7 +276,7 @@ const createUserWithShop = async (userData) => {
                     userId: user.id,
                     shopId: shop.id,
                     onceKey: user.id,
-                    metadata: { source: 'backend_signup' },
+                    metadata: attributionMetadata,
                 })
                 .catch(() => {});
             require('../analytics/crm-leads.service')
@@ -279,11 +285,11 @@ const createUserWithShop = async (userData) => {
                     userId: user.id,
                     shopId: shop.id,
                     resourceId: user.id,
-                    leadSource: 'self_signup',
+                    leadSource: source || 'self_signup',
                     status: 'signup_completed',
                     nextAction: 'Day 1/3/7/12 founder activation follow-up sequence',
                     activationStage: 'signup_completed',
-                    metadata: { shop_name: resolvedShopName },
+                    metadata: offer ? { shop_name: resolvedShopName, offer } : { shop_name: resolvedShopName },
                 })
                 .catch(() => {});
         } catch (_) { /* lead/funnel logging must never block signup */ }
