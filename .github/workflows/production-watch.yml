@@ -62,15 +62,19 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
+          # NOTE: match with shell globs, NOT `printf | grep -q`. Under
+          # `set -o pipefail`, grep -q exits on first match and SIGPIPEs printf
+          # on bodies larger than the pipe buffer (the ~104KB apex page), making
+          # the pipeline report failure even when the marker IS present.
           apex=$(curl -fsS -m 30 https://easymod.tech/)
-          if printf '%s' "$apex" | grep -q 'id="thread"' && ! printf '%s' "$apex" | grep -q 'id="root"'; then
+          if [[ "$apex" == *'id="thread"'* && "$apex" != *'id="root"'* ]]; then
             echo "PASS apex-content static zero-landing (ADR-0014)"
           else
             echo "::error::APEX_CONTENT https://easymod.tech/ is not the static zero-landing (missing id=thread or present id=root) — Caddy apex rewrite reverted or mis-scoped?"
             fail=1
           fi
           app=$(curl -fsS -m 30 https://app.easymod.tech/)
-          if printf '%s' "$app" | grep -q 'id="root"' && ! printf '%s' "$app" | grep -q 'id="thread"'; then
+          if [[ "$app" == *'id="root"'* && "$app" != *'id="thread"'* ]]; then
             echo "PASS app-content merchant SPA"
           else
             echo "::error::APP_CONTENT https://app.easymod.tech/ is not the merchant SPA — apex rewrite leaked onto the app hostname?"
