@@ -8,17 +8,22 @@
 <meta name="theme-color" content="#0F1729">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://easymod.tech/">
+<link rel="icon" type="image/svg+xml" href="/brand/mark.svg?v=2">
+<link rel="icon" type="image/png" href="/icon-512.png?v=2">
+<link rel="apple-touch-icon" href="/icon-512.png?v=2">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="EasyModerator">
 <meta property="og:locale" content="bn_BD">
 <meta property="og:url" content="https://easymod.tech/">
 <meta property="og:title" content="EasyModerator — ডেলিভারি না হলে খরচ শূন্য">
 <meta property="og:description" content="মেসেজ থেকে ডেলিভারি, একটাই খাতা। ডেলিভারি হলে প্রতি অর্ডারে ৳১০। না হলে ৳০।">
-<meta property="og:image" content="/og-cover.png">
+<meta property="og:image" content="https://easymod.tech/og-cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="EasyModerator — ডেলিভারি না হলে খরচ শূন্য">
 <meta name="twitter:description" content="মেসেজ থেকে ডেলিভারি, একটাই খাতা। ডেলিভারি না হলে ৳০।">
-<meta name="twitter:image" content="/og-cover.png">
+<meta name="twitter:image" content="https://easymod.tech/og-cover.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -61,6 +66,7 @@ ul{margin:0;padding:0;list-style:none}
 .dk :focus-visible,.dp :focus-visible{outline-color:var(--taka)}
 .skip{position:absolute;left:-9999px;top:0;z-index:200;background:var(--taka);color:var(--ink);font-weight:700;padding:12px 20px}
 .skip:focus{left:0}
+#main:focus{outline:none}
 *{scrollbar-width:thin;scrollbar-color:var(--violet-deep) var(--lilac)}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:var(--lilac)}
@@ -69,8 +75,8 @@ ul{margin:0;padding:0;list-style:none}
 
 .wrap{width:100%;max-width:1140px;margin:0 auto;padding:0 20px}
 .sec{position:relative;padding:var(--a8) 0;scroll-margin-top:calc(var(--nav) + 16px)}
-.dk{background:var(--ink);color:#fff}
-.dp{background:var(--ink-deep);color:#fff}
+.dk{background:var(--ink);color:#fff;overflow:hidden;overflow:clip}
+.dp{background:var(--ink-deep);color:#fff;overflow:hidden;overflow:clip}
 .dk h1,.dk h2,.dk h3,.dp h2,.dp h3{color:#fff}
 .sec>.wrap{position:relative;z-index:2}
 .grain::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;opacity:.5;background-image:radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
@@ -103,7 +109,7 @@ ul{margin:0;padding:0;list-style:none}
 .nlinks a:hover{color:#fff;background:rgba(255,255,255,.07)}
 .nlinks a[aria-current="true"]{color:var(--taka)}
 .nlinks a[aria-current="true"]::after{content:'';position:absolute;left:11px;right:11px;bottom:2px;height:2px;border-radius:2px;background:var(--taka)}
-.nbtn{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 15px;border-radius:99px;background:var(--taka);color:var(--ink);font-weight:700;font-size:14px;box-shadow:0 3px 14px rgba(244,195,94,.32);transition:transform .18s var(--ez)}
+.nbtn{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:38px;white-space:nowrap;padding:0 15px;border-radius:99px;background:var(--taka);color:var(--ink);font-weight:700;font-size:14px;box-shadow:0 3px 14px rgba(244,195,94,.32);transition:transform .18s var(--ez)}
 .nbtn:hover{transform:translateY(-1px)}
 .burger{margin-left:6px;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.16);flex-shrink:0}
 .burger i{display:block;width:16px;height:2px;background:#fff;border-radius:2px;position:relative;transition:.24s var(--ez)}
@@ -382,8 +388,8 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 .fend .lk{display:flex;gap:16px;flex-wrap:wrap}
 
 /* sticky */
-.sticky{position:fixed;left:0;right:0;bottom:0;z-index:93;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:rgba(15,23,41,.98);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.13);display:flex;align-items:center;gap:12px;transform:translateY(115%);transition:transform .34s var(--ez);box-shadow:0 -8px 26px rgba(15,23,41,.3)}
-.sticky.show{transform:none}
+.sticky{position:fixed;left:0;right:0;bottom:0;z-index:93;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:rgba(15,23,41,.98);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.13);display:flex;align-items:center;gap:12px;transform:translateY(115%);visibility:hidden;transition:transform .34s var(--ez),visibility .34s;box-shadow:0 -8px 26px rgba(15,23,41,.3)}
+.sticky.show{transform:none;visibility:visible}
 .stxt{flex:1;min-width:0;display:flex;align-items:center;gap:9px}
 .stxt .m{display:flex;align-items:baseline;gap:1px;line-height:1;flex-shrink:0}
 .stxt .m .c{font-size:13px;font-weight:600;color:rgba(244,195,94,.8)}
@@ -401,6 +407,13 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 .rv[data-d="3"]{transition-delay:.21s}
 .rv[data-d="4"]{transition-delay:.28s}
 
+@media(max-width:400px){
+  .nav .wrap{gap:10px;padding:0 14px}
+  .logo{font-size:15.5px;gap:7px}
+  .logo .g{width:24px;height:24px;border-radius:7px}
+  .nbtn{padding:0 12px;font-size:13px;gap:4px;min-height:36px}
+  .burger{width:36px;height:36px;margin-left:4px}
+}
 @media(min-width:600px){
   .scatter{grid-template-columns:1fr 1fr}
   .extras{grid-template-columns:1fr 1fr}
@@ -463,6 +476,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
   .glow{display:none}
 }
 </style>
+<noscript><style>.rv{opacity:1;transform:none}</style></noscript>
 </head>
 <body>
 <a class="skip" href="#main">মূল কনটেন্টে যান</a>
@@ -503,7 +517,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
   </ul>
 </div>
 
-<main id="main">
+<main id="main" tabindex="-1">
 
 <!-- ════════ HERO ════════ -->
 <header class="sec dk hero grain" id="top" data-stage="0">
@@ -1242,7 +1256,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
     var back=Math.round(ord*rate/100),del=ord-back;
     var cost=back*(fw+rt);
     var lost=Math.round(back*av*mg/100);
-    var bill=del*10;
+    var bill=del*10; /* contract anchor: unitPriceMinor/100 — verify-claims check (h) guards the page price strings */
     var misP=Math.round(ms*av*mg/100);
     var per=fw+rt;
 
@@ -1275,6 +1289,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
     if(O.brk){
       if(per<=0)O.brk.textContent='ফেরতের চার্জ ৳০ ধরেছেন — আসল চার্জটা বসান';
       else if(bill<=0)O.brk.textContent='ডেলিভারি না হলে আমাদের বিল নেই — এটাই নিয়ম';
+      else if(back<=0)O.brk.textContent='ফেরত ০% ধরেছেন — এই হিসাবে আটকানোর কিছু নেই';
       else{
         var need=Math.ceil(bill/per);
         O.brk.textContent=need<=back
