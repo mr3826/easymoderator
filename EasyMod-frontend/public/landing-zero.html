@@ -1111,10 +1111,40 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 
   /* analytics */
   window.emEvents=window.emEvents||[];
+  // First-party funnel API (public, same-origin /api/analytics/funnel). Mirrors
+  // src/app/lib/funnel.ts: bounded metadata, per-session id, Idempotency-Key for
+  // once-per-session events. Fire-and-forget; never interrupts the page.
+  var FUNNEL_EVENTS={page_view:1,cta_click:1,signup_click:1,scroll_depth:1,section_view:1,mechanism_view:1,faq_open:1,calc_state:1,calc_reset:1,landing_view:1,signup_started:1};
+  var funnelSession=(function(){try{var k='easymod:funnel_session';var v=sessionStorage.getItem(k);if(!v){v=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('s'+Date.now()+Math.random().toString(16).slice(2));sessionStorage.setItem(k,v);}return v;}catch(e){return 'session-unavailable';}})();
+  function funnelOnceKey(n,d){
+    if(n==='page_view')return funnelSession;
+    if(n==='scroll_depth')return 'depth-'+d.pct;
+    if(n==='section_view')return 'sec-'+d.section;
+    if(n==='mechanism_view')return 'mech-'+d.index;
+    return null;
+  }
+  function funnelMeta(n,d){
+    if(n==='page_view'){
+      var ref=d.ref||'direct';var rp=ref;
+      try{if(/^https?:/i.test(ref)){rp=new URL(ref).pathname;}}catch(e){rp='direct';}
+      return {variant:d.variant,lang:d.lang,vw:d.vw,vh:d.vh,net:d.net,referrer_path:rp};
+    }
+    return d;
+  }
+  function sendFunnel(n,d){
+    if(!FUNNEL_EVENTS[n])return;
+    try{
+      var headers={'Content-Type':'application/json'};
+      var ok=funnelOnceKey(n,d);
+      if(ok)headers['Idempotency-Key']=('funnel-'+n+'-'+ok).replace(/[^\x21-\x7E]/g,'-').slice(0,128);
+      fetch('/api/analytics/funnel',{method:'POST',headers:headers,keepalive:true,body:JSON.stringify({event:n,metadata:funnelMeta(n,d),sessionId:funnelSession,path:location.pathname})}).catch(function(){});
+    }catch(e){}
+  }
   function track(n,d){
     var p={event:n,ts:Date.now(),page:location.pathname,data:d||{}};
     window.emEvents.push(p);
     window.dataLayer=window.dataLayer||[];window.dataLayer.push(p);
+    sendFunnel(n,d||{});
     if(window.EM_ANALYTICS_ENDPOINT&&navigator.sendBeacon){
       try{navigator.sendBeacon(window.EM_ANALYTICS_ENDPOINT,JSON.stringify(p));}catch(e){}
     }

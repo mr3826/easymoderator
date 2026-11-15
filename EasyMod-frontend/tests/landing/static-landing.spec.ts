@@ -140,3 +140,40 @@ for (const width of [360, 1440]) {
     expect(blocking, JSON.stringify(blocking.map((v) => `${v.id}:${v.impact}`))).toEqual([]);
   });
 }
+
+test('S9 — landing posts first-party funnel events (page_view, cta_click, scroll_depth)', async ({ page }) => {
+  const posts: Array<{ event: string; metadata: Record<string, unknown>; sessionId?: string; idem?: string }> = [];
+  await page.route('**/api/analytics/funnel', async (route) => {
+    const req = route.request();
+    posts.push({
+      event: (req.postDataJSON() as { event: string }).event,
+      metadata: (req.postDataJSON() as { metadata: Record<string, unknown> }).metadata,
+      sessionId: (req.postDataJSON() as { sessionId?: string }).sessionId,
+      idem: req.headers()['idempotency-key'],
+    });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { id: 'test' } }) });
+  });
+
+  await openStatic(page, 1440, 900);
+  await page.waitForTimeout(400);
+  const pageView = posts.find((p) => p.event === 'page_view');
+  expect(pageView).toBeTruthy();
+  expect(pageView!.metadata.variant).toBe('zero_v7');
+  expect(pageView!.sessionId).toBeTruthy();
+  expect(pageView!.idem).toContain('funnel-page_view-');
+
+  // In-page CTA (href=#how) fires cta_click without navigating away.
+  await page.locator('a.js-cta[data-loc="hero_secondary"]').click();
+  await page.waitForTimeout(200);
+  const cta = posts.find((p) => p.event === 'cta_click');
+  expect(cta).toBeTruthy();
+  expect(cta!.metadata.loc).toBe('hero_secondary');
+
+  // Instant scroll so programmatic steps actually reach the depth marks and
+  // section bands (CSS smooth-scroll would lag behind the loop).
+  await page.evaluate(() => { document.documentElement.style.scrollBehavior = 'auto'; });
+  await revealAll(page);
+  await page.waitForTimeout(400);
+  expect(posts.some((p) => p.event === 'scroll_depth')).toBe(true);
+  expect(posts.some((p) => p.event === 'section_view')).toBe(true);
+});
