@@ -2553,7 +2553,7 @@
       "modeSelf": "Self MFS (Personal)",
       "modeMerchant": "Merchant API",
       "modeSelfHint": "Customer sends screenshot → AI verifies via OCR → you approve/reject",
-      "modeMerchantHint": "Automated checkout via official merchant API (requires business account)",
+      "modeMerchantHint": "Stores your merchant API credentials securely. Automated checkout is not active yet — you still verify payments manually.",
       "mfsPhoneNumber": "{{name}} Phone Number",
       "appKey": "App Key",
       "appKeyPlaceholder": "Merchant App Key",
@@ -2561,7 +2561,21 @@
       "appSecretPlaceholder": "Merchant App Secret",
       "merchantUsernamePlaceholder": "Merchant username",
       "merchantPasswordPlaceholder": "Merchant password",
-      "saveGateway": "Save {{name}}"
+      "saveGateway": "Save {{name}}",
+      "configureGateway": "Configure {{name}}",
+      "enabledMethodsLabel": "Enabled methods",
+      "advanceRuleLabel": "Advance rule",
+      "signal": {
+        "blocked": "Configuration unavailable",
+        "pending": "Loading payment methods",
+        "attention": "No method enabled",
+        "healthy": "Accepting payments",
+        "reason": {
+          "loadFailed": "Payment configuration failed to load. Your methods may be out of date.",
+          "enabledCount": "{{count}} payment method(s) enabled for customers.",
+          "noMethodEnabled": "Enable at least one payment method so customers can pay."
+        }
+      }
     },
     "hub": {
       "title": "Settings",
