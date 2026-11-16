@@ -155,8 +155,12 @@ test('skip link is the first tab stop and focuses main', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByTestId('inbox-signal')).toBeVisible();
-    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur?.());
-    await page.keyboard.press('Tab');
+    // The inbox scrolls its transcript into view on load, which moves Chromium's
+    // sequential-focus starting point to the thread end. Anchor at the sidebar
+    // logo (non-focusable, no navigation) and Shift+Tab backwards: the previous
+    // stop must be the skip link, proving it precedes all chrome navigation.
+    await page.locator('aside img').first().click();
+    await page.keyboard.press('Shift+Tab');
     const first = await page.evaluate(() => document.activeElement?.textContent);
     expect(first).toBe('Skip to content');
     await page.keyboard.press('Enter');
