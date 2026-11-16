@@ -2,6 +2,13 @@ import { useState, useRef } from "react";
 import { useTranslation } from 'react-i18next';
 import type { BusinessInfo, SocialLinks } from "../lib/knowledgeTypes";
 import { getErrorMessage } from "@shared/lib/http/errors";
+import { EmButton } from "./dashboard/EmButton";
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
+
+const INPUT_CLASSES =
+  `w-full min-h-11 px-4 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
 
 const emptyBusinessInfo: BusinessInfo = {
   shopName: "",
@@ -28,9 +35,9 @@ const normalizeBusinessInfo = (value?: Partial<BusinessInfo> | null): BusinessIn
 // Keep the launch-visible business profile aligned with the Messenger-only
 // Meta review scope. Stored legacy links are preserved, but only Facebook and
 // website are editable during the BD private launch.
-const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholderKey: string }[] = [
-  { key: "facebook", label: "Facebook", placeholderKey: "manageShop.businessInfo.social.facebookPlaceholder" },
-  { key: "website", label: "Website", placeholderKey: "manageShop.businessInfo.social.websitePlaceholder" },
+const SOCIAL_FIELDS: { key: keyof SocialLinks; labelKey: string; placeholderKey: string }[] = [
+  { key: "facebook", labelKey: "manageShop.businessInfo.social.facebookLabel", placeholderKey: "manageShop.businessInfo.social.facebookPlaceholder" },
+  { key: "website", labelKey: "manageShop.businessInfo.social.websiteLabel", placeholderKey: "manageShop.businessInfo.social.websitePlaceholder" },
 ];
 
 interface BusinessInfoFormProps {
@@ -68,97 +75,115 @@ export default function BusinessInfoForm({ initialData, onSave, isLoading = fals
     }
   };
 
-  const noticeClass = (type: "success" | "error") =>
-    type === "success"
-      ? "bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm"
-      : "bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm";
+  if (isLoading) return <div role="status" className="p-6 text-em-text-secondary">{t('manageShop.businessInfo.loading')}</div>;
 
-  if (isLoading) return <div className="p-6 text-gray-500">{t('manageShop.businessInfo.loading')}</div>;
+  const infoLength = (businessInfo.additionalInfo || "").length;
 
   return (
-    <section>
-      <h3 className="text-base font-semibold text-gray-900 mb-4">{t('manageShop.businessInfo.sectionTitle')}</h3>
+    <section className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+      <h2 className="text-lg font-semibold text-em-text-primary mb-4">{t('manageShop.businessInfo.sectionTitle')}</h2>
 
-      {notice && <div className={noticeClass(notice.type)}>{notice.message}</div>}
+      {notice && (
+        <div
+          role={notice.type === "error" ? "alert" : "status"}
+          className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
+            notice.type === "success"
+              ? "border-em-success-700/20 bg-em-success-100 text-em-success-700"
+              : "border-em-danger-700/20 bg-em-danger-100 text-em-danger-700"
+          }`}
+        >
+          {notice.message}
+        </div>
+      )}
 
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.businessInfo.shopName')}</label>
+            <label htmlFor="bi-shopName" className="block text-sm font-medium text-em-text-primary mb-2">{t('manageShop.businessInfo.shopName')}</label>
             <input
+              id="bi-shopName"
               type="text"
               aria-label={t('manageShop.businessInfo.shopName')}
               value={businessInfo.shopName}
               onChange={(e) => setBusinessInfo({ ...businessInfo, shopName: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={INPUT_CLASSES}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.businessInfo.phone')}</label>
+            <label htmlFor="bi-phone" className="block text-sm font-medium text-em-text-primary mb-2">{t('manageShop.businessInfo.phone')}</label>
             <input
+              id="bi-phone"
               type="text"
               aria-label={t('manageShop.businessInfo.phone')}
               value={businessInfo.phone}
               onChange={(e) => setBusinessInfo({ ...businessInfo, phone: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={INPUT_CLASSES}
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.businessInfo.address')}</label>
+          <label htmlFor="bi-address" className="block text-sm font-medium text-em-text-primary mb-2">{t('manageShop.businessInfo.address')}</label>
           <input
+            id="bi-address"
             type="text"
             aria-label={t('manageShop.businessInfo.address')}
             value={businessInfo.address}
             onChange={(e) => setBusinessInfo({ ...businessInfo, address: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className={INPUT_CLASSES}
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.businessInfo.openingHours')}</label>
+          <label htmlFor="bi-openingHours" className="block text-sm font-medium text-em-text-primary mb-2">{t('manageShop.businessInfo.openingHours')}</label>
           <input
+            id="bi-openingHours"
             type="text"
             aria-label={t('manageShop.businessInfo.openingHours')}
             value={businessInfo.openingHours}
             onChange={(e) => setBusinessInfo({ ...businessInfo, openingHours: e.target.value })}
             placeholder={t('manageShop.businessInfo.openingHoursPlaceholder')}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className={INPUT_CLASSES}
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.businessInfo.additionalInfo')}</label>
+          <div className="flex items-center justify-between mb-2">
+            <label htmlFor="bi-additionalInfo" className="block text-sm font-medium text-em-text-primary">{t('manageShop.businessInfo.additionalInfo')}</label>
+            <span className="em-tabular text-xs text-em-text-secondary">{infoLength}/3000</span>
+          </div>
           <textarea
+            id="bi-additionalInfo"
             rows={4}
             maxLength={3000}
             aria-label={t('manageShop.businessInfo.additionalInfo')}
+            aria-describedby="bi-additionalInfo-help"
             value={businessInfo.additionalInfo || ""}
             onChange={(e) => setBusinessInfo({ ...businessInfo, additionalInfo: e.target.value })}
             placeholder={t('manageShop.businessInfo.additionalInfoPlaceholder')}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className={INPUT_CLASSES}
           />
-          <p className="mt-1 text-xs text-gray-500">{t('manageShop.businessInfo.additionalInfoHelp')}</p>
+          <p id="bi-additionalInfo-help" className="mt-1 text-xs text-em-text-secondary">{t('manageShop.businessInfo.additionalInfoHelp')}</p>
         </div>
 
-        <div className="border-t border-gray-100 pt-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.businessInfo.social.title')}</label>
-          <p className="text-xs text-gray-500 mb-3">{t('manageShop.businessInfo.social.help')}</p>
+        <div role="group" aria-label={t('manageShop.businessInfo.social.title')} className="border-t border-em-border pt-4">
+          <p className="block text-sm font-medium text-em-text-primary mb-1">{t('manageShop.businessInfo.social.title')}</p>
+          <p className="text-xs text-em-text-secondary mb-3">{t('manageShop.businessInfo.social.help')}</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {SOCIAL_FIELDS.map(({ key, label, placeholderKey }) => (
+            {SOCIAL_FIELDS.map(({ key, labelKey, placeholderKey }) => (
               <div key={key}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+                <label htmlFor={`bi-social-${key}`} className="block text-xs font-medium text-em-text-secondary mb-1">{t(labelKey)}</label>
                 <input
+                  id={`bi-social-${key}`}
                   type="text"
-                  aria-label={label}
+                  aria-label={t(labelKey)}
                   value={businessInfo.socialLinks?.[key] ?? ""}
                   onChange={(e) => setBusinessInfo({
                     ...businessInfo,
                     socialLinks: { ...(businessInfo.socialLinks || {}), [key]: e.target.value },
                   })}
                   placeholder={t(placeholderKey)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full min-h-11 px-3 py-2 text-sm border border-em-border-strong rounded-lg bg-em-bg-surface text-em-text-primary focus:outline-none ${FOCUS_RING}`}
                 />
               </div>
             ))}
@@ -166,17 +191,15 @@ export default function BusinessInfoForm({ initialData, onSave, isLoading = fals
         </div>
       </div>
 
-      <button
+      <EmButton
+        variant="primary"
         onClick={handleSave}
         disabled={isSaving || !isDirty}
-        className={`mt-6 px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
-          isSaving || !isDirty
-            ? "bg-blue-300 cursor-not-allowed"
-            : "bg-blue-600 hover:bg-blue-700"
-        }`}
+        loading={isSaving}
+        className="mt-6"
       >
         {isSaving ? t('manageShop.businessInfo.saving') : t('manageShop.businessInfo.saveChanges')}
-      </button>
+      </EmButton>
     </section>
   );
 }

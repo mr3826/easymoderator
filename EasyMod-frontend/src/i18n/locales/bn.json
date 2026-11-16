@@ -2274,12 +2274,28 @@
         "title": "সোশ্যাল মিডিয়া লিংক",
         "help": "যেগুলো যোগ করবেন সেগুলো অর্ডার নিশ্চিত হওয়ার মেসেজে \"আমাদের ফলো করুন\" অংশে দেখানো হবে। (ঐচ্ছিক)",
         "facebookPlaceholder": "https://facebook.com/yourpage",
-        "websitePlaceholder": "https://yourshop.com"
+        "websitePlaceholder": "https://yourshop.com",
+        "facebookLabel": "ফেসবুক",
+        "websiteLabel": "ওয়েবসাইট"
       },
       "automationLink": {
         "title": "অটোমেশন ডিফল্ট",
         "desc": "Reply mode, confidence ও greeting এখন ব্যবসার automation পেজে।",
         "cta": "Automation defaults খুলুন"
+      },
+      "retryLoad": "আবার লোড করুন",
+      "socialCountLabel": "সোশ্যাল লিংক",
+      "infoLengthLabel": "অতিরিক্ত তথ্য",
+      "signal": {
+        "blocked": "প্রোফাইল পাওয়া যাচ্ছে না",
+        "pending": "প্রোফাইল লোড হচ্ছে",
+        "healthy": "প্রোফাইল প্রস্তুত",
+        "attention": "প্রোফাইলে নাম প্রয়োজন",
+        "reason": {
+          "unavailable": "ব্যবসার তথ্য লোড করা যায়নি। প্রোফাইল দেখতে আবার চেষ্টা করুন।",
+          "profileReady": "গ্রাহকদের উত্তরের জন্য আপনার দোকানের নাম সেট করা আছে।",
+          "needsName": "উত্তরগুলো যাতে আপনার দোকান শনাক্ত করতে পারে সেজন্য একটি দোকানের নাম যোগ করুন।"
+        }
       }
     },
     "faqs": {

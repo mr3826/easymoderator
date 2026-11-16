@@ -2274,12 +2274,28 @@
         "title": "Social Media Links",
         "help": "Any links you add will be shown in the \"Follow us\" section of the order-confirmation message. (optional)",
         "facebookPlaceholder": "https://facebook.com/yourpage",
-        "websitePlaceholder": "https://yourshop.com"
+        "websitePlaceholder": "https://yourshop.com",
+        "facebookLabel": "Facebook",
+        "websiteLabel": "Website"
       },
       "automationLink": {
         "title": "Automation defaults",
         "desc": "Reply mode, confidence and greeting now live on the business automation page.",
         "cta": "Open automation defaults"
+      },
+      "retryLoad": "Retry loading",
+      "socialCountLabel": "Social links",
+      "infoLengthLabel": "Extra info",
+      "signal": {
+        "blocked": "Profile unavailable",
+        "pending": "Loading profile",
+        "healthy": "Profile ready",
+        "attention": "Profile needs a name",
+        "reason": {
+          "unavailable": "Business information could not be loaded. Retry to see your profile.",
+          "profileReady": "Your shop name is set for customer replies.",
+          "needsName": "Add a shop name so replies can identify your shop."
+        }
       }
     },
     "faqs": {
