@@ -324,7 +324,7 @@ export default function FaqSettings() {
                   <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} aria-hidden="true" />
                   {t("manageShop.faqs.refresh")}
                 </EmButton>
-                {!loadError && (
+                {!loadError && faqs.length > 0 && (
                   <EmButton
                     variant="primary"
                     onClick={() => setEditingFaq(createDraftFaq())}
@@ -368,6 +368,7 @@ export default function FaqSettings() {
                     variant="primary"
                     onClick={() => setEditingFaq(createDraftFaq())}
                     className="mt-4 gap-2"
+                    data-testid="faq-add"
                   >
                     <Plus className="h-4 w-4" aria-hidden="true" />
                     {t("manageShop.faqs.addFaq")}
