@@ -1411,6 +1411,21 @@
     "title": "Orders",
     "subtitle": "Manage customer orders and fulfillment",
     "toolbarLabel": "Order worklist filters",
+    "totalCountLabel": "Total",
+    "needsActionCountLabel": "Needs action",
+    "signal": {
+      "blocked": "Orders unavailable",
+      "pending": "Loading orders",
+      "needsAction": "Orders need action",
+      "healthy": "Orders flowing",
+      "attention": "No orders yet",
+      "reason": {
+        "unavailable": "The order list failed to load. Retry to see your orders.",
+        "needsActionCount": "{{count}} order(s) need your action.",
+        "totalCount": "{{count}} order(s) in the worklist.",
+        "noOrders": "Create an order or wait for customer orders to arrive."
+      }
+    },
     "filterDate": "Created date",
     "dateAll": "All dates",
     "dateToday": "Today",
