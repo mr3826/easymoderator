@@ -1120,6 +1120,21 @@
   "products": {
     "title": "পণ্য ও ইনভেন্টরি",
     "subtitle": "Product add করুন যাতে customer reply-তে ঠিক price, stock, size ও delivery details থাকে।",
+    "totalCountLabel": "মোট",
+    "lowStockCountLabel": "কম স্টক",
+    "signal": {
+      "blocked": "পণ্য পাওয়া যাচ্ছে না",
+      "pending": "পণ্য লোড হচ্ছে",
+      "lowStock": "কম স্টকে ব্যবস্থা প্রয়োজন",
+      "healthy": "ক্যাটালগ প্রস্তুত",
+      "attention": "ক্যাটালগ খালি",
+      "reason": {
+        "unavailable": "পণ্য তালিকা লোড করা যায়নি। ক্যাটালগ দেখতে আবার চেষ্টা করুন।",
+        "lowStockCount": "{{count}}টি পণ্য তাদের লো-স্টক সীমায় বা নিচে।",
+        "totalCount": "আপনার ক্যাটালগে {{count}}টি পণ্য।",
+        "noProducts": "ক্যাটালগ তৈরি করতে ম্যানুয়ালি একটি পণ্য যোগ করুন বা পণ্য ফাইল আপলোড করুন।"
+      }
+    },
     "uploadFile": "Product file upload",
     "addManually": "ম্যানুয়ালি যোগ করুন",
     "downloadTemplate": "আপলোড টেমপ্লেট ডাউনলোড করুন",

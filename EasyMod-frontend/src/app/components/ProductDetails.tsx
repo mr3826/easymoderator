@@ -80,8 +80,8 @@ export default function ProductDetails() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        <span className="ml-2 text-gray-600">{t('products.detail.loading')}</span>
+        <Loader2 className="h-8 w-8 animate-spin text-em-info-700" />
+        <span className="ml-2 text-em-text-secondary">{t('products.detail.loading')}</span>
       </div>
     );
   }
@@ -91,12 +91,12 @@ export default function ProductDetails() {
       <div className="p-8">
         <button
           onClick={() => navigate('/products')}
-          className="text-blue-600 hover:text-blue-700 flex items-center gap-2 mb-4"
+          className="text-em-info-700 hover:text-em-info-700 flex items-center gap-2 mb-4"
         >
           <ArrowLeft className="w-5 h-5" />
           {t('products.detail.backToProducts')}
         </button>
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div className="bg-em-danger-100 border border-em-danger-700/20 text-em-danger-700 px-4 py-3 rounded-lg">
           {error || t('products.detail.notFound')}
         </div>
       </div>
@@ -104,22 +104,22 @@ export default function ProductDetails() {
   }
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="em-products min-h-full p-4 md:p-8">
       {/* Header */}
       <div className="mb-6 md:mb-8">
         <button
           onClick={() => navigate('/products')}
-          className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4 text-sm"
+          className="text-em-text-secondary hover:text-em-text-primary flex items-center gap-2 mb-4 text-sm"
         >
           <ArrowLeft className="w-5 h-5" />
           {t('products.detail.backToProducts')}
         </button>
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{product.name}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-em-text-primary">{product.name}</h1>
           <div className="flex gap-2">
             <button
               onClick={() => setShowEditModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
           >
             <Edit2 className="w-4 h-4" />
             {t('common.edit')}
@@ -127,14 +127,14 @@ export default function ProductDetails() {
           <button
             onClick={handleDeleteProduct}
             disabled={isDeleting}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60"
+            className="flex items-center gap-2 px-4 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90 disabled:opacity-60"
           >
             {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
             {isDeleting ? t('common.deleting') : t('common.delete')}
           </button>
           <button
             onClick={handleShare}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+            className="flex items-center gap-2 px-4 py-2 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
           >
             <Share2 className="w-4 h-4" />
             {t('products.detail.share')}
@@ -148,8 +148,8 @@ export default function ProductDetails() {
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
           {/* Images */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('products.detail.images')}</h3>
+          <div className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h3 className="text-lg font-semibold text-em-text-primary mb-4">{t('products.detail.images')}</h3>
             {product.images && product.images.length > 0 ? (
               <div className="grid grid-cols-3 gap-4">
                 {product.images.map((image: string, index: number) => (
@@ -162,59 +162,59 @@ export default function ProductDetails() {
                 ))}
               </div>
             ) : (
-              <div className="bg-gray-100 rounded-lg h-40 flex items-center justify-center">
-                <span className="text-gray-500">{t('products.detail.noImages')}</span>
+              <div className="bg-em-bg-muted rounded-lg h-40 flex items-center justify-center">
+                <span className="text-em-text-secondary">{t('products.detail.noImages')}</span>
               </div>
             )}
           </div>
 
           {/* Description */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('common.description')}</h3>
-            <p className="text-gray-700">{product.description || t('products.detail.noDescription')}</p>
+          <div className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h3 className="text-lg font-semibold text-em-text-primary mb-4">{t('common.description')}</h3>
+            <p className="text-em-text-primary">{product.description || t('products.detail.noDescription')}</p>
           </div>
 
           {(product.category || product.category_id) && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">{t('nav.categories')}</h3>
+            <div className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+              <h3 className="text-lg font-semibold text-em-text-primary mb-3">{t('nav.categories')}</h3>
               {product.category_id ? (
                 <ContextualEntityLink to={`/categories/${encodeURIComponent(product.category_id)}`}>
                   {product.category || t('categories.title')}
                 </ContextualEntityLink>
               ) : (
-                <p className="text-gray-700">{product.category}</p>
+                <p className="text-em-text-primary">{product.category}</p>
               )}
             </div>
           )}
 
           {/* Specifications */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('products.detail.specifications')}</h3>
+          <div className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h3 className="text-lg font-semibold text-em-text-primary mb-4">{t('products.detail.specifications')}</h3>
             <div className="space-y-3">
               {product.sku && (
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('products.detail.sku')}</span>
-                  <span className="text-gray-900 font-medium">{product.sku}</span>
+                  <span className="text-em-text-secondary">{t('products.detail.sku')}</span>
+                  <span className="text-em-text-primary font-medium">{product.sku}</span>
                 </div>
               )}
               {product.brand && (
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('products.detail.brand')}</span>
-                  <span className="text-gray-900 font-medium">{product.brand}</span>
+                  <span className="text-em-text-secondary">{t('products.detail.brand')}</span>
+                  <span className="text-em-text-primary font-medium">{product.brand}</span>
                 </div>
               )}
               {product.weight && (
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('products.detail.weight')}</span>
-                  <span className="text-gray-900 font-medium">{product.weight} {product.weight_unit}</span>
+                  <span className="text-em-text-secondary">{t('products.detail.weight')}</span>
+                  <span className="text-em-text-primary font-medium">{product.weight} {product.weight_unit}</span>
                 </div>
               )}
               {product.tags && product.tags.length > 0 && (
                 <div>
-                  <span className="text-gray-600 block mb-2">{t('products.detail.tags')}</span>
+                  <span className="text-em-text-secondary block mb-2">{t('products.detail.tags')}</span>
                   <div className="flex flex-wrap gap-2">
                     {product.tags.map((tag: string, index: number) => (
-                      <span key={index} className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full">
+                      <span key={index} className="px-3 py-1 bg-em-bg-muted text-em-text-primary text-sm rounded-full">
                         {tag}
                       </span>
                     ))}
@@ -228,42 +228,42 @@ export default function ProductDetails() {
         {/* Sidebar */}
         <div className="space-y-6">
           {/* Pricing */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('products.detail.pricing')}</h3>
+          <div className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h3 className="text-lg font-semibold text-em-text-primary mb-4">{t('products.detail.pricing')}</h3>
             <div className="space-y-3">
               <div>
-                <span className="text-sm text-gray-600">{t('products.detail.sellingPrice')}</span>
-                <div className="text-3xl font-bold text-gray-900">৳{product.price}</div>
+                <span className="text-sm text-em-text-secondary">{t('products.detail.sellingPrice')}</span>
+                <div className="text-3xl font-bold text-em-text-primary">৳{product.price}</div>
               </div>
               {product.compare_at_price && (
                 <div>
-                  <span className="text-sm text-gray-600">{t('products.detail.comparePrice')}</span>
-                  <div className="text-xl text-gray-500 line-through">${product.compare_at_price}</div>
+                  <span className="text-sm text-em-text-secondary">{t('products.detail.comparePrice')}</span>
+                  <div className="text-xl text-em-text-secondary line-through">${product.compare_at_price}</div>
                 </div>
               )}
               {product.cost_per_item && (
-                <div className="pt-3 border-t border-gray-200">
-                  <span className="text-sm text-gray-600">{t('products.detail.costPerItem')}</span>
-                  <div className="text-lg text-gray-900">${product.cost_per_item}</div>
+                <div className="pt-3 border-t border-em-border">
+                  <span className="text-sm text-em-text-secondary">{t('products.detail.costPerItem')}</span>
+                  <div className="text-lg text-em-text-primary">${product.cost_per_item}</div>
                 </div>
               )}
             </div>
           </div>
 
           {/* Inventory */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('products.detail.inventory')}</h3>
+          <div className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h3 className="text-lg font-semibold text-em-text-primary mb-4">{t('products.detail.inventory')}</h3>
             <div className="space-y-3">
               <div>
-                <span className="text-sm text-gray-600">{t('products.detail.quantity')}</span>
-                <div className="text-2xl font-bold text-gray-900">{product.quantity || 0}</div>
+                <span className="text-sm text-em-text-secondary">{t('products.detail.quantity')}</span>
+                <div className="text-2xl font-bold text-em-text-primary">{product.quantity || 0}</div>
               </div>
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${product.is_active ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                <span className="text-sm text-gray-700">{product.is_active ? t('common.active') : t('common.inactive')}</span>
+                <div className={`w-2 h-2 rounded-full ${product.is_active ? 'bg-em-success-700' : 'bg-em-border-strong'}`}></div>
+                <span className="text-sm text-em-text-primary">{product.is_active ? t('common.active') : t('common.inactive')}</span>
               </div>
               {product.low_stock_threshold && (
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-em-text-secondary">
                   {t('products.detail.lowStock', { threshold: product.low_stock_threshold })}
                 </div>
               )}
@@ -271,16 +271,16 @@ export default function ProductDetails() {
           </div>
 
           {/* Status */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('common.status')}</h3>
+          <div className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h3 className="text-lg font-semibold text-em-text-primary mb-4">{t('common.status')}</h3>
             <div className="space-y-2">
               <div>
-                <span className="text-sm text-gray-600">{t('products.detail.created')}</span>
-                <div className="text-sm text-gray-900">{new Date(product.createdAt).toLocaleDateString()}</div>
+                <span className="text-sm text-em-text-secondary">{t('products.detail.created')}</span>
+                <div className="text-sm text-em-text-primary">{new Date(product.createdAt).toLocaleDateString()}</div>
               </div>
               <div>
-                <span className="text-sm text-gray-600">{t('products.detail.lastUpdated')}</span>
-                <div className="text-sm text-gray-900">{new Date(product.updatedAt).toLocaleDateString()}</div>
+                <span className="text-sm text-em-text-secondary">{t('products.detail.lastUpdated')}</span>
+                <div className="text-sm text-em-text-primary">{new Date(product.updatedAt).toLocaleDateString()}</div>
               </div>
             </div>
           </div>

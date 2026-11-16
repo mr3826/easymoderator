@@ -212,7 +212,7 @@ describe('AddProduct', () => {
 
     await waitFor(() => {
       const error = screen.queryByText(/name.*required|required.*name/i) ||
-                    document.querySelector('[class*="red"]');
+                    document.querySelector('[role="alert"]');
       expect(error).toBeTruthy();
     });
     expect(mockCreateProduct).not.toHaveBeenCalled();
@@ -256,7 +256,7 @@ describe('AddProduct', () => {
 
     // API should not be called with invalid price
     await waitFor(() => {
-      const hasError = document.querySelector('[class*="red"]') !== null ||
+      const hasError = document.querySelector('[role="alert"]') !== null ||
                        screen.queryByText(/price.*required|valid.*price/i) !== null;
       // Either error shown OR API not called
       if (!hasError) expect(mockCreateProduct).not.toHaveBeenCalled();
@@ -577,7 +577,7 @@ describe('AddProduct', () => {
     if (btn && nameInput && priceInput) {
       await waitFor(() => {
         const error = screen.queryByText(/Product limit reached/i) ||
-                      document.querySelector('[class*="red"]');
+                      document.querySelector('[role="alert"]');
         expect(error).toBeTruthy();
       }, { timeout: 2000 });
     }
@@ -622,7 +622,7 @@ describe('AddProduct', () => {
     if (btn && nameInput) {
       await waitFor(() => {
         const error = screen.queryByText(/Validation Error/i) ||
-                      document.querySelector('[class*="red"]');
+                      document.querySelector('[role="alert"]');
         expect(error).toBeTruthy();
       }, { timeout: 2000 });
     }

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, ChangeEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Upload, Bot, CheckCircle, Edit2, Trash2, AlertCircle, Search, Filter, X, Loader2, Package } from "lucide-react";
+import { motion, MotionConfig } from "motion/react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogOverlay } from "./ui/dialog";
 import { apiClient } from "@/api";
 import type { Product } from "@/api/types/product";
@@ -9,6 +10,12 @@ import { useTranslation } from "react-i18next";
 import { authService } from "../lib/auth";
 import { useNavigate } from "react-router-dom";
 import { getErrorMessage } from "@shared/lib/http/errors";
+import { fadeUp } from "@/lib/motion";
+import { PageHeader } from "./dashboard/PageHeader";
+import { useDialogFocus } from "./inbox/useDialogFocus";
+import { deriveProductsSignal } from "./products/derive";
+
+const ANIMATE = import.meta.env.MODE !== "test";
 
 interface Category {
   id: string;
@@ -155,17 +162,17 @@ export default function Products() {
     return (
       <div className="flex justify-center items-center gap-2 mt-6">
         <button
-          className="px-3 py-1 rounded border bg-white disabled:opacity-50 text-sm hover:bg-gray-50"
+          className="px-3 py-1 rounded border bg-em-bg-surface disabled:opacity-50 text-sm hover:bg-em-bg-muted"
           onClick={() => setPage((p) => Math.max(1, p - 1))}
           disabled={page === 1}
         >
           {t('products.pagination.previous')}
         </button>
-        <span className="text-sm text-gray-700">
+        <span className="text-sm text-em-text-primary">
           {t('products.pagination.pageOf', { current: page, total: totalPages })}
         </span>
         <button
-          className="px-3 py-1 rounded border bg-white disabled:opacity-50 text-sm hover:bg-gray-50"
+          className="px-3 py-1 rounded border bg-em-bg-surface disabled:opacity-50 text-sm hover:bg-em-bg-muted"
           onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
           disabled={page === totalPages}
         >
@@ -405,48 +412,79 @@ export default function Products() {
     setAppliedSearchQuery('');
   };
 
+  const lowStockCount = allProducts.filter(isLowStockProduct).length;
+  const signal = deriveProductsSignal(
+    { phase: isError ? "error" : isLoading ? "loading" : "ready", totalCount: allProducts.length, lowStockCount },
+    t,
+  );
+  const uploadDialogRef = useRef<HTMLDivElement>(null);
+  const reviewDialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(uploadDialogRef, showUploadModal);
+  useDialogFocus(reviewDialogRef, showReviewModal);
+
   return (
-    <div className="p-4 md:p-8">
+    <MotionConfig reducedMotion="user">
+    <div className="em-products min-h-full p-4 md:p-6">
+      <div className="mx-auto w-full max-w-[1440px] space-y-4">
+        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
+          <PageHeader
+            title={t('products.title')}
+            breadcrumb={[]}
+            signal={signal}
+            signalTestId="products-signal"
+            signalAnnounce={false}
+            meta={
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t('products.totalCountLabel')}: {allProducts.length}
+                </span>
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t('products.lowStockCountLabel')}: {lowStockCount}
+                </span>
+              </div>
+            }
+          />
+        </motion.div>
       {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div role="alert" className="mb-6 bg-em-danger-100 border border-em-danger-700/20 text-em-danger-700 px-4 py-3 rounded-lg">
           {error}
         </div>
       )}
 
       {isError && !isLoading ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-3">
-          <AlertCircle className="h-8 w-8 text-red-600" />
-          <p className="text-gray-700">{queryError instanceof Error ? queryError.message : t('products.loadError', 'Could not load products. Please try again.')}</p>
+        <div role="alert" className="flex flex-col items-center justify-center py-12 gap-3">
+          <AlertCircle className="h-8 w-8 text-em-danger-700" />
+          <p className="text-em-text-primary">{queryError instanceof Error ? queryError.message : t('products.loadError', 'Could not load products. Please try again.')}</p>
           <button
             onClick={() => fetchProducts()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+            className="px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700 text-sm"
           >
             {t('common.retry')}
           </button>
         </div>
       ) : isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="ml-2 text-gray-600">{t('products.loading')}</span>
+        <div role="status" className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-em-info-700" />
+          <span className="ml-2 text-em-text-secondary">{t('products.loading')}</span>
         </div>
       ) : isFetched && allProducts.length === 0 && !appliedSearchQuery && !appliedFilters.category_id && !appliedFilters.is_active && !appliedFilters.minPrice && !appliedFilters.maxPrice ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-4 bg-white rounded-xl border border-dashed border-gray-300">
-          <Package className="h-12 w-12 text-gray-300" />
+        <div className="flex flex-col items-center justify-center py-16 gap-4 bg-em-bg-surface rounded-xl border border-dashed border-em-border-strong">
+          <Package className="h-12 w-12 text-em-text-secondary" />
           <div className="text-center max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">{t('products.emptyTitle', 'Add your first product')}</h3>
-            <p className="text-sm text-gray-500">{t('products.emptySubtitle', 'Add products so EasyModerator can recommend the right price, stock, size, and delivery details in customer conversations.')}</p>
+            <h3 className="text-lg font-semibold text-em-text-primary mb-1">{t('products.emptyTitle', 'Add your first product')}</h3>
+            <p className="text-sm text-em-text-secondary">{t('products.emptySubtitle', 'Add products so EasyModerator can recommend the right price, stock, size, and delivery details in customer conversations.')}</p>
           </div>
           <div className="flex gap-3">
             <button
               onClick={() => setShowUploadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+              className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
             >
               <Upload className="w-5 h-5" />
               {t('products.uploadFile')}
             </button>
             <button
               onClick={() => navigate('/products/add')}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
             >
               <Plus className="w-5 h-5" />
               {t('products.addManually')}
@@ -455,30 +493,26 @@ export default function Products() {
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between mb-6 md:mb-8 gap-3 flex-wrap">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('products.title')}</h1>
-              <p className="text-gray-600 mt-1 text-sm md:text-base">{t('products.subtitle')}</p>
-            </div>
+          <div className="flex items-center justify-end mb-6 md:mb-8 gap-3 flex-wrap">
             <div className="flex gap-3">
               <div className="relative">
                 <button
                   onClick={() => setShowUploadModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
                 >
                   <Upload className="w-5 h-5" />
                   {t('products.uploadFile')}
                 </button>
                 <button
                   onClick={handleDownloadTemplate}
-                  className="absolute -bottom-6 right-0 text-xs text-purple-600 hover:text-purple-700 hover:underline whitespace-nowrap"
+                  className="absolute -bottom-6 right-0 text-xs text-em-violet-700 hover:text-em-violet-700 hover:underline whitespace-nowrap"
                 >
                   {t('products.downloadTemplate')}
                 </button>
               </div>
               <button
                 onClick={() => navigate('/products/add')}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
               >
                 <Plus className="w-5 h-5" />
                 {t('products.addManually')}
@@ -492,17 +526,18 @@ export default function Products() {
           <div className="mb-6 flex flex-wrap items-center gap-3">
             {/* Search Input */}
             <div className="flex-1 min-w-[300px] relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-em-text-secondary" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('products.searchPlaceholder')}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label={t('products.searchPlaceholder')}
+                className="w-full pl-10 pr-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
               />
             </div>
 
-            <label className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700">
+            <label className="flex min-h-11 items-center gap-2 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm font-medium text-em-text-primary">
               <input
                 type="checkbox"
                 checked={lowStockOnly}
@@ -510,7 +545,7 @@ export default function Products() {
                   setLowStockOnly(event.target.checked);
                   setPage(1);
                 }}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 rounded border-em-border-strong text-em-info-700 focus:ring-em-violet-600"
               />
               {t('products.lowStockOnly')}
             </label>
@@ -519,23 +554,26 @@ export default function Products() {
             <div className="relative">
               <button
                 onClick={() => setShowFilterPanel(!showFilterPanel)}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                aria-expanded={showFilterPanel}
+                aria-controls="products-filter-panel"
+                className="flex items-center gap-2 px-4 py-2 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
               >
                 <Filter className="w-5 h-5" />
                 {t('products.filter')}
                 {(lowStockOnly || appliedFilters.category_id || appliedFilters.is_active || appliedFilters.source || appliedFilters.minPrice || appliedFilters.maxPrice) && (
-                  <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+                  <span className="w-2 h-2 bg-em-violet-600 rounded-full"></span>
                 )}
               </button>
 
               {/* Filter Panel */}
               {showFilterPanel && (
-                <div className="absolute top-full mt-2 right-0 w-80 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-4">
+                <div id="products-filter-panel" className="absolute top-full mt-2 right-0 w-80 max-w-[calc(100vw-2rem)] bg-em-bg-surface border border-em-border rounded-lg shadow-lg z-10 p-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-gray-900">{t('products.filterTitle')}</h3>
+                    <h3 className="font-semibold text-em-text-primary">{t('products.filterTitle')}</h3>
                     <button
                       onClick={() => setShowFilterPanel(false)}
-                      className="text-gray-500 hover:text-gray-700"
+                      aria-label={t('common.close')}
+                      className="text-em-text-secondary hover:text-em-text-primary"
                     >
                       <X className="w-5 h-5" />
                     </button>
@@ -544,13 +582,13 @@ export default function Products() {
                   <div className="space-y-4">
                     {/* Category Filter */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-em-text-primary mb-2">
                         {t('products.filterCategory')}
                       </label>
                       <select
                         value={filters.category_id}
                         onChange={(e) => setFilters({ ...filters, category_id: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       >
                         <option value="">{t('products.allCategories')}</option>
                         {categoriesList.map(catName => (
@@ -561,13 +599,13 @@ export default function Products() {
 
                     {/* Status Filter */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-em-text-primary mb-2">
                         {t('products.filterStatus')}
                       </label>
                       <select
                         value={filters.is_active}
                         onChange={(e) => setFilters({ ...filters, is_active: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       >
                         <option value="">{t('products.allStatus')}</option>
                         <option value="active">{t('products.statusActive')}</option>
@@ -577,13 +615,13 @@ export default function Products() {
 
                     {/* Source Filter */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-em-text-primary mb-2">
                         {t('products.filterSource')}
                       </label>
                       <select
                         value={filters.source}
                         onChange={(e) => setFilters({ ...filters, source: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       >
                         <option value="">{t('products.allSources')}</option>
                         <option value="ai">{t('products.sourceAI')}</option>
@@ -593,7 +631,7 @@ export default function Products() {
 
                     {/* Price Range Filter */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-em-text-primary mb-2">
                         {t('products.filterPrice')}
                       </label>
                       <div className="flex items-center gap-2">
@@ -602,17 +640,17 @@ export default function Products() {
                           value={filters.minPrice}
                           onChange={(e) => setFilters({ ...filters, minPrice: e.target.value })}
                           placeholder={t('products.priceMin')}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="flex-1 px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                           step="0.01"
                           min="0"
                         />
-                        <span className="text-gray-500">–</span>
+                        <span className="text-em-text-secondary">–</span>
                         <input
                           type="number"
                           value={filters.maxPrice}
                           onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })}
                           placeholder={t('products.priceMax')}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="flex-1 px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                           step="0.01"
                           min="0"
                         />
@@ -620,16 +658,16 @@ export default function Products() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200">
+                  <div className="flex gap-2 mt-4 pt-4 border-t border-em-border">
                     <button
                       onClick={clearFilters}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                      className="flex-1 px-4 py-2 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
                     >
                       {t('common.clear')}
                     </button>
                     <button
                       onClick={applyFilters}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      className="flex-1 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
                     >
                       {t('common.apply')}
                     </button>
@@ -640,64 +678,64 @@ export default function Products() {
           </div>
 
           {/* Products Table */}
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+          <div className="bg-em-bg-surface rounded-xl border border-em-border overflow-x-auto">
             <table className="w-full min-w-[720px]">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="bg-em-bg-muted border-b border-em-border">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.product')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.sku')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.price')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.quantity')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.category')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.variants')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.status')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.source')}</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{t('products.columns.actions')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.product')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.sku')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.price')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.quantity')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.category')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.variants')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.status')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.source')}</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.actions')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-em-border">
                 {products.map((product) => (
-                  <tr key={product.id} className="hover:bg-gray-50">
+                  <tr key={product.id} className="hover:bg-em-bg-muted">
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{product.name}</div>
+                      <div className="font-medium text-em-text-primary">{product.name}</div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{product.sku}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">৳{product.price}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
+                    <td className="px-6 py-4 text-sm text-em-text-secondary">{product.sku}</td>
+                    <td className="px-6 py-4 text-sm text-em-text-primary">৳{product.price}</td>
+                    <td className="px-6 py-4 text-sm text-em-text-primary">
                       {product.track_quantity ? product.quantity || 0 : '—'}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{product.category}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
+                    <td className="px-6 py-4 text-sm text-em-text-secondary">{product.category}</td>
+                    <td className="px-6 py-4 text-sm text-em-text-secondary">
                       {product.variants && Array.isArray(product.variants) && product.variants.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {product.variants.map((variant, idx) => (
-                            <span key={idx} className="inline-block px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded">
+                            <span key={idx} className="inline-block px-2 py-1 bg-em-info-100 text-em-info-700 text-xs rounded">
                               {typeof variant === 'object' && variant !== null ? String((variant as { name?: unknown }).name ?? '') : String(variant)}
                             </span>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-gray-400">{t('products.noVariants')}</span>
+                        <span className="text-em-text-secondary">{t('products.noVariants')}</span>
                       )}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-3 py-1 rounded-full text-sm ${product.status === 'active'
-                        ? 'bg-green-100 text-green-700'
+                        ? 'bg-em-success-100 text-em-success-700'
                         : product.status === 'inactive'
-                          ? 'bg-gray-100 text-gray-700'
-                          : 'bg-yellow-100 text-yellow-700'
+                          ? 'bg-em-bg-muted text-em-text-primary'
+                          : 'bg-em-warning-100 text-em-warning-700'
                         }`}>
                         {t(`products.status.${product.status}`, { defaultValue: product.status || '' })}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       {product.aiGenerated ? (
-                        <div className="flex items-center gap-1 text-sm text-purple-600">
+                        <div className="flex items-center gap-1 text-sm text-em-violet-700">
                           <Bot className="w-4 h-4" />
                           <span>{t('products.aiSource', { confidence: Math.round((product.confidence || 0) * 100) })}</span>
                         </div>
                       ) : (
-                        <span className="text-sm text-gray-500">{t('products.sourceManual')}</span>
+                        <span className="text-sm text-em-text-secondary">{t('products.sourceManual')}</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -705,14 +743,14 @@ export default function Products() {
                         <button
                           onClick={() => handleEditProduct(product)}
                           aria-label={t('products.editAria', { name: product.name })}
-                          className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
+                          className="p-2 text-em-text-secondary hover:text-em-violet-700 hover:bg-em-violet-50 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteProduct(product.id)}
                           aria-label={t('products.deleteAria', { name: product.name })}
-                          className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
+                          className="p-2 text-em-text-secondary hover:text-em-danger-700 hover:bg-em-danger-100 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -727,18 +765,22 @@ export default function Products() {
           {/* Upload Modal */}
           {showUploadModal && (
             <div
-              className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 p-4"
+              ref={uploadDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="products-upload-title"
+              className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-50 p-4"
               onKeyDown={(e) => { if (e.key === 'Escape') setShowUploadModal(false); }}
               onClick={(e) => { if (e.target === e.currentTarget) setShowUploadModal(false); }}
             >
-              <div className="bg-white rounded-xl p-4 md:p-8 max-w-lg w-full">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('products.uploadModal.title')}</h2>
-                <p className="text-gray-600 mb-6">{t('products.uploadModal.description')}</p>
+              <div className="bg-em-bg-surface rounded-xl p-4 md:p-8 max-w-lg w-full">
+                <h2 id="products-upload-title" className="text-2xl font-bold text-em-text-primary mb-2">{t('products.uploadModal.title')}</h2>
+                <p className="text-em-text-secondary mb-6">{t('products.uploadModal.description')}</p>
 
                 {uploadProgress === 0 ? (
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center">
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600 mb-4">{t('products.uploadModal.dragDrop')}</p>
+                  <div className="border-2 border-dashed border-em-border-strong rounded-lg p-12 text-center">
+                    <Upload className="w-12 h-12 text-em-text-secondary mx-auto mb-4" />
+                    <p className="text-em-text-secondary mb-4">{t('products.uploadModal.dragDrop')}</p>
                     <input
                       type="file"
                       onChange={handleFileUpload}
@@ -748,27 +790,31 @@ export default function Products() {
                     />
                     <label
                       htmlFor="file-upload"
-                      className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer"
+                      className="inline-block px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700 cursor-pointer"
                     >
                       {t('products.uploadModal.chooseFile')}
                     </label>
-                    <p className="text-sm text-gray-500 mt-4">{t('products.uploadModal.supported')}</p>
+                    <p className="text-sm text-em-text-secondary mt-4">{t('products.uploadModal.supported')}</p>
                   </div>
                 ) : (
                   <div>
                     <div className="mb-4">
-                      <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
+                      <div className="flex items-center justify-between text-sm text-em-text-secondary mb-2">
                         <span>{t('products.uploadModal.processing')}</span>
                         <span>{uploadProgress}%</span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="w-full bg-em-bg-muted rounded-full h-2">
                         <div
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          role="progressbar"
+                          aria-valuenow={uploadProgress}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          className="bg-em-violet-600 h-2 rounded-full transition-all duration-300"
                           style={{ width: `${uploadProgress}%` }}
                         ></div>
                       </div>
                     </div>
-                    <p className="text-sm text-gray-500 text-center">
+                    <p className="text-sm text-em-text-secondary text-center">
                       {t('products.uploadModal.extracting')}
                     </p>
                   </div>
@@ -780,7 +826,7 @@ export default function Products() {
                       setShowUploadModal(false);
                       setUploadProgress(0);
                     }}
-                    className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                    className="flex-1 px-6 py-3 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
                   >
                     {t('common.cancel')}
                   </button>
@@ -792,54 +838,58 @@ export default function Products() {
           {/* Review AI Products Modal */}
           {showReviewModal && aiGeneratedProducts.length > 0 && (
             <div
-              className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 p-4 overflow-y-auto"
+              ref={reviewDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="products-review-title"
+              className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-50 p-4 overflow-y-auto"
               onKeyDown={(e) => { if (e.key === 'Escape') setShowReviewModal(false); }}
               onClick={(e) => { if (e.target === e.currentTarget) setShowReviewModal(false); }}
             >
-              <div className="bg-white rounded-xl p-4 md:p-8 max-w-4xl w-full my-4 md:my-8">
+              <div className="bg-em-bg-surface rounded-xl p-4 md:p-8 max-w-4xl w-full my-4 md:my-8">
                 <div className="flex items-center gap-3 mb-6">
-                  <Bot className="w-8 h-8 text-purple-600" />
+                  <Bot className="w-8 h-8 text-em-violet-700" />
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">{t('products.reviewModal.title')}</h2>
-                    <p className="text-gray-600">{t('products.reviewModal.description')}</p>
+                    <h2 id="products-review-title" className="text-2xl font-bold text-em-text-primary">{t('products.reviewModal.title')}</h2>
+                    <p className="text-em-text-secondary">{t('products.reviewModal.description')}</p>
                   </div>
                 </div>
 
                 <div className="space-y-4 max-h-96 overflow-y-auto">
                   {aiGeneratedProducts.map((product) => (
-                    <div key={product.id} className="border-2 border-purple-200 rounded-lg p-4 bg-purple-50">
+                    <div key={product.id} className="border-2 border-em-violet-300 rounded-lg p-4 bg-em-violet-50">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
-                            <h3 className="font-semibold text-gray-900">{product.name}</h3>
-                            <span className="px-2 py-1 bg-purple-200 text-purple-700 text-xs rounded">
+                            <h3 className="font-semibold text-em-text-primary">{product.name}</h3>
+                            <span className="px-2 py-1 bg-em-violet-100 text-em-violet-700 text-xs rounded">
                               {t('products.reviewModal.confidence', { percent: Math.round((product.confidence || 0) * 100) })}
                             </span>
                           </div>
                           <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
-                              <span className="text-gray-600">{t('products.reviewModal.skuLabel')}</span>
-                              <span className="ml-2 text-gray-900">{product.sku}</span>
+                              <span className="text-em-text-secondary">{t('products.reviewModal.skuLabel')}</span>
+                              <span className="ml-2 text-em-text-primary">{product.sku}</span>
                             </div>
                             <div>
-                              <span className="text-gray-600">{t('products.reviewModal.priceLabel')}</span>
-                              <span className="ml-2 text-gray-900">৳{product.price}</span>
+                              <span className="text-em-text-secondary">{t('products.reviewModal.priceLabel')}</span>
+                              <span className="ml-2 text-em-text-primary">৳{product.price}</span>
                             </div>
                             <div>
-                              <span className="text-gray-600">{t('products.reviewModal.categoryLabel')}</span>
-                              <span className="ml-2 text-gray-900">{product.category}</span>
+                              <span className="text-em-text-secondary">{t('products.reviewModal.categoryLabel')}</span>
+                              <span className="ml-2 text-em-text-primary">{product.category}</span>
                             </div>
                             <div>
-                              <span className="text-gray-600">{t('products.reviewModal.variantsLabel')}</span>
-                              <span className="ml-2 text-gray-900">{product.variants?.join(', ')}</span>
+                              <span className="text-em-text-secondary">{t('products.reviewModal.variantsLabel')}</span>
+                              <span className="ml-2 text-em-text-primary">{product.variants?.join(', ')}</span>
                             </div>
                           </div>
                           {product.aliases && (
                             <div className="mt-2 text-sm">
-                              <span className="text-gray-600">{t('products.reviewModal.aliasesLabel')}</span>
+                              <span className="text-em-text-secondary">{t('products.reviewModal.aliasesLabel')}</span>
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {product.aliases.map((alias, i) => (
-                                  <span key={i} className="px-2 py-1 bg-white text-gray-700 text-xs rounded border border-purple-200">
+                                  <span key={i} className="px-2 py-1 bg-em-bg-surface text-em-text-primary text-xs rounded border border-em-violet-300">
                                     {alias}
                                   </span>
                                 ))}
@@ -852,7 +902,7 @@ export default function Products() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleEditProduct(product)}
-                          className="flex items-center gap-1 px-3 py-2 bg-white border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-100 text-sm"
+                          className="flex items-center gap-1 px-3 py-2 bg-em-bg-surface border border-em-violet-300 text-em-violet-700 rounded-lg hover:bg-em-violet-100 text-sm"
                         >
                           <Edit2 className="w-4 h-4" />
                           {t('common.edit')}
@@ -860,14 +910,14 @@ export default function Products() {
                         <button
                           onClick={() => handleApproveProduct(product)}
                           disabled={approvingIds.includes(product.id)}
-                          className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                          className="flex items-center gap-1 px-3 py-2 bg-em-success-700 text-white rounded-lg hover:bg-em-success-700/90 text-sm"
                         >
                           <CheckCircle className="w-4 h-4" />
                           {approvingIds.includes(product.id) ? t('common.approving') : t('common.approve')}
                         </button>
                         <button
                           onClick={() => handleRejectProduct(product.id)}
-                          className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
+                          className="flex items-center gap-1 px-3 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90 text-sm"
                         >
                           <AlertCircle className="w-4 h-4" />
                           {t('common.reject')}
@@ -880,14 +930,14 @@ export default function Products() {
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setShowReviewModal(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                    className="px-6 py-3 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
                   >
                     {t('common.close')}
                   </button>
                   <button
                     onClick={handleApproveAll}
                     disabled={bulkApproving}
-                    className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="px-6 py-3 bg-em-success-700 text-white rounded-lg hover:bg-em-success-700/90 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {bulkApproving ? t('common.approving') : t('products.reviewModal.approveAll')}
                   </button>
@@ -907,14 +957,16 @@ export default function Products() {
                 </DialogDescription>
               </DialogHeader>
               <div className="flex gap-3 mt-6">
-                <button onClick={cancelDelete} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">{t('common.cancel')}</button>
-                <button onClick={confirmDelete} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">{t('common.delete')}</button>
+                <button onClick={cancelDelete} className="flex-1 px-4 py-2 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted">{t('common.cancel')}</button>
+                <button onClick={confirmDelete} className="flex-1 px-4 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90">{t('common.delete')}</button>
               </div>
             </DialogContent>
           </Dialog>
 
         </>
       )}
+      </div>
     </div>
+    </MotionConfig>
   );
 }

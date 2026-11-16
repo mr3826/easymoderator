@@ -1120,6 +1120,21 @@
   "products": {
     "title": "Products & Inventory",
     "subtitle": "Add products so customer replies include the right price, stock, size, and delivery details.",
+    "totalCountLabel": "Total",
+    "lowStockCountLabel": "Low stock",
+    "signal": {
+      "blocked": "Products unavailable",
+      "pending": "Loading products",
+      "lowStock": "Low stock needs attention",
+      "healthy": "Catalog ready",
+      "attention": "Catalog empty",
+      "reason": {
+        "unavailable": "The product list failed to load. Retry to see your catalog.",
+        "lowStockCount": "{{count}} product(s) at or below their low-stock threshold.",
+        "totalCount": "{{count}} product(s) in your catalog.",
+        "noProducts": "Add a product manually or upload a product file to build your catalog."
+      }
+    },
     "uploadFile": "Upload Product File",
     "addManually": "Add Manually",
     "downloadTemplate": "Download Upload Template",
