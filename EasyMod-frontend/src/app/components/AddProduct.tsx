@@ -1440,18 +1440,18 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
       {/* The sidebar offset only exists from `md` up (DashboardLayout uses
           md:ml-64), so anchoring at left-64 on every width squeezed these
           actions into ~100px on a 360px phone and pushed them off-screen. */}
-      <div className="fixed bottom-0 left-0 md:left-64 right-0 bg-white border-t border-gray-200 px-4 md:px-8 py-4 flex justify-end gap-3 z-10">
+      <div className="fixed bottom-16 md:bottom-0 left-0 md:left-[var(--shell-sidebar-w,16rem)] right-0 bg-em-bg-surface border-t border-em-border px-4 md:px-8 py-4 flex justify-end gap-3 z-10">
         <button
           onClick={() => navigate('/products')}
           disabled={isSaving}
-          className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          className="px-6 py-3 min-h-11 border border-em-border-strong bg-em-bg-surface text-em-text-primary rounded-lg hover:bg-em-bg-muted transition-colors disabled:opacity-50"
         >
           {t('common.cancel')}
         </button>
         <button
           onClick={() => handleSave("publish")}
           disabled={isSaving}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="px-6 py-3 min-h-11 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700 transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {isSaving
             ? <Loader2 className="w-5 h-5 animate-spin" />

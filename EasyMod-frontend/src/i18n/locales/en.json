@@ -93,6 +93,7 @@
     "updating": "Updating...",
     "add": "Add",
     "close": "Close",
+    "skipToContent": "Skip to content",
     "back": "Back",
     "retry": "Retry",
     "loading": "Loading...",
@@ -719,6 +720,28 @@
       },
       "error": "Error Loading Dashboard",
       "noMetrics": "Dashboard insights will appear after your first Messenger conversations and orders."
+    }
+  },
+  "shell": {
+    "notifications": {
+      "title": "Notifications",
+      "unread": "{{count}} unread",
+      "empty": "No notifications",
+      "markRead": "Mark notification read",
+      "review": "Review",
+      "loadFailed": "Failed to load notifications",
+      "updateFailed": "Failed to update notification"
+    },
+    "error": {
+      "title": "Something went wrong",
+      "message": "Please try again or go back.",
+      "back": "Back to app"
+    },
+    "boundary": {
+      "title": "We could not open this screen",
+      "message": "Refresh the page. If it happens again, contact support with the screen you were trying to open.",
+      "refresh": "Refresh Page",
+      "details": "Error details"
     }
   },
   "inbox": {

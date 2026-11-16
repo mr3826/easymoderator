@@ -49,7 +49,7 @@ function StandingNotice({ onDismiss }: { onDismiss: () => void }) {
     <div
       data-testid="billing-standing-banner"
       data-claim-mode={decision.mode}
-      className="mx-4 mt-3 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      className="mx-4 mt-3 flex items-start gap-3 rounded-xl border border-em-warning-700/20 bg-em-warning-100 px-4 py-3 text-sm text-em-warning-700"
     >
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">

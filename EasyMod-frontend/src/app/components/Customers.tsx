@@ -254,7 +254,7 @@ function LegacyCustomers() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 p-3 md:p-4">
+    <div className="min-h-full p-3 md:p-4">
       <div className="max-w-7xl mx-auto">
         {/* Compact header with the primary action; wraps cleanly at 270px */}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
@@ -784,7 +784,7 @@ export default function Customers() {
 
   if (mode === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center" role="status">
+      <div className="min-h-full flex items-center justify-center" role="status">
         <Loader2 className="h-8 w-8 animate-spin text-brand-hover" />
       </div>
     );

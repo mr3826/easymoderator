@@ -284,11 +284,12 @@
   --color-em-focus-dark: var(--em-focus-dark);
 }
 
-/* Page scope for the /dashboard and /inbox redesigns. Inter covers Latin; Hind
-   Siliguri (production-approved, Bengali-first) covers Bengali glyphs via
-   per-glyph fallback. The shared shell keeps its own typography. */
+/* Page scope for the /dashboard and /inbox redesigns plus the shared shell
+   chrome (.em-shell). Inter covers Latin; Hind Siliguri (production-approved,
+   Bengali-first) covers Bengali glyphs via per-glyph fallback. */
 .em-dashboard,
-.em-inbox {
+.em-inbox,
+.em-shell {
   font-family:
     "Inter",
     "Hind Siliguri",
@@ -304,13 +305,15 @@
 }
 
 .em-dashboard :focus-visible,
-.em-inbox :focus-visible {
+.em-inbox :focus-visible,
+.em-shell :focus-visible {
   outline: 2px solid var(--em-focus-light) !important;
   outline-offset: 2px !important;
 }
 
 .em-dashboard .em-tabular,
-.em-inbox .em-tabular {
+.em-inbox .em-tabular,
+.em-shell .em-tabular {
   font-variant-numeric: tabular-nums;
 }
 
@@ -321,13 +324,30 @@
   color: var(--em-violet-700);
 }
 
+/* The shared LanguageToggle's workspace variant keeps gray-700 ink at 60%
+   opacity for the inactive segment (3.34:1 on white — below AA). Inside the
+   shell scope the inactive segment adopts the secondary ink at full opacity;
+   the active violet segment and the component itself stay untouched. */
+.em-shell .mw-language-toggle {
+  border-color: var(--em-border);
+  background: var(--em-bg-surface);
+  color: var(--em-text-primary);
+}
+.em-shell .mw-language-toggle .opacity-60 {
+  opacity: 1;
+  color: var(--em-text-secondary);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .em-dashboard *,
   .em-dashboard *::before,
   .em-dashboard *::after,
   .em-inbox *,
   .em-inbox *::before,
-  .em-inbox *::after {
+  .em-inbox *::after,
+  .em-shell *,
+  .em-shell *::before,
+  .em-shell *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
