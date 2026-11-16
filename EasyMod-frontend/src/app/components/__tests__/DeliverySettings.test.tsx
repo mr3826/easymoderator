@@ -22,7 +22,22 @@ const mocks = vi.hoisted(() => ({
   getPathaoAreas: vi.fn(),
 }));
 
-vi.mock('@/api/domains/order', () => mocks);
+vi.mock('@/api/domains/order', () => ({
+  ...mocks,
+  // Harness-only: the redesign reads the shop name via authService, which loads
+  // the api barrel; the barrel re-exports these order-domain names.
+  getOrders: vi.fn(async () => []),
+  getOrderCounts: vi.fn(async () => ({})),
+  getOrder: vi.fn(async () => null),
+  createOrder: vi.fn(async () => null),
+  updateOrder: vi.fn(async () => null),
+  confirmOrder: vi.fn(async () => null),
+  cancelOrder: vi.fn(async () => null),
+  bookCourier: vi.fn(async () => null),
+  getCourierEligibility: vi.fn(async () => null),
+  confirmCourierDestination: vi.fn(async () => null),
+  toggleDeliveryProvider: vi.fn(async () => null),
+}));
 vi.mock('@shared/lib/http/errors', () => ({
   getErrorMessage: (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback,
 }));

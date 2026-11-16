@@ -2372,6 +2372,20 @@
       "useSandbox": "Use Sandbox/Test Environment",
       "saveConnect": "Save & Connect",
       "disconnectConfirm": "Are you sure you want to disconnect {{provider}}? This will deactivate the provider.",
+      "disconnectConfirmBody": "Saved credentials are removed and parcels can no longer be booked with this courier until you reconnect.",
+      "signal": {
+        "blocked": "Delivery settings unavailable",
+        "pending": "Loading",
+        "attention": "Couriers need setup",
+        "healthy": "Couriers ready",
+        "reason": {
+          "error": "Delivery settings could not load.",
+          "actionRequired": "A courier needs attention before it can take parcels.",
+          "activeCount": "{{count}} courier(s) active for bookings.",
+          "setupIncomplete": "Connected couriers still need pickup details or activation.",
+          "notConfigured": "No courier is connected yet."
+        }
+      },
       "success": {
         "settingsSaved": "Delivery settings saved successfully",
         "connected": "{{provider}} connected successfully!",

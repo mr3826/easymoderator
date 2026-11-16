@@ -291,7 +291,8 @@
 .em-inbox,
 .em-shell,
 .em-faqs,
-.em-notifications {
+.em-notifications,
+.em-delivery {
   font-family:
     "Inter",
     "Hind Siliguri",
@@ -310,7 +311,8 @@
 .em-inbox :focus-visible,
 .em-shell :focus-visible,
 .em-faqs :focus-visible,
-.em-notifications :focus-visible {
+.em-notifications :focus-visible,
+.em-delivery :focus-visible {
   outline: 2px solid var(--em-focus-light) !important;
   outline-offset: 2px !important;
 }
@@ -319,7 +321,8 @@
 .em-inbox .em-tabular,
 .em-shell .em-tabular,
 .em-faqs .em-tabular,
-.em-notifications .em-tabular {
+.em-notifications .em-tabular,
+.em-delivery .em-tabular {
   font-variant-numeric: tabular-nums;
 }
 
@@ -359,7 +362,10 @@
   .em-faqs *::after,
   .em-notifications *,
   .em-notifications *::before,
-  .em-notifications *::after {
+  .em-notifications *::after,
+  .em-delivery *,
+  .em-delivery *::before,
+  .em-delivery *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
