@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Edit2, ExternalLink, Lightbulb, Loader2, MessageCircle, PenLine, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { Edit2, ExternalLink, Lightbulb, MessageCircle, PenLine, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { motion, MotionConfig } from "motion/react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { apiClient } from "@/api";
@@ -14,6 +15,18 @@ import type { FAQ } from "@/api/types/knowledge";
 import { GAP_SUGGESTION_SETTINGS_PATHS } from "@/api/types/knowledge";
 import type { GapDismissReason, KnowledgeGapSuggestion } from "@/api/types/knowledge";
 import { getErrorMessage } from "@shared/lib/http/errors";
+import { fadeUp } from "@/lib/motion";
+import { EmButton } from "./dashboard/EmButton";
+import { PageHeader } from "./dashboard/PageHeader";
+import { ResultBanner } from "./dashboard/ResultBanner";
+import { useDialogFocus } from "./inbox/useDialogFocus";
+import { deriveFaqSignal } from "./faq/derive";
+import { authService } from "@/app/lib/auth";
+
+const ANIMATE = import.meta.env.MODE !== "test";
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
 
 const GAP_DISMISS_REASONS: GapDismissReason[] = [
   "NOT_USEFUL",
@@ -53,8 +66,13 @@ export default function FaqSettings() {
   const [busyFaqId, setBusyFaqId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingFaq, setEditingFaq] = useState<FAQ | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<FAQ | null>(null);
   const [gapSuggestions, setGapSuggestions] = useState<KnowledgeGapSuggestion[] | null>(null);
   const [gapBusyId, setGapBusyId] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const deleteRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(editorRef, Boolean(editingFaq));
+  useDialogFocus(deleteRef, Boolean(deleteTarget));
 
   const loadFaqs = async () => {
     try {
@@ -159,13 +177,14 @@ export default function FaqSettings() {
     }
   };
 
-  const handleDeleteFaq = async (faq: FAQ) => {
-    if (!window.confirm(t("manageShop.faqs.confirmDelete"))) return;
-
+  const handleDeleteFaq = async () => {
+    if (!deleteTarget) return;
+    const faq = deleteTarget;
     try {
       setBusyFaqId(faq.id);
       await apiClient.deleteKnowledgeFaq(faq.id);
       setFaqs((current) => current.filter((item) => item.id !== faq.id));
+      setDeleteTarget(null);
       toast.success(t("manageShop.faqs.deleted"));
     } catch (error: any) {
       toast.error(getErrorMessage(error, t("manageShop.faqs.errors.delete")));
@@ -209,255 +228,338 @@ export default function FaqSettings() {
     }
   };
 
-  return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-green-100 p-3 text-green-700">
-            <MessageCircle className="h-6 w-6" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 md:text-2xl">{t("manageShop.faqs.title")}</h2>
-            <p className="text-sm text-gray-500">{t("manageShop.faqs.subtitle")}</p>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={() => setEditingFaq(createDraftFaq())}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" />
-            {t("manageShop.faqs.addFaq")}
-          </button>
-        </div>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-3">
-        <MetricCard label={t("manageShop.faqs.metrics.active")} value={stats.active} />
-        <MetricCard label={t("manageShop.faqs.metrics.total")} value={stats.total} />
-        <MetricCard label={t("manageShop.faqs.metrics.used")} value={stats.used} />
-      </div>
-
-      {gapSuggestions && gapSuggestions.length > 0 && (
-        <section className="rounded-xl border border-amber-200 bg-white" data-testid="gap-suggestions">
-          <div className="flex items-start gap-3 border-b border-gray-100 p-4">
-            <div className="rounded-lg bg-amber-100 p-2 text-amber-700">
-              <Lightbulb className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-semibold text-gray-900">{t("faqSettings.gaps.title")}</h3>
-              <p className="text-sm text-gray-500">{t("faqSettings.gaps.subtitle")}</p>
-            </div>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {gapSuggestions.map((suggestion) => (
-              <GapSuggestionCard
-                key={suggestion.id}
-                suggestion={suggestion}
-                busy={gapBusyId === suggestion.id}
-                onAuthor={() => handleGapStartAuthoring(suggestion)}
-                onPublish={(question, answer) => handleGapPublish(suggestion, question, answer)}
-                onDismiss={(reason) => handleGapDismiss(suggestion, reason)}
-                onOpenSettings={openGapSettings}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="rounded-xl border border-gray-200 bg-white">
-        <div className="flex flex-col gap-3 border-b border-gray-100 p-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="font-semibold text-gray-900">{t("manageShop.faqs.manageTitle")}</h3>
-            <p className="text-sm text-gray-500">
-              {t("manageShop.faqs.faqCount", { active: stats.active, total: stats.total })}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void loadFaqs()}
-            disabled={isLoading}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-            {t("manageShop.faqs.refresh")}
-          </button>
-        </div>
-
-        {loadError && (
-          <div className="m-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {loadError}
-          </div>
-        )}
-
-        {isLoading ? (
-          <div className="flex items-center gap-2 p-6 text-sm font-semibold text-gray-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t("manageShop.faqs.loading")}
-          </div>
-        ) : faqs.length === 0 ? (
-          <div className="px-4 py-12 text-center">
-            <MessageCircle className="mx-auto mb-3 h-12 w-12 text-gray-300" />
-            <h4 className="text-base font-semibold text-gray-900">{t("manageShop.faqs.emptyTitle")}</h4>
-            <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">{t("manageShop.faqs.emptyDescription")}</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {faqs.map((faq) => {
-              const isBusy = busyFaqId === faq.id;
-              return (
-                <article key={faq.id} className="p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <h4 className="text-sm font-semibold text-gray-900 md:text-base">{faq.question}</h4>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            faq.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
-                          }`}
-                        >
-                          {faq.active ? t("manageShop.faqs.status.active") : t("manageShop.faqs.status.inactive")}
-                        </span>
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                          {faq.category || "General"}
-                        </span>
-                      </div>
-                      <p className="text-sm leading-6 text-gray-700">{faq.answer}</p>
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
-                        <span>{t("manageShop.faqs.source", { source: faq.source })}</span>
-                        <span>{t("manageShop.faqs.usedTimes", { count: faq.usageCount || 0 })}</span>
-                        <span>{t("manageShop.faqs.confidence", { percent: Math.round((faq.confidence || 1) * 100) })}</span>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
-                      <button
-                        type="button"
-                        onClick={() => void handleToggleFaq(faq)}
-                        disabled={isBusy}
-                        className="inline-flex min-h-9 items-center justify-center rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                      >
-                        {isBusy ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : faq.active ? (
-                          t("manageShop.faqs.deactivate")
-                        ) : (
-                          t("manageShop.faqs.activate")
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingFaq(faq)}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-700"
-                        title={t("manageShop.faqs.edit")}
-                        aria-label={t("manageShop.faqs.edit")}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteFaq(faq)}
-                        disabled={isBusy}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-60"
-                        title={t("manageShop.faqs.delete")}
-                        aria-label={t("manageShop.faqs.delete")}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {editingFaq && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setEditingFaq(null);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setEditingFaq(null);
-          }}
-        >
-          <div className="w-full max-w-2xl rounded-xl bg-white p-5 shadow-xl md:p-6">
-            <h3 className="mb-5 text-xl font-bold text-gray-900">
-              {isExistingFaq ? t("manageShop.faqs.modal.editTitle") : t("manageShop.faqs.modal.addTitle")}
-            </h3>
-
-            <div className="space-y-4">
-              <label className="block">
-                <span className="mb-2 block text-sm font-medium text-gray-700">
-                  {t("manageShop.faqs.modal.questionLabel")}
-                </span>
-                <input
-                  type="text"
-                  value={editingFaq.question}
-                  onChange={(event) => setEditingFaq({ ...editingFaq, question: event.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                  placeholder={t("manageShop.faqs.modal.questionPlaceholder")}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-sm font-medium text-gray-700">
-                  {t("manageShop.faqs.modal.answerLabel")}
-                </span>
-                <textarea
-                  value={editingFaq.answer}
-                  onChange={(event) => setEditingFaq({ ...editingFaq, answer: event.target.value })}
-                  rows={5}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                  placeholder={t("manageShop.faqs.modal.answerPlaceholder")}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-sm font-medium text-gray-700">
-                  {t("manageShop.faqs.modal.categoryLabel")}
-                </span>
-                <input
-                  type="text"
-                  value={editingFaq.category}
-                  onChange={(event) => setEditingFaq({ ...editingFaq, category: event.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                  placeholder={t("manageShop.faqs.modal.categoryPlaceholder")}
-                />
-              </label>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => setEditingFaq(null)}
-                className="min-h-11 rounded-lg border border-gray-300 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSaveFaq()}
-                disabled={isSaving || !canSave}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-                {isSaving ? t("manageShop.faqs.saving") : t("manageShop.faqs.save")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+  const openGapCount = (gapSuggestions ?? []).filter((suggestion) => suggestion.status === "OPEN").length;
+  const signal = deriveFaqSignal(
+    {
+      phase: loadError ? "error" : isLoading ? "loading" : faqs.length === 0 ? "empty" : "ready",
+      openGapCount,
+      activeCount: stats.active,
+      totalCount: stats.total,
+    },
+    t,
   );
-}
+  const shopName = authService.getCurrentShop()?.shop_name || t("manageShop.faqs.title");
 
-function MetricCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="mt-1 text-sm font-medium text-gray-500">{label}</p>
-    </div>
+    <MotionConfig reducedMotion="user">
+      <div className="em-faqs min-h-full p-4 md:p-6">
+        <div className="mx-auto w-full max-w-[1440px] space-y-6">
+          {/* Execution-page header (§29): title + signal + factual pills only. */}
+          <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
+            <PageHeader
+              title={t("manageShop.faqs.title")}
+              breadcrumb={[{ label: shopName }]}
+              signal={signal}
+              signalTestId="faq-signal"
+              signalAnnounce={false}
+              meta={
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                    {t("manageShop.faqs.metrics.active")}: {stats.active}
+                  </span>
+                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                    {t("manageShop.faqs.metrics.total")}: {stats.total}
+                  </span>
+                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                    {t("manageShop.faqs.metrics.used")}: {stats.used}
+                  </span>
+                </div>
+              }
+            />
+          </motion.div>
+
+          {gapSuggestions && gapSuggestions.length > 0 && (
+            <motion.section
+              variants={fadeUp}
+              initial={ANIMATE ? "hidden" : false}
+              animate="visible"
+              className="rounded-xl border border-em-sunlight-600/30 bg-em-bg-surface"
+              data-testid="gap-suggestions"
+            >
+              <div className="flex items-start gap-3 border-b border-em-border p-4">
+                <div className="rounded-lg bg-em-sunlight-100 p-2 text-em-sunlight-700">
+                  <Lightbulb className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-em-text-primary">{t("faqSettings.gaps.title")}</h3>
+                  <p className="text-sm text-em-text-secondary">{t("faqSettings.gaps.subtitle")}</p>
+                </div>
+              </div>
+              <div className="divide-y divide-em-border">
+                {gapSuggestions.map((suggestion) => (
+                  <GapSuggestionCard
+                    key={suggestion.id}
+                    suggestion={suggestion}
+                    busy={gapBusyId === suggestion.id}
+                    onAuthor={() => handleGapStartAuthoring(suggestion)}
+                    onPublish={(question, answer) => handleGapPublish(suggestion, question, answer)}
+                    onDismiss={(reason) => handleGapDismiss(suggestion, reason)}
+                    onOpenSettings={openGapSettings}
+                  />
+                ))}
+              </div>
+            </motion.section>
+          )}
+
+          <motion.section
+            variants={fadeUp}
+            initial={ANIMATE ? "hidden" : false}
+            animate="visible"
+            className="rounded-xl border border-em-border bg-em-bg-surface"
+          >
+            <div className="flex flex-col gap-3 border-b border-em-border p-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="font-semibold text-em-text-primary">{t("manageShop.faqs.manageTitle")}</h3>
+                <p className="em-tabular text-sm text-em-text-secondary">
+                  {t("manageShop.faqs.faqCount", { active: stats.active, total: stats.total })}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <EmButton
+                  variant="secondary"
+                  onClick={() => void loadFaqs()}
+                  disabled={isLoading}
+                  className="gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} aria-hidden="true" />
+                  {t("manageShop.faqs.refresh")}
+                </EmButton>
+                {!loadError && (
+                  <EmButton
+                    variant="primary"
+                    onClick={() => setEditingFaq(createDraftFaq())}
+                    className="gap-2"
+                    data-testid="faq-add"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    {t("manageShop.faqs.addFaq")}
+                  </EmButton>
+                )}
+              </div>
+            </div>
+
+            {loadError && (
+              <ResultBanner
+                className="m-4"
+                status="error"
+                title={t("manageShop.faqs.errors.load")}
+                description={loadError}
+                nextAction={{ label: t("manageShop.faqs.refresh"), onClick: () => void loadFaqs() }}
+              />
+            )}
+
+            {isLoading ? (
+              <div className="space-y-3 p-4" aria-label={t("manageShop.faqs.loading")}>
+                {[0, 1, 2].map((row) => (
+                  <div key={row} className="animate-pulse space-y-2 rounded-xl border border-em-border bg-em-bg-muted/60 p-4">
+                    <div className="h-4 w-2/3 rounded bg-em-border" />
+                    <div className="h-3 w-full rounded bg-em-border" />
+                    <div className="h-3 w-1/3 rounded bg-em-border" />
+                  </div>
+                ))}
+              </div>
+            ) : faqs.length === 0 ? (
+              <div className="px-4 py-12 text-center">
+                <MessageCircle className="mx-auto mb-3 h-12 w-12 text-em-border-strong" aria-hidden="true" />
+                <h4 className="text-base font-semibold text-em-text-primary">{t("manageShop.faqs.emptyTitle")}</h4>
+                <p className="mx-auto mt-1 max-w-md text-sm text-em-text-secondary">{t("manageShop.faqs.emptyDescription")}</p>
+                {!loadError && (
+                  <EmButton
+                    variant="primary"
+                    onClick={() => setEditingFaq(createDraftFaq())}
+                    className="mt-4 gap-2"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    {t("manageShop.faqs.addFaq")}
+                  </EmButton>
+                )}
+              </div>
+            ) : (
+              <div className="divide-y divide-em-border">
+                {faqs.map((faq) => {
+                  const isBusy = busyFaqId === faq.id;
+                  return (
+                    <article key={faq.id} className="p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <h4 className="text-sm font-semibold text-em-text-primary md:text-base">{faq.question}</h4>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                faq.active ? "bg-em-success-100 text-em-success-700" : "bg-em-bg-muted text-em-text-secondary"
+                              }`}
+                            >
+                              {faq.active ? t("manageShop.faqs.status.active") : t("manageShop.faqs.status.inactive")}
+                            </span>
+                            <span className="rounded-full bg-em-violet-50 px-2 py-0.5 text-xs font-semibold text-em-violet-700">
+                              {faq.category || "General"}
+                            </span>
+                          </div>
+                          <p className="text-sm leading-6 text-em-text-primary">{faq.answer}</p>
+                          <div className="em-tabular mt-2 flex flex-wrap gap-3 text-xs text-em-text-secondary">
+                            <span>{t("manageShop.faqs.source", { source: faq.source })}</span>
+                            <span>{t("manageShop.faqs.usedTimes", { count: faq.usageCount || 0 })}</span>
+                            <span>{t("manageShop.faqs.confidence", { percent: Math.round((faq.confidence || 1) * 100) })}</span>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
+                          <EmButton
+                            variant="secondary"
+                            onClick={() => void handleToggleFaq(faq)}
+                            disabled={isBusy}
+                            loading={isBusy}
+                            className="px-3 text-xs"
+                          >
+                            {faq.active ? t("manageShop.faqs.deactivate") : t("manageShop.faqs.activate")}
+                          </EmButton>
+                          <button
+                            type="button"
+                            onClick={() => setEditingFaq(faq)}
+                            className={`inline-flex h-11 w-11 items-center justify-center rounded-lg text-em-text-secondary hover:bg-em-violet-50 hover:text-em-violet-700 ${FOCUS_RING}`}
+                            title={t("manageShop.faqs.edit")}
+                            aria-label={t("manageShop.faqs.edit")}
+                          >
+                            <Edit2 className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(faq)}
+                            disabled={isBusy}
+                            className={`inline-flex h-11 w-11 items-center justify-center rounded-lg text-em-text-secondary hover:bg-em-danger-100 hover:text-em-danger-700 disabled:opacity-60 ${FOCUS_RING}`}
+                            title={t("manageShop.faqs.delete")}
+                            aria-label={t("manageShop.faqs.delete")}
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </motion.section>
+        </div>
+
+        {editingFaq && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-em-midnight-950/60 p-4"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setEditingFaq(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setEditingFaq(null);
+            }}
+          >
+            <div
+              ref={editorRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="faq-editor-title"
+              className="w-full max-w-2xl rounded-xl bg-em-bg-surface p-5 shadow-xl md:p-6"
+            >
+              <h3 id="faq-editor-title" className="mb-5 text-xl font-semibold text-em-text-primary">
+                {isExistingFaq ? t("manageShop.faqs.modal.editTitle") : t("manageShop.faqs.modal.addTitle")}
+              </h3>
+
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-em-text-primary">
+                    {t("manageShop.faqs.modal.questionLabel")}
+                  </span>
+                  <input
+                    type="text"
+                    value={editingFaq.question}
+                    onChange={(event) => setEditingFaq({ ...editingFaq, question: event.target.value })}
+                    className={`min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-4 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
+                    placeholder={t("manageShop.faqs.modal.questionPlaceholder")}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-em-text-primary">
+                    {t("manageShop.faqs.modal.answerLabel")}
+                  </span>
+                  <textarea
+                    value={editingFaq.answer}
+                    onChange={(event) => setEditingFaq({ ...editingFaq, answer: event.target.value })}
+                    rows={5}
+                    className={`w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-4 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
+                    placeholder={t("manageShop.faqs.modal.answerPlaceholder")}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-em-text-primary">
+                    {t("manageShop.faqs.modal.categoryLabel")}
+                  </span>
+                  <input
+                    type="text"
+                    value={editingFaq.category}
+                    onChange={(event) => setEditingFaq({ ...editingFaq, category: event.target.value })}
+                    className={`min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-4 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
+                    placeholder={t("manageShop.faqs.modal.categoryPlaceholder")}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <EmButton variant="secondary" onClick={() => setEditingFaq(null)}>
+                  {t("common.cancel")}
+                </EmButton>
+                <EmButton
+                  variant="primary"
+                  onClick={() => void handleSaveFaq()}
+                  disabled={isSaving || !canSave}
+                  loading={isSaving}
+                  className="gap-2"
+                >
+                  {isSaving ? t("manageShop.faqs.saving") : t("manageShop.faqs.save")}
+                </EmButton>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {deleteTarget && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-em-midnight-950/60 p-4"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setDeleteTarget(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setDeleteTarget(null);
+            }}
+          >
+            <div
+              ref={deleteRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="faq-delete-title"
+              className="w-full max-w-md rounded-xl bg-em-bg-surface p-5 shadow-xl md:p-6"
+            >
+              <h3 id="faq-delete-title" className="text-lg font-semibold text-em-text-primary">
+                {t("faqSettings.confirmTitle")}
+              </h3>
+              <p className="mt-2 text-sm text-em-text-secondary">{t("manageShop.faqs.confirmDelete")}</p>
+              <p className="mt-2 truncate text-sm font-semibold text-em-text-primary">{deleteTarget.question}</p>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <EmButton variant="secondary" onClick={() => setDeleteTarget(null)}>
+                  {t("common.cancel")}
+                </EmButton>
+                <EmButton
+                  variant="danger"
+                  onClick={() => void handleDeleteFaq()}
+                  disabled={busyFaqId === deleteTarget.id}
+                  loading={busyFaqId === deleteTarget.id}
+                  data-testid="faq-delete-confirm"
+                >
+                  {t("manageShop.faqs.delete")}
+                </EmButton>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </MotionConfig>
   );
 }
 
@@ -490,17 +592,17 @@ function GapSuggestionCard({ suggestion, busy, onAuthor, onPublish, onDismiss, o
   return (
     <article data-testid={`gap-suggestion-${suggestion.id}`} className="p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h4 className="basis-full min-w-0 text-sm font-semibold text-gray-900 md:basis-auto md:text-base">
+        <h4 className="basis-full min-w-0 text-sm font-semibold text-em-text-primary md:basis-auto md:text-base">
           {suggestion.display_question}
         </h4>
-        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+        <span className="em-tabular rounded-full bg-em-sunlight-100 px-2.5 py-1 text-xs font-semibold text-em-sunlight-700">
           {t("faqSettings.gaps.askedTimes", { count: suggestion.evidence_count })}
         </span>
-        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+        <span className="rounded-full bg-em-violet-50 px-2.5 py-1 text-xs font-semibold text-em-violet-700">
           {t(`faqSettings.gaps.domain.${suggestion.owner_domain}`)}
         </span>
         {suggestion.status === "IN_REVIEW" && (
-          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+          <span className="rounded-full bg-em-midnight-100 px-2.5 py-1 text-xs font-medium text-em-midnight-700">
             {t("faqSettings.gaps.status.IN_REVIEW")}
           </span>
         )}
@@ -508,84 +610,85 @@ function GapSuggestionCard({ suggestion, busy, onAuthor, onPublish, onDismiss, o
 
       <div className="mt-3 flex flex-wrap gap-2">
         {settingsPath ? (
-          <button
-            type="button"
+          <EmButton
+            variant="primary"
             data-testid="gap-open-settings"
             onClick={() => onOpenSettings(settingsPath)}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
+            className="gap-2"
           >
             <ExternalLink className="h-4 w-4" aria-hidden="true" />
             {t("faqSettings.gaps.openSettings")}
-          </button>
+          </EmButton>
         ) : (
-          <button
-            type="button"
+          <EmButton
+            variant={authoring ? "secondary" : "primary"}
             onClick={() => {
               if (!authoring) void onAuthor();
               setAuthoring((open) => !open);
             }}
             aria-expanded={authoring}
             disabled={busy}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="gap-2"
           >
             <PenLine className="h-4 w-4" aria-hidden="true" />
             {t("faqSettings.gaps.writeAnswer")}
-          </button>
+          </EmButton>
         )}
-        <button
-          type="button"
+        <EmButton
+          variant="secondary"
           onClick={() => setDismissOpen((open) => !open)}
           aria-expanded={dismissOpen}
           disabled={busy}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          className="gap-2"
         >
           <X className="h-4 w-4" aria-hidden="true" />
           {t("faqSettings.gaps.dismiss")}
-        </button>
+        </EmButton>
       </div>
 
       {authoring && !settingsPath && (
-        <div className="mt-3 space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
-          <label className="block text-sm text-gray-700">
+        <div className="mt-3 space-y-3 rounded-xl border border-em-border bg-em-bg-muted p-3">
+          <label className="block text-sm text-em-text-primary">
             <span className="mb-1 block font-medium">{t("faqSettings.gaps.questionLabel")}</span>
             <input
               type="text"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              className={`min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
             />
           </label>
-          <label className="block text-sm text-gray-700">
+          <label className="block text-sm text-em-text-primary">
             <span className="mb-1 block font-medium">{t("faqSettings.gaps.answerLabel")}</span>
             <textarea
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
               rows={4}
               placeholder={t("faqSettings.gaps.answerPlaceholder")}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              className={`w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
             />
           </label>
-          <button
-            type="button"
+          <EmButton
+            variant="primary"
             data-testid="gap-publish"
             onClick={() => void onPublish(question, answer)}
             disabled={busy || !canPublish}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60 sm:w-auto"
+            loading={busy}
+            className="w-full gap-2 sm:w-auto"
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+            <Send className="h-4 w-4" aria-hidden="true" />
             {t("faqSettings.gaps.publish")}
-          </button>
+          </EmButton>
         </div>
       )}
 
       {dismissOpen && (
-        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:flex-row sm:items-end">
-          <label className="flex-1 text-sm text-gray-700">
+        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-em-border bg-em-bg-muted p-3 sm:flex-row sm:items-end">
+          <label className="flex-1 text-sm text-em-text-primary">
             <span className="mb-1 block font-medium">{t("faqSettings.gaps.dismissTitle")}</span>
             <select
               value={reason}
               onChange={(event) => setReason(event.target.value as GapDismissReason)}
-              className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm"
+              className={`min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-text-primary ${FOCUS_RING}`}
             >
               {GAP_DISMISS_REASONS.map((code) => (
                 <option key={code} value={code}>
@@ -594,15 +697,15 @@ function GapSuggestionCard({ suggestion, busy, onAuthor, onPublish, onDismiss, o
               ))}
             </select>
           </label>
-          <button
-            type="button"
+          <EmButton
+            variant="danger"
             data-testid="gap-dismiss-confirm"
             onClick={() => void onDismiss(reason)}
             disabled={busy}
-            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-gray-900 px-4 text-sm font-semibold text-white hover:bg-black disabled:opacity-60"
+            loading={busy}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : t("faqSettings.gaps.dismissConfirm")}
-          </button>
+            {t("faqSettings.gaps.dismissConfirm")}
+          </EmButton>
         </div>
       )}
     </article>

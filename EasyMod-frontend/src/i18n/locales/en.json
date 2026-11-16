@@ -2820,6 +2820,20 @@
     }
   },
   "faqSettings": {
+    "signal": {
+      "blocked": "Knowledge unavailable",
+      "pending": "Loading",
+      "attention": "Questions need answers",
+      "healthy": "Knowledge ready",
+      "empty": "No answers yet",
+      "reason": {
+        "error": "The knowledge list could not load.",
+        "gaps": "{{count}} customer questions need answers.",
+        "empty": "Add the first answer customers can receive.",
+        "ready": "{{active}} of {{total}} answers active."
+      }
+    },
+    "confirmTitle": "Delete this answer?",
     "gaps": {
       "title": "Questions customers keep asking",
       "subtitle": "Real customer questions your shop has not answered yet. You write every answer — nothing is published automatically.",

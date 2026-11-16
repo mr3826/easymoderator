@@ -289,7 +289,8 @@
    Bengali-first) covers Bengali glyphs via per-glyph fallback. */
 .em-dashboard,
 .em-inbox,
-.em-shell {
+.em-shell,
+.em-faqs {
   font-family:
     "Inter",
     "Hind Siliguri",
@@ -306,14 +307,16 @@
 
 .em-dashboard :focus-visible,
 .em-inbox :focus-visible,
-.em-shell :focus-visible {
+.em-shell :focus-visible,
+.em-faqs :focus-visible {
   outline: 2px solid var(--em-focus-light) !important;
   outline-offset: 2px !important;
 }
 
 .em-dashboard .em-tabular,
 .em-inbox .em-tabular,
-.em-shell .em-tabular {
+.em-shell .em-tabular,
+.em-faqs .em-tabular {
   font-variant-numeric: tabular-nums;
 }
 
@@ -347,7 +350,10 @@
   .em-inbox *::after,
   .em-shell *,
   .em-shell *::before,
-  .em-shell *::after {
+  .em-shell *::after,
+  .em-faqs *,
+  .em-faqs *::before,
+  .em-faqs *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
