@@ -11,6 +11,9 @@ import { forwardRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
+
 export interface OverrideControlProps {
   label: string;
   /** True when an explicit channel override is stored. */
@@ -53,17 +56,17 @@ export const OverrideControl = forwardRef<HTMLDivElement, OverrideControlProps>(
       <section
         ref={ref}
         tabIndex={-1}
-        className="rounded-xl border border-[var(--ca-border)] bg-white p-4 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ca-violet)]"
+        className="rounded-xl border border-em-border bg-em-bg-surface p-4 outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-[var(--ca-ink)]">{label}</h3>
-            <p className="mt-1 text-xs text-[var(--ca-ink-muted)]">
+            <h3 className="text-sm font-semibold text-em-text-primary">{label}</h3>
+            <p className="mt-1 text-xs text-em-text-secondary">
               {t("manageShop.channels.detail.effective")}:{" "}
-              <span className="font-medium text-[var(--ca-ink)]">{effective}</span>
+              <span className="font-medium text-em-text-primary">{effective}</span>
             </p>
             {source && (
-              <p className="mt-0.5 text-xs text-[var(--ca-ink-soft)]">
+              <p className="mt-0.5 text-xs text-em-text-secondary">
                 {t("manageShop.channels.detail.source")}: {source}
               </p>
             )}
@@ -71,8 +74,8 @@ export const OverrideControl = forwardRef<HTMLDivElement, OverrideControlProps>(
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
               overridden
-                ? "bg-[var(--ca-violet-soft)] text-[var(--ca-violet-deep)]"
-                : "bg-[var(--ca-surface-sunken)] text-[var(--ca-ink-muted)]"
+                ? "bg-em-violet-100 text-em-violet-700"
+                : "bg-em-bg-muted text-em-text-secondary"
             }`}
           >
             {overridden
@@ -82,7 +85,7 @@ export const OverrideControl = forwardRef<HTMLDivElement, OverrideControlProps>(
         </div>
 
         {!canEdit && (
-          <p className="mt-2 text-xs text-[var(--ca-ink-soft)]" data-testid="channel-read-only-reason">
+          <p className="mt-2 text-xs text-em-text-secondary" data-testid="channel-read-only-reason">
             {readOnlyReason || t("manageShop.channels.detail.ownerOnly")}
           </p>
         )}
@@ -92,7 +95,7 @@ export const OverrideControl = forwardRef<HTMLDivElement, OverrideControlProps>(
             type="button"
             onClick={onStartOverride}
             disabled={saving}
-            className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-[var(--ca-violet)] px-3 py-1.5 text-xs font-semibold text-[var(--ca-violet-deep)] hover:bg-[var(--ca-violet-soft)] disabled:opacity-60"
+            className={`mt-3 inline-flex min-h-11 items-center rounded-lg border border-em-violet-600 px-3 py-1.5 text-xs font-semibold text-em-violet-700 hover:bg-em-violet-50 disabled:opacity-60 ${FOCUS_RING}`}
           >
             {t("manageShop.channels.detail.startOverride")}
           </button>
@@ -107,14 +110,14 @@ export const OverrideControl = forwardRef<HTMLDivElement, OverrideControlProps>(
                 data-testid={revertTestId}
                 onClick={onRevert}
                 disabled={saving}
-                className="inline-flex min-h-9 items-center rounded-lg border border-[var(--ca-border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--ca-ink)] hover:bg-[var(--ca-surface-muted)] disabled:opacity-60"
+                className={`inline-flex min-h-11 items-center rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-1.5 text-xs font-medium text-em-text-primary hover:bg-em-bg-muted disabled:opacity-60 ${FOCUS_RING}`}
               >
                 {t("manageShop.channels.detail.revert")}
               </button>
               {saving && (
                 <span
                   role="status"
-                  className="inline-flex items-center gap-1 text-xs text-[var(--ca-ink-muted)]"
+                  className="inline-flex items-center gap-1 text-xs text-em-text-secondary"
                 >
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                   {t("manageShop.channels.detail.saving")}
@@ -125,7 +128,7 @@ export const OverrideControl = forwardRef<HTMLDivElement, OverrideControlProps>(
         )}
 
         {error && (
-          <p role="alert" className="mt-2 text-xs text-red-700">
+          <p role="alert" className="mt-2 text-xs text-em-danger-700">
             {error}
           </p>
         )}

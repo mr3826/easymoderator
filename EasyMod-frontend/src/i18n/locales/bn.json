@@ -2744,6 +2744,21 @@
         "escalation": "এসক্যালেশন উত্তর টেমপ্লেট",
         "businessOnly": "শুধু ব্যবসা (এখানে পড়ার জন্য)",
         "editAtBusiness": "ব্যবসার ডিফল্টে সম্পাদনা করুন"
+      },
+      "connectedCountLabel": "সংযুক্ত",
+      "overrideTotalLabel": "ওভাররাইড",
+      "signal": {
+        "blocked": "চ্যানেল পাওয়া যাচ্ছে না",
+        "pending": "চ্যানেল লোড হচ্ছে",
+        "stopped": "AI উত্তর বন্ধ",
+        "healthy": "চ্যানেল সংযুক্ত",
+        "attention": "একটি চ্যানেল প্রয়োজন",
+        "reason": {
+          "unavailable": "চ্যানেল তালিকা লোড করা যায়নি। আপনার পেজগুলো দেখতে আবার চেষ্টা করুন।",
+          "stopActive": "ইমার্জেন্সি স্টপ চালু; প্রতিটি চ্যানেলের AI উত্তর বিরতিতে আছে।",
+          "connectedCount": "{{count}}টি Facebook পেজ সংযুক্ত।",
+          "noChannels": "গ্রাহকরা যাতে Messenger-এ পৌঁছাতে পারেন সেজন্য একটি Facebook পেজ সংযুক্ত করুন।"
+        }
       }
     },
     "automation": {

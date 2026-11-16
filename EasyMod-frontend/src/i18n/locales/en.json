@@ -2744,6 +2744,21 @@
         "escalation": "Escalation reply template",
         "businessOnly": "Business only (read-only here)",
         "editAtBusiness": "Edit at business defaults"
+      },
+      "connectedCountLabel": "Connected",
+      "overrideTotalLabel": "Overrides",
+      "signal": {
+        "blocked": "Channels unavailable",
+        "pending": "Loading channels",
+        "stopped": "AI replies stopped",
+        "healthy": "Channels connected",
+        "attention": "Needs a channel",
+        "reason": {
+          "unavailable": "The channel list could not be loaded. Retry to see your Pages.",
+          "stopActive": "The emergency stop is active; AI replies are paused for every channel.",
+          "connectedCount": "{{count}} Facebook Page(s) connected.",
+          "noChannels": "Connect a Facebook Page to let customers reach you on Messenger."
+        }
       }
     },
     "automation": {
