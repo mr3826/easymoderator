@@ -238,6 +238,6 @@ test('notification bell in header visible', async ({ page }) => {
     await expect(
         page.locator('[data-testid="notification-bell"], [aria-label*="notification"], button[title*="notification"]').or(
             page.locator('svg').filter({ hasText: '' }).first()
-        )
+        ).first()
     ).toBeVisible({ timeout: 5000 });
 });

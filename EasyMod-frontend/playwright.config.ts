@@ -43,6 +43,9 @@ export default defineConfig({
       VITE_BKASH_ENABLED: 'false',
       VITE_BKASH_SANDBOX: 'false',
       VITE_ENV: 'development',
+      // Dummy key mirrors vitest.config.js: the push helper bails without it,
+      // which silently skipped subscription POST assertions in e2e.
+      VITE_VAPID_PUBLIC_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     },
   },
 });

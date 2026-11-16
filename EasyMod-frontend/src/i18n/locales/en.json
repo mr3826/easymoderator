@@ -2717,6 +2717,21 @@
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose where merchant alerts should appear.",
+      "signal": {
+        "blocked": "Alerts unavailable",
+        "pending": "Loading",
+        "attention": "Alerts need setup",
+        "healthy": "Alerts connected",
+        "waiting": "Waiting for connection",
+        "reason": {
+          "error": "Notification settings could not load.",
+          "notConfigured": "The Telegram alert bot is not set up for this shop yet.",
+          "unhealthy": "The Telegram connection is unhealthy — check the group and bot.",
+          "disconnected": "Telegram alerts are not connected.",
+          "connected": "Telegram alerts are delivering to your group.",
+          "pending": "Finish the connection steps in Telegram, then refresh."
+        }
+      },
       "errors": {
         "load": "Failed to load notification settings."
       },
@@ -2752,7 +2767,9 @@
         "testFailed": "Telegram test alert failed.",
         "disconnectedToast": "Telegram alerts disconnected.",
         "disconnectFailed": "Could not disconnect Telegram alerts.",
-        "preferenceFailed": "Could not update Telegram preferences."
+        "preferenceFailed": "Could not update Telegram preferences.",
+        "disconnectConfirmTitle": "Disconnect Telegram alerts?",
+        "disconnectConfirmBody": "Alerts stop delivering to your Telegram group. You can reconnect later with a new connect command."
       }
     },
     "aiSettings": {

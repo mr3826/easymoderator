@@ -2717,6 +2717,21 @@
     "notifications": {
       "title": "নোটিফিকেশন",
       "subtitle": "মার্চেন্ট alert কোথায় দেখাবে তা বেছে নিন।",
+      "signal": {
+        "blocked": "Alert পাওয়া যাচ্ছে না",
+        "pending": "লোড হচ্ছে",
+        "attention": "Alert সেটআপ দরকার",
+        "healthy": "Alert যুক্ত আছে",
+        "waiting": "সংযোগের অপেক্ষায়",
+        "reason": {
+          "error": "নোটিফিকেশন সেটিংস লোড করা যায়নি।",
+          "notConfigured": "এই দোকানের জন্য Telegram alert bot এখনো সেটআপ করা হয়নি।",
+          "unhealthy": "Telegram সংযোগ অসুস্থ — group ও bot পরীক্ষা করুন।",
+          "disconnected": "Telegram alert যুক্ত নেই।",
+          "connected": "Telegram alert আপনার group-এ পৌঁছাচ্ছে।",
+          "pending": "Telegram-এ সংযোগের ধাপগুলো শেষ করে রিফ্রেশ করুন।"
+        }
+      },
       "errors": {
         "load": "নোটিফিকেশন সেটিংস লোড করা যায়নি।"
       },
@@ -2752,7 +2767,9 @@
         "testFailed": "Telegram test alert ব্যর্থ হয়েছে।",
         "disconnectedToast": "Telegram alert বিচ্ছিন্ন হয়েছে।",
         "disconnectFailed": "Telegram alert বিচ্ছিন্ন করা যায়নি।",
-        "preferenceFailed": "Telegram preference আপডেট করা যায়নি।"
+        "preferenceFailed": "Telegram preference আপডেট করা যায়নি।",
+        "disconnectConfirmTitle": "Telegram alert বিচ্ছিন্ন করবেন?",
+        "disconnectConfirmBody": "আপনার Telegram group-এ alert পাঠানো বন্ধ হবে। পরে নতুন connect command দিয়ে আবার যুক্ত করতে পারবেন।"
       }
     },
     "aiSettings": {
