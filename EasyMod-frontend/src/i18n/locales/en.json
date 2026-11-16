@@ -1704,6 +1704,21 @@
   "customers": {
     "title": "Customer Management",
     "subtitle": "Manage and track all your customers in one place",
+    "totalCountLabel": "Total",
+    "opportunityCountLabel": "Opportunities",
+    "signal": {
+      "blocked": "Customers unavailable",
+      "pending": "Loading customers",
+      "opportunities": "Opportunities to action",
+      "healthy": "Customers active",
+      "attention": "No customers",
+      "reason": {
+        "unavailable": "The customer list failed to load. Retry to see your customers.",
+        "opportunityCount": "{{count}} open opportunity(ies) to action.",
+        "totalCount": "{{count}} customer(s) in your shop.",
+        "noCustomers": "Your customer list is empty. Customers appear here once they message you or you add them."
+      }
+    },
     "channels": {
       "facebook": "Facebook",
       "messenger": "Messenger",

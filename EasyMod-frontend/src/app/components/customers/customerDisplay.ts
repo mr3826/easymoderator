@@ -6,24 +6,24 @@ import type { CustomerState, OpportunityStrength, OrderOutcome } from "@/api/typ
  * judgement about the person.
  */
 export const stateStyles: Record<CustomerState, string> = {
-  NEW: "bg-gray-100 text-gray-700",
-  INTERESTED: "bg-blue-50 text-blue-700",
-  BUYER: "bg-emerald-50 text-emerald-700",
-  REPEAT_BUYER: "bg-emerald-100 text-emerald-800",
-  AT_RISK: "bg-amber-50 text-amber-800",
-  INACTIVE: "bg-slate-100 text-slate-600",
+  NEW: "bg-em-bg-muted text-em-text-secondary",
+  INTERESTED: "bg-em-info-100 text-em-info-700",
+  BUYER: "bg-em-success-100 text-em-success-700",
+  REPEAT_BUYER: "bg-em-success-100 text-em-success-700",
+  AT_RISK: "bg-em-warning-100 text-em-warning-700",
+  INACTIVE: "bg-em-bg-muted text-em-text-secondary",
 };
 
 export const strengthStyles: Record<OpportunityStrength, string> = {
-  HIGH: "bg-emerald-100 text-emerald-800",
-  MEDIUM: "bg-sky-50 text-sky-700",
+  HIGH: "bg-em-success-100 text-em-success-700",
+  MEDIUM: "bg-em-info-100 text-em-info-700",
 };
 
 export const outcomeStyles: Record<OrderOutcome, string> = {
-  DELIVERED: "bg-emerald-50 text-emerald-700",
-  RETURNED: "bg-amber-50 text-amber-800",
-  CANCELLED: "bg-gray-100 text-gray-600",
-  IN_PROGRESS: "bg-blue-50 text-blue-700",
+  DELIVERED: "bg-em-success-100 text-em-success-700",
+  RETURNED: "bg-em-warning-100 text-em-warning-700",
+  CANCELLED: "bg-em-bg-muted text-em-text-secondary",
+  IN_PROGRESS: "bg-em-info-100 text-em-info-700",
 };
 
 export const localeFor = (language: string) => (language === "bn" ? "bn-BD" : "en-US");

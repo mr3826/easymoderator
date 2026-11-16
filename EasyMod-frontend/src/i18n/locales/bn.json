@@ -1704,6 +1704,21 @@
   "customers": {
     "title": "কাস্টমার ম্যানেজমেন্ট",
     "subtitle": "সব কাস্টমার এক জায়গায় পরিচালনা ও ট্র্যাক করুন",
+    "totalCountLabel": "মোট",
+    "opportunityCountLabel": "সুযোগ",
+    "signal": {
+      "blocked": "কাস্টমার পাওয়া যাচ্ছে না",
+      "pending": "কাস্টমার লোড হচ্ছে",
+      "opportunities": "ব্যবস্থা নেওয়ার সুযোগ",
+      "healthy": "সক্রিয় কাস্টমার",
+      "attention": "কোনো কাস্টমার নেই",
+      "reason": {
+        "unavailable": "কাস্টমার তালিকা লোড করা যায়নি। কাস্টমার দেখতে আবার চেষ্টা করুন।",
+        "opportunityCount": "{{count}}টি খোলা সুযোগে ব্যবস্থা প্রয়োজন।",
+        "totalCount": "আপনার দোকানে {{count}}জন কাস্টমার।",
+        "noCustomers": "আপনার কাস্টমার তালিকা খালি। কাস্টমার মেসেজ করলে বা আপনি যোগ করলে এখানে দেখা যাবে।"
+      }
+    },
     "channels": {
       "facebook": "Facebook",
       "messenger": "Messenger",
