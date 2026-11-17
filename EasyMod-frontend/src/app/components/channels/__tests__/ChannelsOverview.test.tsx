@@ -151,6 +151,9 @@ describe('ChannelsOverview', () => {
 
     fireEvent.click(addBtn);
     expect(await screen.findByRole('button', { name: /Connect Facebook Page/i })).toBeInTheDocument();
+    // The embedded connector is connector-only: the Page is listed once (the
+    // overview grid), never duplicated by the manager's own channel grid.
+    expect(screen.getAllByText('Page p1')).toHaveLength(1);
   });
 
   it('renders an error with retry that refetches', async () => {

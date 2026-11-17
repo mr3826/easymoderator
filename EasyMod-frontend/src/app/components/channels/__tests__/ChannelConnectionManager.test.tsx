@@ -91,10 +91,14 @@ describe('ChannelConnectionManager', () => {
     });
   });
 
-  it('hides the header when embedded', async () => {
+  it('embedded mode is connector-only: no header and no duplicate channel grid', async () => {
     renderManager({ embedded: true });
-    await screen.findByTestId('channel-health-grid');
+    // The overview owns the channel grid; the embedded manager only connects.
+    expect(
+      await screen.findByRole('button', { name: /Add another Facebook Page/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Channel Settings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('channel-health-grid')).not.toBeInTheDocument();
   });
 
   it('ChannelHealthGrid is pure presentation and takes a channel', () => {

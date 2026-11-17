@@ -107,7 +107,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
         </div>
       )}
 
-      {isLoading && (
+      {!embedded && isLoading && (
         <div className="grid gap-4 md:grid-cols-2">
           {[0, 1].map((i) => (
             <div key={i} className="bg-em-bg-surface border border-em-border rounded-xl p-5 animate-pulse">
@@ -125,7 +125,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
         </div>
       )}
 
-      {loadError && (
+      {!embedded && loadError && (
         <div role="alert" className="bg-em-danger-100 border border-em-danger-700/20 rounded-xl p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-em-danger-700 flex-shrink-0" />
           <p className="text-sm text-em-danger-700 flex-1">{loadError}</p>
@@ -204,8 +204,10 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
         </div>
       )}
 
-      {/* Connected channels */}
-      {!isLoading && !loadError && channels.length > 0 && (
+      {/* Connected channels — standalone surface only. When embedded in the
+          overview, the overview owns the channel grid; the embedded manager is
+          connector-only so a Page never appears twice with separate controls. */}
+      {!embedded && !isLoading && !loadError && channels.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
           {channels.map((channel) => {
             const isConnected = channel.isHealthy;
