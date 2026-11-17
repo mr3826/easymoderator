@@ -1,6 +1,8 @@
 /**
  * Shell chrome proof (mock-only, CI subset): sidebar/topbar/mobile bar on the
- * guardrails token system with the IA unchanged. Same allowlist+abort
+ * guardrails token system. The merchant IA is five destinations — Add-ons is
+ * hidden (founder decision 2026-11-17) and its paths redirect to the dashboard.
+ * Same allowlist+abort
  * discipline as inbox-guardrails — a chrome change that invents backend calls
  * fails here. Covers active state, collapse persistence, skip link, keyboard
  * focus, popup semantics, 390px mobile bar and chrome-scoped axe.
@@ -216,15 +218,30 @@ test('notification bell opens a dialog and Escape closes it', async ({ page }) =
     await expect(dialog).toHaveCount(0);
 });
 
-test('390px: six mobile destinations, no horizontal overflow, sidebar hidden', async ({ page }) => {
+test('390px: five mobile destinations, no horizontal overflow, sidebar hidden', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page);
     await loginAndGo(page);
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
-    await expect(mobile.getByRole('link')).toHaveCount(6);
+    await expect(mobile.getByRole('link')).toHaveCount(5);
     await expect(page.locator('aside')).toBeHidden();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('Add-ons is hidden: no nav entry, and its retired paths redirect to the dashboard', async ({ page }) => {
+    const state = await setupRoutes(page);
+    await loginAndGo(page);
+    const navs = page.locator('nav[aria-label="Workspace navigation"]');
+    await expect(navs).toHaveCount(2);
+    // Neither the desktop rail nor the mobile bar may offer the feature.
+    await expect(navs.nth(0).getByRole('link', { name: 'Add-ons' })).toHaveCount(0);
+    await expect(navs.nth(1).getByRole('link', { name: 'Add-ons' })).toHaveCount(0);
+    for (const path of ['/addons', '/addons/ads-studio', '/addons/storefront']) {
+        await page.goto(path);
+        await expect(page).toHaveURL(/\/dashboard$/);
+    }
+    expect(state.unexpected).toEqual([]);
 });
 
 test('axe: no critical or serious violations in the chrome', async ({ page }) => {

@@ -47,13 +47,13 @@ beforeEach(() => {
 })
 
 describe('shell chrome', () => {
-  it('keeps the six mobile destinations and both workspace navs in order', () => {
+  it('keeps the five mobile destinations and both workspace navs in order', () => {
     renderLayout('/inbox')
     const navs = screen.getAllByRole('navigation', { name: 'Workspace navigation' })
     expect(navs).toHaveLength(2)
     const mobile = navs[1]
     expect(within(mobile).getAllByRole('link').map(l => l.textContent)).toEqual([
-      'Home', 'Inbox', 'Orders', 'Customers', 'Products', 'Add-ons',
+      'Home', 'Inbox', 'Orders', 'Customers', 'Products',
     ])
   })
 

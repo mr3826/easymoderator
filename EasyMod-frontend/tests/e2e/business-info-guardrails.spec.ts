@@ -170,13 +170,13 @@ test('ADR-0013 boundary: automation link present, no AI control or radiogroup', 
     await expect(page.getByText('Save Reply Settings', { exact: true })).toHaveCount(0);
 });
 
-test('390px: no horizontal overflow and six mobile destinations', async ({ page }) => {
+test('390px: no horizontal overflow and five mobile destinations', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByTestId('business-signal')).toBeVisible();
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
-    await expect(mobile.getByRole('link')).toHaveCount(6);
+    await expect(mobile.getByRole('link')).toHaveCount(5);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
 });
