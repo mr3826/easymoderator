@@ -299,7 +299,8 @@
 .em-orders,
 .em-customers,
 .em-products,
-.em-billing {
+.em-billing,
+.em-automation {
   font-family:
     "Inter",
     "Hind Siliguri",
@@ -326,7 +327,8 @@
 .em-orders :focus-visible,
 .em-customers :focus-visible,
 .em-products :focus-visible,
-.em-billing :focus-visible {
+.em-billing :focus-visible,
+.em-automation :focus-visible {
   outline: 2px solid var(--em-focus-light) !important;
   outline-offset: 2px !important;
 }
@@ -343,7 +345,8 @@
 .em-orders .em-tabular,
 .em-customers .em-tabular,
 .em-products .em-tabular,
-.em-billing .em-tabular {
+.em-billing .em-tabular,
+.em-automation .em-tabular {
   font-variant-numeric: tabular-nums;
 }
 
@@ -407,27 +410,15 @@
   .em-products *::after,
   .em-billing *,
   .em-billing *::before,
-  .em-billing *::after {
+  .em-billing *::after,
+  .em-automation *,
+  .em-automation *::before,
+  .em-automation *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
 }
 
-/* Channel automation redesign (ADR-0013 §9) — scoped Midnight/Violet/Sunlight
-   semantic tokens. Additive only; no global retheme. */
-.ca-scope {
-  --ca-midnight: #17223b;
-  --ca-violet: #7460d9;
-  --ca-violet-deep: #5d49bb;
-  --ca-sunlight: #f4c35e;
-  --ca-surface: #ffffff;
-  --ca-surface-muted: #f5f4fb;
-  --ca-surface-sunken: #eeecf8;
-  --ca-ink: #17223b;
-  --ca-ink-muted: #5b6478;
-  /* 5.77:1 on white, ≥4.8:1 on all scoped surfaces (WCAG AA for 11-12px text). */
-  --ca-ink-soft: #5f6674;
-  --ca-border: #ddd9ee;
-  --ca-violet-soft: #ece9fb;
-  --ca-sunlight-soft: #fdf3dc;
-}
+/* The ADR-0013 §9 `.ca-scope` token block was retired with its last consumer
+   (/manage-shop/automation, now `.em-automation`). Every scoped surface in the
+   merchant app reads the single `--em-*` ramp above. */
