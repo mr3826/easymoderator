@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChatSettings from './ChatSettings';
 import type { MetaChannel } from '@/api/domains/meta-channels';
 
@@ -70,6 +71,7 @@ vi.mock('@/api/domains/meta-channels', () => ({
   initiateMetaOAuth:          mockInitiateMetaOAuth,
   handleMetaOAuthCallback:    mockHandleMetaOAuthCallback,
   connectMetaAsset:           mockConnectMetaAsset,
+  channelQueryKeys: { list: () => ['channels'], settings: (id: string) => ['channel-settings', id] },
 }));
 
 vi.mock('sonner', () => ({
@@ -114,8 +116,13 @@ let lastBroadcastChannel: { onmessage: ((event: { data: unknown }) => void) | nu
 
 const renderComponent = async () => {
   let utils: ReturnType<typeof render> | undefined;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
-    utils = render(<ChatSettings />);
+    utils = render(
+      <QueryClientProvider client={client}>
+        <ChatSettings />
+      </QueryClientProvider>,
+    );
     await flushPromises();
   });
   return utils!;
@@ -192,8 +199,9 @@ describe('ChatSettings', () => {
   it('reports the canonical subscribed_apps health result from Test', async () => {
     await renderComponent();
 
+    const testButton = await screen.findByRole('button', { name: /^Test$/i });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /^Test$/i }));
+      fireEvent.click(testButton);
       await flushPromises();
     });
 

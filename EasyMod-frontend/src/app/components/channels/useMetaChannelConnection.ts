@@ -8,9 +8,10 @@
  * markup: ChatSettings renders it through ChannelConnectionManager, and the
  * redesigned ChannelsOverview / ChannelDetail reuse the per-channel actions.
  */
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listMetaChannels,
   initiateMetaOAuth,
@@ -21,6 +22,7 @@ import {
   reconnectMetaChannel,
   getMetaChannelConsentSummary,
   updateMetaChannelPurposeLabel,
+  channelQueryKeys,
   type MetaChannel,
   type MetaOAuthAsset,
   type MetaChannelConsentSummary,
@@ -46,7 +48,6 @@ interface OAuthMessagePayload {
 
 export interface UseMetaChannelConnectionResult {
   channels: MetaChannel[];
-  setChannels: Dispatch<SetStateAction<MetaChannel[]>>;
   isLoading: boolean;
   loadError: string | null;
   fetchChannels: () => Promise<boolean>;
@@ -100,9 +101,29 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
     toast.error(friendly, message ? { description: message, duration: 12000 } : undefined);
   };
 
-  const [channels, setChannels] = useState<MetaChannel[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Single source of truth: the channel list is the shared react-query cache
+  // entry (Overview/Detail/Manager all observe it), so post-connect state can
+  // never diverge into "connected card + empty state" (defect 2).
+  const queryClient = useQueryClient();
+  const channelsQuery = useQuery({
+    queryKey: channelQueryKeys.list(),
+    queryFn: listMetaChannels,
+  });
+  const channels = useMemo(
+    () =>
+      (channelsQuery.data ?? []).filter(
+        (channel) => channel.platform === "facebook" && channel.status !== "DISCONNECTED",
+      ),
+    [channelsQuery.data],
+  );
+  const isLoading = channelsQuery.isLoading;
+  const loadError = channelsQuery.isError
+    ? getMetaErrorMessage(
+        extractMetaApiError(channelsQuery.error).code,
+        extractMetaApiError(channelsQuery.error).message,
+        "en",
+      )
+    : null;
 
   const [activeOAuth, setActiveOAuth] = useState<ActiveOAuth | null>(null);
   const [availablePages, setAvailablePages] = useState<MetaOAuthAsset[]>([]);
@@ -136,7 +157,9 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
     try {
       setSavingLabelId(channelId);
       const updated = await updateMetaChannelPurposeLabel(channelId, normalized);
-      setChannels((prev) => prev.map((c) => (c.id === channelId ? updated : c)));
+      queryClient.setQueryData<MetaChannel[]>(channelQueryKeys.list(), (prev) =>
+        (prev ?? []).map((c) => (c.id === channelId ? updated : c)),
+      );
       toast.success(
         normalized
           ? t("channels.label.updated", { label: normalized })
@@ -150,22 +173,11 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
     }
   };
 
+  // Refreshes the SHARED cache entry; the boolean contract is preserved so the
+  // existing "saved but could not refresh" throw path and Retry buttons work.
   const fetchChannels = async (): Promise<boolean> => {
-    try {
-      setIsLoading(true);
-      setLoadError(null);
-      const fetched = await listMetaChannels();
-      setChannels(
-        fetched.filter((c) => c.platform === "facebook" && c.status !== "DISCONNECTED"),
-      );
-      return true;
-    } catch (error: unknown) {
-      const { code, message } = extractMetaApiError(error);
-      setLoadError(getMetaErrorMessage(code, message, "en"));
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
+    const result = await channelsQuery.refetch();
+    return !result.isError;
   };
 
   useEffect(() => {
@@ -174,7 +186,6 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
       sessionStorage.removeItem("oauth_error");
       toast.error(oauthError);
     }
-    fetchChannels();
     return () => {
       if (oauthListenerRef.current) {
         window.removeEventListener("message", oauthListenerRef.current);
@@ -223,6 +234,13 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
         "meta_oauth",
         "width=600,height=700,left=200,top=100",
       );
+      if (!oauthPopupRef.current) {
+        sessionStorage.removeItem(OAUTH_NONCE_KEY);
+        sessionStorage.removeItem("easymod_oauth_channel_id");
+        oauthInProgressRef.current = false;
+        toast.error(t("channels.errors.oauthInitFailed", "সংযোগ শুরু করা যায়নি"));
+        return;
+      }
       setActiveOAuth({ step: "connecting" });
 
       const bc = new BroadcastChannel("easymod_oauth");
@@ -352,6 +370,11 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
           ),
         );
       }
+      if (activeOAuth.reconnectChannelId) {
+        queryClient.invalidateQueries({
+          queryKey: channelQueryKeys.settings(activeOAuth.reconnectChannelId),
+        });
+      }
       sessionStorage.removeItem("easymod_oauth_channel_id");
       setActiveOAuth(null);
       setAvailablePages([]);
@@ -384,6 +407,8 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
     } catch (err: unknown) {
       toast.error(getErrorMessage(err, t("channels.test.error")));
     } finally {
+      queryClient.invalidateQueries({ queryKey: channelQueryKeys.list() });
+      queryClient.invalidateQueries({ queryKey: channelQueryKeys.settings(channelId) });
       setTestingId(null);
     }
   };
@@ -393,7 +418,8 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
     try {
       await disconnectMetaChannel(channel.id);
       toast.success(t("channels.disconnectedNamed", { name: channel.displayName }));
-      await fetchChannels();
+      await queryClient.invalidateQueries({ queryKey: channelQueryKeys.list() });
+      queryClient.invalidateQueries({ queryKey: channelQueryKeys.settings(channel.id) });
     } catch (err: unknown) {
       toast.error(getErrorMessage(err, t("channels.errors.disconnectFailed")));
     } finally {
@@ -430,6 +456,13 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
         "meta_oauth",
         "width=600,height=700,left=200,top=100",
       );
+      if (!oauthPopupRef.current) {
+        sessionStorage.removeItem(OAUTH_NONCE_KEY);
+        sessionStorage.removeItem("easymod_oauth_channel_id");
+        oauthInProgressRef.current = false;
+        toast.error(t("channels.errors.oauthInitFailed", "সংযোগ শুরু করা যায়নি"));
+        return;
+      }
       setActiveOAuth({ step: "connecting", reconnectChannelId });
 
       const bc = new BroadcastChannel("easymod_oauth");
@@ -523,7 +556,6 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
 
   return {
     channels,
-    setChannels,
     isLoading,
     loadError,
     fetchChannels,

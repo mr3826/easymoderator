@@ -28,6 +28,7 @@ import type { AiReplyMode } from "@/api/types/conversation";
 import { authService } from "@/app/lib/auth";
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { ChannelHealthGrid } from "./ChannelConnectionManager";
+import ChannelOAuthFlowCard from "./ChannelOAuthFlowCard";
 import { useMetaChannelConnection } from "./useMetaChannelConnection";
 import {
   BADGE_LABEL_KEYS,
@@ -152,6 +153,12 @@ export default function ChannelDetail() {
 
   const connection = useMetaChannelConnection();
   useDialogFocus(disconnectDialogRef, Boolean(connection.confirmDisconnect));
+
+  // "Refresh permissions" starts an OAuth round-trip whose completion UI lives
+  // in the Advanced tab; switch there so the picker is never invisible (defect 3).
+  useEffect(() => {
+    if (connection.activeOAuth) setActiveTab("advanced");
+  }, [connection.activeOAuth]);
 
   const effectiveMode: AiReplyMode = settings?.effective?.automation_mode ?? "MANUAL";
   const modeSource = settings?.mode_source ?? "fail_closed";
@@ -952,6 +959,22 @@ export default function ChannelDetail() {
                   {t("channels.actions.disconnect")}
                 </button>
               </div>
+
+              {connection.activeOAuth && (
+                <div className="mt-3">
+                  <ChannelOAuthFlowCard
+                    activeOAuth={connection.activeOAuth}
+                    availablePages={connection.availablePages}
+                    selectedPageIds={connection.selectedPageIds}
+                    isConnectingPage={connection.isConnectingPage}
+                    channels={connection.channels}
+                    onCancel={connection.handleCancelOAuth}
+                    onRetryAssetLookup={connection.handleRetryOAuthAssetLookup}
+                    onTogglePage={connection.togglePageSelection}
+                    onConnectPages={connection.handleConnectPages}
+                  />
+                </div>
+              )}
             </div>
 
             {Array.isArray(settings.deprecated_fields) && settings.deprecated_fields.length > 0 && (
