@@ -15,6 +15,13 @@ import OrderConfidencePanel from './orders/OrderConfidencePanel';
 import ContextualEntityLink from './merchant-workspace/ContextualEntityLink';
 import { ShopRole, UserRole } from '@/shared/lib/rbac/types';
 import { useUserPermissions } from '@/shared/lib/rbac/useUserPermissions';
+import { useAuth } from '@/features/auth/AuthProvider';
+import { motion, MotionConfig } from 'motion/react';
+import { fadeUp } from '@/lib/motion';
+import { EmButton } from './dashboard/EmButton';
+import { PageHeader } from './dashboard/PageHeader';
+import { useDialogFocus } from './inbox/useDialogFocus';
+import { deriveOrdersSignal } from './orders/derive';
 
 // Worklist chips. The keys mirror the backend bucket module — the server owns
 // the predicates, so a chip click sends the same key the counters were built
@@ -30,14 +37,17 @@ const WORKLIST_BUCKETS: Array<{ key: OrderWorklistBucket; labelKey: string }> = 
 ];
 
 const statusColors = {
-  draft: 'bg-gray-100 text-gray-700',
-  pending: 'bg-orange-100 text-orange-700',
-  confirmed: 'bg-blue-100 text-blue-700',
-  processing: 'bg-yellow-100 text-yellow-700',
-  completed: 'bg-green-100 text-green-700',
-  delivered: 'bg-green-100 text-green-700',
-  cancelled: 'bg-red-100 text-red-700',
+  draft: 'bg-em-bg-muted text-em-text-secondary',
+  pending: 'bg-em-warning-100 text-em-warning-700',
+  confirmed: 'bg-em-info-100 text-em-info-700',
+  processing: 'bg-em-warning-100 text-em-warning-700',
+  completed: 'bg-em-success-100 text-em-success-700',
+  delivered: 'bg-em-success-100 text-em-success-700',
+  cancelled: 'bg-em-danger-100 text-em-danger-700',
 };
+
+const ANIMATE = import.meta.env.MODE !== 'test';
+const FOCUS_RING = 'focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none';
 
 interface OrderItem {
   productId: string;
@@ -126,6 +136,17 @@ export default function Orders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [deepLinkError, setDeepLinkError] = useState(false);
   const [deepLinkRetry, setDeepLinkRetry] = useState(0);
+  const { currentShop } = useAuth();
+  const createModalRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(createModalRef, showCreateOrder);
+  const signal = deriveOrdersSignal(
+    {
+      phase: loadError ? 'error' : (isLoading || searchQuery !== appliedSearchQuery) ? 'loading' : 'ready',
+      totalCount: worklistCounts?.total ?? null,
+      needsActionCount: worklistCounts?.needs_action ?? null,
+    },
+    t,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -379,6 +400,11 @@ export default function Orders() {
       let updatedOrder: Order;
       if (newStatus === 'confirmed') {
         updatedOrder = await apiClient.confirmOrder(orderId);
+      } else if (newStatus === 'cancelled') {
+        // Cancellation has its own endpoint. The generic status PATCH cannot do
+        // it: ORDER_STATUS_TRANSITIONS has no path to 'cancelled' from any state,
+        // so it always answered 409 and the order stayed active (stock unrestored).
+        updatedOrder = await apiClient.cancelOrder(orderId);
       } else {
         updatedOrder = await apiClient.updateOrder(orderId, { status: newStatus });
       }
@@ -636,51 +662,64 @@ export default function Orders() {
   };
 
   return (
-    <div className={`p-4 md:p-8 ${selectedOrder ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] lg:items-start lg:gap-4' : ''}`}>
+    <MotionConfig reducedMotion="user">
+    <div className={`em-orders min-h-full p-4 md:p-6 ${selectedOrder ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] lg:items-start lg:gap-4' : ''}`}>
       <div className="min-w-0">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{t('orders.title')}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t('orders.subtitle')}</p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                disabled={isLoading || loadError || orders.length === 0}
-                className="flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Download className="h-4 w-4" />
-                {t('orders.export')}
-                <ChevronDown className="h-4 w-4" />
-              </button>
-              {showExportMenu && (
-                <>
-                  <div className="fixed inset-0 z-[9]" onClick={() => setShowExportMenu(false)} />
-                  <div ref={exportMenuRef} className="absolute right-0 z-10 mt-2 w-40 rounded-lg border border-border bg-card shadow-lg">
-                    <button onClick={() => handleExport('csv')} className="w-full px-4 py-2 text-left text-sm hover:bg-muted">
-                      {t('orders.exportCSV')}
-                    </button>
-                    <button onClick={() => handleExport('excel')} className="w-full border-t border-border px-4 py-2 text-left text-sm hover:bg-muted">
-                      {t('orders.exportExcel')}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+        <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
+          <PageHeader
+            title={t('orders.title')}
+            breadcrumb={currentShop?.shop_name ? [{ label: currentShop.shop_name }] : []}
+            signal={signal}
+            signalTestId="orders-signal"
+            signalAnnounce={false}
+            meta={
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t('orders.totalCountLabel')}: {worklistCounts?.total ?? '—'}
+                </span>
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t('orders.needsActionCountLabel')}: {worklistCounts?.needs_action ?? '—'}
+                </span>
+              </div>
+            }
+          />
+        </motion.div>
+
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+          <div className="relative">
             <button
               type="button"
-              onClick={() => setShowCreateOrder(true)}
-              className="flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:opacity-90"
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={isLoading || loadError || orders.length === 0}
+              aria-haspopup="menu"
+              aria-expanded={showExportMenu}
+              className={`flex min-h-11 items-center gap-2 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-violet-700 hover:bg-em-bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
             >
-              <Plus className="h-4 w-4" />
-              {t('orders.createOrder')}
+              <Download className="h-4 w-4" />
+              {t('orders.export')}
+              <ChevronDown className="h-4 w-4" />
             </button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-[9]" onClick={() => setShowExportMenu(false)} />
+                <div ref={exportMenuRef} className="absolute right-0 z-10 mt-2 w-40 rounded-lg border border-em-border bg-em-bg-surface shadow-lg">
+                  <button onClick={() => handleExport('csv')} className="w-full px-4 py-2 text-left text-sm text-em-violet-700 hover:bg-em-bg-muted">
+                    {t('orders.exportCSV')}
+                  </button>
+                  <button onClick={() => handleExport('excel')} className="w-full border-t border-em-border px-4 py-2 text-left text-sm text-em-violet-700 hover:bg-em-bg-muted">
+                    {t('orders.exportExcel')}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
+          <EmButton variant="primary" onClick={() => setShowCreateOrder(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            {t('orders.createOrder')}
+          </EmButton>
         </div>
 
-        <section aria-label={t('orders.toolbarLabel')} className="mb-4 rounded-xl border border-border bg-card p-3">
+        <section aria-label={t('orders.toolbarLabel')} className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-3">
           <div role="group" aria-label={t('orders.buckets.label')} className="mb-3 flex flex-wrap gap-2">
             {[{ key: 'all' as const, labelKey: 'orders.buckets.all', count: worklistCounts?.total }, ...WORKLIST_BUCKETS.map((bucket) => ({
               ...bucket,
@@ -694,17 +733,17 @@ export default function Orders() {
                   aria-pressed={active}
                   data-testid={`orders-bucket-${bucket.key}`}
                   onClick={() => { setIsLoading(true); setDeliveryBucket(bucket.key); }}
-                  className={`flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                  className={`flex min-h-11 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-colors ${
                     active
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border bg-background text-foreground hover:border-primary'
+                      ? 'border-em-violet-600 bg-em-violet-600 text-white'
+                      : 'border-em-border bg-em-bg-surface text-em-text-primary hover:border-em-violet-600'
                   }`}
                 >
                   <span>{t(bucket.labelKey)}</span>
                   <span
                     data-testid={`orders-bucket-count-${bucket.key}`}
-                    className={`rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
-                      active ? 'bg-primary-foreground/20' : 'bg-muted text-muted-foreground'
+                    className={`rounded-full px-1.5 py-0.5 text-xs tabular-nums ${
+                      active ? 'bg-white/20' : 'bg-em-bg-muted text-em-text-secondary'
                     }`}
                   >
                     {bucket.count === undefined ? '—' : bucket.count}
@@ -716,19 +755,19 @@ export default function Orders() {
           <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_repeat(2,minmax(145px,190px))] xl:grid-cols-[minmax(260px,1fr)_repeat(4,minmax(140px,180px))]">
             <label className="relative block min-w-0">
               <span className="sr-only">{t('orders.searchLabel')}</span>
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-em-text-secondary" />
               <input
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('orders.searchPlaceholder')}
                 aria-label={t('orders.searchLabel')}
-                className="min-h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
               />
             </label>
             <label>
               <span className="sr-only">{t('orders.filterDate')}</span>
-              <select aria-label={t('orders.filterDate')} value={dateFilter} onChange={(e) => { setIsLoading(true); setDateFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+              <select aria-label={t('orders.filterDate')} value={dateFilter} onChange={(e) => { setIsLoading(true); setDateFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.dateAll')}</option>
                 <option value="today">{t('orders.dateToday')}</option>
                 <option value="last7days">{t('orders.dateLast7')}</option>
@@ -737,7 +776,7 @@ export default function Orders() {
             </label>
             <label>
               <span className="sr-only">{t('orders.filterOrderStatus')}</span>
-              <select aria-label={t('orders.filterOrderStatus')} value={orderStatusFilter} onChange={(e) => { setIsLoading(true); setOrderStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+              <select aria-label={t('orders.filterOrderStatus')} value={orderStatusFilter} onChange={(e) => { setIsLoading(true); setOrderStatusFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.orderStatusAll')}</option>
                 <option value="draft">{t('orders.statusDraft')}</option>
                 <option value="confirmed">{t('orders.statusConfirmed')}</option>
@@ -749,7 +788,7 @@ export default function Orders() {
             </label>
             <label>
               <span className="sr-only">{t('orders.filterFulfillmentStatus')}</span>
-              <select aria-label={t('orders.filterFulfillmentStatus')} value={fulfillmentStatusFilter} onChange={(e) => { setIsLoading(true); setFulfillmentStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+              <select aria-label={t('orders.filterFulfillmentStatus')} value={fulfillmentStatusFilter} onChange={(e) => { setIsLoading(true); setFulfillmentStatusFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.fulfillmentStatusAll')}</option>
                 <option value="unfulfilled">{t('orders.fulfillmentStatus.unfulfilled')}</option>
                 <option value="fulfilled">{t('orders.fulfillmentStatus.fulfilled')}</option>
@@ -759,7 +798,7 @@ export default function Orders() {
             </label>
             <label>
               <span className="sr-only">{t('orders.filterPaymentStatus')}</span>
-              <select aria-label={t('orders.filterPaymentStatus')} value={paymentStatusFilter} onChange={(e) => { setIsLoading(true); setPaymentStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+              <select aria-label={t('orders.filterPaymentStatus')} value={paymentStatusFilter} onChange={(e) => { setIsLoading(true); setPaymentStatusFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.paymentStatusAll')}</option>
                 <option value="pending">{t('orders.paymentStatus.pending')}</option>
                 <option value="paid">{t('orders.paymentStatus.paid')}</option>
@@ -770,7 +809,7 @@ export default function Orders() {
             </label>
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">{t('orders.listScope')}</p>
+            <p className="text-xs text-em-text-secondary">{t('orders.listScope')}</p>
             <button
               type="button"
               onClick={() => {
@@ -782,7 +821,7 @@ export default function Orders() {
                 setDateFilter('all');
                 setDeliveryBucket('all');
               }}
-              className="text-xs font-semibold text-primary hover:underline"
+              className="inline-flex min-h-11 items-center text-xs font-semibold text-em-violet-700 hover:underline"
             >
               {t('orders.clearFilters')}
             </button>
@@ -790,30 +829,30 @@ export default function Orders() {
         </section>
 
         {deepLinkError && (
-          <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+          <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-em-danger-700/30 bg-em-danger-100 p-3 text-sm">
             <span>{t('orders.deepLinkFailed')}</span>
-            <button type="button" onClick={() => setDeepLinkRetry((retry) => retry + 1)} className="font-semibold text-primary hover:underline">
+            <button type="button" onClick={() => setDeepLinkRetry((retry) => retry + 1)} className="font-semibold text-em-violet-700 hover:underline">
               {t('orders.retry')}
             </button>
           </div>
         )}
 
         {isLoading || searchQuery !== appliedSearchQuery ? (
-          <div role="status" className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <div role="status" className="rounded-xl border border-em-border bg-em-bg-surface p-8 text-center text-sm text-em-text-secondary">
             <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
             {t('orders.loading')}
           </div>
         ) : loadError ? (
-          <div role="alert" className="rounded-xl border border-destructive/30 bg-card p-8 text-center">
-            <p className="text-sm text-foreground">{t('orders.loadError')}</p>
-            <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
+          <div role="alert" className="rounded-xl border border-em-danger-700/30 bg-em-bg-surface p-8 text-center">
+            <p className="text-sm text-em-text-primary">{t('orders.loadError')}</p>
+            <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="mt-3 rounded-lg bg-em-violet-600 px-4 py-2 text-sm font-semibold text-white">
               {t('orders.retry')}
             </button>
           </div>
         ) : orders.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-10 text-center">
-            <PackageIcon className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-            <p className="text-sm font-medium text-muted-foreground">
+          <div className="rounded-xl border border-em-border bg-em-bg-surface p-10 text-center">
+            <PackageIcon className="mx-auto mb-3 h-10 w-10 text-em-text-secondary" />
+            <p className="text-sm font-medium text-em-text-secondary">
               {appliedSearchQuery || orderStatusFilter !== 'all' || fulfillmentStatusFilter !== 'all' || paymentStatusFilter !== 'all' || dateFilter !== 'all' || deliveryBucket !== 'all'
                 ? t('orders.noMatches')
                 : t('orders.emptyShop')}
@@ -833,11 +872,11 @@ export default function Orders() {
                 />
               ))}
             </div>
-            <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
-              <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">{t('orders.desktopTableScrollHint')}</p>
+            <div className="hidden overflow-hidden rounded-xl border border-em-border bg-em-bg-surface md:block">
+              <p className="border-b border-em-border px-3 py-2 text-xs text-em-text-secondary">{t('orders.desktopTableScrollHint')}</p>
               <div className="overflow-x-auto">
                 <table className="min-w-[1240px] w-full border-collapse text-left text-sm">
-                  <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                  <thead className="bg-em-bg-muted/60 text-xs uppercase tracking-wide text-em-text-secondary">
                     <tr>
                       <th className="px-3 py-3 font-semibold">{t('orders.columns.orderId')}</th>
                       <th className="px-3 py-3 font-semibold">{t('orders.columns.customer')}</th>
@@ -852,7 +891,7 @@ export default function Orders() {
                       <th className="px-3 py-3 font-semibold">{t('orders.columns.actions')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
+                  <tbody className="divide-y divide-em-border">
                     {orders.map((order) => (
                       <OrderTableRow
                         key={order.id}
@@ -874,39 +913,40 @@ export default function Orders() {
       {/* Create Order Modal */}
       {showCreateOrder && (
         <div
-          className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-50 p-4"
           onKeyDown={(e) => { if (e.key === 'Escape') setShowCreateOrder(false); }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowCreateOrder(false); }}
         >
-          <div data-testid="create-order-modal" className="bg-card rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between z-10">
-              <h2 className="text-2xl font-bold text-card-foreground">{t('orders.createModal.title')}</h2>
+          <div ref={createModalRef} data-testid="create-order-modal" role="dialog" aria-modal="true" aria-labelledby="create-order-title" className="bg-em-bg-surface rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-em-bg-surface border-b border-em-border px-6 py-4 flex items-center justify-between z-10">
+              <h2 id="create-order-title" className="text-2xl font-bold text-em-violet-700">{t('orders.createModal.title')}</h2>
               <button
                 onClick={() => setShowCreateOrder(false)}
-                className="text-gray-500 hover:text-gray-700"
+                aria-label={t('common.close')}
+                className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-violet-700 ${FOCUS_RING}`}
               >
                 <XCircle className="w-6 h-6" />
               </button>
             </div>
 
             <div className="p-6 space-y-6">
-              <p role="note" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 font-bn">
+              <p role="note" className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-3 text-sm text-em-warning-700 font-bn">
                 {t('orders.createModal.draftStockDisclosure')}
               </p>
               {/* Customer Info */}
               <div>
-                <h3 className="font-semibold text-gray-900 mb-3">{t('orders.createModal.customerSection')}</h3>
+                <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.createModal.customerSection')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('orders.createModal.customerName')} <span className="text-red-500">*</span>
+                    <label className="block text-sm font-medium text-em-text-primary mb-2">
+                      {t('orders.createModal.customerName')} <span className="text-em-danger-700">*</span>
                     </label>
                     <input
                       type="text"
                       value={manualOrder.customerName}
                       onChange={(e) => setManualOrder({ ...manualOrder, customerName: e.target.value })}
                       placeholder={t('orders.createModal.customerNamePlaceholder')}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
+                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
                   </div>
                   <div>
@@ -919,11 +959,11 @@ export default function Orders() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('orders.createModal.channel')}</label>
+                    <label className="block text-sm font-medium text-em-text-primary mb-2">{t('orders.createModal.channel')}</label>
                     <select
                       value={manualOrder.channel}
                       onChange={(e) => setManualOrder({ ...manualOrder, channel: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
+                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     >
                       <option value="manual">{t('orders.createModal.channelManual')}</option>
                       <option value="facebook">{t('orders.createModal.channelFacebook')}</option>
@@ -935,14 +975,14 @@ export default function Orders() {
 
                 {/* Delivery Address — structured BD geography */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('orders.createModal.address')} <span className="text-red-500">*</span>
+                  <label className="block text-sm font-medium text-em-text-primary mb-2">
+                    {t('orders.createModal.address')} <span className="text-em-danger-700">*</span>
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
                     <select
                       value={manualOrder.division}
                       onChange={(e) => setManualOrder({ ...manualOrder, division: e.target.value, district: '', upazila: '', area: '', areaTouched: false })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm"
+                      className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600 text-sm"
                     >
                       <option value="">{t('orders.form.division')}</option>
                       {bdGeography.divisions.map((div) => (
@@ -953,7 +993,7 @@ export default function Orders() {
                       value={manualOrder.district}
                       onChange={(e) => setManualOrder({ ...manualOrder, district: e.target.value, upazila: '', area: '', areaTouched: false })}
                       disabled={!manualOrder.division}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm disabled:bg-gray-100"
+                      className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600 text-sm disabled:bg-em-bg-muted"
                     >
                       <option value="">{t('orders.form.district')}</option>
                       {bdGeography.divisions
@@ -970,7 +1010,7 @@ export default function Orders() {
                         area: manualOrder.areaTouched ? manualOrder.area : e.target.value,
                       })}
                       disabled={!manualOrder.district}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm disabled:bg-gray-100"
+                      className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600 text-sm disabled:bg-em-bg-muted"
                     >
                       <option value="">{t('orders.form.upazila')}</option>
                       {bdGeography.divisions
@@ -982,27 +1022,27 @@ export default function Orders() {
                     </select>
                   </div>
                   <label className="mb-2 block">
-                    <span className="mb-1 block text-xs font-medium text-gray-600">{t('orders.form.courierArea')}</span>
+                    <span className="mb-1 block text-xs font-medium text-em-text-secondary">{t('orders.form.courierArea')}</span>
                     <input
                       type="text"
                       value={manualOrder.area}
                       onChange={(e) => setManualOrder({ ...manualOrder, area: e.target.value, areaTouched: true })}
                       placeholder={t('orders.form.courierAreaPlaceholder')}
                       aria-label={t('orders.form.courierArea')}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                      className="w-full rounded-lg border border-em-border-strong px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
-                    <span className="mt-1 block text-xs text-gray-500">{t('orders.form.courierAreaHint')}</span>
+                    <span className="mt-1 block text-xs text-em-text-secondary">{t('orders.form.courierAreaHint')}</span>
                   </label>
                   <input
                     type="text"
                     value={manualOrder.streetAddress}
                     onChange={(e) => setManualOrder({ ...manualOrder, streetAddress: e.target.value })}
                     placeholder={t('orders.form.streetAddress')}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm"
+                    className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600 text-sm"
                   />
                   {manualOrder.division && manualOrder.district && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {t('orders.createModal.zone')}: <span className="font-medium text-brand-hover">{deriveZone(manualOrder.division, manualOrder.district)?.replace(/_/g, ' ')}</span>
+                    <p className="text-xs text-em-text-secondary mt-1">
+                      {t('orders.createModal.zone')}: <span className="font-medium text-em-violet-700">{deriveZone(manualOrder.division, manualOrder.district)?.replace(/_/g, ' ')}</span>
                     </p>
                   )}
                 </div>
@@ -1010,21 +1050,21 @@ export default function Orders() {
 
               {/* Products — Bug #14: inline search, no separate modal */}
               <div>
-                <h3 className="font-semibold text-gray-900 mb-3">{t('orders.createModal.productsSection')}</h3>
+                <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.createModal.productsSection')}</h3>
 
                 {/* Inline product search */}
                 <div className="relative mb-3">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-em-text-secondary" />
                   <input
                     type="text"
                     placeholder={t('orders.createModal.searchProducts')}
                     value={productSearchQuery}
                     onChange={(e) => setProductSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand text-sm"
+                    className="w-full pl-9 pr-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600 text-sm"
                   />
                   {/* Dropdown results */}
                   {productSearchQuery.trim().length >= 1 && (
-                    <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto mt-1">
+                    <div className="absolute top-full left-0 right-0 bg-em-bg-surface border border-em-border rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto mt-1">
                       {products
                         .filter(p =>
                           p.name.toLowerCase().includes(productSearchQuery.toLowerCase()) ||
@@ -1039,10 +1079,10 @@ export default function Orders() {
                               addProductToOrder(product);
                               setProductSearchQuery('');
                             }}
-                            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-emerald-50 text-left text-sm border-b border-gray-100 last:border-0"
+                            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-em-success-100 text-left text-sm border-b border-em-border last:border-0"
                           >
-                            <span className="font-medium text-gray-900 truncate">{product.name}</span>
-                            <span className="ml-2 text-brand-hover font-semibold whitespace-nowrap">{formatCurrency(product.price)}</span>
+                            <span className="font-medium text-em-text-primary truncate">{product.name}</span>
+                            <span className="ml-2 text-em-violet-700 font-semibold whitespace-nowrap">{formatCurrency(product.price)}</span>
                           </button>
                         ))
                       }
@@ -1050,19 +1090,19 @@ export default function Orders() {
                         p.name.toLowerCase().includes(productSearchQuery.toLowerCase()) ||
                         (p.sku || '').toLowerCase().includes(productSearchQuery.toLowerCase())
                       ).length === 0 && (
-                        <p className="px-4 py-3 text-sm text-gray-500">{t('orders.createModal.noProductsFound')}</p>
+                        <p className="px-4 py-3 text-sm text-em-text-secondary">{t('orders.createModal.noProductsFound')}</p>
                       )}
                     </div>
                   )}
                 </div>
 
                 {manualOrder.items.length === 0 ? (
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                    <PackageIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-600">{t('orders.createModal.noProducts')}</p>
+                  <div className="border-2 border-dashed border-em-border-strong rounded-lg p-8 text-center">
+                    <PackageIcon className="w-12 h-12 text-em-text-secondary mx-auto mb-3" />
+                    <p className="text-em-text-secondary">{t('orders.createModal.noProducts')}</p>
                   </div>
                 ) : (
-                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200">
+                  <div className="border border-em-border rounded-lg divide-y divide-em-border">
                     {manualOrder.items.map((item, index) => (
                       <div key={index} className="p-4 flex items-center gap-4">
                         <div className="flex-1">
@@ -1071,31 +1111,31 @@ export default function Orders() {
                               {item.productName}
                             </ContextualEntityLink>
                           ) : (
-                            <p className="font-medium text-gray-900">{item.productName}</p>
+                            <p className="font-medium text-em-text-primary">{item.productName}</p>
                           )}
-                          <p className="text-sm text-gray-500">{t('orders.labels.sku')}: {item.sku} • {formatCurrency(item.price)}</p>
+                          <p className="text-sm text-em-text-secondary">{t('orders.labels.sku')}: {item.sku} • {formatCurrency(item.price)}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => updateProductQuantity(item.productId, item.quantity - 1)}
-                            className="w-8 h-8 border border-gray-300 rounded hover:bg-gray-50"
+                            className="w-8 h-8 border border-em-border-strong rounded hover:bg-em-bg-muted"
                           >
                             -
                           </button>
                           <span className="w-12 text-center text-sm font-medium">{item.quantity}</span>
                           <button
                             onClick={() => updateProductQuantity(item.productId, item.quantity + 1)}
-                            className="w-8 h-8 border border-gray-300 rounded hover:bg-gray-50"
+                            className="w-8 h-8 border border-em-border-strong rounded hover:bg-em-bg-muted"
                           >
                             +
                           </button>
                         </div>
-                        <div className="w-24 text-right font-semibold text-gray-900">
+                        <div className="w-24 text-right font-semibold text-em-text-primary">
                           {formatCurrency(item.price * item.quantity)}
                         </div>
                         <button
                           onClick={() => removeProductFromOrder(item.productId)}
-                          className="text-red-600 hover:text-red-700"
+                          className="text-em-danger-700 hover:text-em-danger-700"
                         >
                           <X className="w-5 h-5" />
                         </button>
@@ -1106,58 +1146,58 @@ export default function Orders() {
               </div>
 
               {/* Order Summary */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900 mb-4">{t('orders.createModal.orderSummary')}</h3>
+              <div className="bg-em-bg-muted rounded-lg p-4">
+                <h3 className="font-semibold text-em-text-primary mb-4">{t('orders.createModal.orderSummary')}</h3>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">{t('orders.createModal.subtotal')}:</span>
-                    <span className="text-gray-900">{formatCurrency(calculateSubtotal())}</span>
+                    <span className="text-em-text-secondary">{t('orders.createModal.subtotal')}:</span>
+                    <span className="text-em-text-primary">{formatCurrency(calculateSubtotal())}</span>
                   </div>
                   <div className="flex justify-between text-sm items-center">
-                    <span className="text-gray-600">{t('orders.createModal.discount')}:</span>
+                    <span className="text-em-text-secondary">{t('orders.createModal.discount')}:</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500">৳</span>
+                      <span className="text-em-text-secondary">৳</span>
                       <input
                         type="number"
                         value={manualOrder.discount}
                         onChange={(e) => setManualOrder({ ...manualOrder, discount: parseFloat(e.target.value) || 0 })}
-                        className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm"
+                        className="w-24 px-2 py-1 border border-em-border-strong rounded text-right text-sm"
                         step="0.01"
                         min="0"
                       />
                     </div>
                   </div>
                   <div className="flex justify-between text-sm items-center">
-                    <span className="text-gray-600">{t('orders.createModal.vat')}:</span>
+                    <span className="text-em-text-secondary">{t('orders.createModal.vat')}:</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500">৳</span>
+                      <span className="text-em-text-secondary">৳</span>
                       <input
                         type="number"
                         value={manualOrder.tax}
                         onChange={(e) => setManualOrder({ ...manualOrder, tax: parseFloat(e.target.value) || 0 })}
-                        className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm"
+                        className="w-24 px-2 py-1 border border-em-border-strong rounded text-right text-sm"
                         step="0.01"
                         min="0"
                       />
                     </div>
                   </div>
                   <div className="flex justify-between text-sm items-center">
-                    <span className="text-gray-600">{t('orders.createModal.delivery')}:</span>
+                    <span className="text-em-text-secondary">{t('orders.createModal.delivery')}:</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500">৳</span>
+                      <span className="text-em-text-secondary">৳</span>
                       <input
                         type="number"
                         value={manualOrder.delivery}
                         onChange={(e) => setManualOrder({ ...manualOrder, delivery: parseFloat(e.target.value) || 0 })}
-                        className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm"
+                        className="w-24 px-2 py-1 border border-em-border-strong rounded text-right text-sm"
                         step="0.01"
                         min="0"
                       />
                     </div>
                   </div>
-                  <div className="border-t border-gray-300 pt-3 flex justify-between font-bold">
-                    <span className="text-gray-900">{t('orders.createModal.total')}:</span>
-                    <span className="text-brand-hover text-lg">{formatCurrency(calculateTotal())}</span>
+                  <div className="border-t border-em-border-strong pt-3 flex justify-between font-bold">
+                    <span className="text-em-text-primary">{t('orders.createModal.total')}:</span>
+                    <span className="text-em-violet-700 text-lg">{formatCurrency(calculateTotal())}</span>
                   </div>
                 </div>
               </div>
@@ -1165,15 +1205,15 @@ export default function Orders() {
               {/* Payment & Notes */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('orders.createModal.paymentMethod')} <span className="text-red-500">*</span>
+                  <label className="block text-sm font-medium text-em-text-primary mb-2">
+                    {t('orders.createModal.paymentMethod')} <span className="text-em-danger-700">*</span>
                   </label>
                   <select
                     aria-label={t('orders.createModal.paymentMethod')}
                     required
                     value={manualOrder.paymentMethod}
                     onChange={(e) => setManualOrder({ ...manualOrder, paymentMethod: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
+                    className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                   >
                     <option value="">{t('orders.createModal.selectPaymentMethod')}</option>
                     {paymentMethodChoices.map((gateway) => (
@@ -1181,7 +1221,7 @@ export default function Orders() {
                     ))}
                   </select>
                   {paymentMethodsLoadFailed && (
-                    <p className="mt-1 text-xs text-amber-800">
+                    <p className="mt-1 text-xs text-em-warning-700">
                       {t('orders.paymentConfigUnavailable')} {' '}
                       <button type="button" onClick={() => setPaymentMethodsRetry((retry) => retry + 1)} className="font-semibold underline">
                         {t('orders.retry')}
@@ -1190,11 +1230,11 @@ export default function Orders() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('orders.createModal.paymentStatus')}</label>
+                  <label className="block text-sm font-medium text-em-text-primary mb-2">{t('orders.createModal.paymentStatus')}</label>
                   <select
                     value={manualOrder.payment}
                     onChange={(e) => setManualOrder({ ...manualOrder, payment: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
+                    className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                   >
                     <option value="pending">{t('orders.createModal.payPending')}</option>
                     <option value="paid">{t('orders.createModal.payPaid')}</option>
@@ -1203,29 +1243,29 @@ export default function Orders() {
                     <option value="partially_paid">{t('orders.createModal.payPartial')}</option>
                   </select>
                   {(manualOrder.payment === 'unpaid' || manualOrder.payment === 'pending') && (
-                    <p className="mt-1.5 flex items-center gap-1 text-xs text-amber-700">
+                    <p className="mt-1.5 flex items-center gap-1 text-xs text-em-warning-700">
                       <AlertTriangle className="w-3 h-3 flex-shrink-0" />
                       {t('orders.createModal.rtoWarning')}
                     </p>
                   )}
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('orders.createModal.notes')}</label>
+                  <label className="block text-sm font-medium text-em-text-primary mb-2">{t('orders.createModal.notes')}</label>
                   <input
                     type="text"
                     value={manualOrder.notes}
                     onChange={(e) => setManualOrder({ ...manualOrder, notes: e.target.value })}
                     placeholder={t('orders.createModal.notesPlaceholder')}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand"
+                    className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="border-t border-gray-200 px-6 py-4 flex gap-3">
+            <div className="border-t border-em-border px-6 py-4 flex gap-3">
               <button
                 onClick={() => setShowCreateOrder(false)}
-                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                className="flex-1 px-6 py-3 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
               >
                 {t('common.cancel')}
               </button>
@@ -1239,7 +1279,7 @@ export default function Orders() {
                   (!manualOrder.division || !manualOrder.district || !manualOrder.upazila || !manualOrder.streetAddress.trim()) ||
                   manualOrder.items.length === 0
                 }
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-em-violet-600 text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isCreating && <Loader2 className="w-4 h-4 animate-spin" />}
                 {t('orders.createModal.createButton')}
@@ -1252,16 +1292,16 @@ export default function Orders() {
       {/* Product Selector Modal */}
       {showProductSelector && (
         <div
-          className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-[60] p-4"
+          className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-[60] p-4"
           onKeyDown={(e) => { if (e.key === 'Escape') setShowProductSelector(false); }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowProductSelector(false); }}
         >
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-900">{t('orders.selectProduct.title')}</h3>
+          <div className="bg-em-bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-em-border flex items-center justify-between">
+              <h3 className="text-lg font-bold text-em-text-primary">{t('orders.selectProduct.title')}</h3>
               <button
                 onClick={() => setShowProductSelector(false)}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-em-text-secondary hover:text-em-text-primary"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1273,25 +1313,25 @@ export default function Orders() {
                   <button
                     key={product.id}
                     onClick={() => addProductToOrder(product)}
-                    className="w-full flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:border-brand hover:bg-emerald-50 transition-colors text-left"
+                    className="w-full flex items-center gap-4 p-4 border border-em-border rounded-lg hover:border-em-violet-600 hover:bg-em-success-100 transition-colors text-left"
                   >
-                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                      <PackageIcon className="w-6 h-6 text-gray-600" />
+                    <div className="w-12 h-12 bg-em-bg-muted rounded-lg flex items-center justify-center">
+                      <PackageIcon className="w-6 h-6 text-em-text-secondary" />
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900">{product.name}</p>
-                      <p className="text-sm text-gray-500">{t('orders.labels.sku')}: {product.sku} • {product.category}</p>
+                      <p className="font-medium text-em-text-primary">{product.name}</p>
+                      <p className="text-sm text-em-text-secondary">{t('orders.labels.sku')}: {product.sku} • {product.category}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold text-gray-900">{formatCurrency(product.price)}</p>
-                      <p className="text-xs text-green-600">{product.stock ? t('orders.selectProduct.inStock') : t('orders.selectProduct.outOfStock')}</p>
+                      <p className="font-semibold text-em-text-primary">{formatCurrency(product.price)}</p>
+                      <p className="text-xs text-em-success-700">{product.stock ? t('orders.selectProduct.inStock') : t('orders.selectProduct.outOfStock')}</p>
                     </div>
                   </button>
                 ))}
               </div>
 
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-sm text-gray-700 mb-3 flex items-center gap-2">
+              <div className="mt-6 p-4 bg-em-bg-muted rounded-lg border border-em-border">
+                <p className="text-sm text-em-text-primary mb-3 flex items-center gap-2">
                   <Plus className="w-4 h-4" />
                   {t('orders.selectProduct.createNew')}
                 </p>
@@ -1301,7 +1341,7 @@ export default function Orders() {
                     setShowCreateOrder(false);
                     navigate('/products/add');
                   }}
-                  className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="w-full px-4 py-2 bg-em-bg-surface border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted transition-colors"
                 >
                   {t('orders.selectProduct.createButton')}
                 </button>
@@ -1315,66 +1355,66 @@ export default function Orders() {
       {/* Selected order context; full-screen on mobile, docked beside the table on desktop. */}
       {selectedOrder && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-3 lg:static lg:col-start-2 lg:row-start-1 lg:block lg:bg-transparent lg:p-0"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-em-midnight-950/60 p-3 lg:static lg:col-start-2 lg:row-start-1 lg:block lg:bg-transparent lg:p-0"
           role="region"
           aria-label={t('orders.detailModal.title')}
           data-testid="order-detail-panel"
           onKeyDown={(e) => { if (e.key === 'Escape') setSelectedOrder(null); }}
           onClick={(e) => { if (e.target === e.currentTarget) setSelectedOrder(null); }}
         >
-          <div className="max-h-[96vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-card p-4 md:p-6 lg:max-h-[calc(100vh-4rem)] lg:max-w-none lg:border lg:border-border">
+          <div className="max-h-[96vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-em-bg-surface p-4 md:p-6 lg:max-h-[calc(100vh-4rem)] lg:max-w-none lg:border lg:border-em-border">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">{t('orders.detailModal.title')}</h2>
-                <p className="text-gray-600 mt-1">{selectedOrder.orderNumber || selectedOrder.id}</p>
+                <h2 className="text-2xl font-bold text-em-text-primary">{t('orders.detailModal.title')}</h2>
+                <p className="text-em-text-secondary mt-1">{selectedOrder.orderNumber || selectedOrder.id}</p>
               </div>
               <button
                 onClick={() => setSelectedOrder(null)}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-em-text-secondary hover:text-em-text-primary"
               >
                 <XCircle className="w-6 h-6" />
               </button>
             </div>
 
             {/* Customer Info */}
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.customerSection')}</h3>
+            <div className="bg-em-bg-muted rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.customerSection')}</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('orders.detailModal.name')}:</span>
-                  <span className="text-gray-900 font-medium">{selectedOrder.customerName}</span>
+                  <span className="text-em-text-secondary">{t('orders.detailModal.name')}:</span>
+                  <span className="text-em-text-primary font-medium">{selectedOrder.customerName}</span>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-2">
                   {selectedOrder.customerPhone ? (
                     <>
                       <a
                         href={`tel:${selectedOrder.customerPhone}`}
-                        className="min-h-12 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700"
+                        className="min-h-12 rounded-lg border border-em-border-strong px-3 py-2 text-sm font-semibold text-em-text-primary"
                       >
                         {t('orders.detailModal.call')}
                       </a>
                     </>
                   ) : (
-                    <span className="text-xs text-gray-500">{t('orders.detailModal.noPhone')}</span>
+                    <span className="text-xs text-em-text-secondary">{t('orders.detailModal.noPhone')}</span>
                   )}
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('orders.detailModal.channel')}:</span>
-                  <span className="text-gray-900 font-medium capitalize">{selectedOrder.channel}</span>
+                  <span className="text-em-text-secondary">{t('orders.detailModal.channel')}:</span>
+                  <span className="text-em-text-primary font-medium capitalize">{selectedOrder.channel}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('orders.detailModal.created')}:</span>
-                  <span className="text-gray-900 font-medium">
+                  <span className="text-em-text-secondary">{t('orders.detailModal.created')}:</span>
+                  <span className="text-em-text-primary font-medium">
                     {formatDate(selectedOrder.createdAt)}
                   </span>
                 </div>
               </div>
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.deliveryAddress')}</h3>
+            <div className="bg-em-bg-muted rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.deliveryAddress')}</h3>
               {selectedOrder.delivery_address ? (
-                <div className="space-y-1 text-sm text-gray-700 mb-3">
+                <div className="space-y-1 text-sm text-em-text-primary mb-3">
                   {selectedOrder.delivery_address.street_address && (
                     <p>{selectedOrder.delivery_address.street_address}</p>
                   )}
@@ -1385,38 +1425,38 @@ export default function Orders() {
                     <p>{selectedOrder.delivery_address.division}</p>
                   )}
                   {selectedOrder.delivery_address.zone && (
-                    <span className="inline-block text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-1">
+                    <span className="inline-block text-xs bg-em-info-100 text-em-info-700 px-2 py-0.5 rounded-full mt-1">
                       {t('orders.detailModal.zoneLabel')}: {selectedOrder.delivery_address.zone.replace(/_/g, ' ')}
                     </span>
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-gray-700 mb-3">{selectedOrder.deliveryAddress || t('orders.detailModal.noAddress')}</p>
+                <p className="text-sm text-em-text-primary mb-3">{selectedOrder.deliveryAddress || t('orders.detailModal.noAddress')}</p>
               )}
               {selectedOrder.deliveryAddress && (
                 <a
                   href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedOrder.deliveryAddress)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="block rounded-lg border border-gray-200 bg-white p-3 text-sm font-semibold text-brand-hover"
+                  className="block rounded-lg border border-em-border bg-em-bg-surface p-3 text-sm font-semibold text-em-violet-700"
                 >
                   {t('orders.detailModal.viewOnMap')}
                 </a>
               )}
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.paymentStatusLabel')}</h3>
-              <p className="text-sm font-medium text-gray-700">
+            <div className="bg-em-bg-muted rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.paymentStatusLabel')}</h3>
+              <p className="text-sm font-medium text-em-text-primary">
                 {selectedOrder.payment_status
                   ? t(`orders.paymentStatus.${selectedOrder.payment_status.toLowerCase()}`, { defaultValue: selectedOrder.payment_status })
                   : t('orders.paymentStatus.unknown')}
               </p>
-              <p className="mt-1 text-xs text-gray-600">
+              <p className="mt-1 text-xs text-em-text-secondary">
                 {selectedOrder.payment_method || t('orders.paymentMethod.unknown')}
               </p>
               {showPaymentReconciliation && (
-                <div role="alert" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                <div role="alert" className="mt-3 rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-3 text-sm text-em-warning-700">
                   <p className="font-semibold">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.title`)}</p>
                   <p className="mt-1">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.body`)}</p>
                   <p className="mt-1 text-xs">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.nextStep`)}</p>
@@ -1427,16 +1467,16 @@ export default function Orders() {
                   && !paymentMethodCorrectionUnavailable
                   && !selectedOrderHasCourierRecord
                   && ['draft', 'pending', 'confirmed', 'processing'].includes(selectedOrder.status) ? (
-                  <div className="mt-3 border-t border-gray-200 pt-3">
-                    <label className="block text-xs font-semibold text-gray-700" htmlFor="order-payment-method-correction">
+                  <div className="mt-3 border-t border-em-border pt-3">
+                    <label className="block text-xs font-semibold text-em-text-primary" htmlFor="order-payment-method-correction">
                       {t('orders.detailModal.paymentMethodCorrection')}
                     </label>
-                    <p className="mt-1 text-xs text-gray-600">{t('orders.paymentMethodCorrectionOwnerOnly')}</p>
+                    <p className="mt-1 text-xs text-em-text-secondary">{t('orders.paymentMethodCorrectionOwnerOnly')}</p>
                     <select
                       id="order-payment-method-correction"
                       value={paymentMethodCorrection}
                       onChange={(event) => setPaymentMethodCorrection(event.target.value)}
-                      className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                      className="mt-2 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm"
                     >
                       <option value="">{t('orders.createModal.selectPaymentMethod')}</option>
                       {paymentMethodChoices.map((gateway) => (
@@ -1447,13 +1487,13 @@ export default function Orders() {
                       type="button"
                       onClick={() => void handleCorrectPaymentMethod()}
                       disabled={!paymentMethodCorrection || isUpdatingPaymentMethod}
-                      className="mt-2 min-h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      className="mt-2 min-h-11 rounded-lg bg-em-violet-600 px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isUpdatingPaymentMethod ? t('orders.loading') : t('orders.detailModal.savePaymentMethod')}
                     </button>
                   </div>
                 ) : (
-                  <p className="mt-2 text-xs text-amber-800">
+                  <p className="mt-2 text-xs text-em-warning-700">
                     {selectedOrderHasCourierRecord || paymentMethodCorrectionUnavailable
                       ? t('orders.paymentMethodCorrectionLockedByCourier')
                       : canCorrectPaymentMethod
@@ -1464,36 +1504,36 @@ export default function Orders() {
               )}
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.deliveryStatusLabel')}</h3>
-              <p className="text-sm font-medium text-gray-700">
+            <div className="bg-em-bg-muted rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.deliveryStatusLabel')}</h3>
+              <p className="text-sm font-medium text-em-text-primary">
                 {selectedOrder.delivery_status
                   ? t(`orders.deliveryStatus.${selectedOrder.delivery_status.toLowerCase()}`, { defaultValue: selectedOrder.delivery_status })
                   : selectedOrder.fulfillment_status
                     ? t(`orders.fulfillmentStatus.${selectedOrder.fulfillment_status.toLowerCase()}`, { defaultValue: selectedOrder.fulfillment_status })
                     : t('orders.deliveryStatus.unknown')}
               </p>
-              <p className="mt-1 text-xs text-gray-600">
+              <p className="mt-1 text-xs text-em-text-secondary">
                 {[selectedOrder.delivery_provider, selectedOrder.delivery_tracking_code].filter(Boolean).join(' · ') || t('orders.deliveryStatus.noTracking')}
               </p>
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.customerChat')}</h3>
+            <div className="bg-em-bg-muted rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.customerChat')}</h3>
               {linkedConversationId ? (
                 conversationSnippets.length === 0 ? (
-                  <p className="text-sm text-gray-500">{t('orders.detailModal.linkedChatEmpty')}</p>
+                  <p className="text-sm text-em-text-secondary">{t('orders.detailModal.linkedChatEmpty')}</p>
                 ) : (
                   <div className="space-y-2">
                     {conversationSnippets.map((line, idx) => (
-                      <p key={`${selectedOrder.id}-msg-${idx}`} className="rounded-lg bg-white p-3 text-sm text-gray-700 border border-gray-200">
+                      <p key={`${selectedOrder.id}-msg-${idx}`} className="rounded-lg bg-em-bg-surface p-3 text-sm text-em-text-primary border border-em-border">
                         {line}
                       </p>
                     ))}
                   </div>
                 )
               ) : (
-                <p className="text-sm text-gray-500">{t('orders.detailModal.noChatSnippet')}</p>
+                <p className="text-sm text-em-text-secondary">{t('orders.detailModal.noChatSnippet')}</p>
               )}
               {/* FE-08: navigation only ever for the conversation VERIFIED to
                   belong to this order's customer, via the canonical inbox deep link. */}
@@ -1501,7 +1541,7 @@ export default function Orders() {
                 <button
                   type="button"
                   onClick={() => navigate(`/inbox?conversation=${encodeURIComponent(linkedConversationId)}`)}
-                  className="mt-3 text-sm font-semibold text-brand-hover hover:underline font-bn"
+                  className="mt-3 text-sm font-semibold text-em-violet-700 hover:underline font-bn"
                 >
                   {t('orders.detailModal.openConversation')}
                 </button>
@@ -1509,22 +1549,22 @@ export default function Orders() {
             </div>
 
             {/* Order Meta Information */}
-            <div className="bg-emerald-50 rounded-lg p-4 mb-6 border border-emerald-200">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.metaSection')}</h3>
+            <div className="bg-em-success-100 rounded-lg p-4 mb-6 border border-em-success-700/20">
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.metaSection')}</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('orders.detailModal.orderSource')}:</span>
-                  <span className="text-gray-900 font-medium capitalize">{selectedOrder.channel}</span>
+                  <span className="text-em-text-secondary">{t('orders.detailModal.orderSource')}:</span>
+                  <span className="text-em-text-primary font-medium capitalize">{selectedOrder.channel}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('orders.detailModal.createdBy')}:</span>
-                  <span className="text-gray-900 font-medium">
+                  <span className="text-em-text-secondary">{t('orders.detailModal.createdBy')}:</span>
+                  <span className="text-em-text-primary font-medium">
                     {selectedOrder.channel === 'manual' ? t('orders.detailModal.createdByManual') : t('orders.detailModal.createdByAI')}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('orders.detailModal.creationMethod')}:</span>
-                  <span className="text-gray-900 font-medium">
+                  <span className="text-em-text-secondary">{t('orders.detailModal.creationMethod')}:</span>
+                  <span className="text-em-text-primary font-medium">
                     {selectedOrder.channel === 'manual' ? t('orders.detailModal.methodManual') : t('orders.detailModal.methodAutomated')}
                   </span>
                 </div>
@@ -1533,15 +1573,15 @@ export default function Orders() {
 
             {/* Order Items */}
             <div className="mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.itemsSection')}</h3>
-              <div className="border border-gray-200 rounded-lg divide-y divide-gray-200">
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.itemsSection')}</h3>
+              <div className="border border-em-border rounded-lg divide-y divide-em-border">
                 {selectedOrder.items.map((item, index) => (
                   <div key={index} className="p-4 flex justify-between items-center">
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900">{item.productName}</p>
-                      <p className="text-sm text-gray-500">{t('orders.detailModal.quantity')}: {item.quantity}</p>
+                      <p className="font-medium text-em-text-primary">{item.productName}</p>
+                      <p className="text-sm text-em-text-secondary">{t('orders.detailModal.quantity')}: {item.quantity}</p>
                     </div>
-                    <p className="text-gray-900 font-semibold">
+                    <p className="text-em-text-primary font-semibold">
                       {formatCurrency(item.price * item.quantity)}
                     </p>
                   </div>
@@ -1550,7 +1590,7 @@ export default function Orders() {
               
               <div className="mt-4 flex justify-between items-center text-lg font-bold">
                 <span>{t('orders.detailModal.total')}:</span>
-                <span className="text-brand-hover">{formatCurrency(selectedOrder.total)}</span>
+                <span className="text-em-violet-700">{formatCurrency(selectedOrder.total)}</span>
               </div>
             </div>
 
@@ -1559,7 +1599,7 @@ export default function Orders() {
 
             {/* Order Status */}
             <div className="mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.updateStatus')}</h3>
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.updateStatus')}</h3>
               <div className="grid grid-cols-2 gap-2">
                 {([
                   { value: 'confirmed' as Order['status'], label: t('orders.statusConfirmed') },
@@ -1574,7 +1614,7 @@ export default function Orders() {
                     className={`px-4 py-2 rounded-lg text-sm transition-colors ${
                       selectedOrder.status === value
                         ? statusColors[value] + ' opacity-50 cursor-not-allowed'
-                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                        : 'bg-em-bg-muted hover:bg-em-bg-muted text-em-text-primary'
                     }`}
                   >
                     {label}
@@ -1584,34 +1624,34 @@ export default function Orders() {
             </div>
 
             <div className="mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">{t('orders.detailModal.note')}</h3>
+              <h3 className="font-semibold text-em-text-primary mb-3">{t('orders.detailModal.note')}</h3>
               <textarea
                 value={detailNote}
                 onChange={(e) => setDetailNote(e.target.value)}
                 rows={3}
                 placeholder={t('orders.detailModal.notePlaceholder')}
-                className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm"
+                className="w-full rounded-lg border border-em-border-strong px-4 py-2 text-sm"
               />
             </div>
 
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={handleSaveNote}
-                className="flex-1 min-w-[120px] px-4 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-black text-sm"
+                className="flex-1 min-w-[120px] px-4 py-2.5 bg-em-midnight-900 text-white rounded-lg hover:bg-em-midnight-950 text-sm"
               >
                 {t('orders.detailModal.saveNote')}
               </button>
               <button
                 onClick={() => setShowCourierModal(true)}
                 disabled={!!selectedOrder.delivery_tracking_code}
-                className="flex-1 min-w-[120px] px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                className="flex-1 min-w-[120px] px-4 py-2.5 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 {selectedOrder.delivery_tracking_code ? `ID: ${selectedOrder.delivery_tracking_code}` : t('orders.detailModal.bookCourier')}
               </button>
               {selectedOrder.status === 'draft' && (
                 <button
                   onClick={() => handleUpdateStatus(selectedOrder.id, 'confirmed')}
-                  className="flex-1 min-w-[120px] px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 text-sm"
+                  className="flex-1 min-w-[120px] px-4 py-2.5 bg-em-violet-600 text-white rounded-lg hover:opacity-90 text-sm"
                 >
                   {t('orders.detailModal.confirmOrder')}
                 </button>
@@ -1619,14 +1659,14 @@ export default function Orders() {
               {selectedOrder.status !== 'completed' && (
                 <button
                   onClick={() => handleUpdateStatus(selectedOrder.id, 'cancelled')}
-                  className="flex-1 min-w-[120px] px-4 py-2.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 text-sm"
+                  className="flex-1 min-w-[120px] px-4 py-2.5 bg-em-danger-100 text-em-danger-700 rounded-lg hover:bg-em-danger-100 text-sm"
                 >
                   {t('orders.detailModal.cancelOrderBtn')}
                 </button>
               )}
               <button
                 onClick={() => setSelectedOrder(null)}
-                className="w-full px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
+                className="w-full px-4 py-2.5 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted text-sm"
               >
                 {t('orders.detailModal.close')}
               </button>
@@ -1648,5 +1688,6 @@ export default function Orders() {
         />
       )}
     </div>
+    </MotionConfig>
   );
 }

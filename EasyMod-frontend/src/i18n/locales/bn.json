@@ -93,6 +93,7 @@
     "updating": "আপডেট হচ্ছে...",
     "add": "যোগ করুন",
     "close": "বন্ধ করুন",
+    "skipToContent": "মূল কনটেন্টে যান",
     "back": "ফিরে যান",
     "retry": "আবার চেষ্টা করুন",
     "loading": "লোড হচ্ছে...",
@@ -390,10 +391,10 @@
         "unavailable": "তথ্য পাওয়া যায়নি"
       },
       "status": {
-        "confirmed": "নিশ্চিত ✅",
-        "cancelled": "বাতিল ❌",
-        "processing": "পেন্ডিং 🕐",
-        "paymentPending": "পেমেন্ট বাকি 💳",
+        "confirmed": "নিশ্চিত",
+        "cancelled": "বাতিল",
+        "processing": "পেন্ডিং",
+        "paymentPending": "পেমেন্ট বাকি",
         "draft": "Draft",
         "delivered": "ডেলিভারি হয়েছে",
         "returned": "ফেরত এসেছে",
@@ -476,7 +477,8 @@
         "title": "ব্যবসার সারাংশ",
         "subtitle": "অর্ডারের সংখ্যা ও কুরিয়ারের নগদ আলাদা হিসাব।",
         "ordersToday": "আজকের অর্ডার",
-        "openReports": "রিপোর্ট দেখুন"
+        "openReports": "রিপোর্ট দেখুন",
+        "trendSummary": "প্রতিদিন অর্ডার, শেষ {{count}} দিন: সর্বনিম্ন {{min}}, সর্বোচ্চ {{max}}, সর্বশেষ {{latest}}।"
       },
       "botActivity": {
         "title": "Reply Performance",
@@ -486,7 +488,7 @@
         "analyticsCalls": "AI অ্যানালিটিক্স কল: {{count}}",
         "unavailable": "AI কার্যক্রমের তথ্য পাওয়া যায়নি।"
       },
-      "atRisk": "⚠️ {{count}} জন কাস্টমার ঝুঁকিপূর্ণ - এক্ষুনি দেখুন",
+      "atRisk": "{{count}} জন কাস্টমার ঝুঁকিপূর্ণ - এক্ষুনি দেখুন",
       "latestOrders": {
         "title": "সর্বশেষ ৫টি অর্ডার",
         "viewAll": "সব দেখুন",
@@ -535,7 +537,58 @@
       "unavailable": "এই তথ্য লোড করা যায়নি।",
       "cashUnavailable": "অর্ডার ডেলিভারির মোট তথ্য পাওয়া যায়নি।",
       "lastChecked": "কাজের তথ্যসূত্র সর্বশেষ যাচাই: {{time}}",
-      "timeUnavailable": "সময় পাওয়া যায়নি"
+      "timeUnavailable": "সময় পাওয়া যায়নি",
+      "signal": {
+        "healthy": "স্বাভাবিক",
+        "attention": "মনোযোগ দিন",
+        "review": "পর্যালোচনা",
+        "blocked": "আটকে আছে",
+        "resolved": "সম্পন্ন",
+        "pending": "অপেক্ষমাণ",
+        "reason": {
+          "exceptions": "ডেলিভারি ব্যতিক্রম: {{count}}",
+          "work": "উত্তর: {{replies}} · Draft: {{drafts}}",
+          "partial": "সব ঠিক আছে তা নিশ্চিত করা যাচ্ছে না"
+        }
+      },
+      "primary": {
+        "reply": "কাস্টমারকে উত্তর দিন",
+        "draft": "Draft অর্ডার যাচাই করুন",
+        "exception": "ডেলিভারি ব্যতিক্রম দেখুন"
+      },
+      "whyHere": {
+        "loading": "আজকের যাচাই করা কাজ ও ব্যবসার সংকেত দেখা হচ্ছে।",
+        "error": "ড্যাশবোর্ড লোড করা যায়নি, তাই সংখ্যা ও কাজ পুরোনো হতে পারে।",
+        "setup": "কথোপকথন থেকে নিশ্চিত অর্ডার করতে আপনার শপের কয়েকটি সেটআপ ধাপ বাকি।",
+        "setupComplete": "সব সেটআপ ধাপ যাচাই হয়ে সম্পন্ন হয়েছে।",
+        "work": "যাচাই করা কাজ অপেক্ষায় — উত্তর: {{replies}} · Draft অর্ডার: {{drafts}} · ডেলিভারি ব্যতিক্রম: {{exceptions}}।",
+        "caughtUp": "যাচাই করা কোনো কাজ বাকি নেই।",
+        "partial": "কিছু কাজের উৎস যাচাই করা যায়নি, তাই শুধু নিশ্চিত তথ্য দেখানো হচ্ছে।"
+      },
+      "whereNext": {
+        "loading": "উৎস সাড়া দিলেই পেজ পূর্ণ হবে।",
+        "error": "আবার চেষ্টা করুন। বারবার ব্যর্থ হলে সংযোগ যাচাই করে আবার চেষ্টা করুন।",
+        "setup": "নিচের পরের ধাপটি শেষ করুন; প্রতিটির পর অগ্রগতি হালনাগাদ হবে।",
+        "setupComplete": "আজকের কাজ শুরু করতে ড্যাশবোর্ডে যান।",
+        "work": "একটি কাজ শেষ করে ফিরে আসুন — তালিকা প্রতি ৬০ সেকেন্ডে হালনাগাদ হয়।",
+        "caughtUp": "নতুন উত্তর ও অর্ডার এখানে নিজে থেকেই আসবে।",
+        "partial": "সব ঠিক আছে ধরে নেওয়ার আগে সম্পূর্ণ Inbox ও Orders তালিকা দেখুন।"
+      },
+      "staleWarning": "তথ্য পুরোনো হতে পারে — শেষ রিফ্রেশ স্বাভাবিকের চেয়ে বেশি আগে হয়েছে।",
+      "queueChips": {
+        "note": "সংখ্যাগুলো মোট হিসাব, যাচাই করা কাজ নয়।",
+        "unavailable": "পাওয়া যাচ্ছে না"
+      },
+      "evidence": {
+        "title": "প্রমাণ ও পরের ধাপ",
+        "coverageComplete": "সব কাজের উৎস পুরোপুরি যাচাই হয়েছে।",
+        "auditLog": "অডিট লগ দেখুন",
+        "nextSteps": "পরের ধাপ"
+      },
+      "context": {
+        "breadcrumb": "ব্রেডক্রাম্ব",
+        "workspace": "ওয়ার্কস্পেস"
+      }
     },
     "setup": {
       "loading": "শপ সেটআপ যাচাই হচ্ছে...",
@@ -612,7 +665,8 @@
         "AI_NOT_DRAFT": "First launch verification-এর জন্য Review first recommended."
       },
       "stateUnavailable": "শপ সেটআপের অবস্থা লোড করা যায়নি।",
-      "nextStep": "এখান থেকে শুরু করুন"
+      "nextStep": "এখান থেকে শুরু করুন",
+      "verifiedAt": "যাচাই হয়েছে {{time}}"
     },
     "nav": {
       "dashboard": "ড্যাশবোর্ড",
@@ -668,6 +722,28 @@
       "noMetrics": "ব্যাকএন্ড থেকে Dashboard মেট্রিক্স পাওয়া যায়নি।"
     }
   },
+  "shell": {
+    "notifications": {
+      "title": "নোটিফিকেশন",
+      "unread": "{{count}}টি অপঠিত",
+      "empty": "কোনো নোটিফিকেশন নেই",
+      "markRead": "নোটিফিকেশন পঠিত চিহ্নিত করুন",
+      "review": "পর্যালোচনা",
+      "loadFailed": "নোটিফিকেশন লোড করা যায়নি",
+      "updateFailed": "নোটিফিকেশন আপডেট করা যায়নি"
+    },
+    "error": {
+      "title": "কিছু একটা সমস্যা হয়েছে",
+      "message": "আবার চেষ্টা করুন বা ফিরে যান।",
+      "back": "অ্যাপে ফিরুন"
+    },
+    "boundary": {
+      "title": "এই স্ক্রিনটি খোলা যায়নি",
+      "message": "পৃষ্ঠাটি রিফ্রেশ করুন। আবার হলে যে স্ক্রিনটি খুলতে চাইছিলেন তার নামসহ সাপোর্টে জানান।",
+      "refresh": "পৃষ্ঠা রিফ্রেশ করুন",
+      "details": "ত্রুটির বিবরণ"
+    }
+  },
   "inbox": {
     "title": "শেয়ার্ড ইনবক্স",
     "active": "{{count}} টি চালু",
@@ -683,7 +759,8 @@
       "search": "এই পৃষ্ঠায় আপনার খোঁজের সাথে কোনো কথোপকথন মেলেনি।",
       "filter": "এই পৃষ্ঠায় এই ফিল্টারের সাথে কোনো কথোপকথন মেলেনি।",
       "page": "এই পৃষ্ঠায় কোনো কথোপকথন নেই।",
-      "currentPageOnly": "খোঁজ ও ফিল্টার শুধু এই পৃষ্ঠায় কাজ করে। অন্য পৃষ্ঠা দেখুন।"
+      "currentPageOnly": "খোঁজ ও ফিল্টার শুধু এই পৃষ্ঠায় কাজ করে। অন্য পৃষ্ঠা দেখুন।",
+      "connectChannel": "চ্যানেল যুক্ত করুন"
     },
     "pagination": {
       "label": "ইনবক্স কথোপকথনের পৃষ্ঠা",
@@ -697,10 +774,85 @@
       "previous": "আগের পৃষ্ঠা",
       "next": "পরের পৃষ্ঠা"
     },
-    "agentHandling": "🙋 আপনি উত্তর দিচ্ছেন",
+    "agentHandling": "আপনি উত্তর দিচ্ছেন",
     "resumeAi": "AI পুনরায় চালু করুন",
-    "aiActive": "🤖 AI উত্তর দিচ্ছে",
+    "aiActive": "AI উত্তর দিচ্ছে",
     "modeLabel": "AI উত্তর দেওয়ার মোড",
+    "breadcrumb": {
+      "workspace": "কর্মক্ষেত্র"
+    },
+    "signal": {
+      "blocked": "AI বন্ধ",
+      "pending": "লোড হচ্ছে",
+      "review": "পর্যালোচনা দরকার",
+      "drafts": "AI খসড়া অপেক্ষায়",
+      "unread": "অপঠিত বার্তা",
+      "healthy": "সব কাজ শেষ",
+      "empty": "বার্তার অপেক্ষায়",
+      "reason": {
+        "emergency": "সব চ্যানেলের স্বয়ংক্রিয় উত্তর সাময়িক বন্ধ।",
+        "review": "এই পৃষ্ঠায় {{count}}টি উত্তরের অপেক্ষায়।",
+        "drafts": "এই পৃষ্ঠায় {{count}}টি খসড়া পর্যালোচনার অপেক্ষায়।",
+        "unread": "এই পৃষ্ঠায় {{count}}টি অপঠিত।",
+        "caughtUp": "এই পৃষ্ঠায় কোনো উত্তরের কাজ নেই।",
+        "empty": "কাস্টমারের বার্তা এখানে দেখা যাবে।",
+        "error": "কথোপকথনের তালিকা লোড করা যায়নি।"
+      }
+    },
+    "whyHere": {
+      "loading": "আপনার শেয়ার্ড ইনবক্স লোড হচ্ছে।",
+      "error": "কথোপকথন লোড হয়নি, তাই উত্তর অনুপস্থিত থাকতে পারে।",
+      "review": "এই পৃষ্ঠার কাস্টমাররা উত্তরের অপেক্ষায়।",
+      "drafts": "পাঠানোর আগে AI খসড়ায় আপনার অনুমোদন দরকার।",
+      "unread": "নতুন কাস্টমার বার্তা এখনও পড়া হয়নি।",
+      "caughtUp": "এই পৃষ্ঠার সব কথোপকথন সম্পন্ন হয়েছে।",
+      "empty": "এই দোকানে এখনও কাস্টমারের বার্তা আসেনি।"
+    },
+    "whereNext": {
+      "work": "পরবর্তী কাজ খুলে উত্তর দিন, তারপর কিউতে ফিরুন।",
+      "caughtUp": "নতুন বার্তা দেখতে রিফ্রেশ করুন, বা সম্পন্ন কথোপকথন দেখুন।",
+      "error": "আবার লোড করুন; আপনার খসড়া ও ইতিহাস সার্ভারে নিরাপদ।",
+      "empty": "কাস্টমারের বার্তা পেতে একটি চ্যানেল যুক্ত করুন।"
+    },
+    "primary": {
+      "retry": "লোড আবার চেষ্টা করুন",
+      "openNextReply": "পরবর্তী উত্তর খুলুন",
+      "openNextDraft": "পরবর্তী খসড়া খুলুন",
+      "openFirstUnread": "প্রথম অপঠিত খুলুন",
+      "refresh": "ইনবক্স রিফ্রেশ করুন",
+      "loading": "লোড হচ্ছে…"
+    },
+    "evidence": {
+      "title": "প্রমাণ ও সিঙ্ক",
+      "conversation": "কথোপকথন",
+      "customer": "কাস্টমার",
+      "source": "উৎস",
+      "replyTask": "উত্তরের কাজ",
+      "lastActivity": "সর্বশেষ কার্যক্রম",
+      "delivery": "সর্বশেষ পাঠানো ফলাফল",
+      "deliveryConfirmed": "প্রোভাইডার পাঠানো নিশ্চিত করেছে",
+      "replyTaskSentence": "রিপোর্ট করা উত্তরের কাজ: {{reason}}",
+      "deliveryPending": "প্রোভাইডার নিশ্চিতকরণ অপেক্ষায়",
+      "deliveryFailed": "প্রোভাইডার নিশ্চিত করেনি",
+      "deliveryNone": "এখনও কোনো উত্তর পাঠানো হয়নি",
+      "syncSse": "লাইভ আপডেট যুক্ত (SSE)",
+      "syncOffline": "লাইভ আপডেট বিচ্ছিন্ন — পুনঃসংযোগ চলছে",
+      "lastSync": "সর্বশেষ সিঙ্ক {{time}}",
+      "noSync": "এখনও সিঙ্ক হয়নি",
+      "grounding": "{{count}}টি সংরক্ষিত উৎসের ভিত্তিতে",
+      "customerUnlinked": "কাস্টমার রেকর্ডের সাথে যুক্ত নয়"
+    },
+    "composer": {
+      "quickReplies": "দ্রুত উত্তর",
+      "manageQuickReplies": "দ্রুত উত্তর ব্যবস্থাপনা",
+      "searchQuickReplies": "দ্রুত উত্তর খুঁজুন",
+      "quickReplyName": "দ্রুত উত্তরের নাম",
+      "quickReplyMessage": "দ্রুত উত্তরের বার্তা",
+      "loadingQuickReplies": "দ্রুত উত্তর লোড হচ্ছে...",
+      "closeQuickReplies": "দ্রুত উত্তর বন্ধ করুন",
+      "attachFile": "ফাইল যুক্ত করুন",
+      "noSavedQuickReplies": "এখনও কোনো দ্রুত উত্তর সংরক্ষিত নেই। কাস্টমার কথোপকথনে সময় বাঁচাতে প্রায়ই পাঠানো উত্তর যুক্ত করুন।"
+    },
     "mode": {
       "auto": "স্বয়ংক্রিয় উত্তর",
       "draft": "রিভিউয়ের জন্য খসড়া",
@@ -719,7 +871,7 @@
       "archived": "আর্কাইভ করা"
     },
     "agentBanner": "আপনি নিজে উত্তর দিচ্ছেন — এই কথোপকথনে AI বন্ধ আছে।",
-    "windowClosingSoon": "⚠ এই কাস্টমারকে সরাসরি উত্তর দেওয়ার সময় প্রায় শেষ — এখনই উত্তর দিন।",
+    "windowClosingSoon": "এই কাস্টমারকে সরাসরি উত্তর দেওয়ার সময় প্রায় শেষ — এখনই উত্তর দিন।",
     "windowExpired": "এই কাস্টমার ২৪ ঘণ্টার বেশি আগে মেসেজ করেছেন। কাস্টমার আবার মেসেজ না করা পর্যন্ত সরাসরি Messenger reply বন্ধ থাকবে।",
     "noMessages": "এই কথোপকথনে কোনো বার্তা নেই",
     "aiSuggestion": "AI এর উত্তর",
@@ -742,7 +894,7 @@
     "outsideWindowDisabled": "Meta-এর ২৪ ঘণ্টার messaging window শেষ। এই launch version-এ EasyModerator out-of-window Messenger message পাঠাবে না।",
     "windowWarning": "Messenger reply window প্রায় শেষ। শুধু active customer conversation হলে উত্তর দিন।",
     "selectConversation": "বার্তা দেখতে একটি কথোপকথন বেছে নিন",
-    "imageProcessed": "ছবি প্রক্রিয়াকৃত ✓",
+    "imageProcessed": "ছবি প্রক্রিয়াকৃত",
     "imageSkipped": "ছবি বাদ দেওয়া হয়েছে (সীমা পৌঁছেছে)",
     "attachmentUnavailable": "সংযুক্তি পাওয়া যাচ্ছে না",
     "humanTooltip": "মানব এজেন্ট সক্রিয় — দায়িত্ব নিতে ক্লিক করুন",
@@ -901,7 +1053,8 @@
         "resume_checkout": "চেকআউট চালু করুন",
         "review_opportunity": "সুযোগ দেখুন",
         "review_knowledge_gap": "প্রশ্নটি দেখুন"
-      }
+      },
+      "partial": "কিছু অ্যাকশন উৎস লোড হয়নি — এই কিউ অসম্পূর্ণ হতে পারে।"
     },
     "viewCustomer": "কাস্টমারের প্রোফাইল দেখুন",
     "noSearchMatchesOnPage": "এই পৃষ্ঠায় অনুসন্ধানের কোনো ফল নেই। অন্য পৃষ্ঠা দেখুন বা অনুসন্ধান বদলান।",
@@ -967,6 +1120,21 @@
   "products": {
     "title": "পণ্য ও ইনভেন্টরি",
     "subtitle": "Product add করুন যাতে customer reply-তে ঠিক price, stock, size ও delivery details থাকে।",
+    "totalCountLabel": "মোট",
+    "lowStockCountLabel": "কম স্টক",
+    "signal": {
+      "blocked": "পণ্য পাওয়া যাচ্ছে না",
+      "pending": "পণ্য লোড হচ্ছে",
+      "lowStock": "কম স্টকে ব্যবস্থা প্রয়োজন",
+      "healthy": "ক্যাটালগ প্রস্তুত",
+      "attention": "ক্যাটালগ খালি",
+      "reason": {
+        "unavailable": "পণ্য তালিকা লোড করা যায়নি। ক্যাটালগ দেখতে আবার চেষ্টা করুন।",
+        "lowStockCount": "{{count}}টি পণ্য তাদের লো-স্টক সীমায় বা নিচে।",
+        "totalCount": "আপনার ক্যাটালগে {{count}}টি পণ্য।",
+        "noProducts": "ক্যাটালগ তৈরি করতে ম্যানুয়ালি একটি পণ্য যোগ করুন বা পণ্য ফাইল আপলোড করুন।"
+      }
+    },
     "uploadFile": "Product file upload",
     "addManually": "ম্যানুয়ালি যোগ করুন",
     "downloadTemplate": "আপলোড টেমপ্লেট ডাউনলোড করুন",
@@ -1258,6 +1426,21 @@
     "title": "অর্ডার",
     "subtitle": "কাস্টমারের অর্ডার ও ডেলিভারি পরিচালনা করুন",
     "toolbarLabel": "অর্ডার ওয়ার্কলিস্ট ফিল্টার",
+    "totalCountLabel": "মোট",
+    "needsActionCountLabel": "ব্যবস্থা প্রয়োজন",
+    "signal": {
+      "blocked": "অর্ডার পাওয়া যাচ্ছে না",
+      "pending": "অর্ডার লোড হচ্ছে",
+      "needsAction": "অর্ডারে ব্যবস্থা প্রয়োজন",
+      "healthy": "অর্ডার চলছে",
+      "attention": "এখনো অর্ডার নেই",
+      "reason": {
+        "unavailable": "অর্ডার তালিকা লোড করা যায়নি। অর্ডার দেখতে আবার চেষ্টা করুন।",
+        "needsActionCount": "{{count}}টি অর্ডারে আপনার ব্যবস্থা প্রয়োজন।",
+        "totalCount": "ওয়ার্কলিস্টে {{count}}টি অর্ডার।",
+        "noOrders": "একটি অর্ডার তৈরি করুন বা গ্রাহকের অর্ডার আসার জন্য অপেক্ষা করুন।"
+      }
+    },
     "filterDate": "তৈরির তারিখ",
     "dateAll": "সব তারিখ",
     "dateToday": "আজ",
@@ -1536,6 +1719,21 @@
   "customers": {
     "title": "কাস্টমার ম্যানেজমেন্ট",
     "subtitle": "সব কাস্টমার এক জায়গায় পরিচালনা ও ট্র্যাক করুন",
+    "totalCountLabel": "মোট",
+    "opportunityCountLabel": "সুযোগ",
+    "signal": {
+      "blocked": "কাস্টমার পাওয়া যাচ্ছে না",
+      "pending": "কাস্টমার লোড হচ্ছে",
+      "opportunities": "ব্যবস্থা নেওয়ার সুযোগ",
+      "healthy": "সক্রিয় কাস্টমার",
+      "attention": "কোনো কাস্টমার নেই",
+      "reason": {
+        "unavailable": "কাস্টমার তালিকা লোড করা যায়নি। কাস্টমার দেখতে আবার চেষ্টা করুন।",
+        "opportunityCount": "{{count}}টি খোলা সুযোগে ব্যবস্থা প্রয়োজন।",
+        "totalCount": "আপনার দোকানে {{count}}জন কাস্টমার।",
+        "noCustomers": "আপনার কাস্টমার তালিকা খালি। কাস্টমার মেসেজ করলে বা আপনি যোগ করলে এখানে দেখা যাবে।"
+      }
+    },
     "channels": {
       "facebook": "Facebook",
       "messenger": "Messenger",
@@ -2121,12 +2319,28 @@
         "title": "সোশ্যাল মিডিয়া লিংক",
         "help": "যেগুলো যোগ করবেন সেগুলো অর্ডার নিশ্চিত হওয়ার মেসেজে \"আমাদের ফলো করুন\" অংশে দেখানো হবে। (ঐচ্ছিক)",
         "facebookPlaceholder": "https://facebook.com/yourpage",
-        "websitePlaceholder": "https://yourshop.com"
+        "websitePlaceholder": "https://yourshop.com",
+        "facebookLabel": "ফেসবুক",
+        "websiteLabel": "ওয়েবসাইট"
       },
       "automationLink": {
         "title": "অটোমেশন ডিফল্ট",
         "desc": "Reply mode, confidence ও greeting এখন ব্যবসার automation পেজে।",
         "cta": "Automation defaults খুলুন"
+      },
+      "retryLoad": "আবার লোড করুন",
+      "socialCountLabel": "সোশ্যাল লিংক",
+      "infoLengthLabel": "অতিরিক্ত তথ্য",
+      "signal": {
+        "blocked": "প্রোফাইল পাওয়া যাচ্ছে না",
+        "pending": "প্রোফাইল লোড হচ্ছে",
+        "healthy": "প্রোফাইল প্রস্তুত",
+        "attention": "প্রোফাইলে নাম প্রয়োজন",
+        "reason": {
+          "unavailable": "ব্যবসার তথ্য লোড করা যায়নি। প্রোফাইল দেখতে আবার চেষ্টা করুন।",
+          "profileReady": "গ্রাহকদের উত্তরের জন্য আপনার দোকানের নাম সেট করা আছে।",
+          "needsName": "উত্তরগুলো যাতে আপনার দোকান শনাক্ত করতে পারে সেজন্য একটি দোকানের নাম যোগ করুন।"
+        }
       }
     },
     "faqs": {
@@ -2196,6 +2410,9 @@
       "addArea": "+ এলাকা যোগ করুন",
       "codAllowed": "COD অনুমোদিত",
       "weightCharges": "ওজনভিত্তিক অতিরিক্ত চার্জ",
+      "saveCharges": "ডেলিভারি চার্জ সংরক্ষণ করুন",
+      "saveChargesScope": "এই পেজের সাধারণ, এলাকা ও ওজন সেটিংস একসাথে সংরক্ষণ করে।",
+      "chargesSaved": "সংরক্ষিত",
       "addTier": "+ স্তর যোগ করুন",
       "weightFrom": "থেকে (kg)",
       "weightTo": "পর্যন্ত (kg)",
@@ -2219,6 +2436,20 @@
       "useSandbox": "স্যান্ডবক্স/পরীক্ষামূলক পরিবেশ ব্যবহার করুন",
       "saveConnect": "সংরক্ষণ ও সংযুক্ত করুন",
       "disconnectConfirm": "আপনি কি {{provider}} বিচ্ছিন্ন করতে চান? এটি প্রদানকারীকে নিষ্ক্রিয় করবে।",
+      "disconnectConfirmBody": "সংরক্ষিত credential মুছে যাবে এবং আবার যুক্ত না করা পর্যন্ত এই কুরিয়ারে পার্সেল বুক করা যাবে না।",
+      "signal": {
+        "blocked": "ডেলিভারি সেটিংস পাওয়া যাচ্ছে না",
+        "pending": "লোড হচ্ছে",
+        "attention": "কুরিয়ার সেটআপ দরকার",
+        "healthy": "কুরিয়ার প্রস্তুত",
+        "reason": {
+          "error": "ডেলিভারি সেটিংস লোড করা যায়নি।",
+          "actionRequired": "পার্সেল নেওয়ার আগে একটি কুরিয়ারে মনোযোগ দরকার।",
+          "activeCount": "{{count}}টি কুরিয়ার বুকিংয়ের জন্য চালু।",
+          "setupIncomplete": "যুক্ত কুরিয়ারগুলোর এখনো pickup details বা activation দরকার।",
+          "notConfigured": "এখনো কোনো কুরিয়ার যুক্ত নেই।"
+        }
+      },
       "success": {
         "settingsSaved": "ডেলিভারি সেটিংস সফলভাবে সংরক্ষণ হয়েছে",
         "connected": "{{provider}} সফলভাবে সংযুক্ত হয়েছে!",
@@ -2279,8 +2510,8 @@
       },
       "removeArea": "এলাকা সরান",
       "removeTier": "টিয়ার সরান",
-      "weightTierTooltip": "ওজন টিয়ার গাইড: ওজন অনুযায়ী অতিরিক্ত চার্জ যোগ করুন। যেমন: ০-১ কেজি = ০, ১-৩ কেজি = ২০। অতিরিক্ত চার্জ বেস ডেলিভারি চার্জের সাথে যোগ হয়।",
-      "weightTierInfo": "ওজন রেঞ্জ অনুযায়ী অতিরিক্ত চার্জ যোগ করুন। যেমন: ০-১ কেজি = ০, ১-৩ কেজি = ২০, ৩-৫ কেজি = ৪০। অতিরিক্ত চার্জ বেস ডেলিভারি চার্জের ওপরে যোগ হয়।",
+      "weightTierTooltip": "ওজন টিয়ার গাইড: ওজন অনুযায়ী অতিরিক্ত চার্জ লিখে রাখুন। যেমন: ০-১ কেজি = ০, ১-৩ কেজি = ২০। শুধু সংরক্ষিত — ডেলিভারি মূল্য বা কুরিয়ার বুকিং এখনো এই টিয়ার ব্যবহার করে না।",
+      "weightTierInfo": "ওজন রেঞ্জ অনুযায়ী অতিরিক্ত চার্জ লিখে রাখুন। যেমন: ০-১ কেজি = ০, ১-৩ কেজি = ২০, ৩-৫ কেজি = ৪০। শুধু আপনার তথ্যের জন্য সংরক্ষিত — এই টিয়ার এখনো ডেলিভারি মূল্য বা কুরিয়ার বুকিংয়ে প্রয়োগ হয় না।",
       "enterCredentials": "{{provider}} ক্রেডেনশিয়াল লিখুন"
     },
     "paymentSettings": {
@@ -2384,7 +2615,7 @@
       "modeSelf": "Self MFS (পার্সোনাল)",
       "modeMerchant": "Merchant API",
       "modeSelfHint": "গ্রাহক স্ক্রিনশট পাঠায় → AI OCR দিয়ে যাচাই করে → আপনি অনুমোদন/বাতিল করেন",
-      "modeMerchantHint": "অফিসিয়াল মার্চেন্ট API দিয়ে স্বয়ংক্রিয় চেকআউট (বিজনেস অ্যাকাউন্ট প্রয়োজন)",
+      "modeMerchantHint": "আপনার মার্চেন্ট API ক্রেডেনশিয়াল নিরাপদে সংরক্ষণ করে। স্বয়ংক্রিয় চেকআউট এখনো চালু নয় — আপনি এখনো ম্যানুয়ালি পেমেন্ট যাচাই করবেন।",
       "mfsPhoneNumber": "{{name}} ফোন নম্বর",
       "appKey": "App Key",
       "appKeyPlaceholder": "Merchant App Key",
@@ -2394,7 +2625,21 @@
       "merchantPasswordPlaceholder": "মার্চেন্ট পাসওয়ার্ড",
       "saveGateway": "{{name}} সেভ করুন",
       "contactUsTitle": "ইন্টিগ্রেশনের জন্য যোগাযোগ করুন",
-      "contactUsMessage": "এই পেমেন্ট মেথডটি এন্টারপ্রাইজ ইন্টিগ্রেশন হিসেবে পাওয়া যায়। আপনার দোকানের জন্য {{gatewayName}} সেটআপ করতে আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন।"
+      "contactUsMessage": "এই পেমেন্ট মেথডটি এন্টারপ্রাইজ ইন্টিগ্রেশন হিসেবে পাওয়া যায়। আপনার দোকানের জন্য {{gatewayName}} সেটআপ করতে আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন।",
+      "configureGateway": "{{name}} কনফিগার করুন",
+      "enabledMethodsLabel": "চালু পদ্ধতি",
+      "advanceRuleLabel": "অগ্রিম নিয়ম",
+      "signal": {
+        "blocked": "কনফিগারেশন পাওয়া যাচ্ছে না",
+        "pending": "পেমেন্ট পদ্ধতি লোড হচ্ছে",
+        "attention": "কোনো পদ্ধতি চালু নেই",
+        "healthy": "পেমেন্ট গ্রহণ করা হচ্ছে",
+        "reason": {
+          "loadFailed": "পেমেন্ট কনফিগারেশন লোড করা যায়নি। আপনার পদ্ধতিগুলো পুরনো হতে পারে।",
+          "enabledCount": "গ্রাহকদের জন্য {{count}}টি পেমেন্ট পদ্ধতি চালু আছে।",
+          "noMethodEnabled": "গ্রাহকরা যাতে পেমেন্ট করতে পারেন সেজন্য অন্তত একটি পেমেন্ট পদ্ধতি চালু করুন।"
+        }
+      }
     },
     "hub": {
       "title": "সেটিংস",
@@ -2547,14 +2792,49 @@
         "escalation": "এসক্যালেশন উত্তর টেমপ্লেট",
         "businessOnly": "শুধু ব্যবসা (এখানে পড়ার জন্য)",
         "editAtBusiness": "ব্যবসার ডিফল্টে সম্পাদনা করুন"
+      },
+      "connectedCountLabel": "সংযুক্ত",
+      "overrideTotalLabel": "ওভাররাইড",
+      "signal": {
+        "blocked": "চ্যানেল পাওয়া যাচ্ছে না",
+        "pending": "চ্যানেল লোড হচ্ছে",
+        "stopped": "AI উত্তর বন্ধ",
+        "healthy": "চ্যানেল সংযুক্ত",
+        "attention": "একটি চ্যানেল প্রয়োজন",
+        "reason": {
+          "unavailable": "চ্যানেল তালিকা লোড করা যায়নি। আপনার পেজগুলো দেখতে আবার চেষ্টা করুন।",
+          "stopActive": "ইমার্জেন্সি স্টপ চালু; প্রতিটি চ্যানেলের AI উত্তর বিরতিতে আছে।",
+          "connectedCount": "{{count}}টি Facebook পেজ সংযুক্ত।",
+          "noChannels": "গ্রাহকরা যাতে Messenger-এ পৌঁছাতে পারেন সেজন্য একটি Facebook পেজ সংযুক্ত করুন।"
+        }
       }
     },
     "automation": {
       "title": "অটোমেশন ডিফল্ট",
       "subtitle": "ব্যবসাজুড়ে reply আচরণ। প্রতিটি চ্যানেল এই ডিফল্ট শুধু কঠোরতর করতে পারে।",
       "loading": "অটোমেশন ডিফল্ট লোড হচ্ছে...",
-      "errorLoad": "অটোমেশন ডিফল্ট লোড করা যায়নি। রিফ্রেশ করে আবার চেষ্টা করুন।",
+      "errorLoad": "অটোমেশন ডিফল্ট লোড করা যায়নি।",
       "backToChannels": "চ্যানেলে ফিরে যান",
+      "retryLoad": "ডিফল্ট আবার লোড করুন",
+      "modePillLabel": "মোড",
+      "confidencePillLabel": "কনফিডেন্স",
+      "signal": {
+        "blocked": "ডিফল্ট পাওয়া যাচ্ছে না",
+        "pending": "লোড হচ্ছে",
+        "stopped": "AI উত্তর বন্ধ",
+        "readOnly": "শুধু দেখা যাবে",
+        "autoUnverified": "AUTO যাচাই হয়নি",
+        "draft": "Draft পর্যালোচনা দরকার",
+        "manual": "ম্যানুয়াল মোড",
+        "reason": {
+          "unavailable": "সার্ভার থেকে সেটিংস পড়া যায়নি।",
+          "stopActive": "স্টপ রিজিউম না করা পর্যন্ত এডিটর লক থাকে।",
+          "ownerOnly": "সম্পাদনা করতে মালিকের অনুমতি লাগবে।",
+          "autoUnverified": "Auto-send এখনো লাইভ যাচাই পাস করেনি।",
+          "draft": "প্রতিটি উত্তর পাঠানোর আগে আপনি অনুমোদন করবেন।",
+          "manual": "কোনো AI উত্তর পাঠানো বা draft করা হয় না।"
+        }
+      },
       "ownerOnly": "শুধু দোকানের মালিক অটোমেশন ডিফল্ট পরিবর্তন করতে পারেন। আপনি এখানে বর্তমান সেটিংস দেখতে পারেন।",
       "billingStandingTitle": "বিলিং ও অটোমেশন",
       "billingManage": "বিলিং দেখুন",
@@ -2564,6 +2844,21 @@
     "notifications": {
       "title": "নোটিফিকেশন",
       "subtitle": "মার্চেন্ট alert কোথায় দেখাবে তা বেছে নিন।",
+      "signal": {
+        "blocked": "Alert পাওয়া যাচ্ছে না",
+        "pending": "লোড হচ্ছে",
+        "attention": "Alert সেটআপ দরকার",
+        "healthy": "Alert যুক্ত আছে",
+        "waiting": "সংযোগের অপেক্ষায়",
+        "reason": {
+          "error": "নোটিফিকেশন সেটিংস লোড করা যায়নি।",
+          "notConfigured": "এই দোকানের জন্য Telegram alert bot এখনো সেটআপ করা হয়নি।",
+          "unhealthy": "Telegram সংযোগ অসুস্থ — group ও bot পরীক্ষা করুন।",
+          "disconnected": "Telegram alert যুক্ত নেই।",
+          "connected": "Telegram alert আপনার group-এ পৌঁছাচ্ছে।",
+          "pending": "Telegram-এ সংযোগের ধাপগুলো শেষ করে রিফ্রেশ করুন।"
+        }
+      },
       "errors": {
         "load": "নোটিফিকেশন সেটিংস লোড করা যায়নি।"
       },
@@ -2599,7 +2894,9 @@
         "testFailed": "Telegram test alert ব্যর্থ হয়েছে।",
         "disconnectedToast": "Telegram alert বিচ্ছিন্ন হয়েছে।",
         "disconnectFailed": "Telegram alert বিচ্ছিন্ন করা যায়নি।",
-        "preferenceFailed": "Telegram preference আপডেট করা যায়নি।"
+        "preferenceFailed": "Telegram preference আপডেট করা যায়নি।",
+        "disconnectConfirmTitle": "Telegram alert বিচ্ছিন্ন করবেন?",
+        "disconnectConfirmBody": "আপনার Telegram group-এ alert পাঠানো বন্ধ হবে। পরে নতুন connect command দিয়ে আবার যুক্ত করতে পারবেন।"
       }
     },
     "aiSettings": {
@@ -2629,8 +2926,11 @@
       "confidenceBalanced": "মাঝামাঝি",
       "confidenceIndependent": "স্বাধীন",
       "maxAutoOrderLabel": "Maximum automatic order value (৳)",
-      "maxAutoOrderHint": "এই পরিমাণের বেশি অর্ডারের জন্য ম্যানুয়াল অনুমোদন লাগবে।",
+      "maxAutoOrderHint": "শুধু আপনার তথ্যের জন্য সংরক্ষিত। অর্ডারের মূল্য আজ automatic reply সীমিত করে না।",
+      "confidenceRealityNote": "AI উত্তর বর্তমানে নির্দিষ্ট ৯০% কনফিডেন্স রিপোর্ট করে, তাই ৯০% বা তার নিচের যেকোনো থ্রেশহোল্ড প্রতিটি উত্তর পাস করাবে।",
       "askEmail": "গ্রাহকের ইমেইল জিজ্ঞাসা করুন",
+      "askEmailHint": "শুধু সংরক্ষিত। উত্তরে আজ ইমেইল ঠিকানা চাওয়া হয় না।",
+      "languageHint": "শুধু সংরক্ষিত। গ্রাহক যে ভাষায় লেখেন, উত্তর সেই ভাষাতেই হয়।",
       "greetingLabel": "First customer message reply",
       "greetingHint": "(শুধু automatic replies চালু থাকলে এবং গ্রাহকের প্রথম মেসেজে auto-send হলে)",
       "greetingPlaceholder": "যেমন: স্বাগতম! কীভাবে সাহায্য করতে পারি?",
@@ -2644,7 +2944,7 @@
       "toggleOn": "চালু",
       "toggleOff": "বন্ধ",
       "requiredFieldsLabel": "প্রয়োজনীয় অর্ডার ফিল্ড",
-      "requiredFieldsHint": "শুধু অর্ডার চেকআউটের সময় ব্যবহার হবে। সাধারণ পণ্য বা FAQ উত্তরে গ্রাহকের নাম চাওয়া উচিত নয়।",
+      "requiredFieldsHint": "শুধু আপনার তথ্যের জন্য সংরক্ষিত। চেকআউট আজ এই ফিল্ডগুলো চায় না বা বাধ্যতামূলক করে না।",
       "fields": {
         "customer_name": "গ্রাহকের নাম",
         "mobile_number": "মোবাইল নম্বর",
@@ -2659,14 +2959,32 @@
       "notifEmail": "ইমেইল",
       "notifSms": "SMS",
       "notifTelegram": "Telegram গ্রুপ অ্যালার্ট",
-      "telegramConnected": "এই শপের জন্য Telegram অ্যালার্ট সংযুক্ত আছে।",
-      "telegramDisconnected": "এই চ্যানেল থেকে গ্রুপ অ্যালার্ট পাঠাতে আগে Notifications থেকে Telegram অ্যালার্ট কানেক্ট করুন।",
+      "telegramConnected": "এই শপের জন্য Telegram অ্যালার্ট সংযুক্ত আছে। অ্যালার্ট ডেলিভারি Notifications পেজ থেকে নিয়ন্ত্রিত হয়।",
+      "telegramDisconnected": "Telegram অ্যালার্ট সংযুক্ত নেই। Notifications পেজ থেকে সংযুক্ত করুন; এই চ্যানেল পছন্দ শুধু সংরক্ষিত হয়।",
+      "notificationChannelHint": "শুধু সংরক্ষিত। মার্চেন্ট অ্যালার্ট আপনার Notifications সেটিংস অনুযায়ী পৌঁছায়।",
       "cooldownLabel": "কুলডাউন (মিনিট)",
       "triggerKeywordsLabel": "Alert keywords",
-      "triggerKeywordsPlaceholder": "যেমন: complain, refund"
+      "triggerKeywordsHint": "শুধু সংরক্ষিত। অ্যালার্ট EasyModerator-এর নিজস্ব sentiment পরীক্ষা ব্যবহার করে, এই তালিকা নয়।",
+      "triggerKeywordsPlaceholder": "যেমন: complain, refund",
+      "addKeyword": "কীওয়ার্ড যোগ করুন",
+      "removeKeyword": "{{value}} কীওয়ার্ড সরান"
     }
   },
   "faqSettings": {
+    "signal": {
+      "blocked": "নলেজ পাওয়া যাচ্ছে না",
+      "pending": "লোড হচ্ছে",
+      "attention": "প্রশ্নের উত্তর দরকার",
+      "healthy": "নলেজ প্রস্তুত",
+      "empty": "এখনো কোনো উত্তর নেই",
+      "reason": {
+        "error": "নলেজ তালিকা লোড করা যায়নি।",
+        "gaps": "{{count}}টি কাস্টমার প্রশ্নের উত্তর দরকার।",
+        "empty": "কাস্টমার যে উত্তরটি পাবে, প্রথমটি যুক্ত করুন।",
+        "ready": "{{total}}টির মধ্যে {{active}}টি উত্তর চালু।"
+      }
+    },
+    "confirmTitle": "এই উত্তরটি মুছে ফেলবেন?",
     "gaps": {
       "title": "কাস্টমার বারবার যেসব প্রশ্ন করছে",
       "subtitle": "কাস্টমারের আসল প্রশ্ন যা আপনার দোকান এখনো উত্তর দেয়নি। উত্তর আপনি নিজে লিখবেন — কিছুই অটোমেটিক প্রকাশ হবে না।",
@@ -2706,6 +3024,21 @@
   "subscription": {
     "title": "বিলিং",
     "subtitle": "ডেলিভারি-অর্ডার বিলিং, ইনভয়েস ও পেমেন্ট",
+    "invoiceCountLabel": "ইনভয়েস",
+    "dueCountLabel": "বাকি",
+    "signal": {
+      "blocked": "শর্ত পাওয়া যাচ্ছে না",
+      "pending": "বিলিং লোড হচ্ছে",
+      "due": "ইনভয়েস বাকি",
+      "current": "বিলিং হালনাগাদ",
+      "attention": "কোনো ইনভয়েস নেই",
+      "reason": {
+        "termsUnavailable": "বাণিজ্যিক শর্ত যাচাই করা যায়নি, তাই কোনো মূল্য দেখানো হচ্ছে না।",
+        "dueCount": "{{count}}টি ইনভয়েস পরিশোধের অপেক্ষায়।",
+        "invoiceCount": "রেকর্ডে {{count}}টি ইনভয়েস।",
+        "noInvoices": "অর্ডার ডেলিভারি ও নিশ্চিত হলে ইনভয়েস এখানে দেখা যাবে।"
+      }
+    },
     "loading": "বিলিং বিবরণ লোড হচ্ছে...",
     "entitlementsUnavailable": "ফিচারের প্রাপ্যতা এখনই যাচাই করা যাচ্ছে না।",
     "loadingFeatures": "ফিচারের প্রাপ্যতা যাচাই হচ্ছে...",
@@ -2723,6 +3056,22 @@
       "courier": "কুরিয়ার ও COD",
       "voiceAndTools": "ভয়েস ও অ্যাড-অন"
     },
+    "usageTitle": "ব্যবহার",
+    "usageSubtitle": "শুধু বিল হওয়া সময়কাল। চলতি সময়ে ডেলিভারি করা অর্ডার সেই ইনভয়েস issued হওয়ার পর এখানে দেখাবে।",
+    "usageDeliveredLabel": "বিল হওয়া ডেলিভারি অর্ডার",
+    "usageZeroRatedLabel": "শূন্য-বিল অর্ডার",
+    "usageOutstandingLabel": "বাকি",
+    "usagePeriodsLabel": "বিস্তারিতসহ সময়কাল: {{count}}",
+    "usageNoDetail": "বর্তমান চুক্তির অধীনে issued ইনভয়েসের জন্য ব্যবহারের বিস্তারিত পাওয়া যায়। পুরোনো ইনভয়েসে শুধু পরিমাণ দেখায়।",
+    "usageDeliveredPillLabel": "বিল হওয়া ডেলিভারি",
+    "usagePerPeriod": "{{delivered}} ডেলিভারি · {{zeroRated}} শূন্য-বিল",
+    "usagePeriodRange": "{{start}} – {{end}}",
+    "invoiceDueOn": "পরিশোধের শেষ তারিখ {{date}}",
+    "invoicePaidOn": "পরিশোধিত {{date}}",
+    "cycleLabel": "বিলিং চক্র",
+    "cycleMonthly": "মাসিক",
+    "paymentLabel": "পরিশোধ",
+    "paymentPostpaid": "পোস্টপেইড",
     "invoicesTitle": "ইনভয়েস",
     "invoiceColumns": {
       "id": "ইনভয়েস আইডি",
@@ -2759,7 +3108,8 @@
       "order": "অর্ডার",
       "kind": "ধরন",
       "outcome": "ফলাফল",
-      "amount": "পরিমাণ"
+      "amount": "পরিমাণ",
+      "occurredAt": "ফলাফলের তারিখ"
     },
     "noInvoices": "এখনো কোনো ইনভয়েস নেই।",
     "invoiceDisclaimer": "পরিমাণ যাচাইকৃত বিলিং লাইন থেকে আসে; ইনভয়েস PDF চূড়ান্ত নথি।",

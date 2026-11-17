@@ -51,7 +51,7 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
   return (
     <article
       data-testid={`opportunity-${opportunity.id}`}
-      className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-5"
+      className="bg-em-bg-surface rounded-2xl border border-em-border shadow-sm p-4 md:p-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -59,12 +59,12 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
             <button
               type="button"
               onClick={() => navigate(`/customers/${opportunity.customer_id}`)}
-              className="font-semibold text-gray-900 hover:text-brand-hover truncate text-left"
+              className="font-semibold text-em-text-primary hover:text-em-violet-700 truncate text-left"
             >
               {opportunity.customer.name || t("customer360.unknownName")}
             </button>
           )}
-          <p className="text-xs text-gray-500 mt-0.5" title={formatDateTime(opportunity.detected_at, i18n.language)}>
+          <p className="text-xs text-em-text-secondary mt-0.5" title={formatDateTime(opportunity.detected_at, i18n.language)}>
             {t("customer360.detectedAt", { time: formatRelative(opportunity.last_signal_at, i18n.language) })}
           </p>
         </div>
@@ -74,12 +74,12 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
             {t(`customer360.strength.${opportunity.strength}`)}
           </span>
           {!live && (
-            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-em-bg-muted text-em-text-secondary">
               {t(`customer360.opportunityStatus.${opportunity.status}`)}
             </span>
           )}
           {opportunity.status === "ACTIONED" && (
-            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-em-success-100 text-em-success-700">
               {t("customer360.opportunityStatus.ACTIONED")}
             </span>
           )}
@@ -88,21 +88,21 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
 
       <ul className="mt-3 flex flex-wrap gap-2" aria-label="reasons">
         {opportunity.reasons.map((code) => (
-          <li key={code} className="px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-700">
+          <li key={code} className="px-2.5 py-1 rounded-lg bg-em-bg-muted border border-em-border text-xs text-em-text-primary">
             {t(`customer360.reasons.${code}`, { defaultValue: code })}
           </li>
         ))}
       </ul>
 
       {opportunity.product_refs.length > 0 && (
-        <p className="mt-3 text-sm text-gray-700">
+        <p className="mt-3 text-sm text-em-text-primary">
           <span className="font-medium">{t("customer360.products")}:</span>{" "}
           {opportunity.product_refs.map((p) => `${p.name ?? "—"}${p.quantity && p.quantity > 1 ? ` × ${p.quantity}` : ""}`).join(", ")}
         </p>
       )}
 
       {live && action && (
-        <p className="mt-3 text-sm text-gray-600" data-testid="opportunity-recommended-action">
+        <p className="mt-3 text-sm text-em-text-secondary" data-testid="opportunity-recommended-action">
           {t(`customer360.recommended.${action.code}`, {
             time: action.window_closes_at ? formatDateTime(action.window_closes_at, i18n.language) : "",
           })}
@@ -115,7 +115,7 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
             <button
               type="button"
               onClick={() => navigate(`/inbox?conversation=${encodeURIComponent(opportunity.conversation_id!)}`)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-brand-hover"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-em-violet-600 text-white text-sm font-medium hover:bg-em-violet-700"
             >
               <MessageSquare className="w-4 h-4" aria-hidden="true" />
               {t("customer360.actions.openConversation")}
@@ -126,7 +126,7 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
               type="button"
               onClick={() => run("contacted")}
               disabled={busy !== null}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-em-border text-sm font-medium text-em-text-primary hover:bg-em-bg-muted disabled:opacity-50"
             >
               {busy === "contacted" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" aria-hidden="true" />}
               {t("customer360.actions.markContacted")}
@@ -137,7 +137,7 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
             onClick={() => setDismissOpen((open) => !open)}
             disabled={busy !== null}
             aria-expanded={dismissOpen}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-em-text-secondary hover:bg-em-bg-muted disabled:opacity-50"
           >
             <X className="w-4 h-4" aria-hidden="true" />
             {t("customer360.actions.dismiss")}
@@ -146,13 +146,13 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
       )}
 
       {live && dismissOpen && (
-        <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3 flex flex-col sm:flex-row sm:items-end gap-2">
-          <label className="flex-1 text-sm text-gray-700">
+        <div className="mt-3 rounded-xl border border-em-border bg-em-bg-muted p-3 flex flex-col sm:flex-row sm:items-end gap-2">
+          <label className="flex-1 text-sm text-em-text-primary">
             <span className="block mb-1 font-medium">{t("customer360.dismissTitle")}</span>
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value as DismissReason)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm"
+              className="w-full px-3 py-2 border border-em-border rounded-lg bg-em-bg-surface text-sm"
             >
               {DISMISS_REASONS.map((code) => (
                 <option key={code} value={code}>{t(`customer360.dismissReasons.${code}`)}</option>
@@ -163,7 +163,7 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
             type="button"
             onClick={() => run("dismiss")}
             disabled={busy !== null}
-            className="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-black disabled:opacity-50"
+            className="px-3 py-2 rounded-lg bg-em-midnight-900 text-white text-sm font-medium hover:bg-em-midnight-950 disabled:opacity-50"
           >
             {busy === "dismiss" ? <Loader2 className="w-4 h-4 animate-spin" /> : t("customer360.actions.dismiss")}
           </button>

@@ -44,6 +44,14 @@ vi.mock('lucide-react', () => {
     Send: Icon,
     Smartphone: Icon,
     Trash2: Icon,
+    // Harness-only: the redesign composes kit components (PageHeader,
+    // ResultBanner) whose icons must resolve under this mock.
+    ChevronRight: Icon,
+    Clock4: Icon,
+    OctagonX: Icon,
+    BadgeCheck: Icon,
+    Eye: Icon,
+    TriangleAlert: Icon,
   };
 });
 
@@ -53,6 +61,10 @@ vi.mock('@/api/domains/notification', () => ({
   sendTelegramTestAlert: mockSendTelegramTestAlert,
   updateTelegramPreferences: mockUpdateTelegramPreferences,
   disconnectTelegramAlerts: mockDisconnectTelegramAlerts,
+  // Harness-only: the redesign reads the shop name via authService, which
+  // loads the api barrel; the barrel re-exports the whole domain surface.
+  getInAppNotifications: vi.fn(async () => []),
+  markInAppNotificationRead: vi.fn(async () => undefined),
 }));
 
 vi.mock('../lib/pushNotification', () => ({

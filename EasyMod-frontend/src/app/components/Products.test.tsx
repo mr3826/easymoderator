@@ -124,7 +124,10 @@ vi.mock('lucide-react', () => {
   return {
     Plus: Icon, Upload: Icon, Bot: Icon, CheckCircle: Icon,
     Edit2: Icon, Trash2: Icon, AlertCircle: Icon, Search: Icon,
-    Filter: Icon, Download: Icon, X: Icon, Loader2: Icon,
+    Filter: Icon, Download: Icon, X: Icon, Loader2: Icon, Package: Icon,
+    // Redesign kit (PageHeader/SignalBadge/EmButton) imports these too.
+    ChevronRight: Icon, CheckCircle2: Icon, OctagonX: Icon, Clock4: Icon,
+    TriangleAlert: Icon, Eye: Icon, BadgeCheck: Icon,
   };
 });
 

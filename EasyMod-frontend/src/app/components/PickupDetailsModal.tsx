@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
-import { AlertCircle, Loader2, MapPin, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertCircle, MapPin, X } from 'lucide-react';
+import { EmButton } from './dashboard/EmButton';
+import { useDialogFocus } from './inbox/useDialogFocus';
 import { useTranslation } from 'react-i18next';
 import * as orderApi from '@/api/domains/order';
 import type {
@@ -77,6 +79,8 @@ function PickupDetailsModal({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true);
 
   const showName = hasMissingField(missing, ['pickup_name', 'display_name', 'contact_name', 'pickup_profile', 'pickup_location']);
   const showPhone = hasMissingField(missing, ['pickup_phone', 'phone', 'pickup_location']);
@@ -277,7 +281,7 @@ function PickupDetailsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-em-midnight-950/60 p-4"
       role="presentation"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -287,31 +291,32 @@ function PickupDetailsModal({
       }}
     >
       <div
-        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl md:p-6"
+        ref={dialogRef}
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-em-border bg-em-bg-surface p-5 shadow-xl md:p-6"
         role="dialog"
         aria-modal="true"
         aria-labelledby="pickup-details-title"
       >
         <div className="mb-5 flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
-              <MapPin className="h-5 w-5" />
+            <div className="rounded-lg bg-em-violet-100 p-2 text-em-violet-700">
+              <MapPin className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <h2 id="pickup-details-title" className="text-lg font-semibold text-gray-900">
+              <h2 id="pickup-details-title" className="text-lg font-semibold text-em-text-primary">
                 {t('courier.pickup.title')}
               </h2>
-              <p className="mt-1 text-sm text-gray-500">{t('courier.pickup.description')}</p>
+              <p className="mt-1 text-sm text-em-text-secondary">{t('courier.pickup.description')}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label={t('common.close')}>
-            <X className="h-5 w-5" />
+          <button type="button" onClick={onClose} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md p-1 text-em-text-secondary hover:bg-em-bg-muted hover:text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none" aria-label={t('common.close')}>
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
         {(error || locationError) && (
-          <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-em-danger-700/20 bg-em-danger-100 px-3 py-2 text-sm text-em-danger-700" role="alert">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{error ?? locationError}</span>
           </div>
         )}
@@ -319,7 +324,7 @@ function PickupDetailsModal({
         <div className="space-y-4">
           {showName && (
             <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-gray-700">
+              <span className="mb-1.5 block text-sm font-medium text-em-text-primary">
                 {t('courier.pickup.name')} <span className="text-red-500">*</span>
               </span>
               <Input
@@ -344,13 +349,13 @@ function PickupDetailsModal({
           {showPathaoLocations && (
             <div className="grid gap-4 sm:grid-cols-3">
               <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-gray-700">{t('courier.pickup.city')}</span>
+                <span className="mb-1.5 block text-sm font-medium text-em-text-primary">{t('courier.pickup.city')}</span>
                 <select
                   aria-label={t('courier.pickup.city')}
                   value={cityId}
                   onChange={(event) => handleCityChange(event.target.value)}
                   disabled={loadingLocations && cities.length === 0}
-                  className="h-9 w-full rounded-md border border-input bg-input-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:opacity-60"
+                  className="min-h-11 w-full rounded-md border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-text-primary outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none disabled:opacity-60"
                 >
                   <option value="">{t('courier.pickup.selectCity')}</option>
                   {cities.map((option) => (
@@ -361,13 +366,13 @@ function PickupDetailsModal({
                 </select>
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-gray-700">{t('courier.pickup.zone')}</span>
+                <span className="mb-1.5 block text-sm font-medium text-em-text-primary">{t('courier.pickup.zone')}</span>
                 <select
                   aria-label={t('courier.pickup.zone')}
                   value={zoneId}
                   onChange={(event) => handleZoneChange(event.target.value)}
                   disabled={!cityId || (loadingLocations && zones.length === 0)}
-                  className="h-9 w-full rounded-md border border-input bg-input-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:opacity-60"
+                  className="min-h-11 w-full rounded-md border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-text-primary outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none disabled:opacity-60"
                 >
                   <option value="">{t('courier.pickup.selectZone')}</option>
                   {zones.map((option) => (
@@ -378,13 +383,13 @@ function PickupDetailsModal({
                 </select>
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-gray-700">{t('courier.pickup.area')}</span>
+                <span className="mb-1.5 block text-sm font-medium text-em-text-primary">{t('courier.pickup.area')}</span>
                 <select
                   aria-label={t('courier.pickup.area')}
                   value={areaId}
                   onChange={(event) => handleAreaChange(event.target.value)}
                   disabled={!zoneId || (loadingLocations && areas.length === 0)}
-                  className="h-9 w-full rounded-md border border-input bg-input-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:opacity-60"
+                  className="min-h-11 w-full rounded-md border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-text-primary outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none disabled:opacity-60"
                 >
                   <option value="">{t('courier.pickup.selectArea')}</option>
                   {areas.map((option) => (
@@ -399,7 +404,7 @@ function PickupDetailsModal({
 
           {provider === 'redx' && showArea && (
             <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-gray-700">
+              <span className="mb-1.5 block text-sm font-medium text-em-text-primary">
                 {t('courier.pickup.area')} <span className="text-red-500">*</span>
               </span>
               <select
@@ -407,7 +412,7 @@ function PickupDetailsModal({
                 value={areaId}
                 onChange={(event) => handleAreaChange(event.target.value)}
                 disabled={loadingLocations && areas.length === 0}
-                className="h-9 w-full rounded-md border border-input bg-input-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:opacity-60"
+                className="min-h-11 w-full rounded-md border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-text-primary outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none disabled:opacity-60"
               >
                 <option value="">{t('courier.pickup.selectArea')}</option>
                 {areas.map((option) => (
@@ -421,7 +426,7 @@ function PickupDetailsModal({
 
           {provider !== 'pathao' && provider !== 'redx' && showArea && (
             <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-gray-700">
+              <span className="mb-1.5 block text-sm font-medium text-em-text-primary">
                 {t('courier.pickup.area')} <span className="text-red-500">*</span>
               </span>
               <Input
@@ -434,7 +439,7 @@ function PickupDetailsModal({
 
           {showAddress && (
             <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-gray-700">
+              <span className="mb-1.5 block text-sm font-medium text-em-text-primary">
                 {t('courier.pickup.address')} <span className="text-red-500">*</span>
               </span>
               <Textarea
@@ -448,18 +453,17 @@ function PickupDetailsModal({
         </div>
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button type="button" onClick={onClose} className="min-h-10 rounded-lg border border-gray-300 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+          <EmButton variant="secondary" onClick={onClose}>
             {t('common.cancel')}
-          </button>
-          <button
-            type="button"
+          </EmButton>
+          <EmButton
+            variant="primary"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            loading={saving}
           >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {saving ? t('courier.pickup.saving') : t('courier.pickup.saveValidate')}
-          </button>
+          </EmButton>
         </div>
       </div>
     </div>

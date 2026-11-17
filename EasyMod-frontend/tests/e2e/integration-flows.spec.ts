@@ -142,6 +142,8 @@ test('authenticated user can load orders page', async ({ page }) => {
   await page.goto('/orders');
 
   await expect(page).toHaveURL(/\/orders$/);
-  await expect(page.getByText('ORD-1001')).toBeVisible();
-  await expect(page.getByText('Alice Rahman')).toBeVisible();
+  // The worklist dual-renders mobile cards + desktop table; scope to the desktop
+  // order-number button / first customer match to avoid strict-mode ambiguity.
+  await expect(page.getByRole('button', { name: 'ORD-1001' })).toBeVisible();
+  await expect(page.getByRole('table').getByText('Alice Rahman')).toBeVisible();
 });

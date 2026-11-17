@@ -13,17 +13,17 @@ import {
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-xl bg-gray-50 border border-gray-100 p-3">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-lg font-semibold text-gray-900 tabular-nums mt-0.5">{value}</p>
+    <div className="rounded-xl bg-em-bg-muted border border-em-border p-3">
+      <p className="text-xs text-em-text-secondary">{label}</p>
+      <p className="text-lg font-semibold text-em-text-primary tabular-nums mt-0.5">{value}</p>
     </div>
   );
 }
 
 function Section({ title, children, testId }: { title: string; children: React.ReactNode; testId?: string }) {
   return (
-    <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-5" data-testid={testId}>
-      <h2 className="text-base font-semibold text-gray-900 mb-3">{title}</h2>
+    <section className="bg-em-bg-surface rounded-2xl border border-em-border shadow-sm p-4 md:p-5" data-testid={testId}>
+      <h2 className="text-base font-semibold text-em-text-primary mb-3">{title}</h2>
       {children}
     </section>
   );
@@ -60,29 +60,29 @@ export default function CustomerDetailPage() {
   useEffect(() => { void load(); }, [load]);
 
   const back = (
-    <Link to="/customers" className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-4">
+    <Link to="/customers" className="inline-flex items-center gap-2 text-sm text-em-text-secondary hover:text-em-text-primary mb-4">
       <ArrowLeft className="w-4 h-4" aria-hidden="true" /> {t("customer360.actions.back")}
     </Link>
   );
 
   if (state === "loading") {
     return (
-      <div className="min-h-screen p-4 md:p-6"><div className="max-w-5xl mx-auto">{back}
-        <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center" role="status">
-          <Loader2 className="w-8 h-8 animate-spin text-brand-hover mx-auto" />
+      <div className="em-customers min-h-full p-4 md:p-6"><div className="max-w-5xl mx-auto">{back}
+        <div className="bg-em-bg-surface rounded-2xl border border-em-border p-10 text-center" role="status">
+          <Loader2 className="w-8 h-8 animate-spin text-em-violet-700 mx-auto" />
         </div>
       </div></div>
     );
   }
   if (state !== "ready" || !detail) {
     return (
-      <div className="min-h-screen p-4 md:p-6"><div className="max-w-5xl mx-auto">{back}
-        <div className="bg-white rounded-2xl border border-red-100 p-8 text-center" role="alert">
-          <p className="text-red-800 font-medium mb-3">
+      <div className="em-customers min-h-full p-4 md:p-6"><div className="max-w-5xl mx-auto">{back}
+        <div className="bg-em-bg-surface rounded-2xl border border-em-danger-700/20 p-8 text-center" role="alert">
+          <p className="text-em-danger-700 font-medium mb-3">
             {state === "notFound" ? t("customer360.detail.notFound") : t("customer360.detail.loadFailed")}
           </p>
           {state === "error" && (
-            <button type="button" onClick={() => void load()} className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm">
+            <button type="button" onClick={() => void load()} className="px-4 py-2 rounded-lg bg-em-midnight-900 text-white text-sm">
               {t("customer360.retry")}
             </button>
           )}
@@ -104,21 +104,21 @@ export default function CustomerDetailPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4 md:p-6">
+    <div className="em-customers min-h-full p-4 md:p-6">
       <div className="max-w-5xl mx-auto space-y-4">
         {back}
 
-        <header className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-5" data-testid="customer-header">
+        <header className="bg-em-bg-surface rounded-2xl border border-em-border shadow-sm p-4 md:p-5" data-testid="customer-header">
           <div className="flex flex-wrap items-start gap-4">
             {customer.profile_pic ? (
               <img src={customer.profile_pic} alt="" className="w-14 h-14 rounded-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 text-white text-xl font-bold flex items-center justify-center">
+              <div className="w-14 h-14 rounded-full bg-em-violet-600 text-white text-xl font-bold flex items-center justify-center">
                 {initialOf(customer.name)}
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900 break-words">
+              <h1 className="text-xl md:text-2xl font-bold text-em-text-primary break-words">
                 {customer.name || t("customer360.unknownName")}
               </h1>
               <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -126,40 +126,40 @@ export default function CustomerDetailPage() {
                   {t(`customer360.states.${detail.state}`)}
                 </span>
                 {reason && (
-                  <span className="text-xs text-gray-600">{t(`customer360.stateReasons.${reason.code}`, reason.params ?? {})}</span>
+                  <span className="text-xs text-em-text-secondary">{t(`customer360.stateReasons.${reason.code}`, reason.params ?? {})}</span>
                 )}
               </div>
             </div>
           </div>
           <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-            <div className="flex items-center gap-2 text-gray-700">
-              <Phone className="w-4 h-4 text-gray-400" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-em-text-primary">
+              <Phone className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
               <dt className="sr-only">{t("customer360.detail.phone")}</dt>
               <dd>{customer.phone || t("customer360.detail.notProvided")}</dd>
             </div>
-            <div className="flex items-center gap-2 text-gray-700">
-              <Mail className="w-4 h-4 text-gray-400" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-em-text-primary">
+              <Mail className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
               <dt className="sr-only">{t("customer360.detail.email")}</dt>
               <dd className="break-all">{customer.email || t("customer360.detail.notProvided")}</dd>
             </div>
-            <div className="flex items-center gap-2 text-gray-700">
-              <MessageSquare className="w-4 h-4 text-gray-400" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-em-text-primary">
+              <MessageSquare className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
               <dt className="sr-only">{t("customer360.detail.channel")}</dt>
               <dd>{customer.channel_type}{customer.page?.name ? ` · ${customer.page.name}` : ""}</dd>
             </div>
-            <div className="flex items-center gap-2 text-gray-700">
-              <Calendar className="w-4 h-4 text-gray-400" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-em-text-primary">
+              <Calendar className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
               <dt>{t("customer360.detail.firstSeen")}:</dt>
               <dd>{formatDateTime(customer.first_seen_at, i18n.language)}</dd>
             </div>
-            <div className="flex items-center gap-2 text-gray-700">
-              <Clock className="w-4 h-4 text-gray-400" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-em-text-primary">
+              <Clock className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
               <dt>{t("customer360.detail.lastSeen")}:</dt>
               <dd>{formatRelative(customer.last_activity_at, i18n.language)}</dd>
             </div>
             {replyWindow && (
-              <div className="flex items-center gap-2 text-gray-700" data-testid="reply-window">
-                <MessageSquare className="w-4 h-4 text-gray-400" aria-hidden="true" />
+              <div className="flex items-center gap-2 text-em-text-primary" data-testid="reply-window">
+                <MessageSquare className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
                 <dd>{replyWindow}</dd>
               </div>
             )}
@@ -177,21 +177,21 @@ export default function CustomerDetailPage() {
             <Stat label={t("customer360.detail.lastOrder")} value={formatRelative(summary.last_order_at, i18n.language)} />
             <Stat label={t("customer360.detail.lastDelivery")} value={formatRelative(summary.last_delivered_at, i18n.language)} />
           </div>
-          <p className="text-xs text-gray-500 mt-3">{t("customer360.detail.valueNote")}</p>
+          <p className="text-xs text-em-text-secondary mt-3">{t("customer360.detail.valueNote")}</p>
         </Section>
 
         <Section title={t("customer360.detail.rto")} testId="rto-signal">
           {!rto.available ? (
-            <p className="text-sm text-gray-600">{t("customer360.detail.rtoUnavailable")}</p>
+            <p className="text-sm text-em-text-secondary">{t("customer360.detail.rtoUnavailable")}</p>
           ) : (
             <div className="flex items-start gap-3">
               {rto.tier === "clear"
-                ? <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" aria-hidden="true" />
-                : <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" aria-hidden="true" />}
+                ? <ShieldCheck className="w-5 h-5 text-em-success-700 shrink-0" aria-hidden="true" />
+                : <ShieldAlert className="w-5 h-5 text-em-warning-700 shrink-0" aria-hidden="true" />}
               <div className="text-sm">
-                <p className="font-medium text-gray-900">{t(`customer360.detail.rtoTier.${rto.tier}`)}</p>
+                <p className="font-medium text-em-text-primary">{t(`customer360.detail.rtoTier.${rto.tier}`)}</p>
                 {rto.network && rto.network.shops_reported > 0 && (
-                  <p className="text-gray-600 mt-0.5">
+                  <p className="text-em-text-secondary mt-0.5">
                     {t("customer360.detail.rtoNetwork", { shops: rto.network.shops_reported, attempts: rto.network.total_attempts })}
                   </p>
                 )}
@@ -202,7 +202,7 @@ export default function CustomerDetailPage() {
 
         <Section title={t("customer360.detail.opportunities")} testId="customer-opportunities">
           {detail.opportunities.length === 0 ? (
-            <p className="text-sm text-gray-600">{t("customer360.detail.noOpportunities")}</p>
+            <p className="text-sm text-em-text-secondary">{t("customer360.detail.noOpportunities")}</p>
           ) : (
             <div className="space-y-3">
               {detail.opportunities.map((o) => (
@@ -214,33 +214,33 @@ export default function CustomerDetailPage() {
 
         <Section title={t("customer360.detail.orders")} testId="customer-orders">
           {detail.orders.length === 0 ? (
-            <p className="text-sm text-gray-600">{t("customer360.detail.noOrders")}</p>
+            <p className="text-sm text-em-text-secondary">{t("customer360.detail.noOrders")}</p>
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-y divide-em-border">
               {detail.orders.map((order) => (
                 <li key={order.id} className="py-3 flex flex-wrap items-center gap-x-4 gap-y-1">
                   <button
                     type="button"
                     onClick={() => navigate(`/orders?orderId=${encodeURIComponent(order.id)}`)}
-                    className="font-medium text-gray-900 hover:text-brand-hover"
+                    className="font-medium text-em-text-primary hover:text-em-violet-700"
                   >
                     #{order.order_number ?? order.id.slice(0, 8)}
                   </button>
-                  <span className="text-sm text-gray-600">{formatDateTime(order.created_at, i18n.language)}</span>
+                  <span className="text-sm text-em-text-secondary">{formatDateTime(order.created_at, i18n.language)}</span>
                   <span className="text-sm font-medium tabular-nums">{formatMoney(order.total, i18n.language)}</span>
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${outcomeStyles[order.outcome]}`}>
                     {t(`customer360.detail.outcome.${order.outcome}`)}
                   </span>
                   {order.link === "PHONE_MATCH" && (
                     <span
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-em-bg-muted text-em-text-secondary"
                       title={t("customer360.detail.matchedByPhoneHelp")}
                     >
                       <Link2 className="w-3 h-3" aria-hidden="true" /> {t("customer360.detail.matchedByPhone")}
                     </span>
                   )}
                   {order.confidence && (
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-em-success-100 text-em-success-700">
                       {t(`orderConfidence.decisions.${order.confidence.decision}`)}
                     </span>
                   )}
@@ -252,14 +252,14 @@ export default function CustomerDetailPage() {
 
         <Section title={t("customer360.detail.timeline")} testId="customer-timeline">
           {detail.timeline.length === 0 ? (
-            <p className="text-sm text-gray-600">{t("customer360.detail.noTimeline")}</p>
+            <p className="text-sm text-em-text-secondary">{t("customer360.detail.noTimeline")}</p>
           ) : (
-            <ol className="relative border-l border-gray-200 ml-2 space-y-4">
+            <ol className="relative border-l border-em-border ml-2 space-y-4">
               {detail.timeline.map((event, index) => (
                 <li key={`${event.type}-${event.at}-${index}`} className="ml-4">
-                  <span className="absolute -left-1.5 mt-1.5 w-3 h-3 rounded-full bg-blue-200 border border-white" aria-hidden="true" />
-                  <p className="text-sm text-gray-900">{timelineLabel(event, t)}</p>
-                  <p className="text-xs text-gray-500">
+                  <span className="absolute -left-1.5 mt-1.5 w-3 h-3 rounded-full bg-em-info-100 border border-white" aria-hidden="true" />
+                  <p className="text-sm text-em-text-primary">{timelineLabel(event, t)}</p>
+                  <p className="text-xs text-em-text-secondary">
                     {formatDateTime(event.at, i18n.language)}
                     {event.approximate_time ? ` · ${t("customer360.timeline.approximate")}` : ""}
                   </p>

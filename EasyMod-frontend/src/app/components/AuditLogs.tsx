@@ -42,7 +42,7 @@ export default function AuditLogs() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
             <input
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="min-h-11 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               placeholder="HUMAN_TAKEOVER"
               value={action}
               onChange={(e) => setAction(e.target.value)}
@@ -51,14 +51,14 @@ export default function AuditLogs() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Resource Type</label>
             <input
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="min-h-11 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               placeholder="CONVERSATION"
               value={resourceType}
               onChange={(e) => setResourceType(e.target.value)}
             />
           </div>
           <div className="flex items-end">
-            <button onClick={loadLogs} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Refresh logs</button>
+            <button onClick={loadLogs} className="min-h-11 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Refresh logs</button>
           </div>
         </div>
 

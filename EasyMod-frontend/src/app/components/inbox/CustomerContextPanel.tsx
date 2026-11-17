@@ -205,17 +205,17 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
     <aside
       data-testid="customer-context-panel"
       aria-label={t("inbox.context.title")}
-      className="w-full xl:w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-white p-4 space-y-4"
+      className="w-full xl:w-80 shrink-0 overflow-y-auto border-l border-em-border bg-em-bg-surface p-4 space-y-4"
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-900 font-bn">{t("inbox.context.title")}</h2>
+        <h2 className="text-sm font-semibold text-em-text-primary">{t("inbox.context.title")}</h2>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label={t("common.close")}
             data-testid="context-close"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-em-text-secondary hover:bg-em-bg-muted"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -224,12 +224,12 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
       {/* Identity — always basic-authorized */}
       <section aria-label={t("inbox.context.identity")}>
         <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700" aria-hidden="true">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-em-violet-100 text-sm font-bold text-em-violet-700" aria-hidden="true">
             {initialOf(name)}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900 font-bn">{name}</p>
-            <p className="text-xs text-gray-500 font-bn">
+            <p className="truncate text-sm font-semibold text-em-text-primary">{name}</p>
+            <p className="text-xs text-em-text-secondary">
               {conversation.channel}
               {conversation.metaChannel?.displayName ? ` · ${conversation.metaChannel.displayName}` : ""}
               {conversation.updated_at ? ` · ${formatRelative(conversation.updated_at, i18n.language)}` : ""}
@@ -241,7 +241,7 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
                   event.preventDefault();
                   navigate(`/customers?customerId=${encodeURIComponent(customerId)}`);
                 }}
-                className="mt-1 inline-flex min-h-8 items-center gap-1 text-xs font-medium text-blue-700 hover:underline"
+                className="mt-1 inline-flex min-h-11 items-center gap-1 text-xs font-medium text-em-violet-700 hover:underline"
               >
                 {t("inbox.context.viewProfile")}
                 <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -250,7 +250,7 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
           </div>
         </div>
         {!customerId && (
-          <p className="mt-2 text-xs text-gray-500 font-bn" data-testid="context-no-link">
+          <p className="mt-2 text-xs text-em-text-secondary" data-testid="context-no-link">
             {t("inbox.context.noLink")}
           </p>
         )}
@@ -264,14 +264,14 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
           {(d) => (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-1.5">
-                <Badge className={`${stateStyles[d.state]} text-[11px] font-bn`}>{t(STATE_LABEL_KEYS[d.state])}</Badge>
+                <Badge className={`${stateStyles[d.state]} text-xs`}>{t(STATE_LABEL_KEYS[d.state])}</Badge>
                 {d.rto_signal?.available && (
-                  <Badge variant="outline" className="text-[11px] font-bn">
+                  <Badge variant="outline" className="text-xs">
                     {t(RTO_LABEL_KEYS[String(d.rto_signal.tier)] || "inbox.context.rto.clear")}
                   </Badge>
                 )}
               </div>
-              <dl className="grid grid-cols-2 gap-1 text-xs text-gray-600">
+              <dl className="grid grid-cols-2 gap-1 text-xs text-em-text-secondary">
                 <dt className="font-bn">{t("inbox.context.deliveredOrders")}</dt>
                 <dd className="text-right tabular-nums">{d.summary.delivered_orders ?? d.summary.total_orders ?? 0}</dd>
                 <dt className="font-bn">{t("inbox.context.deliveredValue")}</dt>
@@ -291,16 +291,16 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
                   <button
                     type="button"
                     onClick={() => navigate(`/orders?orderId=${encodeURIComponent(o.id)}`)}
-                    className="min-w-0 flex-1 truncate text-left font-medium text-gray-900 hover:underline font-bn"
+                    className="min-w-0 flex-1 truncate text-left font-medium text-em-text-primary hover:underline"
                     data-testid="context-order-row"
                   >
-                    {o.orderNumber} <span className="text-gray-500 font-bn">· {o.status}</span>
+                    {o.orderNumber} <span className="text-em-text-secondary">· {o.status}</span>
                   </button>
                   <button
                     type="button"
                     aria-label={`${t("inbox.context.openOrder")} ${o.orderNumber}`}
                     onClick={() => navigate(`/orders?orderId=${encodeURIComponent(o.id)}`)}
-                    className="inline-flex items-center text-blue-700 hover:underline"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center text-em-violet-700 hover:underline"
                   >
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     <span className="sr-only">{t("inbox.context.openOrder")}</span>
@@ -313,9 +313,9 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
       )}
 
       {customerId && (
-        <section aria-label={t("inbox.context.notes")} className="border-t border-gray-100 pt-3">
+        <section aria-label={t("inbox.context.notes")} className="border-t border-em-border pt-3">
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 font-bn">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-em-text-secondary">
               {t("inbox.context.notes")}
             </h3>
             <button
@@ -323,7 +323,7 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
               data-testid="note-add-open"
               onClick={() => setNoteOpen((o) => !o)}
               aria-expanded={noteOpen}
-              className="text-xs font-medium text-blue-700 hover:underline font-bn"
+              className="text-xs font-medium text-em-violet-700 hover:underline"
             >
               {t("inbox.context.notesAdd")}
             </button>
@@ -337,30 +337,30 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
                 rows={3}
                 aria-label={t("inbox.context.notes")}
                 onChange={(e) => setNoteDraft(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 p-2 text-xs"
+                className="w-full rounded-lg border border-em-border-strong p-2 text-xs"
               />
               <button
                 type="button"
                 data-testid="note-save"
                 disabled={crmBusy || !noteDraft.trim()}
                 onClick={() => void submitNote()}
-                className="mt-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 font-bn"
+                className="mt-1 min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-1.5 text-xs font-semibold text-em-text-primary hover:bg-em-bg-muted disabled:opacity-50"
               >
                 {t("inbox.context.notesSave")}
               </button>
             </div>
           )}
-          {notes.status === "loading" && <p className="text-xs text-gray-400 font-bn">{t("inbox.context.loading")}</p>}
-          {notes.status === "error" && <p className="text-xs text-gray-500 font-bn">{t("inbox.context.unavailable")}</p>}
+          {notes.status === "loading" && <p className="text-xs text-em-text-secondary">{t("inbox.context.loading")}</p>}
+          {notes.status === "error" && <p className="text-xs text-em-text-secondary">{t("inbox.context.unavailable")}</p>}
           {notes.status === "ready" && (notes.data?.length ?? 0) === 0 && (
-            <p className="text-xs text-gray-400 font-bn">{t("inbox.context.notesEmpty")}</p>
+            <p className="text-xs text-em-text-secondary">{t("inbox.context.notesEmpty")}</p>
           )}
           {notes.status === "ready" && (notes.data ?? []).length > 0 && (
             <ul className="space-y-1.5">
               {notes.data!.map((n) => (
-                <li key={n.id} className="rounded-lg bg-gray-50 p-2 text-xs text-gray-700 border border-gray-200">
-                  <p className="whitespace-pre-line font-bn">{n.body}</p>
-                  <p className="mt-1 flex items-center justify-between text-[10px] text-gray-400 font-bn">
+                <li key={n.id} className="rounded-lg bg-em-bg-muted p-2 text-xs text-em-text-primary border border-em-border">
+                  <p className="whitespace-pre-line">{n.body}</p>
+                  <p className="mt-1 flex items-center justify-between text-xs text-em-text-secondary">
                     <span>
                       <StickyNote className="mr-1 inline h-3 w-3" aria-hidden="true" />
                       {n.author_name} · {n.created_at ? formatRelative(n.created_at, i18n.language) : ""}
@@ -372,7 +372,7 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
                         aria-label={`${t("inbox.context.noteDelete")} ${n.author_name ?? ""}`}
                         disabled={crmBusy}
                         onClick={() => void removeNote(n.id)}
-                        className="text-red-600 hover:underline disabled:opacity-50"
+                        className="inline-flex min-h-11 items-center text-em-danger-700 hover:underline disabled:opacity-50"
                       >
                         {t("inbox.context.noteDelete")}
                       </button>
@@ -386,9 +386,9 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
       )}
 
       {customerId && (
-        <section aria-label={t("inbox.context.tags")} className="border-t border-gray-100 pt-3">
+        <section aria-label={t("inbox.context.tags")} className="border-t border-em-border pt-3">
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 font-bn">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-em-text-secondary">
               {t("inbox.context.tags")}
             </h3>
             <button
@@ -396,18 +396,18 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
               data-testid="tag-edit-open"
               onClick={() => void openTagEdit()}
               aria-expanded={tagEditOpen}
-              className="text-xs font-medium text-blue-700 hover:underline font-bn"
+              className="text-xs font-medium text-em-violet-700 hover:underline"
             >
               {t("inbox.context.tagsEdit")}
             </button>
           </div>
           {tags.status === "ready" && (tags.data?.length ?? 0) === 0 && !tagEditOpen && (
-            <p className="text-xs text-gray-400 font-bn">{t("inbox.context.tagsEmpty")}</p>
+            <p className="text-xs text-em-text-secondary">{t("inbox.context.tagsEmpty")}</p>
           )}
           {tags.status === "ready" && (tags.data?.length ?? 0) > 0 && !tagEditOpen && (
             <div className="flex flex-wrap gap-1.5">
               {tags.data!.map((tag) => (
-                <Badge key={tag.id} variant="secondary" className="text-[11px] font-bn">
+                <Badge key={tag.id} variant="secondary" className="text-xs">
                   <Tags className="mr-1 h-3 w-3" aria-hidden="true" />{tag.name}
                 </Badge>
               ))}
@@ -416,7 +416,7 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
           {tagEditOpen && (
             <div className="mt-1 space-y-1" data-testid="tag-editor">
               {vocabulary.length === 0 && (
-                <p className="text-xs text-gray-400 font-bn">{t("inbox.context.tagsNoVocabulary")}</p>
+                <p className="text-xs text-em-text-secondary">{t("inbox.context.tagsNoVocabulary")}</p>
               )}
               {vocabulary.map((tag) => {
                 const active = draftTagIds.includes(tag.id);
@@ -427,8 +427,8 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
                     data-testid={`tag-choice-${tag.id}`}
                     aria-pressed={active}
                     onClick={() => setDraftTagIds((prev) => (active ? prev.filter((x) => x !== tag.id) : [...prev, tag.id]))}
-                    className={`block w-full rounded-lg px-2 py-1.5 text-left text-xs font-bn ${
-                      active ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    className={`block w-full min-h-11 rounded-lg px-2 py-1.5 text-left text-xs ${
+                      active ? "bg-em-midnight-900 text-white" : "bg-em-bg-muted text-em-text-primary hover:bg-em-border/60"
                     }`}
                   >
                     {tag.name}
@@ -442,21 +442,21 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
                   data-testid="tag-apply"
                   disabled={crmBusy}
                   onClick={() => void applyTags()}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 font-bn"
+                  className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-1.5 text-xs font-semibold text-em-text-primary hover:bg-em-bg-muted disabled:opacity-50"
                 >
                   {t("inbox.context.tagsApply")}
                 </button>
                 <button
                   type="button"
                   onClick={() => setTagEditOpen(false)}
-                  className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-700 font-bn"
+                  className="rounded-lg bg-em-bg-muted px-3 py-1.5 text-xs text-em-text-primary"
                 >
                   {t("common.cancel")}
                 </button>
               </div>
             </div>
           )}
-          {crmError && <p role="alert" className="mt-1 text-xs text-red-700 font-bn">{crmError}</p>}
+          {crmError && <p role="alert" className="mt-1 text-xs text-em-danger-700">{crmError}</p>}
         </section>
       )}
     </aside>
@@ -524,11 +524,11 @@ function OwnershipBlock({ conversation, onChanged }: {
   };
 
   return (
-    <section aria-label={t("inbox.context.owner.title")} className="border-t border-gray-100 pt-3">
-      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 font-bn">
+    <section aria-label={t("inbox.context.owner.title")} className="border-t border-em-border pt-3">
+      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-em-text-secondary">
         {t("inbox.context.owner.title")}
       </h3>
-      <p className="text-xs text-gray-700 font-bn" data-testid="context-owner">
+      <p className="text-xs text-em-text-primary" data-testid="context-owner">
         {conversation.assignee_id || ownerName
           ? t("inbox.assignedTo", { name: ownerName || t("inbox.context.owner.teammate") })
           : conversation.hitl
@@ -543,7 +543,7 @@ function OwnershipBlock({ conversation, onChanged }: {
             data-testid="context-claim"
             disabled={busy}
             onClick={() => void mutate({ hitl: true })}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 font-bn"
+            className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-1.5 text-xs font-semibold text-em-text-primary hover:bg-em-bg-muted disabled:opacity-50"
           >
             {t("inbox.context.owner.claim")}
           </button>
@@ -554,7 +554,7 @@ function OwnershipBlock({ conversation, onChanged }: {
           disabled={busy}
           onClick={openAssign}
           aria-expanded={assignOpen}
-          className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50 font-bn"
+          className="rounded-lg bg-em-bg-muted px-3 py-1.5 text-xs font-medium text-em-text-primary hover:bg-em-border/60 disabled:opacity-50"
         >
           {t("inbox.context.owner.assign")}
         </button>
@@ -564,7 +564,7 @@ function OwnershipBlock({ conversation, onChanged }: {
             data-testid="context-force"
             disabled={busy}
             onClick={() => void mutate({ hitl: true }, true)}
-            className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-200 disabled:opacity-50 font-bn"
+            className="min-h-11 rounded-lg bg-em-danger-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-em-danger-700/90 disabled:opacity-50"
           >
             {t("inbox.context.owner.force")}
           </button>
@@ -581,7 +581,7 @@ function OwnershipBlock({ conversation, onChanged }: {
                   type="button"
                   disabled={busy || String(conversation.assignee_id) === String(a.id)}
                   onClick={() => void mutate({ assignee_id: a.id }).then((ok) => ok && setAssignOpen(false))}
-                  className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40 font-bn"
+                  className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-em-text-primary hover:bg-em-bg-muted disabled:opacity-40"
                 >
                   {displayName}{a.role ? ` · ${a.role}` : ""}
                 </button>
@@ -592,7 +592,7 @@ function OwnershipBlock({ conversation, onChanged }: {
       )}
 
       {error && (
-        <p role="alert" className="mt-2 text-xs text-red-700 font-bn" data-testid="context-owner-error">{error}</p>
+        <p role="alert" className="mt-2 text-xs text-em-danger-700" data-testid="context-owner-error">{error}</p>
       )}
     </section>
   );
@@ -608,19 +608,19 @@ function PanelSection<T>({
 }) {
   const { t } = useTranslation();
   return (
-    <section aria-label={label} className="border-t border-gray-100 pt-3 first:border-0 first:pt-0">
-      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 font-bn">{label}</h3>
+    <section aria-label={label} className="border-t border-em-border pt-3 first:border-0 first:pt-0">
+      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-em-text-secondary">{label}</h3>
       {section.status === "loading" && (
-        <p className="text-xs text-gray-400 font-bn">{t("inbox.context.loading")}</p>
+        <p className="text-xs text-em-text-secondary">{t("inbox.context.loading")}</p>
       )}
       {section.status === "error" && (
-        <p className="text-xs text-gray-500 font-bn" data-testid="context-section-error">
+        <p className="text-xs text-em-text-secondary" data-testid="context-section-error">
           {t("inbox.context.unavailable")}
         </p>
       )}
       {section.status === "ready" && section.data && (
         Array.isArray(section.data)
-          ? (section.data.length === 0 ? <p className="text-xs text-gray-400 font-bn">{empty}</p> : children(section.data))
+          ? (section.data.length === 0 ? <p className="text-xs text-em-text-secondary">{empty}</p> : children(section.data))
           : children(section.data)
       )}
     </section>

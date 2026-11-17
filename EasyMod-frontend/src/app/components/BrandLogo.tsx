@@ -8,6 +8,8 @@ interface BrandLogoProps {
   animated?: boolean;
   /** Hide the wordmark and render the mark alone — for the collapsed sidebar rail. */
   iconOnly?: boolean;
+  /** Additive wordmark tone override (shell uses em ink); default unchanged. */
+  wordmarkClass?: string;
 }
 
 const sizeMap = {
@@ -33,6 +35,7 @@ export default function BrandLogo({
   variant = "dark",
   animated = false,
   iconOnly = false,
+  wordmarkClass,
 }: BrandLogoProps) {
   const { icon, text } = sizeMap[size];
   const textColor = variant === "light" ? "text-white" : "text-gray-900";
@@ -63,7 +66,7 @@ export default function BrandLogo({
     <>
       {platedIcon}
       {!iconOnly && (
-        <span className={`font-bold tracking-tight ${text} ${textColor}`}>EasyModerator</span>
+        <span className={`font-bold tracking-tight ${text} ${wordmarkClass ?? textColor}`}>EasyModerator</span>
       )}
     </>
   );

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, MapPin, Truck, X } from "lucide-react";
+import { useDialogFocus } from "./inbox/useDialogFocus";
 import { toast } from "sonner";
 import { apiClient } from "@/api";
 import type {
@@ -59,6 +60,8 @@ const isForbidden = (err: unknown): boolean => {
 
 export default function CourierBookingModal({ order, onClose, onBooked, onHeld, paymentMethodCorrectionUnavailable = false }: Props) {
   const { t, i18n } = useTranslation();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true);
   const [provider, setProvider] = useState<'pathao' | 'steadfast' | 'redx'>('steadfast');
   const [recipientName, setRecipientName] = useState(order.customerName);
   const [recipientPhone, setRecipientPhone] = useState(order.customerPhone || '');
@@ -391,21 +394,30 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-gray-900/60 p-4">
-      <div className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto overscroll-contain rounded-xl bg-white p-6 shadow-xl">
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="courier-modal-title"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-em-midnight-950/60 p-4"
+    >
+      <div className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto overscroll-contain rounded-xl border border-em-border bg-em-bg-surface p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Truck className="w-5 h-5 text-green-600" />
-            <h2 className="text-lg font-semibold text-gray-900">{t('courier.modalTitle')}</h2>
+            <Truck className="w-5 h-5 text-em-violet-600" />
+            <h2 id="courier-modal-title" className="text-lg font-semibold text-em-text-primary">{t('courier.modalTitle')}</h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} aria-label={t('common.close')} className="min-h-11 min-w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-text-primary">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Provider Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('courier.provider')}</label>
+          <label className="block text-sm font-medium text-em-text-primary mb-2">{t('courier.provider')}</label>
           <div className="grid grid-cols-3 gap-2">
             {(['pathao', 'steadfast', 'redx'] as const).map((p) => (
               <button
@@ -413,8 +425,8 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                 onClick={() => selectProvider(p)}
                 className={`py-2 px-3 rounded-lg border text-sm font-medium capitalize transition-colors ${
                   provider === p
-                    ? 'bg-green-600 text-white border-green-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:border-green-500'
+                    ? 'bg-em-violet-600 text-white border-em-violet-600'
+                    : 'bg-em-bg-surface text-em-text-primary border-em-border-strong hover:border-em-violet-400'
                 }`}
               >
                 {p}
@@ -426,10 +438,10 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
               role={destinationBlocksBooking ? 'alert' : 'status'}
               className={`mt-2 flex items-start gap-2 rounded-lg border p-2 text-xs ${
                 destinationBlocksBooking
-                  ? 'border-red-200 bg-red-50 text-red-800'
+                  ? 'border-em-danger-700/20 bg-em-danger-100 text-em-danger-700'
                   : eligibility?.decision === 'SERVICEABLE'
-                    ? 'border-green-200 bg-green-50 text-green-800'
-                    : 'border-amber-200 bg-amber-50 text-amber-900'
+                    ? 'border-em-success-700/20 bg-em-success-100 text-em-success-700'
+                    : 'border-em-warning-600/30 bg-em-warning-100 text-em-warning-700'
               }`}
             >
               {checkingEligibility ? (
@@ -450,20 +462,20 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
             Never rendered for steadfast: it books by text address and must not
             get a fabricated coverage verdict. */}
         {supportsDirectory && (
-          <div className="rounded-lg border border-gray-200 p-3">
+          <div className="rounded-lg border border-em-border p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-start gap-2">
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700">{t('courier.deliveryArea.title')}</h3>
-                  <p className="mt-0.5 text-xs text-gray-500">{t('courier.deliveryArea.description', { provider })}</p>
+                  <h3 className="text-sm font-medium text-em-text-primary">{t('courier.deliveryArea.title')}</h3>
+                  <p className="mt-0.5 text-xs text-em-text-secondary">{t('courier.deliveryArea.description', { provider })}</p>
                 </div>
               </div>
               {!areaPickerVisible && (
                 <button
                   type="button"
                   onClick={() => setAreaPickerOpen(true)}
-                  className="shrink-0 text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-800"
+                  className="shrink-0 text-xs font-medium text-em-violet-700 underline underline-offset-2 hover:text-em-violet-700"
                 >
                   {t('courier.deliveryArea.change')}
                 </button>
@@ -487,7 +499,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
 
                 {provider === 'redx' && (
                   directoryLoading ? (
-                    <p className="flex items-center gap-2 text-xs text-gray-500">
+                    <p className="flex items-center gap-2 text-xs text-em-text-secondary">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       {t('courier.deliveryArea.loading', { provider })}
                     </p>
@@ -499,15 +511,15 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                         onChange={(e) => setAreaSearch(e.target.value)}
                         placeholder={t('courier.deliveryArea.searchPlaceholder')}
                         aria-label={t('courier.deliveryArea.searchPlaceholder')}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                        className="w-full px-3 py-2 border border-em-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       />
                       {filteredRedxAreas.length === 0 ? (
-                        <p className="text-xs text-gray-500">{t('courier.deliveryArea.noResults')}</p>
+                        <p className="text-xs text-em-text-secondary">{t('courier.deliveryArea.noResults')}</p>
                       ) : (
                         <div
                           role="listbox"
                           aria-label={t('courier.deliveryArea.title')}
-                          className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-1"
+                          className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-em-border p-1"
                         >
                           {filteredRedxAreas.map((option) => {
                             const id = optionId(option, 'area');
@@ -524,12 +536,12 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                                 aria-selected={selected}
                                 onClick={() => setSelectedAreaId(id)}
                                 className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${
-                                  selected ? 'bg-green-600 text-white' : 'text-gray-700 hover:bg-green-50'
+                                  selected ? 'bg-em-violet-600 text-white' : 'text-em-text-primary hover:bg-em-violet-50'
                                 }`}
                               >
                                 {optionLabel(option, i18n?.language)}
                                 {detail && (
-                                  <span className={`block text-xs ${selected ? 'text-green-100' : 'text-gray-500'}`}>{detail}</span>
+                                  <span className={`block text-xs ${selected ? 'text-em-violet-100' : 'text-em-text-secondary'}`}>{detail}</span>
                                 )}
                               </button>
                             );
@@ -542,19 +554,19 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
 
                 {provider === 'pathao' && (
                   directoryLoading && cities.length === 0 ? (
-                    <p className="flex items-center gap-2 text-xs text-gray-500">
+                    <p className="flex items-center gap-2 text-xs text-em-text-secondary">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       {t('courier.deliveryArea.loading', { provider })}
                     </p>
                   ) : !directoryError && (
                     <div className="grid grid-cols-3 gap-2">
                       <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-gray-600">{t('courier.pickup.city')}</span>
+                        <span className="mb-1 block text-xs font-medium text-em-text-secondary">{t('courier.pickup.city')}</span>
                         <select
                           aria-label={t('courier.pickup.city')}
                           value={cityId}
                           onChange={(e) => handleCityChange(e.target.value)}
-                          className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                          className="h-9 w-full rounded-md border border-em-border-strong bg-em-bg-surface px-2 text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                         >
                           <option value="">{t('courier.pickup.selectCity')}</option>
                           {cities.map((option) => (
@@ -565,13 +577,13 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                         </select>
                       </label>
                       <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-gray-600">{t('courier.pickup.zone')}</span>
+                        <span className="mb-1 block text-xs font-medium text-em-text-secondary">{t('courier.pickup.zone')}</span>
                         <select
                           aria-label={t('courier.pickup.zone')}
                           value={zoneId}
                           onChange={(e) => handleZoneChange(e.target.value)}
                           disabled={!cityId}
-                          className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60"
+                          className="h-9 w-full rounded-md border border-em-border-strong bg-em-bg-surface px-2 text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600 disabled:opacity-60"
                         >
                           <option value="">{t('courier.pickup.selectZone')}</option>
                           {zones.map((option) => (
@@ -582,13 +594,13 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                         </select>
                       </label>
                       <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-gray-600">{t('courier.pickup.area')}</span>
+                        <span className="mb-1 block text-xs font-medium text-em-text-secondary">{t('courier.pickup.area')}</span>
                         <select
                           aria-label={t('courier.pickup.area')}
                           value={pathaoAreaId}
                           onChange={(e) => setPathaoAreaId(e.target.value)}
                           disabled={!zoneId}
-                          className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60"
+                          className="h-9 w-full rounded-md border border-em-border-strong bg-em-bg-surface px-2 text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600 disabled:opacity-60"
                         >
                           <option value="">{t('courier.pickup.selectArea')}</option>
                           {pathaoAreas.map((option) => (
@@ -607,7 +619,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                     type="button"
                     onClick={() => void handleConfirmArea()}
                     disabled={confirmingArea || !canConfirmArea}
-                    className="flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex items-center gap-2 rounded-lg bg-em-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-em-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {confirmingArea && <Loader2 className="h-4 w-4 animate-spin" />}
                     {confirmingArea ? t('courier.deliveryArea.confirming') : t('courier.deliveryArea.confirmButton')}
@@ -621,12 +633,12 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
         {/* Recipient Info */}
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">{t('courier.recipientName')}</label>
+            <label className="block text-xs font-medium text-em-text-secondary mb-1">{t('courier.recipientName')}</label>
             <input
               type="text"
               value={recipientName}
               onChange={(e) => setRecipientName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border border-em-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
             />
           </div>
           <div>
@@ -638,24 +650,24 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">{t('courier.recipientAddress')}</label>
+            <label className="block text-xs font-medium text-em-text-secondary mb-1">{t('courier.recipientAddress')}</label>
             <textarea
               value={recipientAddress}
               onChange={(e) => setRecipientAddress(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border border-em-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
             />
           </div>
-          <div role={bookingBlockMessage ? 'alert' : 'note'} className={bookingBlockMessage ? 'rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-900' : 'rounded-lg bg-gray-50 p-3 text-xs text-gray-600'}>
+          <div role={bookingBlockMessage ? 'alert' : 'note'} className={bookingBlockMessage ? 'rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-900' : 'rounded-lg bg-em-bg-muted p-3 text-xs text-em-text-secondary'}>
             {bookingBlockMessage || t('orders.courierCollectionServerDetermined')}
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">{t('courier.itemDescription')}</label>
+            <label className="block text-xs font-medium text-em-text-secondary mb-1">{t('courier.itemDescription')}</label>
             <input
               type="text"
               value={itemDescription}
               onChange={(e) => setItemDescription(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border border-em-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
             />
           </div>
         </div>
@@ -663,14 +675,14 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
         <div className="flex gap-3 justify-end pt-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-sm text-em-text-secondary border border-em-border-strong rounded-lg hover:bg-em-bg-muted"
           >
             {t('common.cancel')}
           </button>
           <button
             onClick={handleBook}
             disabled={booking || bookingBlocked || destinationBlocksBooking}
-            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="px-4 py-2 text-sm bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700 flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {booking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
             {t('courier.bookButton')}

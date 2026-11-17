@@ -46,6 +46,7 @@ import {
 } from "./channelAutomation";
 import { OverrideControl } from "./OverrideControl";
 import { useChannelSettingsSSE } from "./useChannelSettingsSSE";
+import { useDialogFocus } from "../inbox/useDialogFocus";
 
 type TabId = "reply" | "ai" | "orders" | "rules" | "advanced";
 
@@ -81,6 +82,7 @@ export default function ChannelDetail() {
   const modeSectionRef = useRef<HTMLDivElement | null>(null);
   const confidenceSectionRef = useRef<HTMLDivElement | null>(null);
   const greetingSectionRef = useRef<HTMLDivElement | null>(null);
+  const disconnectDialogRef = useRef<HTMLDivElement | null>(null);
 
   const channelsQuery = useQuery({
     queryKey: channelQueryKeys.list(),
@@ -149,6 +151,7 @@ export default function ChannelDetail() {
   }, [settings]);
 
   const connection = useMetaChannelConnection();
+  useDialogFocus(disconnectDialogRef, Boolean(connection.confirmDisconnect));
 
   const effectiveMode: AiReplyMode = settings?.effective?.automation_mode ?? "MANUAL";
   const modeSource = settings?.mode_source ?? "fail_closed";
@@ -223,9 +226,9 @@ export default function ChannelDetail() {
 
   if (channelsQuery.isLoading || settingsQuery.isLoading) {
     return (
-      <div className="ca-scope flex min-h-full items-center justify-center bg-[var(--ca-surface-muted)] p-8" role="status">
-        <Loader2 className="h-6 w-6 animate-spin text-[var(--ca-violet-deep)]" aria-hidden="true" />
-        <span className="ml-2 text-sm text-[var(--ca-ink-muted)]">
+      <div className="em-channels flex min-h-full items-center justify-center p-8" role="status">
+        <Loader2 className="h-6 w-6 animate-spin text-em-violet-700" aria-hidden="true" />
+        <span className="ml-2 text-sm text-em-text-secondary">
           {t("manageShop.channels.loadingDetail")}
         </span>
       </div>
@@ -234,16 +237,16 @@ export default function ChannelDetail() {
 
   if (channelsQuery.isError || settingsQuery.isError || !channel || !settings) {
     return (
-      <div className="ca-scope min-h-full bg-[var(--ca-surface-muted)] p-4 md:p-8">
+      <div className="em-channels min-h-full p-4 md:p-6">
         <div className="mx-auto max-w-3xl space-y-4">
           <Link
             to="/manage-shop/channels"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--ca-violet-deep)] hover:underline"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-em-violet-700 hover:underline"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             {t("manageShop.channels.detail.back")}
           </Link>
-          <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="flex items-center gap-3 rounded-xl border border-em-danger-700/20 bg-em-danger-100 p-4 text-sm text-em-danger-700">
             <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
             <p className="flex-1">{t("manageShop.channels.loadError")}</p>
             <button
@@ -252,7 +255,7 @@ export default function ChannelDetail() {
                 void channelsQuery.refetch();
                 void settingsQuery.refetch();
               }}
-              className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-white"
+              className="shrink-0 rounded-lg bg-em-danger-700 px-3 py-1.5 text-white"
             >
               {t("manageShop.channels.retry")}
             </button>
@@ -267,29 +270,29 @@ export default function ChannelDetail() {
     : [effectiveMode, ...allowedModes];
 
   return (
-    <div className="ca-scope min-h-full bg-[var(--ca-surface-muted)] p-4 md:p-8">
+    <div className="em-channels min-h-full p-4 md:p-6">
       <div className="mx-auto max-w-3xl space-y-5">
         <Link
           to="/manage-shop/channels"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--ca-violet-deep)] hover:underline"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-em-violet-700 hover:underline"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           {t("manageShop.channels.detail.back")}
         </Link>
 
-        <header className="rounded-xl border border-[var(--ca-border)] bg-white p-4 md:p-5">
+        <header className="rounded-xl border border-em-border bg-em-bg-surface p-4 md:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-lg font-bold text-[var(--ca-ink)] md:text-xl">
+                <h1 className="truncate text-lg font-bold text-em-text-primary md:text-xl">
                   {channel.displayName}
                 </h1>
                 {channel.purposeLabel && (
-                  <span className="rounded bg-[var(--ca-surface-sunken)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--ca-ink-muted)]">
+                  <span className="rounded bg-em-bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-em-text-secondary">
                     {channel.purposeLabel}
                   </span>
                 )}
-                <span className="rounded-full bg-[var(--ca-violet-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--ca-violet-deep)]">
+                <span className="rounded-full bg-em-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-em-violet-700">
                   {t(BADGE_LABEL_KEYS[badge])}
                 </span>
               </div>
@@ -297,12 +300,12 @@ export default function ChannelDetail() {
                 <p
                   data-testid="channel-effective-mode"
                   aria-live="polite"
-                  className="text-sm text-[var(--ca-ink)]"
+                  className="text-sm text-em-text-primary"
                 >
                   {t("manageShop.channels.effectiveMode")}:{" "}
                   <span className="font-semibold">{t(MODE_LABEL_KEYS[effectiveMode])}</span>
                 </p>
-                <p data-testid="channel-mode-source" className="text-xs text-[var(--ca-ink-muted)]">
+                <p data-testid="channel-mode-source" className="text-xs text-em-text-secondary">
                   {t("manageShop.channels.modeSource")}:{" "}
                   {t(MODE_SOURCE_LABEL_KEYS[modeSource])}
                 </p>
@@ -314,7 +317,7 @@ export default function ChannelDetail() {
           {(warnings.includes("override_clamped_by_business") ||
             warnings.includes("invalid_override_value") ||
             hoursLookMalformed(settings.businessHours)) && (
-            <ul className="mt-3 space-y-1 text-xs text-amber-700">
+            <ul className="mt-3 space-y-1 text-xs text-em-warning-700">
               {warnings.includes("override_clamped_by_business") && (
                 <li className="flex items-start gap-1.5">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -337,14 +340,14 @@ export default function ChannelDetail() {
           )}
 
           {settings.emergency_stop?.active && (
-            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+            <p className="mt-3 rounded-lg border border-em-danger-700/20 bg-em-danger-100 p-2 text-xs text-em-danger-700">
               {t("emergencyStop.activeDesc")}
             </p>
           )}
         </header>
 
         {!isOwner && (
-          <p className="rounded-xl border border-[var(--ca-border)] bg-white p-3 text-xs text-[var(--ca-ink-muted)]">
+          <p className="rounded-xl border border-em-border bg-em-bg-surface p-3 text-xs text-em-text-secondary">
             {t("manageShop.channels.detail.ownerOnly")}
           </p>
         )}
@@ -353,7 +356,7 @@ export default function ChannelDetail() {
           <p
             role="status"
             data-testid="channel-overrides-locked-by-stop"
-            className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+            className="rounded-xl border border-em-danger-700/20 bg-em-danger-100 p-3 text-xs text-em-danger-700"
           >
             {t("manageShop.channels.detail.emergencyStopLocksOverrides")}
           </p>
@@ -363,14 +366,16 @@ export default function ChannelDetail() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              id={`channel-tab-${tab.id}`}
               type="button"
               role="tab"
               aria-selected={activeTab === tab.id}
+              aria-controls={`channel-panel-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold ${
                 activeTab === tab.id
-                  ? "bg-[var(--ca-violet)] text-white"
-                  : "bg-white text-[var(--ca-ink-muted)] hover:bg-[var(--ca-violet-soft)]"
+                  ? "bg-em-violet-600 text-white"
+                  : "bg-em-bg-surface text-em-text-secondary hover:bg-em-violet-50"
               }`}
             >
               {t(tab.labelKey)}
@@ -379,13 +384,13 @@ export default function ChannelDetail() {
         </div>
 
         {saveError && (
-          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p role="alert" className="rounded-lg border border-em-danger-700/20 bg-em-danger-100 p-3 text-sm text-em-danger-700">
             {saveError}
           </p>
         )}
 
         {activeTab === "reply" && (
-          <section className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.reply")}>
+          <section role="tabpanel" id="channel-panel-reply" aria-labelledby="channel-tab-reply" className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.reply")}>
             <OverrideControl
               ref={modeSectionRef}
               label={t("manageShop.channels.detail.modeLabel")}
@@ -421,7 +426,7 @@ export default function ChannelDetail() {
                 {orderedModes.map((mode) => (
                   <label
                     key={mode}
-                    className="flex items-center gap-2 rounded-lg border border-[var(--ca-border)] px-2.5 py-1.5 text-sm text-[var(--ca-ink)]"
+                    className="flex items-center gap-2 rounded-lg border border-em-border px-2.5 py-1.5 text-sm text-em-text-primary"
                   >
                     <input
                       type="radio"
@@ -435,7 +440,7 @@ export default function ChannelDetail() {
                   </label>
                 ))}
               </div>
-              <p className="text-xs text-[var(--ca-ink-soft)]">
+              <p className="text-xs text-em-text-secondary">
                 {t("manageShop.channels.detail.narrowOnly")}
               </p>
             </OverrideControl>
@@ -443,7 +448,7 @@ export default function ChannelDetail() {
         )}
 
         {activeTab === "ai" && (
-          <section className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.ai")}>
+          <section role="tabpanel" id="channel-panel-ai" aria-labelledby="channel-tab-ai" className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.ai")}>
             <OverrideControl
               ref={confidenceSectionRef}
               label={t("manageShop.channels.detail.confidenceLabel")}
@@ -471,7 +476,7 @@ export default function ChannelDetail() {
               error={saveError}
             >
               <div className="flex items-end gap-2">
-                <label className="flex-1 text-xs text-[var(--ca-ink-muted)]">
+                <label className="flex-1 text-xs text-em-text-secondary">
                   {t("manageShop.channels.detail.confidenceLabel")}
                   <input
                     type="number"
@@ -480,7 +485,7 @@ export default function ChannelDetail() {
                     value={confidenceDraft}
                     disabled={mutation.isPending}
                     onChange={(event) => setConfidenceDraft(event.target.value)}
-                    className="mt-1 block w-full rounded-lg border border-[var(--ca-border)] px-2.5 py-1.5 text-sm"
+                    className="mt-1 block w-full rounded-lg border border-em-border px-2.5 py-1.5 text-sm"
                   />
                 </label>
                 <button
@@ -494,7 +499,7 @@ export default function ChannelDetail() {
                     }
                     saveOverride({ confidence_threshold: value });
                   }}
-                  className="rounded-lg bg-[var(--ca-violet)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                  className="rounded-lg bg-em-violet-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   {t("manageShop.channels.detail.save")}
                 </button>
@@ -529,7 +534,7 @@ export default function ChannelDetail() {
               error={saveError}
             >
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm text-[var(--ca-ink)]">
+                <label className="flex items-center gap-2 text-sm text-em-text-primary">
                   <input
                     type="checkbox"
                     checked={greetingDraft.enabled}
@@ -548,18 +553,18 @@ export default function ChannelDetail() {
                   onChange={(event) =>
                     setGreetingDraft((prev) => ({ ...prev, custom_text: event.target.value }))
                   }
-                  className="block w-full rounded-lg border border-[var(--ca-border)] px-2.5 py-1.5 text-sm"
+                  className="block w-full rounded-lg border border-em-border px-2.5 py-1.5 text-sm"
                   placeholder={t("manageShop.channels.detail.greetingPlaceholder")}
                 />
                 <button
                   type="button"
                   disabled={mutation.isPending}
                   onClick={() => saveOverride({ greeting: { ...greetingDraft } })}
-                  className="rounded-lg bg-[var(--ca-violet)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                  className="rounded-lg bg-em-violet-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   {t("manageShop.channels.detail.save")}
                 </button>
-                <p className="text-[11px] text-[var(--ca-ink-soft)]">
+                <p className="text-[11px] text-em-text-secondary">
                   {t("manageShop.channels.detail.greetingDisclosure")}
                 </p>
               </div>
@@ -583,18 +588,18 @@ export default function ChannelDetail() {
         )}
 
         {activeTab === "orders" && (
-          <section className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.orders")}>
-            <div className="rounded-xl border border-[var(--ca-border)] bg-white p-4">
+          <section role="tabpanel" id="channel-panel-orders" aria-labelledby="channel-tab-orders" className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.orders")}>
+            <div className="rounded-xl border border-em-border bg-em-bg-surface p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-[var(--ca-ink)]">
+                  <h3 className="text-sm font-semibold text-em-text-primary">
                     {t("manageShop.channels.detail.orderCreation")}
                   </h3>
-                  <p className="mt-1 text-xs text-[var(--ca-ink-muted)]">
+                  <p className="mt-1 text-xs text-em-text-secondary">
                     {t("manageShop.channels.detail.orderCreationDesc")}
                   </p>
                 </div>
-                <label className="flex shrink-0 items-center gap-2 text-xs text-[var(--ca-ink-muted)]">
+                <label className="flex shrink-0 items-center gap-2 text-xs text-em-text-secondary">
                   <input
                     type="checkbox"
                     data-testid="channel-allow-order-creation"
@@ -610,7 +615,7 @@ export default function ChannelDetail() {
                 </label>
               </div>
               {!isOwner && (
-                <p className="mt-2 text-xs text-[var(--ca-ink-soft)]">
+                <p className="mt-2 text-xs text-em-text-secondary">
                   {t("manageShop.channels.detail.ownerOnly")}
                 </p>
               )}
@@ -633,19 +638,22 @@ export default function ChannelDetail() {
 
         {activeTab === "rules" && (
           <section
-            className="space-y-3 rounded-xl border border-[var(--ca-border)] bg-white p-4"
+            role="tabpanel"
+            id="channel-panel-rules"
+            aria-labelledby="channel-tab-rules"
+            className="space-y-3 rounded-xl border border-em-border bg-em-bg-surface p-4"
             aria-label={t("manageShop.channels.detail.tabs.rules")}
           >
             <div>
-              <h3 className="text-sm font-semibold text-[var(--ca-ink)]">
+              <h3 className="text-sm font-semibold text-em-text-primary">
                 {t("manageShop.channels.detail.businessHours")}
               </h3>
-              <p className="mt-1 text-xs text-[var(--ca-ink-muted)]">
+              <p className="mt-1 text-xs text-em-text-secondary">
                 {t("manageShop.channels.detail.businessHoursDesc")}
               </p>
             </div>
 
-            <label className="block text-xs text-[var(--ca-ink-muted)]">
+            <label className="block text-xs text-em-text-secondary">
               {t("manageShop.channels.detail.timezone")}
               <select
                 value={hours.timezone}
@@ -653,7 +661,7 @@ export default function ChannelDetail() {
                 onChange={(event) =>
                   setHours((prev) => ({ ...prev, timezone: event.target.value }))
                 }
-                className="mt-1 block w-full rounded-lg border border-[var(--ca-border)] bg-white px-2.5 py-1.5 text-sm"
+                className="mt-1 block w-full rounded-lg border border-em-border bg-em-bg-surface px-2.5 py-1.5 text-sm"
               >
                 <option value="">{t("manageShop.channels.detail.timezoneDefault")}</option>
                 {TIMEZONES.map((tz) => (
@@ -672,10 +680,10 @@ export default function ChannelDetail() {
                 return (
                   <div
                     key={day}
-                    className="rounded-lg border border-[var(--ca-border)] px-2.5 py-1.5 text-xs"
+                    className="rounded-lg border border-em-border px-2.5 py-1.5 text-xs"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <label className="flex w-20 items-center gap-1.5 font-medium uppercase text-[var(--ca-ink-muted)]">
+                      <label className="flex w-20 items-center gap-1.5 font-medium uppercase text-em-text-secondary">
                         <input
                           type="checkbox"
                           checked={dayHours.enabled}
@@ -708,7 +716,7 @@ export default function ChannelDetail() {
                             },
                           }))
                         }
-                        className="inline-flex items-center rounded border border-[var(--ca-border)] p-1 text-[var(--ca-violet-deep)] disabled:opacity-50"
+                        className="inline-flex items-center rounded border border-em-border p-1 text-em-violet-700 disabled:opacity-50"
                       >
                         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
@@ -740,9 +748,9 @@ export default function ChannelDetail() {
                                 },
                               }))
                             }
-                            className="rounded border border-[var(--ca-border)] px-2 py-1"
+                            className="rounded border border-em-border px-2 py-1"
                           />
-                          <span className="text-[var(--ca-ink-soft)]" aria-hidden="true">
+                          <span className="text-em-text-secondary" aria-hidden="true">
                             →
                           </span>
                           <input
@@ -769,7 +777,7 @@ export default function ChannelDetail() {
                                 },
                               }))
                             }
-                            className="rounded border border-[var(--ca-border)] px-2 py-1"
+                            className="rounded border border-em-border px-2 py-1"
                           />
                           <button
                             type="button"
@@ -792,7 +800,7 @@ export default function ChannelDetail() {
                                 },
                               }))
                             }
-                            className="inline-flex items-center rounded border border-[var(--ca-border)] p-1 text-red-600 disabled:opacity-40"
+                            className="inline-flex items-center rounded border border-em-border p-1 text-em-danger-700 disabled:opacity-40"
                           >
                             <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
@@ -804,7 +812,7 @@ export default function ChannelDetail() {
               })}
             </div>
 
-            <p className="text-[11px] text-amber-700">
+            <p className="text-[11px] text-em-warning-700">
               {t("manageShop.channels.detail.hoursFailClosed")}
             </p>
 
@@ -812,7 +820,7 @@ export default function ChannelDetail() {
               <p
                 role="alert"
                 data-testid="channel-hours-closed-warning"
-                className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] font-medium text-amber-800"
+                className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-2 text-[11px] font-medium text-em-warning-700"
               >
                 {t("manageShop.channels.detail.hoursClosedWarning")}
               </p>
@@ -823,7 +831,10 @@ export default function ChannelDetail() {
                 role="alertdialog"
                 aria-labelledby="channel-hours-closed-title"
                 data-testid="channel-hours-closed-confirm"
-                className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setConfirmingClosedHours(false);
+                }}
+                className="space-y-2 rounded-lg border border-em-danger-700/20 bg-em-danger-100 p-3 text-xs text-em-danger-700"
               >
                 <p id="channel-hours-closed-title" className="font-semibold">
                   {t("manageShop.channels.detail.hoursClosedConfirmTitle")}
@@ -833,7 +844,7 @@ export default function ChannelDetail() {
                   <button
                     type="button"
                     onClick={() => setConfirmingClosedHours(false)}
-                    className="rounded-lg border border-[var(--ca-border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--ca-ink)]"
+                    className="rounded-lg border border-em-border bg-em-bg-surface px-3 py-1.5 text-xs font-medium text-em-text-primary"
                   >
                     {t("common.cancel")}
                   </button>
@@ -842,7 +853,7 @@ export default function ChannelDetail() {
                     data-testid="channel-hours-closed-confirm-save"
                     disabled={mutation.isPending}
                     onClick={saveHoursNow}
-                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                    className="rounded-lg bg-em-danger-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                   >
                     {t("manageShop.channels.detail.hoursClosedSaveAnyway")}
                   </button>
@@ -857,7 +868,7 @@ export default function ChannelDetail() {
                   data-testid="channel-hours-save"
                   disabled={mutation.isPending}
                   onClick={handleHoursSave}
-                  className="rounded-lg bg-[var(--ca-violet)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                  className="rounded-lg bg-em-violet-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   {t("manageShop.channels.detail.save")}
                 </button>
@@ -865,13 +876,13 @@ export default function ChannelDetail() {
                   type="button"
                   disabled={mutation.isPending}
                   onClick={() => mutation.mutate({ businessHours: null })}
-                  className="rounded-lg border border-[var(--ca-border)] px-3 py-1.5 text-xs font-medium text-[var(--ca-ink)] disabled:opacity-60"
+                  className="rounded-lg border border-em-border px-3 py-1.5 text-xs font-medium text-em-text-primary disabled:opacity-60"
                 >
                   {t("manageShop.channels.detail.alwaysActive")}
                 </button>
               </div>
             ) : (
-              <p className="text-xs text-[var(--ca-ink-soft)]">
+              <p className="text-xs text-em-text-secondary">
                 {t("manageShop.channels.detail.ownerOnly")}
               </p>
             )}
@@ -879,9 +890,9 @@ export default function ChannelDetail() {
         )}
 
         {activeTab === "advanced" && (
-          <section className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.advanced")}>
-            <div className="rounded-xl border border-[var(--ca-border)] bg-white p-4">
-              <label className="block text-xs font-medium text-[var(--ca-ink-muted)]">
+          <section role="tabpanel" id="channel-panel-advanced" aria-labelledby="channel-tab-advanced" className="space-y-3" aria-label={t("manageShop.channels.detail.tabs.advanced")}>
+            <div className="rounded-xl border border-em-border bg-em-bg-surface p-4">
+              <label className="block text-xs font-medium text-em-text-secondary">
                 {t("manageShop.channels.detail.purposeLabel")}
                 <div className="mt-1 flex gap-2">
                   <input
@@ -890,13 +901,13 @@ export default function ChannelDetail() {
                     value={purposeLabel}
                     disabled={savingLabel}
                     onChange={(event) => setPurposeLabel(event.target.value)}
-                    className="min-w-0 flex-1 rounded-lg border border-[var(--ca-border)] px-2.5 py-1.5 text-sm"
+                    className="min-w-0 flex-1 rounded-lg border border-em-border px-2.5 py-1.5 text-sm"
                   />
                   <button
                     type="button"
                     disabled={savingLabel}
                     onClick={() => void handlePurposeLabelSave()}
-                    className="rounded-lg bg-[var(--ca-violet)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                    className="rounded-lg bg-em-violet-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                   >
                     {savingLabel ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -908,8 +919,8 @@ export default function ChannelDetail() {
               </label>
             </div>
 
-            <div className="rounded-xl border border-[var(--ca-border)] bg-white p-4">
-              <h3 className="text-sm font-semibold text-[var(--ca-ink)]">
+            <div className="rounded-xl border border-em-border bg-em-bg-surface p-4">
+              <h3 className="text-sm font-semibold text-em-text-primary">
                 {t("manageShop.channels.detail.connection")}
               </h3>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -917,7 +928,7 @@ export default function ChannelDetail() {
                   type="button"
                   onClick={() => void connection.handleTestPipeline(channel.id)}
                   disabled={connection.testingId === channel.id}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--ca-border)] px-3 py-1.5 text-xs font-medium text-[var(--ca-ink)] disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-em-border px-3 py-1.5 text-xs font-medium text-em-text-primary disabled:opacity-60"
                 >
                   {connection.testingId === channel.id && (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -927,7 +938,7 @@ export default function ChannelDetail() {
                 <button
                   type="button"
                   onClick={() => void connection.handleReconnect(channel)}
-                  className="rounded-lg border border-[var(--ca-border)] px-3 py-1.5 text-xs font-medium text-[var(--ca-ink)]"
+                  className="rounded-lg border border-em-border px-3 py-1.5 text-xs font-medium text-em-text-primary"
                 >
                   {t("channels.actions.refreshPermissions")}
                 </button>
@@ -935,7 +946,7 @@ export default function ChannelDetail() {
                   type="button"
                   data-testid="channel-disconnect-button"
                   onClick={() => connection.setConfirmDisconnect(channel)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-em-danger-700"
                 >
                   <Unplug className="h-3.5 w-3.5" aria-hidden="true" />
                   {t("channels.actions.disconnect")}
@@ -944,8 +955,8 @@ export default function ChannelDetail() {
             </div>
 
             {Array.isArray(settings.deprecated_fields) && settings.deprecated_fields.length > 0 && (
-              <div className="rounded-xl border border-[var(--ca-border)] bg-[var(--ca-surface-muted)] p-4 text-xs text-[var(--ca-ink-muted)]">
-                <p className="font-semibold text-[var(--ca-ink)]">
+              <div className="rounded-xl border border-em-border bg-em-bg-muted p-4 text-xs text-em-text-secondary">
+                <p className="font-semibold text-em-text-primary">
                   {t("manageShop.channels.detail.deprecatedTitle")}
                 </p>
                 <p className="mt-1">{t("manageShop.channels.detail.deprecatedDesc")}</p>
@@ -976,29 +987,34 @@ export default function ChannelDetail() {
 
         {connection.confirmDisconnect && (
           <div
+            ref={disconnectDialogRef}
             role="dialog"
             aria-modal="true"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4"
+            aria-labelledby="channel-detail-disconnect-title"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") connection.setConfirmDisconnect(null);
+            }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-em-midnight-950/60 p-4"
           >
-            <div className="w-full max-w-sm space-y-4 rounded-lg bg-white p-6 shadow-xl">
-              <h3 className="text-lg font-semibold text-gray-900">
+            <div className="w-full max-w-sm space-y-4 rounded-xl border border-em-border bg-em-bg-surface p-6 shadow-xl">
+              <h3 id="channel-detail-disconnect-title" className="text-lg font-semibold text-em-text-primary">
                 {t("channels.disconnectModal.title", {
                   name: connection.confirmDisconnect.displayName,
                 })}
               </h3>
-              <p className="text-sm text-gray-600">{t("channels.disconnectModal.message")}</p>
+              <p className="text-sm text-em-text-secondary">{t("channels.disconnectModal.message")}</p>
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => connection.setConfirmDisconnect(null)}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700"
+                  className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-4 py-2 text-sm text-em-text-primary hover:bg-em-bg-muted"
                 >
                   {t("common.cancel")}
                 </button>
                 <button
                   type="button"
                   onClick={() => void connection.handleDisconnect(connection.confirmDisconnect!)}
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white"
+                  className="min-h-11 rounded-lg bg-em-danger-700 px-4 py-2 text-sm font-semibold text-white hover:bg-em-danger-700/90"
                 >
                   {t("channels.disconnectModal.confirm")}
                 </button>
@@ -1008,7 +1024,7 @@ export default function ChannelDetail() {
         )}
 
         {badge === "stopped" && (
-          <p className="flex items-center gap-1.5 text-xs text-destructive">
+          <p className="flex items-center gap-1.5 text-xs text-em-danger-700">
             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
             {t("emergencyStop.activeDesc")}
           </p>
@@ -1027,19 +1043,19 @@ function ReadOnlyBusinessRows({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-xl border border-[var(--ca-border)] bg-[var(--ca-surface-muted)] p-4">
+    <div className="rounded-xl border border-em-border bg-em-bg-muted p-4">
       <dl className="space-y-1.5 text-sm">
         {rows.map((row) => (
           <div key={row.label} className="flex items-start justify-between gap-3">
-            <dt className="text-[var(--ca-ink-muted)]">{row.label}</dt>
-            <dd className="text-right font-medium text-[var(--ca-ink)]">{row.value}</dd>
+            <dt className="text-em-text-secondary">{row.label}</dt>
+            <dd className="text-right font-medium text-em-text-primary">{row.value}</dd>
           </div>
         ))}
       </dl>
-      {note && <p className="mt-2 text-[11px] text-[var(--ca-ink-soft)]">{note}</p>}
+      {note && <p className="mt-2 text-[11px] text-em-text-secondary">{note}</p>}
       <Link
         to="/manage-shop/automation"
-        className="mt-2 inline-block text-xs font-semibold text-[var(--ca-violet-deep)] hover:underline"
+        className="mt-2 inline-block text-xs font-semibold text-em-violet-700 hover:underline"
       >
         {t("manageShop.channels.detail.editAtBusiness")}
       </Link>

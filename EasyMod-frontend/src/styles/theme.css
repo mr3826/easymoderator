@@ -185,21 +185,240 @@
   }
 }
 
-/* Channel automation redesign (ADR-0013 §9) — scoped Midnight/Violet/Sunlight
-   semantic tokens. Additive only; no global retheme. */
-.ca-scope {
-  --ca-midnight: #17223b;
-  --ca-violet: #7460d9;
-  --ca-violet-deep: #5d49bb;
-  --ca-sunlight: #f4c35e;
-  --ca-surface: #ffffff;
-  --ca-surface-muted: #f5f4fb;
-  --ca-surface-sunken: #eeecf8;
-  --ca-ink: #17223b;
-  --ca-ink-muted: #5b6478;
-  /* 5.77:1 on white, ≥4.8:1 on all scoped surfaces (WCAG AA for 11-12px text). */
-  --ca-ink-soft: #5f6674;
-  --ca-border: #ddd9ee;
-  --ca-violet-soft: #ece9fb;
-  --ca-sunlight-soft: #fdf3dc;
+/* Dashboard guardrails redesign — Midnight/Violet/Sunlight token ramps from
+   EasyModerator-UI-UX-Guardrails.md §7/§18. Additive only: new names, no
+   existing surface retheme (same governance as ADR-0013 §9). Consumed
+   exclusively inside the `.em-dashboard` page scope below. */
+:root {
+  /* Midnight */
+  --em-midnight-950: #0B1222;
+  --em-midnight-900: #17223B;
+  --em-midnight-800: #1E2C4D;
+  --em-midnight-700: #26375F;
+  --em-midnight-600: #324777;
+  --em-midnight-200: #C8D2E7;
+  --em-midnight-100: #E7ECF5;
+  --em-midnight-50: #F5F7FB;
+
+  /* Violet */
+  --em-violet-900: #322763;
+  --em-violet-700: #5D49BE;
+  --em-violet-600: #7460D9;
+  --em-violet-500: #8A78E3;
+  --em-violet-300: #BBAFF2;
+  --em-violet-100: #EEEBFB;
+  --em-violet-50: #F8F7FE;
+
+  /* Sunlight */
+  --em-sunlight-700: #8A5E00;
+  --em-sunlight-600: #C08A1E;
+  --em-sunlight-500: #F4C35E;
+  --em-sunlight-300: #F9DA96;
+  --em-sunlight-100: #FCF1D9;
+  --em-sunlight-50: #FEF9EE;
+
+  /* Neutrals derived from Midnight */
+  --em-bg-app: #F5F7FB;
+  --em-bg-surface: #FFFFFF;
+  --em-bg-muted: #EDF1F8;
+  --em-border: #D7DEEB;
+  --em-border-strong: #B8C4DA;
+  --em-text-primary: #17223B;
+  --em-text-secondary: #4C5B7A;
+  --em-text-disabled: #8A97B0;
+
+  /* Semantic */
+  --em-success-700: #256D4F;
+  --em-success-100: #E2F2EB;
+  --em-warning-700: #9A5B00;
+  --em-warning-100: #FDF0D7;
+  --em-danger-700: #B3372F;
+  --em-danger-100: #FBE8E6;
+  --em-info-700: #324777;
+  --em-info-100: #E7ECF5;
+
+  /* Focus (§18): violet on light surfaces, sunlight on dark surfaces */
+  --em-focus-light: #7460D9;
+  --em-focus-dark: #F4C35E;
 }
+
+@theme inline {
+  --color-em-midnight-950: var(--em-midnight-950);
+  --color-em-midnight-900: var(--em-midnight-900);
+  --color-em-midnight-800: var(--em-midnight-800);
+  --color-em-midnight-700: var(--em-midnight-700);
+  --color-em-midnight-600: var(--em-midnight-600);
+  --color-em-midnight-200: var(--em-midnight-200);
+  --color-em-midnight-100: var(--em-midnight-100);
+  --color-em-midnight-50: var(--em-midnight-50);
+  --color-em-violet-900: var(--em-violet-900);
+  --color-em-violet-700: var(--em-violet-700);
+  --color-em-violet-600: var(--em-violet-600);
+  --color-em-violet-500: var(--em-violet-500);
+  --color-em-violet-300: var(--em-violet-300);
+  --color-em-violet-100: var(--em-violet-100);
+  --color-em-violet-50: var(--em-violet-50);
+  --color-em-sunlight-700: var(--em-sunlight-700);
+  --color-em-sunlight-600: var(--em-sunlight-600);
+  --color-em-sunlight-500: var(--em-sunlight-500);
+  --color-em-sunlight-300: var(--em-sunlight-300);
+  --color-em-sunlight-100: var(--em-sunlight-100);
+  --color-em-sunlight-50: var(--em-sunlight-50);
+  --color-em-bg-app: var(--em-bg-app);
+  --color-em-bg-surface: var(--em-bg-surface);
+  --color-em-bg-muted: var(--em-bg-muted);
+  --color-em-border: var(--em-border);
+  --color-em-border-strong: var(--em-border-strong);
+  --color-em-text-primary: var(--em-text-primary);
+  --color-em-text-secondary: var(--em-text-secondary);
+  --color-em-text-disabled: var(--em-text-disabled);
+  --color-em-success-700: var(--em-success-700);
+  --color-em-success-100: var(--em-success-100);
+  --color-em-warning-700: var(--em-warning-700);
+  --color-em-warning-100: var(--em-warning-100);
+  --color-em-danger-700: var(--em-danger-700);
+  --color-em-danger-100: var(--em-danger-100);
+  --color-em-info-700: var(--em-info-700);
+  --color-em-info-100: var(--em-info-100);
+  --color-em-focus-light: var(--em-focus-light);
+  --color-em-focus-dark: var(--em-focus-dark);
+}
+
+/* Page scope for the /dashboard and /inbox redesigns plus the shared shell
+   chrome (.em-shell). Inter covers Latin; Hind Siliguri (production-approved,
+   Bengali-first) covers Bengali glyphs via per-glyph fallback. */
+.em-dashboard,
+.em-inbox,
+.em-shell,
+.em-faqs,
+.em-notifications,
+.em-delivery,
+.em-payment,
+.em-business,
+.em-channels,
+.em-orders,
+.em-customers,
+.em-products,
+.em-billing,
+.em-automation {
+  font-family:
+    "Inter",
+    "Hind Siliguri",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  background: var(--em-bg-app);
+  color: var(--em-text-primary);
+}
+
+.em-dashboard :focus-visible,
+.em-inbox :focus-visible,
+.em-shell :focus-visible,
+.em-faqs :focus-visible,
+.em-notifications :focus-visible,
+.em-delivery :focus-visible,
+.em-payment :focus-visible,
+.em-business :focus-visible,
+.em-channels :focus-visible,
+.em-orders :focus-visible,
+.em-customers :focus-visible,
+.em-products :focus-visible,
+.em-billing :focus-visible,
+.em-automation :focus-visible {
+  outline: 2px solid var(--em-focus-light) !important;
+  outline-offset: 2px !important;
+}
+
+.em-dashboard .em-tabular,
+.em-inbox .em-tabular,
+.em-shell .em-tabular,
+.em-faqs .em-tabular,
+.em-notifications .em-tabular,
+.em-delivery .em-tabular,
+.em-payment .em-tabular,
+.em-business .em-tabular,
+.em-channels .em-tabular,
+.em-orders .em-tabular,
+.em-customers .em-tabular,
+.em-products .em-tabular,
+.em-billing .em-tabular,
+.em-automation .em-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Shared entity links wear the shell brand green (#00a651, 3.19:1 on white —
+   below AA). Inside the inbox scope they adopt the violet link tone; the
+   shared component itself stays untouched for other pages. */
+.em-inbox .text-brand {
+  color: var(--em-violet-700);
+}
+
+/* The shared LanguageToggle's workspace variant keeps gray-700 ink at 60%
+   opacity for the inactive segment (3.34:1 on white — below AA). Inside the
+   shell scope the inactive segment adopts the secondary ink at full opacity;
+   the active violet segment and the component itself stay untouched. */
+.em-shell .mw-language-toggle {
+  border-color: var(--em-border);
+  background: var(--em-bg-surface);
+  color: var(--em-text-primary);
+}
+.em-shell .mw-language-toggle .opacity-60 {
+  opacity: 1;
+  color: var(--em-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .em-dashboard *,
+  .em-dashboard *::before,
+  .em-dashboard *::after,
+  .em-inbox *,
+  .em-inbox *::before,
+  .em-inbox *::after,
+  .em-shell *,
+  .em-shell *::before,
+  .em-shell *::after,
+  .em-faqs *,
+  .em-faqs *::before,
+  .em-faqs *::after,
+  .em-notifications *,
+  .em-notifications *::before,
+  .em-notifications *::after,
+  .em-delivery *,
+  .em-delivery *::before,
+  .em-delivery *::after,
+  .em-payment *,
+  .em-payment *::before,
+  .em-payment *::after,
+  .em-business *,
+  .em-business *::before,
+  .em-business *::after,
+  .em-channels *,
+  .em-channels *::before,
+  .em-channels *::after,
+  .em-orders *,
+  .em-orders *::before,
+  .em-orders *::after,
+  .em-customers *,
+  .em-customers *::before,
+  .em-customers *::after,
+  .em-products *,
+  .em-products *::before,
+  .em-products *::after,
+  .em-billing *,
+  .em-billing *::before,
+  .em-billing *::after,
+  .em-automation *,
+  .em-automation *::before,
+  .em-automation *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The ADR-0013 §9 `.ca-scope` token block was retired with its last consumer
+   (/manage-shop/automation, now `.em-automation`). Every scoped surface in the
+   merchant app reads the single `--em-*` ramp above. */

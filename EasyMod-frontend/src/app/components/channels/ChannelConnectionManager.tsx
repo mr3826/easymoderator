@@ -4,8 +4,10 @@
  * grid, purpose label, test/reconnect/disconnect actions and consent activity.
  *
  * Extracted with NO behaviour change; ChatSettings.tsx is now a thin consumer.
- * The hook `useMetaChannelConnection` owns all state and side effects.
+ * The hook `useMetaChannelConnection` owns all state and side effects. Restyled
+ * onto the em-* guardrails system; the disconnect confirm traps focus (§17/§18).
  */
+import { useRef } from "react";
 import {
   MessageSquare,
   AlertCircle,
@@ -19,17 +21,21 @@ import {
   ShieldCheck,
   Check,
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, MotionConfig } from "motion/react";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { useTranslation } from "react-i18next";
 import type {
   MetaChannel,
   MetaConsentEventType,
 } from "@/api/domains/meta-channels";
+import { useDialogFocus } from "../inbox/useDialogFocus";
 import { useMetaChannelConnection } from "./useMetaChannelConnection";
 
 // Facebook-only launch — Instagram was removed from product scope (2026-06-24).
 export const FB_BRAND = "#1877F2";
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
 
 export function FacebookIcon({ color = FB_BRAND, size = 22 }: { color?: string; size?: number }) {
   return <MessageSquare style={{ color, width: size, height: size }} />;
@@ -70,6 +76,9 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
     setPermissionsExpanded,
   } = connection;
 
+  const disconnectDialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(disconnectDialogRef, Boolean(confirmDisconnect));
+
   const consentEventLabel = (event: MetaConsentEventType): string =>
     ({
       OPT_IN_IMPLICIT: t("channels.consent.events.optInImplicit"),
@@ -81,8 +90,8 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
 
   const consentEventBadgeClass = (event: MetaConsentEventType): string =>
     event === "OPT_OUT" || event === "DEAUTHORIZED" || event === "DATA_DELETED"
-      ? "bg-red-50 text-red-700"
-      : "bg-green-50 text-green-700";
+      ? "bg-em-danger-100 text-em-danger-700"
+      : "bg-em-success-100 text-em-success-700";
 
   // Only healthy channels block adding the same Page. Reconnect-required
   // channels remain selectable so OAuth can heal the existing row in place.
@@ -100,17 +109,18 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
   ).length;
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <MotionConfig reducedMotion="user">
+    <div className="em-channels space-y-6 p-4 md:p-6">
       {!embedded && (
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg">
+          <div className="p-3 bg-em-violet-600 rounded-lg">
             <MessageSquare className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h2 className="text-xl md:text-2xl font-bold text-gray-900">
+            <h2 className="text-xl md:text-2xl font-bold text-em-text-primary">
               {t("channels.settings.title")}
             </h2>
-            <p className="text-sm text-gray-500">{t("channels.settings.subtitle")}</p>
+            <p className="text-sm text-em-text-secondary">{t("channels.settings.subtitle")}</p>
           </div>
         </div>
       )}
@@ -118,28 +128,28 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
       {isLoading && (
         <div className="grid gap-4 md:grid-cols-2">
           {[0, 1].map((i) => (
-            <div key={i} className="bg-white border border-gray-200 rounded-xl p-5 animate-pulse">
+            <div key={i} className="bg-em-bg-surface border border-em-border rounded-xl p-5 animate-pulse">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-11 h-11 rounded-full bg-gray-200" />
+                <div className="w-11 h-11 rounded-full bg-em-bg-muted" />
                 <div className="flex-1">
-                  <div className="h-4 w-32 bg-gray-200 rounded mb-2" />
-                  <div className="h-3 w-20 bg-gray-200 rounded" />
+                  <div className="h-4 w-32 bg-em-bg-muted rounded mb-2" />
+                  <div className="h-3 w-20 bg-em-bg-muted rounded" />
                 </div>
               </div>
-              <div className="h-3 w-full bg-gray-100 rounded mb-2" />
-              <div className="h-9 w-full bg-gray-100 rounded" />
+              <div className="h-3 w-full bg-em-bg-muted rounded mb-2" />
+              <div className="h-9 w-full bg-em-bg-muted rounded" />
             </div>
           ))}
         </div>
       )}
 
       {loadError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-          <p className="text-sm text-red-700 flex-1">{loadError}</p>
+        <div role="alert" className="bg-em-danger-100 border border-em-danger-700/20 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-em-danger-700 flex-shrink-0" />
+          <p className="text-sm text-em-danger-700 flex-1">{loadError}</p>
           <button
             onClick={fetchChannels}
-            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm"
+            className={`min-h-11 px-3 py-1.5 bg-em-danger-700 text-white rounded-lg text-sm ${FOCUS_RING}`}
           >
             {t("common.retry")}
           </button>
@@ -148,21 +158,21 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
 
       {/* Connect flow (first-time + add another) */}
       {!isLoading && !loadError && activeOAuth && (
-        <div className="rounded-xl border-2 border-blue-300 bg-blue-50 p-5 space-y-3">
+        <div className="rounded-xl border-2 border-em-violet-300 bg-em-violet-50 p-5 space-y-3">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-white border-2 border-blue-300 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-full bg-em-bg-surface border-2 border-em-violet-300 flex items-center justify-center">
               <MessageSquare className="w-3.5 h-3.5" style={{ color: FB_BRAND }} />
             </div>
-            <h3 className="font-semibold text-gray-900">{t("channels.connectCard.title")}</h3>
+            <h3 className="font-semibold text-em-text-primary">{t("channels.connectCard.title")}</h3>
           </div>
 
           {activeOAuth.step === "connecting" && (
             <div className="text-center py-4">
-              <Loader2 className="w-7 h-7 animate-spin mx-auto mb-2 text-blue-600" />
-              <p className="text-sm text-gray-700">{t("channels.connectCard.loginPopup")}</p>
+              <Loader2 className="w-7 h-7 animate-spin mx-auto mb-2 text-em-violet-600" />
+              <p className="text-sm text-em-text-secondary">{t("channels.connectCard.loginPopup")}</p>
               <button
                 onClick={handleCancelOAuth}
-                className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline"
+                className={`mt-2 text-xs text-em-text-secondary hover:text-em-text-primary underline ${FOCUS_RING}`}
               >
                 {t("common.cancel")}
               </button>
@@ -171,7 +181,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
 
           {activeOAuth.step === "page-select" && (
             <div>
-              <p className="text-xs text-gray-700 mb-3">
+              <p className="text-xs text-em-text-secondary mb-3">
                 {t("channels.connectCard.selectPagesHint")}
               </p>
               {availablePages.length === 0 ? (
@@ -193,17 +203,17 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                         key={page.id}
                         className={`flex items-center gap-3 p-2.5 rounded-lg border-2 transition-colors ${
                           isAlreadyConnected || isOutsideReconnectTarget
-                            ? "border-gray-200 bg-gray-100 cursor-not-allowed opacity-70"
+                            ? "border-em-border bg-em-bg-muted cursor-not-allowed opacity-70"
                             : !isConnectable
-                              ? "border-amber-200 bg-amber-50 cursor-not-allowed opacity-80"
+                              ? "border-em-warning-600/30 bg-em-warning-100 cursor-not-allowed opacity-80"
                               : selectedPageIds.has(page.id)
-                                ? "border-blue-500 bg-white cursor-pointer"
-                                : "border-gray-200 bg-white hover:bg-gray-50 cursor-pointer"
+                                ? "border-em-violet-600 bg-em-bg-surface cursor-pointer"
+                                : "border-em-border bg-em-bg-surface hover:bg-em-bg-muted cursor-pointer"
                         }`}
                       >
                         <input
                           type="checkbox"
-                          className="w-4 h-4 accent-blue-600"
+                          className="w-4 h-4 accent-em-violet-600"
                           checked={selectedPageIds.has(page.id)}
                           disabled={isDisabled}
                           aria-describedby={
@@ -218,32 +228,32 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                             className="w-8 h-8 rounded-full object-cover"
                           />
                         ) : (
-                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                          <div className="w-8 h-8 rounded-full bg-em-violet-100 flex items-center justify-center">
                             <FacebookIcon size={14} />
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 text-sm truncate">{page.name}</p>
-                          <p className="text-[10px] uppercase tracking-wide text-gray-500">
+                          <p className="font-medium text-em-text-primary text-sm truncate">{page.name}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-em-text-secondary">
                             Facebook Page
                           </p>
                           {!isConnectable && (
                             <p
                               id={`page-task-reason-${page.id}`}
-                              className="text-[10px] text-amber-700"
+                              className="text-[10px] text-em-warning-700"
                             >
                               {t("channels.connectCard.pageTaskRequired")}
                             </p>
                           )}
                         </div>
                         {isAlreadyConnected && (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-em-success-700 bg-em-success-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
                             <Check className="w-3 h-3" />
                             {t("channels.health.connected")}
                           </span>
                         )}
                         {needsReconnect && (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-em-warning-700 bg-em-warning-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
                             <AlertCircle className="w-3 h-3" />
                             {t("channels.badge.reconnect")}
                           </span>
@@ -256,14 +266,14 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={handleCancelOAuth}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-white"
+                  className={`flex-1 min-h-11 px-3 py-2 border border-em-border-strong rounded-lg text-xs text-em-text-primary hover:bg-em-bg-muted ${FOCUS_RING}`}
                 >
                   {t("common.cancel")}
                 </button>
                 <button
                   onClick={handleConnectPages}
                   disabled={selectedPageCount === 0 || isConnectingPage}
-                  className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  className={`flex-1 min-h-11 px-3 py-2 bg-em-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-em-violet-700 disabled:opacity-50 flex items-center justify-center gap-1.5 ${FOCUS_RING}`}
                 >
                   {isConnectingPage && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   {t("channels.connectCard.connectCount", { count: selectedPageCount })}
@@ -278,12 +288,12 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
         <div className="space-y-3">
           <button
             onClick={handleConnect}
-            className="w-full rounded-xl border-2 border-blue-400 bg-gradient-to-r from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-200 p-4 flex items-center justify-center gap-3 transition-colors"
+            className={`w-full min-h-11 rounded-xl border-2 border-em-violet-300 bg-em-violet-50 hover:bg-em-violet-100 p-4 flex items-center justify-center gap-3 transition-colors ${FOCUS_RING}`}
           >
-            <div className="w-7 h-7 rounded-full bg-white border-2 border-blue-300 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-full bg-em-bg-surface border-2 border-em-violet-300 flex items-center justify-center">
               <MessageSquare className="w-3.5 h-3.5" style={{ color: FB_BRAND }} />
             </div>
-            <span className="font-semibold text-gray-900 text-sm">
+            <span className="font-semibold text-em-text-primary text-sm">
               {channels.length === 0
                 ? t("channels.connectCard.title")
                 : t("channels.connectCard.addAnother")}
@@ -292,7 +302,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
 
           <button
             onClick={() => setPermissionsExpanded((v) => !v)}
-            className="w-full text-xs text-gray-500 hover:text-gray-700 flex items-center justify-center gap-1"
+            className={`w-full text-xs text-em-text-secondary hover:text-em-text-primary flex items-center justify-center gap-1 ${FOCUS_RING}`}
           >
             <Shield className="w-3.5 h-3.5" />
             {permissionsExpanded
@@ -306,7 +316,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
           </button>
 
           {permissionsExpanded && (
-            <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">
+            <div className="rounded-lg bg-em-bg-muted border border-em-border p-3 text-xs text-em-text-secondary">
               <ul className="space-y-1 list-disc list-inside">
                 <li>
                   <strong>pages_show_list</strong> — {t("channels.permissions.pagesShowList")}
@@ -319,7 +329,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                   {t("channels.permissions.pagesManageMetadata")}
                 </li>
               </ul>
-              <p className="mt-2 text-gray-500 text-[11px]">{t("channels.permissions.note")}</p>
+              <p className="mt-2 text-em-text-secondary text-[11px]">{t("channels.permissions.note")}</p>
             </div>
           )}
         </div>
@@ -343,11 +353,11 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
             return (
               <div
                 key={channel.id}
-                className="bg-white border border-gray-200 rounded-xl shadow-sm transition-shadow p-5 hover:shadow-md"
+                className="bg-em-bg-surface border border-em-border rounded-xl shadow-sm transition-shadow p-5 hover:shadow-md"
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-full bg-blue-50 flex items-center justify-center">
+                    <div className="w-11 h-11 rounded-full bg-em-violet-100 flex items-center justify-center">
                       {channel.pictureUrl ? (
                         <img
                           src={channel.pictureUrl}
@@ -360,38 +370,38 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                     </div>
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <h4 className="font-semibold text-gray-900 truncate max-w-[180px]">
+                        <h4 className="font-semibold text-em-text-primary truncate max-w-[180px]">
                           {channel.displayName}
                         </h4>
                         {channel.purposeLabel && (
-                          <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium uppercase tracking-wide">
+                          <span className="px-1.5 py-0.5 bg-em-bg-muted text-em-text-secondary rounded text-[10px] font-medium uppercase tracking-wide">
                             {channel.purposeLabel}
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-400">Facebook Messenger</p>
+                      <p className="text-xs text-em-text-secondary">Facebook Messenger</p>
                     </div>
                   </div>
                   {isConnected && (
-                    <span className="flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                    <span className="flex items-center gap-1 px-2.5 py-1 bg-em-success-100 text-em-success-700 rounded-full text-xs font-medium">
+                      <div className="w-1.5 h-1.5 bg-em-success-700 rounded-full" />
                       {t("channels.statusActive")}
                     </span>
                   )}
                   {needsReconnect && !isErrored && (
-                    <span className="flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                    <span className="flex items-center gap-1 px-2.5 py-1 bg-em-warning-100 text-em-warning-700 rounded-full text-xs font-medium">
                       <AlertCircle className="w-3 h-3" />
                       {t("channels.badge.reconnect")}
                     </span>
                   )}
                   {isErrored && isActionRequired && (
-                    <span className="flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-medium">
+                    <span className="flex items-center gap-1 px-2.5 py-1 bg-em-warning-100 text-em-warning-700 rounded-full text-xs font-medium">
                       <AlertCircle className="w-3 h-3" />
                       {t("channels.badge.actionRequired", "Action Required")}
                     </span>
                   )}
                   {isErrored && !isActionRequired && (
-                    <span className="flex items-center gap-1 px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                    <span className="flex items-center gap-1 px-2.5 py-1 bg-em-danger-100 text-em-danger-700 rounded-full text-xs font-medium">
                       <AlertCircle className="w-3 h-3" />
                       {t("channels.badge.error", "Error")}
                     </span>
@@ -409,7 +419,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                         ? t("channels.tokenExpired")
                         : t("channels.tokenExpiresIn", { days: Math.ceil(expiresMs / dayMs) });
                     return (
-                      <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-4 text-xs text-amber-800">
+                      <div className="flex items-start gap-2 bg-em-warning-100 border border-em-warning-600/30 rounded-lg p-2.5 mb-4 text-xs text-em-warning-700">
                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                         <span>{label}</span>
                       </div>
@@ -420,7 +430,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                   <button
                     onClick={() => handleReconnect(channel)}
                     style={{ backgroundColor: FB_BRAND }}
-                    className="w-full py-2.5 text-white rounded-lg font-semibold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity mb-3"
+                    className={`w-full min-h-11 py-2.5 text-white rounded-lg font-semibold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity mb-3 ${FOCUS_RING}`}
                   >
                     <FacebookIcon color="white" size={18} />
                     {t("channels.reconnectPage")}
@@ -432,7 +442,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                     <div className="mb-3">
                       <label
                         htmlFor={`purpose-label-${channel.id}`}
-                        className="block text-[11px] font-medium text-gray-600 mb-1"
+                        className="block text-[11px] font-medium text-em-text-secondary mb-1"
                       >
                         {t("channels.label.fieldLabel")}
                       </label>
@@ -449,7 +459,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                         onKeyDown={(e) => {
                           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                         }}
-                        className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 disabled:opacity-60"
+                        className={`w-full min-h-11 px-2.5 py-1.5 border border-em-border-strong rounded-lg text-xs bg-em-bg-surface text-em-text-primary focus:outline-none disabled:opacity-60 ${FOCUS_RING}`}
                       />
                     </div>
 
@@ -460,7 +470,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                         onClick={() => handleTestPipeline(channel.id)}
                         disabled={testingId === channel.id}
                         title={t("channels.actions.testTitle")}
-                        className="flex items-center justify-center gap-1 px-2 py-1.5 border border-gray-300 text-gray-700 rounded-lg text-xs hover:bg-gray-50 disabled:opacity-60"
+                        className={`flex min-h-11 items-center justify-center gap-1 px-2 py-1.5 border border-em-border-strong text-em-text-primary rounded-lg text-xs hover:bg-em-bg-muted disabled:opacity-60 ${FOCUS_RING}`}
                       >
                         {testingId === channel.id ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -472,7 +482,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                       <button
                         onClick={fetchChannels}
                         title={t("channels.actions.refreshList")}
-                        className="flex items-center justify-center gap-1 px-2 py-1.5 border border-gray-300 text-gray-700 rounded-lg text-xs hover:bg-gray-50"
+                        className={`flex min-h-11 items-center justify-center gap-1 px-2 py-1.5 border border-em-border-strong text-em-text-primary rounded-lg text-xs hover:bg-em-bg-muted ${FOCUS_RING}`}
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                         {t("channels.actions.refreshList", "Refresh list")}
@@ -480,7 +490,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                       <button
                         onClick={() => handleReconnect(channel)}
                         title={t("channels.actions.refreshPermissions")}
-                        className="flex items-center justify-center gap-1 px-2 py-1.5 border border-blue-200 text-blue-700 rounded-lg text-xs hover:bg-blue-50"
+                        className={`flex min-h-11 items-center justify-center gap-1 px-2 py-1.5 border border-em-violet-300 text-em-violet-700 rounded-lg text-xs hover:bg-em-violet-50 ${FOCUS_RING}`}
                       >
                         <ShieldCheck className="w-3.5 h-3.5" />
                         {t("channels.actions.refreshPermissions", "Refresh permissions")}
@@ -488,7 +498,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                       <button
                         onClick={() => setConfirmDisconnect(channel)}
                         disabled={disconnectingId === channel.id}
-                        className="flex items-center justify-center gap-1 px-2 py-1.5 border border-red-200 text-red-600 rounded-lg text-xs hover:bg-red-50 disabled:opacity-60"
+                        className={`flex min-h-11 items-center justify-center gap-1 px-2 py-1.5 border border-em-danger-700/30 text-em-danger-700 rounded-lg text-xs hover:bg-em-danger-100 disabled:opacity-60 ${FOCUS_RING}`}
                       >
                         {disconnectingId === channel.id ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -505,15 +515,15 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                         if (open) handleToggleConsent(channel.id);
                         else setExpandedConsentChannelId(null);
                       }}
-                      className="pt-3 border-t border-gray-100"
+                      className="pt-3 border-t border-em-border"
                     >
                       <Collapsible.Trigger asChild>
-                        <button className="w-full flex items-center justify-between text-xs text-gray-700 hover:text-gray-900">
+                        <button className={`w-full flex items-center justify-between text-xs text-em-text-secondary hover:text-em-text-primary ${FOCUS_RING}`}>
                           <span className="flex items-center gap-1.5">
-                            <ShieldCheck className="w-3.5 h-3.5 text-gray-500" />
+                            <ShieldCheck className="w-3.5 h-3.5 text-em-text-secondary" />
                             <span className="font-medium">{t("channels.consent.activity")}</span>
                             {consentSummary && (
-                              <span className="ml-1 text-gray-500">
+                              <span className="ml-1 text-em-text-secondary">
                                 {t("channels.consent.optInsCount", {
                                   count: consentSummary.counts.optIns,
                                 })}
@@ -521,11 +531,11 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                             )}
                           </span>
                           {isConsentLoading ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-em-text-secondary" />
                           ) : isConsentExpanded ? (
-                            <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                            <ChevronUp className="w-3.5 h-3.5 text-em-text-secondary" />
                           ) : (
-                            <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                            <ChevronDown className="w-3.5 h-3.5 text-em-text-secondary" />
                           )}
                         </button>
                       </Collapsible.Trigger>
@@ -541,41 +551,41 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                             >
                               <div className="mt-3 space-y-2">
                                 <div className="grid grid-cols-4 gap-1.5 text-center">
-                                  <div className="rounded bg-green-50 px-1.5 py-1.5">
-                                    <p className="text-sm font-semibold text-green-700">
+                                  <div className="rounded bg-em-success-100 px-1.5 py-1.5">
+                                    <p className="text-sm font-semibold text-em-success-700">
                                       {consentSummary.counts.optIns}
                                     </p>
-                                    <p className="text-[9px] uppercase text-green-700/80">
+                                    <p className="text-[9px] uppercase text-em-success-700/80">
                                       {t("channels.consent.optIns")}
                                     </p>
                                   </div>
-                                  <div className="rounded bg-red-50 px-1.5 py-1.5">
-                                    <p className="text-sm font-semibold text-red-700">
+                                  <div className="rounded bg-em-danger-100 px-1.5 py-1.5">
+                                    <p className="text-sm font-semibold text-em-danger-700">
                                       {consentSummary.counts.optOuts}
                                     </p>
-                                    <p className="text-[9px] uppercase text-red-700/80">
+                                    <p className="text-[9px] uppercase text-em-danger-700/80">
                                       {t("channels.consent.optOuts")}
                                     </p>
                                   </div>
-                                  <div className="rounded bg-gray-100 px-1.5 py-1.5">
-                                    <p className="text-sm font-semibold text-gray-600">
+                                  <div className="rounded bg-em-bg-muted px-1.5 py-1.5">
+                                    <p className="text-sm font-semibold text-em-text-secondary">
                                       {consentSummary.counts.deauthorized}
                                     </p>
-                                    <p className="text-[9px] uppercase text-gray-500">
+                                    <p className="text-[9px] uppercase text-em-text-secondary">
                                       {t("channels.consent.deauth")}
                                     </p>
                                   </div>
-                                  <div className="rounded bg-gray-100 px-1.5 py-1.5">
-                                    <p className="text-sm font-semibold text-gray-600">
+                                  <div className="rounded bg-em-bg-muted px-1.5 py-1.5">
+                                    <p className="text-sm font-semibold text-em-text-secondary">
                                       {consentSummary.counts.dataDeleted}
                                     </p>
-                                    <p className="text-[9px] uppercase text-gray-500">
+                                    <p className="text-[9px] uppercase text-em-text-secondary">
                                       {t("channels.consent.erased")}
                                     </p>
                                   </div>
                                 </div>
                                 {consentSummary.recentEvents.length === 0 ? (
-                                  <p className="text-xs text-gray-400 italic">
+                                  <p className="text-xs text-em-text-secondary italic">
                                     {t("channels.consent.noEvents")}
                                   </p>
                                 ) : (
@@ -592,10 +602,10 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                                         >
                                           {consentEventLabel(ev.event)}
                                         </span>
-                                        <span className="text-gray-500 truncate flex-1">
+                                        <span className="text-em-text-secondary truncate flex-1">
                                           {ev.source}
                                         </span>
-                                        <span className="text-gray-400 flex-shrink-0">
+                                        <span className="text-em-text-secondary flex-shrink-0">
                                           {new Date(ev.createdAt).toLocaleDateString()}
                                         </span>
                                       </li>
@@ -617,22 +627,31 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
       )}
 
       {confirmDisconnect && (
-        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-semibold text-gray-900 text-lg">
+        <div
+          ref={disconnectDialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="channel-disconnect-title"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setConfirmDisconnect(null);
+          }}
+          className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-50 p-4"
+        >
+          <div className="bg-em-bg-surface border border-em-border rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <h3 id="channel-disconnect-title" className="font-semibold text-em-text-primary text-lg">
               {t("channels.disconnectModal.title", { name: confirmDisconnect.displayName })}
             </h3>
-            <p className="text-sm text-gray-600">{t("channels.disconnectModal.message")}</p>
+            <p className="text-sm text-em-text-secondary">{t("channels.disconnectModal.message")}</p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setConfirmDisconnect(null)}
-                className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                className={`min-h-11 px-4 py-2 text-sm text-em-text-primary bg-em-bg-surface border border-em-border-strong rounded-lg hover:bg-em-bg-muted ${FOCUS_RING}`}
               >
                 {t("common.cancel")}
               </button>
               <button
                 onClick={() => handleDisconnect(confirmDisconnect)}
-                className="px-4 py-2 text-sm text-white bg-red-600 rounded-lg hover:bg-red-700"
+                className={`min-h-11 px-4 py-2 text-sm text-white bg-em-danger-700 rounded-lg hover:bg-em-danger-700/90 ${FOCUS_RING}`}
               >
                 {t("channels.disconnectModal.confirm")}
               </button>
@@ -641,6 +660,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
         </div>
       )}
     </div>
+    </MotionConfig>
   );
 }
 
@@ -653,16 +673,16 @@ export function NoMetaAssetsFound({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-left">
+    <div className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 px-3 py-3 text-left">
       <div className="flex items-start gap-2">
-        <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-700" />
+        <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-em-warning-700" />
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-amber-900">{t("channels.noPages.title")}</p>
-          <p className="mt-1 text-xs text-amber-800">{t("channels.noPages.desc")}</p>
+          <p className="text-sm font-semibold text-em-warning-700">{t("channels.noPages.title")}</p>
+          <p className="mt-1 text-xs text-em-warning-700">{t("channels.noPages.desc")}</p>
         </div>
       </div>
 
-      <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-amber-900">
+      <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-em-warning-700">
         <li>{t("channels.noPages.step1")}</li>
         <li>{t("channels.noPages.step2")}</li>
         <li>{t("channels.noPages.step3")}</li>
@@ -674,21 +694,21 @@ export function NoMetaAssetsFound({
           href="https://business.facebook.com/settings"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex flex-1 items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+          className={`inline-flex flex-1 min-h-11 items-center justify-center rounded-lg border border-em-warning-600/30 bg-em-bg-surface px-3 py-2 text-xs font-semibold text-em-warning-700 hover:bg-em-warning-100 ${FOCUS_RING}`}
         >
           {t("channels.noPages.openSettings")}
         </a>
         <button
           type="button"
           onClick={onRetry}
-          className="flex-1 rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800"
+          className={`flex-1 min-h-11 rounded-lg bg-em-warning-700 px-3 py-2 text-xs font-semibold text-white hover:bg-em-warning-700/90 ${FOCUS_RING}`}
         >
           {t("channels.noPages.tryAgain")}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 rounded-lg border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+          className={`flex-1 min-h-11 rounded-lg border border-em-warning-600/30 px-3 py-2 text-xs font-semibold text-em-warning-700 hover:bg-em-warning-100 ${FOCUS_RING}`}
         >
           {t("common.cancel")}
         </button>
@@ -759,10 +779,10 @@ function HealthRow({
   badText: string;
   neutral?: boolean;
 }) {
-  const tone = neutral ? "text-gray-500" : ok ? "text-green-700" : "text-amber-700";
+  const tone = neutral ? "text-em-text-secondary" : ok ? "text-em-success-700" : "text-em-warning-700";
   return (
-    <div className="flex items-center justify-between rounded bg-gray-50 px-2 py-1">
-      <span className="text-gray-500">{label}</span>
+    <div className="flex items-center justify-between rounded bg-em-bg-muted px-2 py-1">
+      <span className="text-em-text-secondary">{label}</span>
       <span className={`font-medium ${tone}`}>{ok ? okText : badText}</span>
     </div>
   );

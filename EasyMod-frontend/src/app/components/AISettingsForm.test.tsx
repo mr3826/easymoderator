@@ -130,7 +130,11 @@ describe('AISettingsForm', () => {
     const enButton = screen.getByRole('button', { name: /^en\b/i });
     fireEvent.click(enButton);
     
-    expect(enButton.className).toContain('border-blue-500');
+    // Token migration (harness): the selected-state border moved from legacy
+    // blue-500 to the em violet ramp. Same element, same contract; aria-pressed
+    // is the durable semantic proof the class was proxying.
+    expect(enButton.className).toContain('border-em-violet-600');
+    expect(enButton).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('updates confidence threshold on slider change', async () => {
@@ -202,8 +206,11 @@ describe('AISettingsForm', () => {
     
     await userEvent.type(keywordInput, 'refund');
     
-    const addButtons = screen.getAllByRole('button', { name: '' });
-    const addButton = addButtons[addButtons.length - 1];
+    // Locator migration (harness): the add button used to have an EMPTY
+    // accessible name, so it could only be found by ordinal. It is now named
+    // (axe button-name is critical), which makes this query singular and
+    // immune to DOM reordering. The assertion below is unchanged.
+    const addButton = screen.getByRole('button', { name: 'Add keyword' });
     fireEvent.click(addButton);
     
     await waitFor(() => {

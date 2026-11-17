@@ -37,8 +37,11 @@ export default function LanguageToggle({ variant = 'dark' }: LanguageToggleProps
     }
   };
 
+  // The workspace variant lives in the merchant sidebar, where the pointer is
+  // often a finger (guardrails §18 → 44px). Public/marketing variants keep their
+  // compact 28px pill so the funnel header is unchanged.
   const base =
-    'inline-flex items-center rounded-full border text-xs font-semibold cursor-pointer select-none transition-colors h-7 overflow-hidden';
+    `inline-flex items-center rounded-full border text-xs font-semibold cursor-pointer select-none transition-colors overflow-hidden ${variant === 'workspace' ? 'min-h-11' : 'h-7'}`;
 
   const styles = variant === 'light'
     ? 'border-white/30 bg-white/10 text-white hover:bg-white/20'

@@ -940,7 +940,7 @@ test('overview has no critical or serious axe violations', async ({ page }) => {
   // Scope to the redesigned surface: the dashboard shell's pre-existing
 // contrast debt (sidebar gray-400 links, language toggle) is not part of this
 // mission and would fail independently of it.
-  const results = await new AxeBuilder({ page }).include('.ca-scope').analyze();
+  const results = await new AxeBuilder({ page }).include('.em-channels').analyze();
   const blocking = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
   expect(blocking).toEqual([]);
 });
@@ -951,7 +951,7 @@ test('channel detail has no critical or serious axe violations', async ({ page }
   await loginAndGo(page, '/manage-shop/channels/channel-overridden');
   await expect(page.getByTestId('channel-mode-override')).toBeVisible();
 
-  const results = await new AxeBuilder({ page }).include('.ca-scope').analyze();
+  const results = await new AxeBuilder({ page }).include('.em-channels').analyze();
   const blocking = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
   expect(blocking).toEqual([]);
 });

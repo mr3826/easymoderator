@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Truck, Check, X, AlertCircle, Loader2, Power, TestTube, Star } from 'lucide-react';
+import { Truck, Check, X, AlertCircle, Power, TestTube, Star, Package, MapPin } from 'lucide-react';
+import { motion, MotionConfig } from 'motion/react';
 import * as orderApi from '@/api/domains/order';
+import { fadeUp } from '@/lib/motion';
+import { EmButton } from './dashboard/EmButton';
+import { PageHeader } from './dashboard/PageHeader';
+import { useDialogFocus } from './inbox/useDialogFocus';
+import { deriveDeliverySignal } from './delivery/derive';
+import { authService } from '@/app/lib/auth';
 import { getErrorMessage } from '@shared/lib/http/errors';
 import type {
   DeliveryActivationStatus,
@@ -14,6 +21,8 @@ import type {
   RedxCredentials
 } from '@/api/types/order';
 import PickupDetailsModal from './PickupDetailsModal';
+
+const ANIMATE = import.meta.env.MODE !== 'test';
 
 interface ProviderConfig {
   provider: DeliveryProvider;
@@ -172,12 +181,24 @@ const ACTIVATION_STATUS_LABELS: Record<DeliveryActivationStatus, string> = {
 };
 
 const ACTIVATION_STATUS_CLASSES: Record<DeliveryActivationStatus, string> = {
-  NOT_CONFIGURED: 'bg-gray-100 text-gray-700',
-  SETUP_INCOMPLETE: 'bg-amber-100 text-amber-800',
-  VALIDATING: 'bg-blue-100 text-blue-800',
-  ACTIVE: 'bg-green-100 text-green-700',
-  ACTION_REQUIRED: 'bg-red-100 text-red-700',
+  NOT_CONFIGURED: 'bg-em-bg-muted text-em-text-secondary',
+  SETUP_INCOMPLETE: 'bg-em-sunlight-100 text-em-sunlight-700',
+  VALIDATING: 'bg-em-info-100 text-em-info-700',
+  ACTIVE: 'bg-em-success-100 text-em-success-700',
+  ACTION_REQUIRED: 'bg-em-danger-100 text-em-danger-700',
 };
+
+const PROVIDER_ICONS: Record<DeliveryProvider, typeof Truck> = {
+  pathao: Truck,
+  steadfast: Package,
+  redx: MapPin,
+};
+
+const FOCUS_RING =
+  'focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none';
+
+const INPUT_CLASSES =
+  `w-full min-h-11 border border-em-border-strong rounded-lg bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
 
 const normalizeActivationStatus = (status: DeliveryProviderStatus | undefined): DeliveryActivationStatus => {
   const rawStatus = typeof status?.activation_status === 'string'
@@ -280,6 +301,10 @@ export default function DeliverySettings() {
   const [isSandbox, setIsSandbox] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  // Snapshot of the charges as last persisted, so each pricing card can show a
+  // confirmation next to its own save button and drop it again the moment the
+  // merchant edits anything. The page-level banner stays for the other actions.
+  const [savedChargesSnapshot, setSavedChargesSnapshot] = useState<string | null>(null);
   const [settingAiDefaultProvider, setSettingAiDefaultProvider] = useState<DeliveryProvider | null>(null);
   const [pickupModal, setPickupModal] = useState<{
     provider: DeliveryProvider;
@@ -287,6 +312,9 @@ export default function DeliverySettings() {
     pickup: PickupLocationSummary | null;
     providerPickupMeta: DeliveryProviderStatus['provider_pickup_meta'];
   } | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<DeliveryProvider | null>(null);
+  const disconnectRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(disconnectRef, Boolean(disconnectTarget));
 
   // Load delivery settings on mount
   useEffect(() => {
@@ -339,7 +367,9 @@ export default function DeliverySettings() {
       }
 
       await orderApi.updateDeliverySettings(deliverySettings);
-      setDeliverySettings(applyDefaults(deliverySettings));
+      const persisted = applyDefaults(deliverySettings);
+      setDeliverySettings(persisted);
+      setSavedChargesSnapshot(JSON.stringify(persisted));
       setSuccessMessage(t('manageShop.deliverySettings.success.settingsSaved'));
     } catch (err: any) {
       setError(getErrorMessage(err, t('manageShop.deliverySettings.errors.saveFailed')));
@@ -348,6 +378,38 @@ export default function DeliverySettings() {
       setSavingSettings(false);
     }
   };
+
+  const chargesSaved =
+    savedChargesSnapshot !== null && savedChargesSnapshot === JSON.stringify(deliverySettings);
+
+  // General, area and weight all live in one settings object behind one PUT, so
+  // every pricing card carries the same save affordance where the merchant
+  // actually edits — the shared button in the General header alone was easy to
+  // miss from the bottom of the page. The label and helper state the real scope.
+  const renderChargesSave = (testId: string) => (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-em-border pt-4">
+      <p className="text-xs text-em-text-secondary">
+        {t('manageShop.deliverySettings.saveChargesScope')}
+      </p>
+      <div className="flex items-center gap-3">
+        {chargesSaved && (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-em-success-700">
+            <Check className="h-4 w-4" aria-hidden="true" />
+            {t('manageShop.deliverySettings.chargesSaved')}
+          </span>
+        )}
+        <EmButton
+          variant="primary"
+          onClick={handleSaveSettings}
+          disabled={savingSettings}
+          loading={savingSettings}
+          data-testid={testId}
+        >
+          {t('manageShop.deliverySettings.saveCharges')}
+        </EmButton>
+      </div>
+    </div>
+  );
 
   const updateSetting = (key: keyof DeliveryShopSettings, value: any) => {
     setDeliverySettings((prev) => ({
@@ -454,10 +516,6 @@ export default function DeliverySettings() {
 
   const handleDisconnect = async (provider: DeliveryProvider) => {
     const config = PROVIDER_CONFIGS.find(c => c.provider === provider);
-    if (!confirm(t('manageShop.deliverySettings.disconnectConfirm', { provider: config?.display_name }))) {
-      return;
-    }
-
     try {
       setDisconnectingProvider(provider);
       setError(null);
@@ -539,123 +597,160 @@ export default function DeliverySettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="em-delivery min-h-full p-4 md:p-6">
+        <div className="mx-auto w-full max-w-[1440px] space-y-4" aria-label={t('manageShop.deliverySettings.title')}>
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="animate-pulse space-y-3 rounded-xl border border-em-border bg-em-bg-surface p-6">
+              <div className="h-5 w-1/3 rounded bg-em-bg-muted" />
+              <div className="h-3 w-2/3 rounded bg-em-bg-muted" />
+              <div className="h-9 w-40 rounded bg-em-bg-muted" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
+  const activeCount = providers.filter((provider) => normalizeActivationStatus(provider) === 'ACTIVE').length;
+  const connectedCount = providers.filter((provider) => provider.is_connected).length;
+  const signal = deriveDeliverySignal(
+    { phase: error ? 'error' : 'ready', providers, activeCount, connectedCount },
+    t,
+  );
+  const shopName = authService.getCurrentShop()?.shop_name || t('manageShop.deliverySettings.title');
+
   return (
-    <div className="p-6 max-w-5xl">
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Truck className="w-6 h-6 text-gray-700" />
-          <h1 className="text-2xl font-semibold text-gray-900">{t('manageShop.deliverySettings.title')}</h1>
-        </div>
-        <p className="text-sm text-gray-600">
-          {t('manageShop.deliverySettings.subtitle')}
-        </p>
-      </div>
+    <MotionConfig reducedMotion="user">
+    <div className="em-delivery min-h-full p-4 md:p-6">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6">
+      {/* Execution-page header (§29): title + signal + factual pills only. */}
+      <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
+        <PageHeader
+          title={t('manageShop.deliverySettings.title')}
+          breadcrumb={[{ label: shopName }]}
+          signal={signal}
+          signalTestId="delivery-signal"
+          signalAnnounce={false}
+          meta={
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                {t('manageShop.deliverySettings.statuses.active')}: {activeCount}
+              </span>
+              <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                {t('manageShop.deliverySettings.connected')}: {connectedCount}
+              </span>
+              <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                {t('manageShop.deliverySettings.enableCOD')}: {deliverySettings.cod_enabled ? t('manageShop.deliverySettings.statuses.active') : t('manageShop.deliverySettings.statuses.notConfigured')}
+              </span>
+            </div>
+          }
+        />
+      </motion.div>
 
       {/* Success Message */}
       {successMessage && (
-        <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
-          <Check className="w-5 h-5 text-green-600" />
-          <p className="text-sm text-green-700">{successMessage}</p>
+        <div role="status" className="p-4 bg-em-success-100 border border-em-success-700/20 rounded-xl flex items-center gap-2">
+          <Check className="w-5 h-5 text-em-success-700" aria-hidden="true" />
+          <p className="text-sm text-em-success-700">{successMessage}</p>
           <button
             onClick={() => setSuccessMessage(null)}
-            className="ml-auto text-green-600 hover:text-green-700"
+            aria-label={t('common.close')}
+            className={`ml-auto min-h-11 min-w-11 inline-flex items-center justify-center text-em-success-700 hover:text-em-success-700/80 ${FOCUS_RING}`}
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}
 
       {/* Error Message */}
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-red-600" />
-          <p className="text-sm text-red-700">{error}</p>
+        <div role="alert" className="p-4 bg-em-danger-100 border border-em-danger-700/20 rounded-xl flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 text-em-danger-700" aria-hidden="true" />
+          <p className="text-sm text-em-danger-700">{error}</p>
           <button
             onClick={() => setError(null)}
-            className="ml-auto text-red-600 hover:text-red-700"
+            aria-label={t('common.close')}
+            className={`ml-auto min-h-11 min-w-11 inline-flex items-center justify-center text-em-danger-700 hover:text-em-danger-700/80 ${FOCUS_RING}`}
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}
 
       {/* Delivery Charges */}
-      <div className="mb-8 space-y-6">
-        <div className="border border-gray-200 rounded-lg bg-white p-6">
+      <div className="space-y-6">
+        <div className="border border-em-border rounded-xl bg-em-bg-surface p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">{t('manageShop.deliverySettings.generalSettings')}</h2>
-            <button
+            <h2 className="text-lg font-semibold text-em-text-primary">{t('manageShop.deliverySettings.generalSettings')}</h2>
+            <EmButton
+              variant="primary"
               onClick={handleSaveSettings}
               disabled={savingSettings}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              loading={savingSettings}
+              className="gap-2"
             >
-              {savingSettings && <Loader2 className="w-4 h-4 animate-spin" />}
               {t('manageShop.deliverySettings.saveSettings')}
-            </button>
+            </EmButton>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-em-text-primary mb-1">
                 {t('manageShop.deliverySettings.defaultCharge')}
               </label>
               <input
                 type="number"
+                aria-label={t('manageShop.deliverySettings.defaultCharge')}
                 value={deliverySettings.default_delivery_charge}
                 onChange={(e) => updateSetting('default_delivery_charge', Number(e.target.value) || 0)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={INPUT_CLASSES}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-em-text-primary mb-1">
                 {t('manageShop.deliverySettings.codCharge')}
               </label>
               <input
                 type="number"
+                aria-label={t('manageShop.deliverySettings.codCharge')}
                 value={deliverySettings.cod_charge}
                 onChange={(e) => updateSetting('cod_charge', Number(e.target.value) || 0)}
                 disabled={!deliverySettings.cod_enabled}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                className={`${INPUT_CLASSES} disabled:bg-em-bg-muted disabled:text-em-text-disabled`}
               />
             </div>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-6">
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <label className="inline-flex min-h-11 items-center gap-2 text-sm text-em-text-primary">
               <input
                 type="checkbox"
                 checked={deliverySettings.cod_enabled}
                 onChange={(e) => updateSetting('cod_enabled', e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                className="h-5 w-5 rounded border-em-border-strong accent-em-violet-600"
               />
               {t('manageShop.deliverySettings.enableCOD')}
             </label>
 
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <label className="inline-flex min-h-11 items-center gap-2 text-sm text-em-text-primary">
               <input
                 type="checkbox"
                 checked={deliverySettings.non_refundable}
                 onChange={(e) => updateSetting('non_refundable', e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                className="h-5 w-5 rounded border-em-border-strong accent-em-violet-600"
               />
               {t('manageShop.deliverySettings.nonRefundable')}
             </label>
           </div>
         </div>
 
-        <div className="border border-gray-200 rounded-lg bg-white p-6">
+        <div className="border border-em-border rounded-xl bg-em-bg-surface p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">{t('manageShop.deliverySettings.areaBasedPricing')}</h2>
+            <h2 className="text-lg font-semibold text-em-text-primary">{t('manageShop.deliverySettings.areaBasedPricing')}</h2>
             <button
               onClick={addAreaPricing}
-              className="text-sm text-blue-600 hover:text-blue-700"
+              className={`min-h-11 rounded-lg px-3 text-sm font-semibold text-em-violet-700 hover:bg-em-violet-50 ${FOCUS_RING}`}
             >
               {t('manageShop.deliverySettings.addArea')}
             </button>
@@ -666,9 +761,10 @@ export default function DeliverySettings() {
               <div key={`${area.zone}-${index}`} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                 <div className="md:col-span-4">
                   <select
+                    aria-label={`${t('manageShop.deliverySettings.areaBasedPricing')} ${index + 1}`}
                     value={area.zone}
                     onChange={(e) => updateAreaPricing(index, 'zone', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className={INPUT_CLASSES}
                   >
                     {areaZoneOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -680,19 +776,20 @@ export default function DeliverySettings() {
                 <div className="md:col-span-4">
                   <input
                     type="number"
+                    aria-label={`${t('manageShop.deliverySettings.extraCharge')} ${index + 1}`}
                     value={area.charge}
                     onChange={(e) => updateAreaPricing(index, 'charge', Number(e.target.value) || 0)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className={INPUT_CLASSES}
                     placeholder={t('manageShop.deliverySettings.extraCharge')}
                   />
                 </div>
                 <div className="md:col-span-3">
-                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <label className="inline-flex min-h-11 items-center gap-2 text-sm text-em-text-primary">
                     <input
                       type="checkbox"
                       checked={area.cod_enabled}
                       onChange={(e) => updateAreaPricing(index, 'cod_enabled', e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                      className="h-5 w-5 rounded border-em-border-strong accent-em-violet-600"
                     />
                     {t('manageShop.deliverySettings.codAllowed')}
                   </label>
@@ -700,7 +797,7 @@ export default function DeliverySettings() {
                 <div className="md:col-span-1 flex justify-end">
                   <button
                     onClick={() => removeAreaPricing(index)}
-                    className="text-gray-400 hover:text-red-500"
+                    className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-danger-700 ${FOCUS_RING}`}
                     aria-label={t('manageShop.deliverySettings.removeArea')}
                   >
                     <X className="w-4 h-4" />
@@ -709,14 +806,16 @@ export default function DeliverySettings() {
               </div>
             ))}
           </div>
+
+          {renderChargesSave('area-pricing-save')}
         </div>
 
-        <div className="border border-gray-200 rounded-lg bg-white p-6">
+        <div className="border border-em-border rounded-xl bg-em-bg-surface p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-gray-900">{t('manageShop.deliverySettings.weightCharges')}</h2>
+              <h2 className="text-lg font-semibold text-em-text-primary">{t('manageShop.deliverySettings.weightCharges')}</h2>
               <span
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 text-xs font-semibold text-gray-600"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-em-border-strong text-xs font-semibold text-em-text-secondary"
                 title={t('manageShop.deliverySettings.weightTierTooltip')}
               >
                 ?
@@ -724,13 +823,13 @@ export default function DeliverySettings() {
             </div>
             <button
               onClick={addWeightTier}
-              className="text-sm text-blue-600 hover:text-blue-700"
+              className={`min-h-11 rounded-lg px-3 text-sm font-semibold text-em-violet-700 hover:bg-em-violet-50 ${FOCUS_RING}`}
             >
               {t('manageShop.deliverySettings.addTier')}
             </button>
           </div>
 
-          <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <div className="mb-4 rounded-lg border border-em-info-700/20 bg-em-info-100 px-4 py-3 text-sm text-em-info-700">
             {t('manageShop.deliverySettings.weightTierInfo')}
           </div>
 
@@ -740,34 +839,37 @@ export default function DeliverySettings() {
                 <div className="md:col-span-3">
                   <input
                     type="number"
+                    aria-label={`${t('manageShop.deliverySettings.weightFrom')} ${index + 1}`}
                     value={tier.from_kg}
                     onChange={(e) => updateWeightTier(index, 'from_kg', Number(e.target.value) || 0)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className={INPUT_CLASSES}
                     placeholder={t('manageShop.deliverySettings.weightFrom')}
                   />
                 </div>
                 <div className="md:col-span-3">
                   <input
                     type="number"
+                    aria-label={`${t('manageShop.deliverySettings.weightTo')} ${index + 1}`}
                     value={tier.to_kg}
                     onChange={(e) => updateWeightTier(index, 'to_kg', Number(e.target.value) || 0)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className={INPUT_CLASSES}
                     placeholder={t('manageShop.deliverySettings.weightTo')}
                   />
                 </div>
                 <div className="md:col-span-4">
                   <input
                     type="number"
+                    aria-label={`${t('manageShop.deliverySettings.extraCharge')} ${index + 1}`}
                     value={tier.extra_charge}
                     onChange={(e) => updateWeightTier(index, 'extra_charge', Number(e.target.value) || 0)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className={INPUT_CLASSES}
                     placeholder={t('manageShop.deliverySettings.extraCharge')}
                   />
                 </div>
                 <div className="md:col-span-2 flex justify-end">
                   <button
                     onClick={() => removeWeightTier(index)}
-                    className="text-gray-400 hover:text-red-500"
+                    className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-danger-700 ${FOCUS_RING}`}
                     aria-label={t('manageShop.deliverySettings.removeTier')}
                   >
                     <X className="w-4 h-4" />
@@ -777,9 +879,11 @@ export default function DeliverySettings() {
             ))}
 
             {deliverySettings.weight_tiers.length === 0 && (
-              <p className="text-sm text-gray-500">{t('manageShop.deliverySettings.noTiers')}</p>
+              <p className="text-sm text-em-text-secondary">{t('manageShop.deliverySettings.noTiers')}</p>
             )}
           </div>
+
+          {renderChargesSave('weight-charges-save')}
         </div>
       </div>
 
@@ -800,40 +904,43 @@ export default function DeliverySettings() {
           const showingForm = showCredentialsForm === config.provider;
 
           return (
-            <div key={config.provider} className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+            <div key={config.provider} className="border border-em-border rounded-xl bg-em-bg-surface overflow-hidden">
               {/* Provider Header */}
               <div className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-lg text-2xl">
-                      {config.logo}
+                    <div className="w-12 h-12 flex items-center justify-center bg-em-violet-100 text-em-violet-700 rounded-lg">
+                      {(() => {
+                        const ProviderIcon = PROVIDER_ICONS[config.provider];
+                        return <ProviderIcon className="h-6 w-6" aria-hidden="true" />;
+                      })()}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-lg font-semibold text-gray-900">{config.display_name}</h3>
+                        <h3 className="text-lg font-semibold text-em-text-primary">{config.display_name}</h3>
                         {isAiDefault && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
-                            <Star className="w-3 h-3 fill-current" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-em-violet-100 text-em-violet-700">
+                            <Star className="w-3 h-3 fill-current" aria-hidden="true" />
                             {t('manageShop.deliverySettings.aiDefaultBadge')}
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 mt-1">{config.description}</p>
+                      <p className="text-sm text-em-text-secondary mt-1">{config.description}</p>
                       {isConnected && (
                         <div className="flex items-center gap-4 mt-2 flex-wrap">
                           <div className="flex items-center gap-1.5">
-                            <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                            <span className="text-xs text-gray-600">{t('manageShop.deliverySettings.connected')}</span>
+                            <div className="w-2 h-2 rounded-full bg-em-success-700"></div>
+                            <span className="text-xs text-em-text-secondary">{t('manageShop.deliverySettings.connected')}</span>
                           </div>
                           {providerStatus?.last_validated_at && (
-                            <span className="text-xs text-gray-500">
+                            <span className="em-tabular text-xs text-em-text-secondary">
                               {t('manageShop.deliverySettings.lastTested', { date: new Date(providerStatus.last_validated_at).toLocaleDateString() })}
                             </span>
                           )}
                           {(config.provider === 'pathao' || config.provider === 'redx') && (
                             <span
                               data-testid={`${config.provider}-environment`}
-                              className="text-xs font-medium text-blue-700"
+                              className="text-xs font-medium text-em-violet-700"
                             >
                               {providerStatus?.is_sandbox ? 'Sandbox' : 'Production'}
                             </span>
@@ -852,24 +959,24 @@ export default function DeliverySettings() {
                 </div>
 
                 {isConnected && (
-                  <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                  <div className="mt-4 rounded-lg border border-em-border bg-em-bg-muted px-4 py-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <p className="text-xs font-semibold text-em-text-secondary">
                           {t('manageShop.deliverySettings.pickupDetails')}
                         </p>
                         {pickupSummary ? (
-                          <p className="mt-1 text-sm text-gray-800" data-testid={`pickup-summary-${config.provider}`}>
+                          <p className="mt-1 text-sm text-em-text-primary" data-testid={`pickup-summary-${config.provider}`}>
                             {[pickupSummary.display_name, pickupSummary.area_name, pickupSummary.address].filter(Boolean).join(' · ')}
                           </p>
                         ) : (
-                          <p className="mt-1 text-sm text-amber-700" data-testid={`pickup-missing-${config.provider}`}>
+                          <p className="mt-1 text-sm text-em-sunlight-700" data-testid={`pickup-missing-${config.provider}`}>
                             {t('manageShop.deliverySettings.pickupMissing')}
                           </p>
                         )}
                         {providerStatus?.activation_error && (
-                          <p className="mt-2 flex items-start gap-1.5 text-sm text-red-700" role="alert">
-                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <p className="mt-2 flex items-start gap-1.5 text-sm text-em-danger-700" role="alert">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                             <span>{providerStatus.activation_error}</span>
                           </p>
                         )}
@@ -883,7 +990,7 @@ export default function DeliverySettings() {
                             pickup: pickupSummary,
                             providerPickupMeta: providerStatus?.provider_pickup_meta ?? null,
                           })}
-                          className="shrink-0 self-start text-left text-sm font-semibold text-blue-700 hover:text-blue-800 hover:underline"
+                          className={`shrink-0 self-start min-h-11 text-left text-sm font-semibold text-em-violet-700 hover:text-em-violet-900 hover:underline ${FOCUS_RING}`}
                         >
                           {t('manageShop.deliverySettings.completePickupDetails')}
                         </button>
@@ -896,11 +1003,11 @@ export default function DeliverySettings() {
                 {providerStatus?.capabilities && (
                   <details
                     data-testid={`provider-capabilities-${config.provider}`}
-                    className="mt-4 rounded-lg border border-gray-100 bg-white px-4 py-3"
+                    className="mt-4 rounded-lg border border-em-border bg-em-bg-surface px-4 py-3"
                   >
-                    <summary className="cursor-pointer text-sm font-semibold text-gray-800">
+                    <summary className={`cursor-pointer min-h-11 text-sm font-semibold text-em-text-primary ${FOCUS_RING}`}>
                       {t('manageShop.deliverySettings.capabilities.title')}
-                      <span className="ml-2 text-xs font-normal font-medium text-amber-700">
+                      <span className="ml-2 text-xs font-normal font-medium text-em-sunlight-700">
                         {t(`manageShop.deliverySettings.capabilities.level.${CAPABILITY_LEVEL_KEYS[providerStatus.capabilities.ceiling] || 'unknown'}`)}
                       </span>
                     </summary>
@@ -909,13 +1016,13 @@ export default function DeliverySettings() {
                         const entry = providerStatus.capabilities?.[operation];
                         if (!entry) return null;
                         const tone = entry.level === 'UNSUPPORTED'
-                          ? 'text-red-700'
+                          ? 'text-em-danger-700'
                           : entry.level === 'UNKNOWN'
-                            ? 'text-amber-700'
-                            : 'text-gray-800';
+                            ? 'text-em-sunlight-700'
+                            : 'text-em-text-primary';
                         return (
-                          <div key={operation} className="flex flex-col gap-1 border-t border-gray-50 pt-2 first:border-t-0 first:pt-0 sm:flex-row sm:items-start sm:justify-between">
-                            <dt className="text-xs font-medium text-gray-600">
+                          <div key={operation} className="flex flex-col gap-1 border-t border-em-border pt-2 first:border-t-0 first:pt-0 sm:flex-row sm:items-start sm:justify-between">
+                            <dt className="text-xs font-medium text-em-text-secondary">
                               {t(`manageShop.deliverySettings.capabilities.operation.${operation}`)}
                             </dt>
                             <dd className="text-xs sm:max-w-[60%] sm:text-right">
@@ -923,12 +1030,12 @@ export default function DeliverySettings() {
                                 {t(`manageShop.deliverySettings.capabilities.level.${CAPABILITY_LEVEL_KEYS[entry.level] || 'unknown'}`)}
                               </span>
                               {entry.reason_code && (
-                                <p className="mt-0.5 text-gray-500">
+                                <p className="mt-0.5 text-em-text-secondary">
                                   {t(`manageShop.deliverySettings.capabilities.reason.${entry.reason_code}`, { defaultValue: '' })}
                                 </p>
                               )}
                               {entry.manual_step_code && (
-                                <p className="mt-0.5 text-gray-500">
+                                <p className="mt-0.5 text-em-text-secondary">
                                   {t(`manageShop.deliverySettings.capabilities.manualStep.${entry.manual_step_code}`, { defaultValue: '' })}
                                 </p>
                               )}
@@ -937,7 +1044,7 @@ export default function DeliverySettings() {
                         );
                       })}
                     </dl>
-                    <p className="mt-3 text-xs text-gray-500">
+                    <p className="mt-3 text-xs text-em-text-secondary">
                       {providerStatus.capabilities.last_verified_at
                         ? t('manageShop.deliverySettings.capabilities.lastVerified', { date: new Date(providerStatus.capabilities.last_verified_at).toLocaleDateString() })
                         : t('manageShop.deliverySettings.capabilities.neverVerified')}
@@ -948,64 +1055,63 @@ export default function DeliverySettings() {
                 {/* Actions */}
                 <div className="flex flex-wrap items-center gap-3 mt-6">
                   {!isConnected && (
-                    <button
+                    <EmButton
+                      variant="primary"
                       onClick={() => openCredentialsForm(config.provider)}
                       disabled={isConnecting}
-                      className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      loading={isConnecting}
                     >
-                      {isConnecting && <Loader2 className="w-4 h-4 animate-spin" />}
                       {t('common.connect')}
-                    </button>
+                    </EmButton>
                   )}
 
                   {isConnected && isActive && !isAiDefault && (
-                    <button
+                    <EmButton
+                      variant="secondary"
                       onClick={() => void handleSetAiDefault(config.provider)}
                       disabled={settingAiDefaultProvider === config.provider}
-                      className="px-4 py-2 bg-emerald-50 text-emerald-700 text-sm font-medium rounded-lg hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 border border-emerald-200"
+                      loading={settingAiDefaultProvider === config.provider}
+                      className="gap-2"
                     >
-                      {settingAiDefaultProvider === config.provider
-                        ? <Loader2 className="w-4 h-4 animate-spin" />
-                        : <Star className="w-4 h-4" />}
+                      <Star className="w-4 h-4" aria-hidden="true" />
                       {t('manageShop.deliverySettings.setAsAiDefault')}
-                    </button>
+                    </EmButton>
                   )}
 
                   {isConnected && (
                     <>
-                      <button
+                      <EmButton
+                        variant={isActive ? 'secondary' : 'primary'}
                         onClick={() => void handleToggle(config.provider, activationStatus)}
                         disabled={isToggling}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 ${
-                           isActive
-                            ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            : 'bg-green-600 text-white hover:bg-green-700'
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        loading={isToggling}
+                        className="gap-2"
                       >
-                        {isToggling && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {!isToggling && <Power className="w-4 h-4" />}
+                        <Power className="w-4 h-4" aria-hidden="true" />
                         {isActive ? t('manageShop.deliverySettings.deactivate') : t('manageShop.deliverySettings.activate')}
-                      </button>
+                      </EmButton>
 
-                      <button
+                      <EmButton
+                        variant="secondary"
                         onClick={() => handleTest(config.provider)}
                         disabled={isTesting}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        loading={isTesting}
+                        className="gap-2"
                       >
-                        {isTesting && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {!isTesting && <TestTube className="w-4 h-4" />}
+                        <TestTube className="w-4 h-4" aria-hidden="true" />
                         {t('manageShop.deliverySettings.testConnection')}
-                      </button>
+                      </EmButton>
 
-                      <button
-                        onClick={() => handleDisconnect(config.provider)}
+                      <EmButton
+                        variant="danger"
+                        onClick={() => setDisconnectTarget(config.provider)}
                         disabled={isDisconnecting}
-                        className="px-4 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="gap-2"
+                        data-testid={`disconnect-${config.provider}`}
                       >
-                        {isDisconnecting && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {!isDisconnecting && <X className="w-4 h-4" />}
+                        <X className="w-4 h-4" aria-hidden="true" />
                         {t('common.disconnect')}
-                      </button>
+                      </EmButton>
                     </>
                   )}
                 </div>
@@ -1013,61 +1119,61 @@ export default function DeliverySettings() {
 
               {/* Credentials Form */}
               {showingForm && (
-                <div className="border-t border-gray-200 bg-gray-50 p-6">
-                  <h4 className="text-sm font-semibold text-gray-900 mb-4">
+                <div className="border-t border-em-border bg-em-bg-muted p-6">
+                  <h4 className="text-sm font-semibold text-em-text-primary mb-4">
                     {t('manageShop.deliverySettings.enterCredentials', { provider: config.display_name })}
                   </h4>
 
                   <div className="space-y-4">
                     {config.fields.map((field) => (
                       <div key={field.name}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-em-text-primary mb-1">
                           {field.label}
-                          {field.required && <span className="text-red-500 ml-1">*</span>}
+                          {field.required && <span className="text-em-danger-700 ml-1">*</span>}
                         </label>
                         <input
                           type={field.type}
                           value={credentials[field.name] || ''}
                           onChange={(e) => setCredentials({ ...credentials, [field.name]: e.target.value })}
                           placeholder={field.placeholder}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className={INPUT_CLASSES}
                         />
                       </div>
                     ))}
 
                     {(config.provider === 'pathao' || config.provider === 'redx') && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-h-11 items-center gap-2">
                         <input
                           type="checkbox"
                           id={`sandbox-${config.provider}`}
                           checked={isSandbox}
                           onChange={(e) => setIsSandbox(e.target.checked)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          className="h-5 w-5 rounded border-em-border-strong accent-em-violet-600"
                         />
-                        <label htmlFor={`sandbox-${config.provider}`} className="text-sm text-gray-700">
+                        <label htmlFor={`sandbox-${config.provider}`} className="text-sm text-em-text-primary">
                           {t('manageShop.deliverySettings.useSandbox')}
                         </label>
                       </div>
                     )}
 
                     <div className="flex items-center gap-3 pt-2">
-                      <button
+                      <EmButton
+                        variant="primary"
                         onClick={() => handleConnect(config.provider)}
                         disabled={isConnecting}
-                        className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        loading={isConnecting}
                       >
-                        {isConnecting && <Loader2 className="w-4 h-4 animate-spin" />}
                         {t('manageShop.deliverySettings.saveConnect')}
-                      </button>
-                      <button
+                      </EmButton>
+                      <EmButton
+                        variant="secondary"
                         onClick={() => {
                           setShowCredentialsForm(null);
                           setCredentials({});
                         }}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200"
                       >
                         {t('common.cancel')}
-                      </button>
+                      </EmButton>
                     </div>
                   </div>
                 </div>
@@ -1092,6 +1198,53 @@ export default function DeliverySettings() {
         />
       )}
 
+      {disconnectTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-em-midnight-950/60 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setDisconnectTarget(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setDisconnectTarget(null);
+          }}
+        >
+          <div
+            ref={disconnectRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delivery-disconnect-title"
+            className="w-full max-w-md rounded-xl bg-em-bg-surface p-5 shadow-xl md:p-6"
+          >
+            <h3 id="delivery-disconnect-title" className="text-lg font-semibold text-em-text-primary">
+              {t('manageShop.deliverySettings.disconnectConfirm', {
+                provider: PROVIDER_CONFIGS.find((item) => item.provider === disconnectTarget)?.display_name,
+              })}
+            </h3>
+            <p className="mt-2 text-sm text-em-text-secondary">
+              {t('manageShop.deliverySettings.disconnectConfirmBody')}
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <EmButton variant="secondary" onClick={() => setDisconnectTarget(null)}>
+                {t('common.cancel')}
+              </EmButton>
+              <EmButton
+                variant="danger"
+                onClick={() => {
+                  const target = disconnectTarget;
+                  setDisconnectTarget(null);
+                  void handleDisconnect(target);
+                }}
+                loading={disconnectingProvider === disconnectTarget}
+                data-testid="delivery-disconnect-confirm"
+              >
+                {t('common.disconnect')}
+              </EmButton>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
     </div>
+    </MotionConfig>
   );
 }

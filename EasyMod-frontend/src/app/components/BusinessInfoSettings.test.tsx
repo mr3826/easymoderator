@@ -59,9 +59,18 @@ vi.mock('@/app/lib/auth', () => ({
 }));
 
 // ── Mock lucide-react icons ───────────────────────────────────────────────
+// Redesign kit (PageHeader/SignalBadge/EmButton) imports additional icons; the
+// fixed mock set is extended for them (harness-only, assertions unchanged).
 vi.mock('lucide-react', () => ({
   Bot: () => null,
   ChevronRight: () => null,
+  CheckCircle2: () => null,
+  TriangleAlert: () => null,
+  Eye: () => null,
+  OctagonX: () => null,
+  BadgeCheck: () => null,
+  Clock4: () => null,
+  Loader2: () => null,
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────

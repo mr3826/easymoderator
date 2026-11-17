@@ -2,14 +2,21 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Loader2, Search, Sparkles, Users } from "lucide-react";
+import { motion, MotionConfig } from "motion/react";
 import { listCustomers360, listOpportunities } from "@/api/domains/customer-intelligence";
 import type { Customer360ListItem, Opportunity } from "@/api/types/customer-intelligence";
+import { authService } from "@/app/lib/auth";
+import { fadeUp } from "@/lib/motion";
+import { PageHeader } from "../dashboard/PageHeader";
 import RtoNetworkSettings from "../RtoNetworkSettings";
 import OpportunityCard from "./OpportunityCard";
 import { formatMoney, formatRelative, initialOf, stateStyles } from "./customerDisplay";
+import { deriveCustomersSignal } from "./derive";
 
 const PAGE_SIZE = 20;
+const ANIMATE = import.meta.env.MODE !== "test";
 type Tab = "all" | "opportunities";
+type ListStatus = { state: "loading" | "ready" | "error"; total: number };
 
 function useDebounced<T>(value: T, delay = 300): T {
   const [debounced, setDebounced] = useState(value);
@@ -28,24 +35,24 @@ function Pagination({ page, total, onPage }: { page: number; total: number; onPa
   const end = Math.min(page * PAGE_SIZE, total);
   return (
     <nav className="flex items-center justify-between gap-3 mt-4" aria-label="pagination">
-      <p className="text-sm text-gray-600">{t("customer360.pagination", { start, end, total })}</p>
+      <p className="text-sm text-em-text-secondary">{t("customer360.pagination", { start, end, total })}</p>
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => onPage(page - 1)}
           disabled={page <= 1}
           aria-label={t("customer360.previous")}
-          className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40"
+          className="p-2 border border-em-border rounded-lg hover:bg-em-bg-muted disabled:opacity-40"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <span className="text-sm text-gray-700 tabular-nums">{page} / {pages}</span>
+        <span className="text-sm text-em-text-primary tabular-nums">{page} / {pages}</span>
         <button
           type="button"
           onClick={() => onPage(page + 1)}
           disabled={page >= pages}
           aria-label={t("customer360.next")}
-          className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40"
+          className="p-2 border border-em-border rounded-lg hover:bg-em-bg-muted disabled:opacity-40"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
@@ -67,7 +74,7 @@ function StateBadge({ customer }: { customer: Customer360ListItem }) {
   );
 }
 
-function CustomerList({ search }: { search: string }) {
+function CustomerList({ search, onStatus }: { search: string; onStatus?: (status: ListStatus) => void }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
@@ -76,6 +83,7 @@ function CustomerList({ search }: { search: string }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => setPage(1), [search]);
+  useEffect(() => { onStatus?.({ state, total }); }, [state, total, onStatus]);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -93,17 +101,17 @@ function CustomerList({ search }: { search: string }) {
 
   if (state === "loading") {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center" role="status">
-        <Loader2 className="w-8 h-8 animate-spin text-brand-hover mx-auto mb-3" />
-        <p className="text-gray-600">{t("customer360.loading")}</p>
+      <div className="bg-em-bg-surface rounded-2xl border border-em-border p-10 text-center" role="status">
+        <Loader2 className="w-8 h-8 animate-spin text-em-violet-700 mx-auto mb-3" />
+        <p className="text-em-text-secondary">{t("customer360.loading")}</p>
       </div>
     );
   }
   if (state === "error") {
     return (
-      <div className="bg-white rounded-2xl border border-red-100 p-8 text-center" role="alert">
-        <p className="text-red-800 font-medium mb-3">{t("customer360.loadFailed")}</p>
-        <button type="button" onClick={() => void load()} className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm">
+      <div className="bg-em-bg-surface rounded-2xl border border-em-danger-700/20 p-8 text-center" role="alert">
+        <p className="text-em-danger-700 font-medium mb-3">{t("customer360.loadFailed")}</p>
+        <button type="button" onClick={() => void load()} className="px-4 py-2 rounded-lg bg-em-midnight-900 text-white text-sm">
           {t("customer360.retry")}
         </button>
       </div>
@@ -111,9 +119,9 @@ function CustomerList({ search }: { search: string }) {
   }
   if (!rows.length) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
-        <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" aria-hidden="true" />
-        <p className="text-gray-600">{search ? t("customer360.emptySearch") : t("customer360.empty")}</p>
+      <div className="bg-em-bg-surface rounded-2xl border border-em-border p-10 text-center">
+        <Users className="w-12 h-12 text-em-text-secondary mx-auto mb-3" aria-hidden="true" />
+        <p className="text-em-text-secondary">{search ? t("customer360.emptySearch") : t("customer360.empty")}</p>
       </div>
     );
   }
@@ -129,23 +137,23 @@ function CustomerList({ search }: { search: string }) {
             <button
               type="button"
               onClick={() => open(c.id)}
-              className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-sm p-4"
+              className="w-full text-left bg-em-bg-surface rounded-2xl border border-em-border shadow-sm p-4"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 shrink-0 rounded-full bg-muted text-muted-foreground font-semibold flex items-center justify-center">
+                <div className="w-10 h-10 shrink-0 rounded-full bg-em-bg-muted text-em-text-secondary font-semibold flex items-center justify-center">
                   {initialOf(c.name)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-gray-900 truncate">{c.name || t("customer360.unknownName")}</p>
-                  <p className="text-xs text-gray-500">{formatRelative(c.last_activity_at, i18n.language)}</p>
+                  <p className="font-medium text-em-text-primary truncate">{c.name || t("customer360.unknownName")}</p>
+                  <p className="text-xs text-em-text-secondary">{formatRelative(c.last_activity_at, i18n.language)}</p>
                 </div>
                 <StateBadge customer={c} />
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-700">
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-em-text-primary">
                 <span>{t("customer360.ordersCount", { delivered: c.delivered_orders, total: c.total_orders })}</span>
                 <span className="font-medium">{formatMoney(c.delivered_value, i18n.language)}</span>
                 {c.open_opportunity && (
-                  <span className="inline-flex items-center gap-1 text-brand-hover font-medium">
+                  <span className="inline-flex items-center gap-1 text-em-violet-700 font-medium">
                     <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> {t(`customer360.strength.${c.open_opportunity.strength}`)}
                   </span>
                 )}
@@ -156,56 +164,56 @@ function CustomerList({ search }: { search: string }) {
       </ul>
 
       {/* Desktop: table */}
-      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="hidden md:block bg-em-bg-surface rounded-2xl shadow-sm border border-em-border overflow-hidden">
         <table className="w-full" data-testid="customer-table">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead className="bg-em-bg-muted border-b border-em-border">
             <tr>
               {["customer", "state", "orders", "deliveredValue", "lastActivity", "opportunity"].map((col) => (
-                <th key={col} scope="col" className="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                <th key={col} scope="col" className="px-5 py-3 text-left text-xs font-semibold text-em-text-secondary uppercase tracking-wider">
                   {t(`customer360.columns.${col}`)}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-em-border">
             {rows.map((c) => (
               <tr
                 key={c.id}
                 onClick={() => open(c.id)}
-                className="hover:bg-gray-50 cursor-pointer"
+                className="hover:bg-em-bg-muted cursor-pointer"
                 data-testid={`customer-row-${c.id}`}
               >
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 shrink-0 rounded-full bg-muted text-muted-foreground text-sm font-semibold flex items-center justify-center">
+                    <div className="w-9 h-9 shrink-0 rounded-full bg-em-bg-muted text-em-text-secondary text-sm font-semibold flex items-center justify-center">
                       {initialOf(c.name)}
                     </div>
                     <div className="min-w-0">
                       <a
                         href={`/customers/${c.id}`}
                         onClick={(e) => { e.preventDefault(); open(c.id); }}
-                        className="font-medium text-gray-900 hover:text-brand-hover truncate block"
+                        className="font-medium text-em-text-primary hover:text-em-violet-700 truncate block"
                       >
                         {c.name || t("customer360.unknownName")}
                       </a>
-                      <p className="text-xs text-gray-500">{c.phone || c.channel_type}</p>
+                      <p className="text-xs text-em-text-secondary">{c.phone || c.channel_type}</p>
                     </div>
                   </div>
                 </td>
                 <td className="px-5 py-3"><StateBadge customer={c} /></td>
-                <td className="px-5 py-3 text-sm text-gray-700 tabular-nums">
+                <td className="px-5 py-3 text-sm text-em-text-primary tabular-nums">
                   {t("customer360.ordersCount", { delivered: c.delivered_orders, total: c.total_orders })}
                 </td>
-                <td className="px-5 py-3 text-sm font-medium text-gray-900 tabular-nums">
+                <td className="px-5 py-3 text-sm font-medium text-em-text-primary tabular-nums">
                   {formatMoney(c.delivered_value, i18n.language)}
                 </td>
-                <td className="px-5 py-3 text-sm text-gray-600">{formatRelative(c.last_activity_at, i18n.language)}</td>
+                <td className="px-5 py-3 text-sm text-em-text-secondary">{formatRelative(c.last_activity_at, i18n.language)}</td>
                 <td className="px-5 py-3 text-sm">
                   {c.open_opportunity ? (
-                    <span className="inline-flex items-center gap-1 text-brand-hover font-medium">
+                    <span className="inline-flex items-center gap-1 text-em-violet-700 font-medium">
                       <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> {t(`customer360.strength.${c.open_opportunity.strength}`)}
                     </span>
-                  ) : <span className="text-gray-400">{t("customer360.never")}</span>}
+                  ) : <span className="text-em-text-secondary">{t("customer360.never")}</span>}
                 </td>
               </tr>
             ))}
@@ -241,16 +249,16 @@ function OpportunityList({ onCount }: { onCount: (n: number) => void }) {
 
   if (state === "loading") {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center" role="status">
-        <Loader2 className="w-8 h-8 animate-spin text-brand-hover mx-auto mb-3" />
+      <div className="bg-em-bg-surface rounded-2xl border border-em-border p-10 text-center" role="status">
+        <Loader2 className="w-8 h-8 animate-spin text-em-violet-700 mx-auto mb-3" />
       </div>
     );
   }
   if (state === "error") {
     return (
-      <div className="bg-white rounded-2xl border border-red-100 p-8 text-center" role="alert">
-        <p className="text-red-800 font-medium mb-3">{t("customer360.loadFailed")}</p>
-        <button type="button" onClick={() => void load()} className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm">
+      <div className="bg-em-bg-surface rounded-2xl border border-em-danger-700/20 p-8 text-center" role="alert">
+        <p className="text-em-danger-700 font-medium mb-3">{t("customer360.loadFailed")}</p>
+        <button type="button" onClick={() => void load()} className="px-4 py-2 rounded-lg bg-em-midnight-900 text-white text-sm">
           {t("customer360.retry")}
         </button>
       </div>
@@ -258,9 +266,9 @@ function OpportunityList({ onCount }: { onCount: (n: number) => void }) {
   }
   if (!rows.length) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
-        <Sparkles className="w-12 h-12 text-gray-300 mx-auto mb-3" aria-hidden="true" />
-        <p className="text-gray-600 max-w-md mx-auto">{t("customer360.emptyOpportunities")}</p>
+      <div className="bg-em-bg-surface rounded-2xl border border-em-border p-10 text-center">
+        <Sparkles className="w-12 h-12 text-em-text-secondary mx-auto mb-3" aria-hidden="true" />
+        <p className="text-em-text-secondary max-w-md mx-auto">{t("customer360.emptyOpportunities")}</p>
       </div>
     );
   }
@@ -298,6 +306,16 @@ export default function Customer360Page() {
   const [searchInput, setSearchInput] = useState("");
   const search = useDebounced(searchInput.trim());
   const [opportunityCount, setOpportunityCount] = useState<number | null>(null);
+  const [listStatus, setListStatus] = useState<ListStatus>({ state: "loading", total: 0 });
+  const signal = deriveCustomersSignal(
+    {
+      phase: listStatus.state === "error" ? "error" : listStatus.state === "loading" ? "loading" : "ready",
+      totalCount: listStatus.total,
+      opportunityCount,
+    },
+    t,
+  );
+  const shopName = authService.getCurrentShop()?.shop_name;
 
   // Fetch the live count once so the tab badge is right before it is opened.
   useEffect(() => {
@@ -313,33 +331,51 @@ export default function Customer360Page() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
-        <header className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">{t("customer360.title")}</h1>
-          <p className="text-gray-600 text-sm md:text-base">{t("customer360.subtitle")}</p>
-        </header>
+    <MotionConfig reducedMotion="user">
+    <div className="em-customers min-h-full p-4 md:p-6">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6">
+        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
+          <PageHeader
+            title={t("customer360.title")}
+            breadcrumb={shopName ? [{ label: shopName }] : []}
+            signal={signal}
+            signalTestId="customers-signal"
+            signalAnnounce={false}
+            meta={
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t("customers.totalCountLabel")}: {listStatus.state === "ready" ? listStatus.total : "—"}
+                </span>
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t("customers.opportunityCountLabel")}: {opportunityCount ?? "—"}
+                </span>
+              </div>
+            }
+          />
+        </motion.div>
 
         <RtoNetworkSettings />
 
         <div className="flex flex-col md:flex-row md:items-center gap-3 mb-5">
-          <div role="tablist" aria-label={t("customer360.title")} className="inline-flex bg-white border border-gray-200 rounded-xl p-1 self-start">
+          <div role="tablist" aria-label={t("customer360.title")} className="inline-flex bg-em-bg-surface border border-em-border rounded-xl p-1 self-start">
             {(["all", "opportunities"] as Tab[]).map((key) => (
               <button
                 key={key}
+                id={`customers-tab-${key}`}
                 type="button"
                 role="tab"
                 aria-selected={tab === key}
+                aria-controls="customers-tabpanel"
                 onClick={() => setTab(key)}
                 data-testid={`customers-tab-${key}`}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  tab === key ? "bg-primary text-primary-foreground" : "text-gray-700 hover:bg-gray-50"
+                  tab === key ? "bg-em-violet-600 text-white" : "text-em-text-primary hover:bg-em-bg-muted"
                 }`}
               >
                 {t(`customer360.tabs.${key}`)}
                 {key === "opportunities" && opportunityCount !== null && (
                   <span className={`ml-2 inline-flex min-w-[1.5rem] justify-center px-1.5 rounded-full text-xs ${
-                    tab === key ? "bg-white/20" : "bg-emerald-100 text-emerald-800"
+                    tab === key ? "bg-em-bg-surface/20" : "bg-em-success-100 text-em-success-700"
                   }`}>
                     {opportunityCount}
                   </span>
@@ -349,7 +385,7 @@ export default function Customer360Page() {
           </div>
           {tab === "all" && (
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden="true" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-em-text-secondary" aria-hidden="true" />
               <input
                 type="search"
                 value={searchInput}
@@ -357,14 +393,17 @@ export default function Customer360Page() {
                 placeholder={t("customer360.searchPlaceholder")}
                 aria-label={t("customer360.searchPlaceholder")}
                 maxLength={100}
-                className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand"
+                className="w-full pl-9 pr-3 py-2.5 border border-em-border rounded-xl bg-em-bg-surface focus:outline-none focus:ring-2 focus:ring-em-violet-600"
               />
             </div>
           )}
         </div>
 
-        {tab === "all" ? <CustomerList search={search} /> : <OpportunityList onCount={setOpportunityCount} />}
+        <div role="tabpanel" id="customers-tabpanel" aria-labelledby={`customers-tab-${tab}`}>
+          {tab === "all" ? <CustomerList search={search} onStatus={setListStatus} /> : <OpportunityList onCount={setOpportunityCount} />}
+        </div>
       </div>
     </div>
+    </MotionConfig>
   );
 }

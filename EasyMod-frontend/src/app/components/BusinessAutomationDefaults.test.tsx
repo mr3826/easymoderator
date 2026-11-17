@@ -85,6 +85,9 @@ vi.mock('@/api/domains/commercialContract', () => {
   };
 });
 
+// Harness-only: the fixed mock set is extended for the guardrails kit
+// (PageHeader breadcrumb, EmButton spinner, all six SignalBadge icons — the
+// icon record is built at module load). Assertions are unchanged.
 vi.mock('lucide-react', () => ({
   ArrowLeft: () => null,
   CircleIcon: () => null,
@@ -92,6 +95,14 @@ vi.mock('lucide-react', () => ({
   X: () => null,
   ChevronDown: () => null,
   ChevronUp: () => null,
+  ChevronRight: () => null,
+  Loader2: () => null,
+  CheckCircle2: () => null,
+  TriangleAlert: () => null,
+  Eye: () => null,
+  OctagonX: () => null,
+  BadgeCheck: () => null,
+  Clock4: () => null,
 }));
 
 // The emergency stop card is a react-query consumer with its own dedicated

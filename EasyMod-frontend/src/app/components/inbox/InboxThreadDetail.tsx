@@ -1,11 +1,13 @@
 /**
  * InboxThreadDetail — Right pane: message thread, AI suggestion, composer.
- * Extracted from UnifiedInbox.tsx (D2 split).
+ * Extracted from UnifiedInbox.tsx (D2 split). Restyled to the guardrails
+ * --em-* scope; every pinned literal, testid, role and the pane swap classes
+ * stay verbatim. Adds the thread-level evidence rail and dialog semantics.
  */
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import {
   Bot, User, CheckCircle2, Edit3, Loader2, UserCheck, AlertTriangle,
-  Clock, ArrowLeft, FileText, RotateCcw, PanelRight,
+  Clock, ArrowLeft, ArrowUp, FileText, RotateCcw, PanelRight,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -24,8 +26,12 @@ import { InboxComposer } from "./InboxComposer";
 import ContextualEntityLink from "../merchant-workspace/ContextualEntityLink";
 import OpportunityCard from "../customers/OpportunityCard";
 import type { Opportunity } from "@/api/types/customer-intelligence";
+import { EmButton } from "../dashboard/EmButton";
+import { InboxEvidenceRail, type OutboundResult } from "./InboxEvidenceRail";
+import { useDialogFocus } from "./useDialogFocus";
+import type { InboxNarrative } from "./derive";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function isValidMediaUrl(url: unknown): url is string {
   if (typeof url !== "string" || !url) return false;
@@ -36,6 +42,9 @@ function isValidMediaUrl(url: unknown): url is string {
     return false;
   }
 }
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
 
 function AttachmentImage({
   url,
@@ -49,7 +58,7 @@ function AttachmentImage({
   fallbackLabel: string;
 }) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <span className="text-sm italic text-gray-500">{fallbackLabel}</span>;
+  if (failed) return <span className="text-sm italic text-em-text-secondary">{fallbackLabel}</span>;
   return (
     <img
       src={url}
@@ -174,17 +183,17 @@ const MessageItem = memo(function MessageItem({
       <div
         className={`max-w-lg rounded-2xl p-4 shadow-sm ${
           message.sender === "customer"
-            ? "bg-white border border-gray-100"
+            ? "bg-em-bg-surface border border-em-border"
             : message.sender === "ai"
-            ? "bg-purple-100 border border-purple-200"
-            : "bg-blue-600 text-white"
+            ? "bg-em-violet-100 border border-em-violet-300"
+            : "bg-em-midnight-900 text-white"
         }`}
       >
         <div className="flex items-center gap-2 mb-2">
           {message.sender === "customer" ? (
-            <User className="w-4 h-4 text-gray-600" />
+            <User className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
           ) : message.sender === "ai" ? (
-            <Bot className="w-4 h-4 text-purple-600" />
+            <Bot className="w-4 h-4 text-em-violet-700" aria-hidden="true" />
           ) : null}
           <span className="text-sm font-semibold">
             {message.sender === "customer"
@@ -195,7 +204,7 @@ const MessageItem = memo(function MessageItem({
           </span>
         </div>
         {replyTo && (
-          <div className="mb-2 rounded-lg border-l-2 border-gray-300 bg-black/5 px-3 py-2 text-xs text-gray-600">
+          <div className="mb-2 rounded-lg border-l-2 border-em-border-strong bg-black/5 px-3 py-2 text-xs opacity-80">
             <span className="font-semibold">Replying to: </span>
             {replyTo.status === "resolved"
               ? replyTo.message_type === "image"
@@ -207,7 +216,7 @@ const MessageItem = memo(function MessageItem({
           </div>
         )}
         {message.metadata?.attachment_available === false ? (
-          <span role="status" className="text-sm italic text-gray-500">
+          <span role="status" className="text-sm italic text-em-text-secondary">
             {t("inbox.attachmentUnavailable")}
           </span>
         ) : attachments.length > 0 ? (
@@ -238,7 +247,7 @@ const MessageItem = memo(function MessageItem({
                         fallbackLabel={t("inbox.attachmentUnavailable")}
                       />
                     ) : (
-                      <span className="text-sm italic text-gray-500">Inline image</span>
+                      <span className="text-sm italic text-em-text-secondary">Inline image</span>
                     )}
                   </div>
                 );
@@ -248,13 +257,14 @@ const MessageItem = memo(function MessageItem({
                 <div
                   key={`${type}-${index}`}
                   className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg ${
-                    message.sender === "agent" ? "bg-blue-500/60" : "bg-gray-100"
+                    message.sender === "agent" ? "bg-em-midnight-700" : "bg-em-bg-muted"
                   }`}
                 >
                   <FileText
-                    className={`w-4 h-4 ${message.sender === "agent" ? "text-white" : "text-gray-600"}`}
+                    className={`w-4 h-4 ${message.sender === "agent" ? "text-white" : "text-em-text-secondary"}`}
+                    aria-hidden="true"
                   />
-                  <span className={`text-sm ${message.sender === "agent" ? "text-white" : "text-gray-700"}`}>
+                  <span className={`text-sm ${message.sender === "agent" ? "text-white" : "text-em-text-primary"}`}>
                     {label}
                   </span>
                   {isValidMediaUrl(url) && (
@@ -262,7 +272,7 @@ const MessageItem = memo(function MessageItem({
                       href={url}
                       target="_blank"
                       rel="noreferrer"
-                      className={`text-xs underline ${message.sender === "agent" ? "text-blue-100" : "text-blue-700"}`}
+                      className={`text-xs underline ${message.sender === "agent" ? "text-em-sunlight-300" : "text-em-violet-700"}`}
                     >
                       Open
                     </a>
@@ -281,21 +291,22 @@ const MessageItem = memo(function MessageItem({
                 fallbackLabel={t("inbox.attachmentUnavailable")}
               />
             ) : (
-              <span className="text-sm italic text-gray-500">[Image]</span>
+              <span className="text-sm italic text-em-text-secondary">[Image]</span>
             )}
           </div>
         ) : message.message_type === "file" ? (
           <div className="space-y-2">
             <div
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg ${
-                message.sender === "agent" ? "bg-blue-500/60" : "bg-gray-100"
+                message.sender === "agent" ? "bg-em-midnight-700" : "bg-em-bg-muted"
               }`}
             >
               <FileText
-                className={`w-4 h-4 ${message.sender === "agent" ? "text-white" : "text-gray-600"}`}
+                className={`w-4 h-4 ${message.sender === "agent" ? "text-white" : "text-em-text-secondary"}`}
+                aria-hidden="true"
               />
               <span
-                className={`text-sm ${message.sender === "agent" ? "text-white" : "text-gray-700"}`}
+                className={`text-sm ${message.sender === "agent" ? "text-white" : "text-em-text-primary"}`}
               >
                 {message.metadata?.file_name || message.content || "Attachment"}
               </span>
@@ -305,7 +316,7 @@ const MessageItem = memo(function MessageItem({
                 href={message.metadata.file_url}
                 download={message.metadata?.file_name || "attachment"}
                 className={`inline-block text-xs underline ${
-                  message.sender === "agent" ? "text-blue-100" : "text-blue-700"
+                  message.sender === "agent" ? "text-em-sunlight-300" : "text-em-violet-700"
                 }`}
               >
                 Download file
@@ -313,13 +324,13 @@ const MessageItem = memo(function MessageItem({
             )}
           </div>
         ) : (
-          <p className={message.sender === "agent" ? "text-white" : "text-gray-800"}>
+          <p className={message.sender === "agent" ? "text-white" : "text-em-text-primary"}>
             {message.content}
           </p>
         )}
         <p
-          className={`mt-2 text-[11px] ${
-            message.sender === "agent" ? "text-blue-100" : "text-gray-400"
+          className={`em-tabular mt-2 text-xs ${
+            message.sender === "agent" ? "text-em-midnight-200" : "text-em-text-secondary"
           }`}
         >
           {ts}
@@ -327,7 +338,7 @@ const MessageItem = memo(function MessageItem({
           {deliveryConfirmed && <span className="ml-2">{t("inbox.deliveryStatus.sent")}</span>}
         </p>
         {deliveryFailed && (
-          <div className={`mt-2 flex items-center gap-2 text-xs ${providerOutcomeUnknown ? "text-amber-100" : "text-red-50"}`}>
+          <div className={`mt-2 flex items-center gap-2 text-xs ${providerOutcomeUnknown ? "text-em-sunlight-300" : "text-em-danger-100"}`}>
             {providerOutcomeUnknown ? (
               <span>{t("inbox.deliveryStatus.unknown")}</span>
             ) : (
@@ -335,9 +346,9 @@ const MessageItem = memo(function MessageItem({
                 <span>{t("inbox.deliveryStatus.failed")}</span>
                 <button
                   onClick={() => onRetry(message)}
-                  className="inline-flex items-center gap-1 rounded border border-white/40 px-2 py-1 text-white hover:bg-white/10"
+                  className={`inline-flex min-h-11 items-center gap-1 rounded border border-white/40 px-2 py-1 text-white hover:bg-white/10 ${FOCUS_RING}`}
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  <RotateCcw className="w-3 h-3" aria-hidden="true" />
                   {t("inbox.retry", { defaultValue: "Retry" })}
                 </button>
               </>
@@ -384,6 +395,10 @@ interface InboxThreadDetailProps {
   /** MW-V1: toggle the customer-context panel (desktop column / mobile sheet). */
   onToggleContext?: () => void;
   contextOpen?: boolean;
+  /** Guardrails narrative + sync evidence for the thread evidence rail. */
+  narrative?: InboxNarrative;
+  lastSyncAt?: number | null;
+  sseConnected?: boolean;
   onMessageSent: (message: Message) => void;
   onSendFailed: () => void;
   onTemplatesChanged: () => Promise<void>;
@@ -420,6 +435,8 @@ export function InboxThreadDetail({
   onSetResolveNote,
   onToggleContext,
   contextOpen,
+  narrative,
+  sseConnected = true,
   onMessageSent,
   onSendFailed,
   onTemplatesChanged,
@@ -428,6 +445,8 @@ export function InboxThreadDetail({
   const [editingSuggestion, setEditingSuggestion] = useState(false);
   const [editedSuggestion, setEditedSuggestion] = useState("");
   const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  const resolveDialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(resolveDialogRef, showResolveDialog);
 
   const heldAiMsg =
     [...messages].reverse().find(
@@ -481,12 +500,24 @@ export function InboxThreadDetail({
     && (message.sender !== "ai" || isProviderConfirmed(message))
   ));
 
-  // Traffic-light dot only — no English jargon for non-tech shop owners.
+  // Provider-confirmed truth for the evidence rail: SENT means the provider
+  // accepted, never that the customer read it (no read receipts exist).
+  const lastOutboundMsg =
+    [...messages].reverse().find((m) => m.sender === "agent" || m.sender === "ai") ?? null;
+  const outboundResult: OutboundResult = !lastOutboundMsg
+    ? "none"
+    : isProviderConfirmed(lastOutboundMsg)
+    ? "confirmed"
+    : (getDeliveryState(lastOutboundMsg) === "FAILED" || lastOutboundMsg.metadata?.delivery_status === "failed")
+    ? "failed"
+    : "pending";
+
+  // Traffic-light dot plus a visible percentage — never color alone (§8).
+  const confidencePercent = Math.round((aiConfidence ?? 0) * 100);
   const confidenceTier = (() => {
-    const pct = Math.round((aiConfidence ?? 0) * 100);
-    if (pct >= 85) return { dot: "bg-green-500" };
-    if (pct >= 60) return { dot: "bg-amber-500" };
-    return { dot: "bg-red-500" };
+    if (confidencePercent >= 85) return { dot: "bg-em-success-700" };
+    if (confidencePercent >= 60) return { dot: "bg-em-sunlight-500" };
+    return { dot: "bg-em-danger-700" };
   })();
 
   const handleUseAiSuggestion = async (edit: boolean) => {
@@ -554,22 +585,22 @@ export function InboxThreadDetail({
 
   return (
     <div
-      className={`flex-1 flex flex-col bg-gray-50 ${mobilePanelOpen ? "flex" : "hidden"} lg:flex`}
+      className={`flex-1 flex flex-col bg-em-bg-app ${mobilePanelOpen ? "flex" : "hidden"} lg:flex`}
     >
       {/* Conversation Header */}
-      <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 shrink-0">
+      <div className="bg-em-bg-surface border-b border-em-border px-4 md:px-6 py-3 shrink-0">
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
-              className="lg:hidden p-1 -ml-1 text-gray-500 hover:text-gray-700"
+              className={`lg:hidden min-h-11 min-w-11 p-1 -ml-1 text-em-text-secondary hover:text-em-text-primary ${FOCUS_RING}`}
               onClick={onMobileBack}
               aria-label="Back to conversations"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-5 h-5" aria-hidden="true" />
             </button>
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <h2 className="text-lg font-semibold text-gray-900 truncate">
+                <h2 className="text-lg font-semibold text-em-text-primary truncate">
                   {displayCustomerName(selectedConversation)}
                 </h2>
                 {(selectedConversation.assignee?.name || selectedConversation.assignee_id) && (
@@ -578,7 +609,7 @@ export function InboxThreadDetail({
                     title={t("inbox.owner.assigned", {
                       name: selectedConversation.assignee?.name || t("inbox.owner.teammate"),
                     })}
-                    className="inline-flex max-w-[10rem] items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                    className="inline-flex max-w-[10rem] items-center gap-1 rounded-full bg-em-violet-50 px-2 py-0.5 text-xs font-medium text-em-violet-700"
                   >
                     <UserCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
                     <span className="truncate">
@@ -587,9 +618,9 @@ export function InboxThreadDetail({
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500 flex-wrap">
+              <div className="em-tabular flex items-center gap-2 text-sm text-em-text-secondary flex-wrap">
                 <span>{selectedConversation.channel}</span>
-                <span>•</span>
+                <span aria-hidden="true">•</span>
                 <span>{t("inbox.lastActive", { time: formatDate(selectedConversation.updated_at, t) })}</span>
               </div>
               {selectedConversation.customer_id && (
@@ -612,8 +643,8 @@ export function InboxThreadDetail({
                 aria-expanded={contextOpen === true}
                 aria-label={t("inbox.context.title")}
                 title={t("inbox.context.title")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium font-bn ${
-                  contextOpen ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${FOCUS_RING} ${
+                  contextOpen ? "bg-em-violet-100 text-em-violet-700" : "bg-em-bg-muted text-em-text-primary hover:bg-em-border/60"
                 }`}
                 data-testid="context-toggle"
               >
@@ -625,13 +656,13 @@ export function InboxThreadDetail({
               <button
                 onClick={() => onSetShowResolveDialog(true)}
                 disabled={resolvingConversation}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-em-success-100 text-em-success-700 hover:bg-em-success-100/70 transition-colors disabled:opacity-60 ${FOCUS_RING}`}
                 title={t("inbox.resolve")}
               >
                 {resolvingConversation ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                 ) : (
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                 )}
                 {t("inbox.resolve")}
               </button>
@@ -643,9 +674,9 @@ export function InboxThreadDetail({
                     role="status"
                     aria-live="polite"
                     title={t("inbox.aiTooltip")}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-purple-100 text-purple-700"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-em-violet-100 text-em-violet-700"
                   >
-                    <Bot className="w-4 h-4" />
+                    <Bot className="w-4 h-4" aria-hidden="true" />
                     {t("inbox.aiActive")}
                   </span>
                 )}
@@ -653,13 +684,13 @@ export function InboxThreadDetail({
                   onClick={onToggleHITL}
                   disabled={togglingHITL}
                   title={selectedConversation.hitl ? t("inbox.resumeAiTooltip") : t("inbox.takeOverTooltip")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 ${FOCUS_RING} ${
                     selectedConversation.hitl
-                      ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      ? "bg-em-sunlight-100 text-em-sunlight-700 hover:bg-em-sunlight-300/60"
+                      : "bg-em-bg-muted text-em-text-primary hover:bg-em-border/60"
                   }`}
                 >
-                  {togglingHITL ? <Loader2 className="w-4 h-4 animate-spin" /> : selectedConversation.hitl ? <UserCheck className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                  {togglingHITL ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : selectedConversation.hitl ? <UserCheck className="w-4 h-4" aria-hidden="true" /> : <User className="w-4 h-4" aria-hidden="true" />}
                   {selectedConversation.hitl ? t("inbox.resumeAi") : t("inbox.takeOver")}
                 </button>
               </>
@@ -672,7 +703,7 @@ export function InboxThreadDetail({
         <div
           data-testid="inbox-reply-status"
           aria-live="polite"
-          className="bg-slate-50 border-b border-gray-200 px-6 py-2 text-sm text-slate-700 font-bn"
+          className="bg-em-bg-muted border-b border-em-border px-6 py-2 text-sm text-em-text-secondary"
         >
           {replyStatusLabel}
         </div>
@@ -680,20 +711,20 @@ export function InboxThreadDetail({
 
       {/* Banners */}
       {selectedConversation.hitl && (
-        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center gap-2 text-sm text-amber-800 font-bn">
-          <UserCheck className="w-4 h-4 flex-shrink-0" />
+        <div className="bg-em-sunlight-100 border-b border-em-sunlight-600/30 px-6 py-2 flex items-center gap-2 text-sm text-em-sunlight-700">
+          <UserCheck className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
           <span>{t("inbox.agentBanner")}</span>
         </div>
       )}
       {is24hWarning && (
-        <div className="bg-orange-50 border-b border-orange-200 px-6 py-2 flex items-center gap-2 text-sm text-orange-800 font-bn">
-          <Clock className="w-4 h-4 flex-shrink-0" />
+        <div className="bg-em-warning-100 border-b border-em-warning-700/20 px-6 py-2 flex items-center gap-2 text-sm text-em-warning-700">
+          <Clock className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
           <span>{t("inbox.windowClosingSoon")}</span>
         </div>
       )}
       {is24hExpired && (
-        <div className="bg-red-50 border-b border-red-200 px-6 py-2 flex items-center gap-2 text-sm text-destructive font-bn">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+        <div className="bg-em-danger-100 border-b border-em-danger-700/20 px-6 py-2 flex items-center gap-2 text-sm text-em-danger-700">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
           <span>{t("inbox.windowExpired")}</span>
         </div>
       )}
@@ -701,7 +732,7 @@ export function InboxThreadDetail({
       {/* P+01 Inbox Lead Intelligence — the same authoritative opportunity the
           Customers page shows; reasons are recorded facts, never a score. */}
       {selectedConversation.open_opportunity && (
-        <div className="border-b border-gray-100 bg-gray-50/60 px-4 md:px-6 py-3" data-testid="inbox-lead-insight">
+        <div className="border-b border-em-border bg-em-bg-muted/60 px-4 md:px-6 py-3" data-testid="inbox-lead-insight">
           <OpportunityCard
             opportunity={selectedConversation.open_opportunity}
             showCustomer={false}
@@ -711,14 +742,18 @@ export function InboxThreadDetail({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 pb-24 md:pb-6">
+      <div
+        className={`flex-1 overflow-y-auto p-4 md:p-6 space-y-4 pb-24 md:pb-6 ${FOCUS_RING}`}
+        tabIndex={0}
+        aria-label={t("inbox.evidence.conversation")}
+      >
         {loadingMessages ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+            <Loader2 className="w-6 h-6 animate-spin text-em-violet-600" aria-hidden="true" />
           </div>
         ) : transcriptMessages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            <p className="font-bn">{t("inbox.noMessages")}</p>
+          <div className="flex items-center justify-center h-full text-em-text-secondary">
+            <p>{t("inbox.noMessages")}</p>
           </div>
         ) : (
           <>
@@ -727,12 +762,12 @@ export function InboxThreadDetail({
                 <button
                   onClick={onLoadOlderMessages}
                   disabled={loadingMoreMessages}
-                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-full hover:bg-gray-50 disabled:opacity-60"
+                  className={`flex min-h-11 items-center gap-1.5 px-4 py-1.5 text-xs text-em-text-secondary border border-em-border rounded-full hover:bg-em-bg-muted disabled:opacity-60 ${FOCUS_RING}`}
                 >
                   {loadingMoreMessages ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
                   ) : (
-                    "↑"
+                    <ArrowUp className="w-3 h-3" aria-hidden="true" />
                   )}
                   {t("inbox.loadOlder")}
                 </button>
@@ -756,24 +791,28 @@ export function InboxThreadDetail({
         <div
           className={`mx-4 rounded-t-lg border px-4 py-3 ${
             (() => {
-              const pct = Math.round((aiConfidence ?? 0) * 100);
-              if (pct >= 85) return "bg-green-50 border-green-200";
-              if (pct >= 60) return "bg-amber-50 border-amber-300";
-              return "bg-red-50 border-red-300";
+              if (confidencePercent >= 85) return "bg-em-success-100 border-em-success-700/20";
+              if (confidencePercent >= 60) return "bg-em-sunlight-100 border-em-sunlight-600/30";
+              return "bg-em-danger-100 border-em-danger-700/20";
             })()
           }`}
         >
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-purple-600" />
-              <span className="text-sm font-semibold text-purple-900">{suggestionHeading}</span>
+              <Bot className="w-4 h-4 text-em-violet-700" aria-hidden="true" />
+              <span className="text-sm font-semibold text-em-text-primary">{suggestionHeading}</span>
             </div>
-            <span
-              className={`inline-block w-2.5 h-2.5 rounded-full ${confidenceTier.dot}`}
-              aria-hidden="true"
-            />
+            <span className="flex items-center gap-1.5">
+              <span className="em-tabular text-xs font-medium text-em-text-secondary">
+                {t("inbox.confidence", { percent: confidencePercent })}
+              </span>
+              <span
+                className={`inline-block w-2.5 h-2.5 rounded-full ${confidenceTier.dot}`}
+                aria-hidden="true"
+              />
+            </span>
           </div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-em-text-secondary">
             {isDraftReview ? t("inbox.draftNotSent") : t("inbox.aiSuggestionNotSent")}
            </p>
            {editingSuggestion ? (
@@ -782,47 +821,51 @@ export function InboxThreadDetail({
                value={editedSuggestion}
                onChange={(event) => setEditedSuggestion(event.target.value)}
                rows={4}
-               className="w-full text-sm text-gray-800 mb-2 rounded-lg border border-purple-200 bg-white p-2"
+               className={`w-full text-sm text-em-text-primary mb-2 rounded-lg border border-em-border-strong bg-em-bg-surface p-2 focus:outline-none ${FOCUS_RING}`}
              />
            ) : (
-             <p className="text-sm text-gray-800 mb-2 italic">"{aiSuggestion}"</p>
+             <p className="text-sm text-em-text-primary mb-2 italic">"{aiSuggestion}"</p>
            )}
           {isLowConfidence && (
-            <p className="text-xs text-amber-700 mb-2 flex items-center gap-1 font-bn">
-              <AlertTriangle className="w-3 h-3" /> {t("inbox.lowConfidence")}
+            <p className="text-xs text-em-sunlight-700 mb-2 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" aria-hidden="true" /> {t("inbox.lowConfidence")}
             </p>
           )}
            <div className="flex flex-col sm:flex-row gap-2">
               {messagingBlocked ? (
-                <p className="flex-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 font-bn">
+                <p className="flex-1 rounded-lg border border-em-danger-700/20 bg-em-danger-100 px-3 py-2 text-xs text-em-danger-700">
                   {t(isPolicyBlocked && !providerSendFailed ? "inbox.status.policyBlocked" : "inbox.status.providerBlocked")}
                 </p>
               ) : (
                <>
-            <button
-               onClick={() => handleUseAiSuggestion(false)}
-               disabled={sendingSuggestion || (editingSuggestion && !editedSuggestion.trim())}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 sm:py-1.5 px-2 sm:px-3 bg-purple-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-purple-700 min-h-10"
+            <EmButton
+              variant="attention"
+              onClick={() => handleUseAiSuggestion(false)}
+              disabled={sendingSuggestion || (editingSuggestion && !editedSuggestion.trim())}
+              loading={sendingSuggestion}
+              className="flex-1 justify-center gap-1.5"
             >
-              <CheckCircle2 className="w-3 h-3 flex-shrink-0" />
+              <CheckCircle2 className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
               {sendingSuggestion ? t("inbox.sending") : editingSuggestion ? t("inbox.sendEdited") : t("inbox.useThis")}
-            </button>
-            <button
-               onClick={() => handleUseAiSuggestion(true)}
-               disabled={sendingSuggestion}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 sm:py-1.5 px-2 sm:px-3 bg-white border border-purple-300 text-purple-700 text-xs sm:text-sm font-medium rounded-lg hover:bg-purple-50 min-h-10"
+            </EmButton>
+            <EmButton
+              variant="secondary"
+              onClick={() => handleUseAiSuggestion(true)}
+              disabled={sendingSuggestion}
+              className="flex-1 justify-center gap-1.5"
             >
-              <Edit3 className="w-3 h-3 flex-shrink-0" />
+              <Edit3 className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
                {editingSuggestion ? t("common.cancel") : t("inbox.editAndUse")}
-            </button>
+            </EmButton>
                </>
              )}
-            <button
-               onClick={() => heldAiMsg && void onDismissSuggestion(heldAiMsg.id)}
-              className="flex-1 py-2 sm:py-1.5 px-2 sm:px-3 bg-white border border-gray-300 text-gray-600 text-xs sm:text-sm font-medium rounded-lg hover:bg-gray-50 min-h-10"
+            <EmButton
+              variant="ghost"
+              onClick={() => heldAiMsg && void onDismissSuggestion(heldAiMsg.id)}
+              className="flex-1 justify-center"
             >
               {t("inbox.ignore")}
-            </button>
+            </EmButton>
           </div>
         </div>
       )}
@@ -841,46 +884,63 @@ export function InboxThreadDetail({
         onTemplatesChanged={onTemplatesChanged}
       />
 
+      {/* Thread-level evidence rail (guardrails §14; §24 adaptation in PR body) */}
+      {narrative && (
+        <InboxEvidenceRail
+          conversation={selectedConversation}
+          narrative={narrative}
+          sseConnected={sseConnected}
+          outboundResult={outboundResult}
+          groundingRefs={heldAiMsg?.source_references}
+        />
+      )}
+
       {/* Resolve Dialog */}
       {showResolveDialog && (
         <div
-          className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-50 p-4"
           onKeyDown={(e) => { if (e.key === "Escape") { onSetShowResolveDialog(false); onSetResolveNote(""); } }}
           onClick={(e) => { if (e.target === e.currentTarget) { onSetShowResolveDialog(false); onSetResolveNote(""); } }}
         >
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+          <div
+            ref={resolveDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inbox-resolve-title"
+            className="bg-em-bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4"
+          >
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0" />
-              <h2 className="text-lg font-semibold text-gray-900 font-bn">
+              <CheckCircle2 className="w-6 h-6 text-em-success-700 flex-shrink-0" aria-hidden="true" />
+              <h2 id="inbox-resolve-title" className="text-lg font-semibold text-em-text-primary">
                 {t("inbox.resolveDialogTitle")}
               </h2>
             </div>
-            <p className="text-sm text-gray-600 font-bn">{t("inbox.resolveDialogDescription")}</p>
+            <p className="text-sm text-em-text-secondary">{t("inbox.resolveDialogDescription")}</p>
             {aiReplyMode === "AUTO" && (
-              <p className="text-sm text-gray-600 font-bn">{t("inbox.resolveDialogResumeDescription")}</p>
+              <p className="text-sm text-em-text-secondary">{t("inbox.resolveDialogResumeDescription")}</p>
             )}
             <textarea
               value={resolveNote}
               onChange={(e) => onSetResolveNote(e.target.value)}
               placeholder={t("inbox.resolveNotePlaceholder")}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className={`w-full px-3 py-2 border border-em-border-strong bg-em-bg-surface rounded-lg text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
             />
             <div className="flex gap-3 justify-end">
-              <button
+              <EmButton
+                variant="secondary"
                 onClick={() => { onSetShowResolveDialog(false); onSetResolveNote(""); }}
-                className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 font-bn"
               >
                 {t("common.cancel")}
-              </button>
-              <button
+              </EmButton>
+              <EmButton
+                variant="primary"
                 onClick={onResolve}
                 disabled={resolvingConversation}
-                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:opacity-60 font-bn"
+                loading={resolvingConversation}
               >
-                {resolvingConversation && <Loader2 className="w-4 h-4 animate-spin" />}
                 {t("inbox.resolveConfirm")}
-              </button>
+              </EmButton>
             </div>
           </div>
         </div>

@@ -83,8 +83,9 @@ vi.mock('react-i18next', () => ({
 // ── Helper ────────────────────────────────────────────────────────────────────
 async function renderPaymentSettings() {
     render(<PaymentSettings />);
-    // Wait for initial data load
-    await waitFor(() => expect(mockGetPaymentConfig).toHaveBeenCalled(), { timeout: 3000 });
+    // The redesign shows skeletons until getPaymentConfig resolves, so wait for
+    // a gateway name to render (load complete) rather than just the mock call.
+    await screen.findByText('bKash', undefined, { timeout: 3000 });
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -134,11 +135,9 @@ describe('PaymentSettings', () => {
 
     it('shows phone field for Self MFS mode (bKash)', async () => {
         await renderPaymentSettings();
-        // The expand toggle is a chevron button (className includes "p-2 text-gray-600")
-        // adjacent to the bKash gateway row — NOT the gateway name text itself.
-        const expandBtn = Array.from(document.querySelectorAll('button')).find(
-            b => b.className.includes('p-2') && b.className.includes('gray-600')
-        );
+        // The expand toggle is the chevron button on the bKash gateway row,
+        // located by its stable testid (redesign migrated off className matching).
+        const expandBtn = document.querySelector('[data-testid="gateway-expand-bkash"]');
         expect(expandBtn).toBeTruthy();
         fireEvent.click(expandBtn as HTMLElement);
         expect(await screen.findByDisplayValue('01711000000')).toBeInTheDocument();
@@ -146,9 +145,7 @@ describe('PaymentSettings', () => {
 
     it('pre-fills phone number from loaded config', async () => {
         await renderPaymentSettings();
-        const expandBtn = Array.from(document.querySelectorAll('button')).find(
-            b => b.className.includes('p-2') && b.className.includes('gray-600')
-        );
+        const expandBtn = document.querySelector('[data-testid="gateway-expand-bkash"]');
         expect(expandBtn).toBeTruthy();
         fireEvent.click(expandBtn as HTMLElement);
         const phoneInput = await screen.findByDisplayValue('01711000000') as HTMLInputElement;
@@ -157,9 +154,7 @@ describe('PaymentSettings', () => {
 
     it('calls savePaymentConfig when save button clicked', async () => {
         await renderPaymentSettings();
-        const expandBtn = Array.from(document.querySelectorAll('button')).find(
-            b => b.className.includes('p-2') && b.className.includes('gray-600')
-        );
+        const expandBtn = document.querySelector('[data-testid="gateway-expand-bkash"]');
         expect(expandBtn).toBeTruthy();
         fireEvent.click(expandBtn as HTMLElement);
         const saveBtn = await screen.findByRole('button', { name: /save bkash/i }, { timeout: 3000 });
@@ -177,9 +172,7 @@ describe('PaymentSettings', () => {
 
     it('shows success message after save', async () => {
         await renderPaymentSettings();
-        const expandBtn = Array.from(document.querySelectorAll('button')).find(
-            b => b.className.includes('p-2') && b.className.includes('gray-600')
-        );
+        const expandBtn = document.querySelector('[data-testid="gateway-expand-bkash"]');
         expect(expandBtn).toBeTruthy();
         fireEvent.click(expandBtn as HTMLElement);
         const saveBtn = await screen.findByRole('button', { name: /save bkash/i }, { timeout: 3000 });
@@ -197,9 +190,7 @@ describe('PaymentSettings', () => {
     it('shows error message when save fails', async () => {
         mockSavePaymentConfig.mockRejectedValueOnce(new Error('Network error'));
         await renderPaymentSettings();
-        const expandBtn = Array.from(document.querySelectorAll('button')).find(
-            b => b.className.includes('p-2') && b.className.includes('gray-600')
-        );
+        const expandBtn = document.querySelector('[data-testid="gateway-expand-bkash"]');
         expect(expandBtn).toBeTruthy();
         fireEvent.click(expandBtn as HTMLElement);
         const saveBtn = await screen.findByRole('button', { name: /save bkash/i }, { timeout: 3000 });

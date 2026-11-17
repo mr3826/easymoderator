@@ -96,9 +96,8 @@ test('bKash expand reveals self-MFS phone input', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
 
-    // Locate the bKash gateway card by its unique text content, then click the expand button
-    const bkashCard = page.locator('div.border.border-gray-200', { hasText: 'bKash' }).first();
-    await bkashCard.locator('button.p-2').click();
+    // Expand the bKash card via its stable testid (redesign migrated off class locators)
+    await page.locator('[data-testid="gateway-expand-bkash"]').click();
 
     await expect(page.getByPlaceholder('01XXXXXXXXX')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('button', { name: /Self MFS/i })).toBeVisible();
@@ -120,8 +119,7 @@ test('reload hydrates the saved bKash receiver number from credential_summary', 
     });
     await loginAndGo(page);
 
-    const bkashCard = page.locator('div.border.border-gray-200', { hasText: 'bKash' }).first();
-    await bkashCard.locator('button.p-2').click();
+    await page.locator('[data-testid="gateway-expand-bkash"]').click();
     await expect(page.getByPlaceholder('01XXXXXXXXX')).toHaveValue('01711000000');
 });
 
@@ -145,9 +143,8 @@ test('save bKash self-MFS calls test then save endpoint', async ({ page }) => {
 
     await loginAndGo(page);
 
-    // Expand the bKash card by locating it via unique text, then click expand button
-    const bkashCard = page.locator('div.border.border-gray-200', { hasText: 'bKash' }).first();
-    await bkashCard.locator('button.p-2').click();
+    // Expand the bKash card via its stable testid (redesign migrated off class locators)
+    await page.locator('[data-testid="gateway-expand-bkash"]').click();
     await page.getByPlaceholder('01XXXXXXXXX').fill('01711000000');
     await page.getByRole('button', { name: /Save bKash/i }).click();
 

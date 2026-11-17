@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, RefreshCw } from "lucide-react";
+import { ArrowRight, RefreshCw, TriangleAlert } from "lucide-react";
 import { motion } from "motion/react";
 import { getInboxActions, type InboxActionsResult } from "@/api/domains/inbox";
 import {
@@ -26,6 +26,10 @@ import {
 import { Badge } from "@/app/components/ui/badge";
 import { formatRelative } from "../customers/customerDisplay";
 import { fadeUp, staggerChildren } from "@/lib/motion";
+
+const ANIMATE = import.meta.env.MODE !== "test";
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
 
 // Display maps — keep in sync with the unions in @/api/types/inbox and the
 // locale files. Dynamic template keys are resolved through these maps instead
@@ -154,10 +158,22 @@ export function ActionQueuePanel({ onSseRefresh }: ActionQueuePanelProps) {
     <section
       data-testid="action-queue"
       aria-live="polite"
-      className="shrink-0 bg-white border-b border-gray-200"
+      className="shrink-0 bg-em-bg-surface border-b border-em-border"
     >
+      {/* Degraded-data honesty: a fail-closed source bucket contributed nothing.
+          Only rendered once the queue itself is renderable (fail-closed first). */}
+      {payload.partial === true && (
+        <div
+          role="status"
+          data-testid="action-queue-partial"
+          className="flex items-center gap-2 border-b border-em-sunlight-600/30 bg-em-sunlight-100 px-4 md:px-8 py-2 text-xs font-medium text-em-sunlight-700"
+        >
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>{t("inbox.actions.partial")}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 px-4 md:px-8 pt-2.5 pb-1">
-        <h2 className="text-sm font-semibold text-gray-900 font-bn">
+        <h2 className="text-sm font-semibold text-em-text-primary">
           {t("inbox.actions.title", { total: counts?.total ?? items.length })}
         </h2>
         <button
@@ -166,7 +182,7 @@ export function ActionQueuePanel({ onSseRefresh }: ActionQueuePanelProps) {
           disabled={refreshing}
           aria-label={t("inbox.actions.refresh")}
           title={t("inbox.actions.refresh")}
-          className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
+          className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-em-text-secondary hover:bg-em-bg-muted hover:text-em-text-primary disabled:opacity-50 ${FOCUS_RING}`}
           data-testid="action-queue-refresh"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
@@ -189,10 +205,10 @@ export function ActionQueuePanel({ onSseRefresh }: ActionQueuePanelProps) {
                 aria-selected={view === v}
                 onClick={() => changeView(v)}
                 data-testid={`queue-view-${v}`}
-                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium font-bn transition ${
+                className={`shrink-0 min-h-11 rounded-full px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
                   view === v
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    ? "bg-em-midnight-900 text-white"
+                    : "bg-em-bg-muted text-em-text-primary hover:bg-em-border/60"
                 }`}
               >
                 {t(VIEW_LABEL_KEYS[v])}
@@ -209,17 +225,17 @@ export function ActionQueuePanel({ onSseRefresh }: ActionQueuePanelProps) {
         aria-label={t("inbox.actions.title", { total: counts?.total ?? items.length })}
       >
         {items.length === 0 ? (
-          <p className="py-3 text-sm text-gray-500 font-bn">{t("inbox.actions.views.empty")}</p>
+          <p className="py-3 text-sm text-em-text-secondary">{t("inbox.actions.views.empty")}</p>
         ) : groups.map(({ bucket, bucketItems }) => (
           <div key={bucket} className="mt-1.5 first:mt-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <p className="text-xs font-semibold uppercase tracking-wide text-em-text-secondary">
               {t(BUCKET_LABEL_KEYS[INBOX_ACTION_BUCKET_NAME[bucket]])}
             </p>
             <motion.ul
               variants={staggerChildren}
-              initial="hidden"
+              initial={ANIMATE ? "hidden" : false}
               animate="visible"
-              className="divide-y divide-gray-100"
+              className="divide-y divide-em-border"
             >
               {bucketItems.map((item) => {
                 const href = deepLinkFor(item);
@@ -227,19 +243,19 @@ export function ActionQueuePanel({ onSseRefresh }: ActionQueuePanelProps) {
                   <motion.li key={item.item_key} variants={fadeUp} data-testid="action-item">
                     <div className="flex items-center gap-2 py-1.5">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-gray-900 font-bn">
+                        <p className="truncate text-sm text-em-text-primary">
                           {t(REASON_LABEL_KEYS[item.reason_code])}
                         </p>
-                        <div className="flex flex-wrap items-center gap-x-2 text-xs text-gray-500">
+                        <div className="flex flex-wrap items-center gap-x-2 text-xs text-em-text-secondary">
                           {item.grounded_deadline && (
-                            <span data-testid="action-deadline" className="font-medium text-amber-700 font-bn">
+                            <span data-testid="action-deadline" className="em-tabular font-medium text-em-sunlight-700">
                               {t("inbox.actions.dueBy", {
                                 time: formatRelative(item.grounded_deadline, i18n.language),
                               })}
                             </span>
                           )}
                           {item.owner && (
-                            <Badge variant="secondary" className="text-[10px] font-bn">
+                            <Badge variant="secondary" className="text-xs">
                               {t("inbox.actions.assigned")}
                             </Badge>
                           )}
@@ -250,13 +266,13 @@ export function ActionQueuePanel({ onSseRefresh }: ActionQueuePanelProps) {
                           type="button"
                           onClick={() => navigate(href)}
                           data-testid="action-next-link"
-                          className="inline-flex shrink-0 items-center gap-1 px-1 py-2 text-sm font-medium text-blue-700 hover:underline font-bn"
+                          className={`inline-flex min-h-11 shrink-0 items-center gap-1 px-1 py-2 text-sm font-medium text-em-violet-700 hover:underline ${FOCUS_RING}`}
                         >
                           {t(NEXT_ACTION_LABEL_KEYS[item.next_action.type])}
                           <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                       ) : (
-                        <span className="shrink-0 px-1 py-2 text-xs text-gray-500 font-bn">
+                        <span className="shrink-0 px-1 py-2 text-xs text-em-text-secondary">
                           {t(NEXT_ACTION_LABEL_KEYS[item.next_action.type])}
                         </span>
                       )}

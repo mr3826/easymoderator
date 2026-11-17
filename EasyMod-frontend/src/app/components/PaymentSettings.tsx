@@ -1,9 +1,22 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from 'react-i18next';
-import { Wallet, DollarSign, ChevronDown, ChevronUp, Mail, Star, Loader2 } from "lucide-react";
+import { Wallet, DollarSign, ChevronDown, ChevronUp, Mail, Star, X } from "lucide-react";
+import { motion, MotionConfig } from "motion/react";
 import { apiClient } from "@/api";
 import { authService } from "@/app/lib/auth";
 import { getErrorMessage } from "@shared/lib/http/errors";
+import { fadeUp } from "@/lib/motion";
+import { EmButton } from "./dashboard/EmButton";
+import { PageHeader } from "./dashboard/PageHeader";
+import { derivePaymentSignal } from "./payment/derive";
+
+const ANIMATE = import.meta.env.MODE !== "test";
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
+
+const INPUT_CLASSES =
+  `w-full min-h-11 px-4 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
 
 interface PaymentGateway {
   id: string;
@@ -25,14 +38,14 @@ export default function PaymentSettings() {
     {
       id: 'cod',
       name: t('manageShop.paymentSettings.codName'),
-      logo: <DollarSign className="w-6 h-6 text-green-600" />,
+      logo: <DollarSign className="w-6 h-6 text-em-success-700" aria-hidden="true" />,
       description: t('manageShop.paymentSettings.codDesc'),
       enabled: true,
     },
     {
       id: 'bkash',
       name: t('manageShop.paymentSettings.bkashName'),
-      logo: <Wallet className="w-6 h-6 text-pink-600" />,
+      logo: <Wallet className="w-6 h-6 text-em-violet-700" aria-hidden="true" />,
       description: t('manageShop.paymentSettings.bkashDesc'),
       enabled: false,
       config: { phone: '', accountType: 'self' },
@@ -51,6 +64,7 @@ export default function PaymentSettings() {
   const [savedGateways, setSavedGateways] = useState<Set<string>>(new Set());
   const [priority, setPriority] = useState<{ payment: string[]; delivery: string[] }>({ payment: [], delivery: [] });
   const [settingDefaultGateway, setSettingDefaultGateway] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // Load payment configurations on mount
   useEffect(() => {
@@ -62,6 +76,13 @@ export default function PaymentSettings() {
 
   const defaultGateway = priority.payment[0];
 
+  // Display names/descriptions are derived at render time so a language switch
+  // re-translates them (the useState initializers only capture the first language).
+  const nameFor = (id: string) =>
+    id === 'cod' ? t('manageShop.paymentSettings.codName') : t('manageShop.paymentSettings.bkashName');
+  const descFor = (id: string) =>
+    id === 'cod' ? t('manageShop.paymentSettings.codDesc') : t('manageShop.paymentSettings.bkashDesc');
+
   const handleSetDefault = async (gatewayId: string) => {
     try {
       setSettingDefaultGateway(gatewayId);
@@ -71,8 +92,7 @@ export default function PaymentSettings() {
       const nextPriority = { payment: nextPayment, delivery: priority.delivery };
       await apiClient.put('/shop/platform-priority', nextPriority);
       setPriority(nextPriority);
-      const gw = gateways.find((g) => g.id === gatewayId);
-      setSuccess(`✓ ${t('manageShop.paymentSettings.setDefaultSuccess', { name: gw?.name || gatewayId })}`);
+      setSuccess(t('manageShop.paymentSettings.setDefaultSuccess', { name: nameFor(gatewayId) }));
     } catch (err: any) {
       setError(getErrorMessage(err, t('manageShop.paymentSettings.errors.updateDefaultFailed')));
     } finally {
@@ -84,12 +104,12 @@ export default function PaymentSettings() {
     try {
       // Load payment gateway configs
       const response = await apiClient.getPaymentConfig();
-      
+
       if (response.success && response.data) {
         // Update gateways with loaded configurations
         const loadedConfigs = Array.isArray(response.data) ? response.data : [];
         const savedSet = new Set<string>();
-        
+
         setGateways(prev => prev.map(gw => {
           const config = loadedConfigs.find((c: any) => c.gateway === gw.id);
           const mfsConfig = loadedConfigs.find((c: any) => (
@@ -124,7 +144,7 @@ export default function PaymentSettings() {
           }
           return gw;
         }));
-        
+
         setSavedGateways(savedSet);
       }
 
@@ -145,6 +165,8 @@ export default function PaymentSettings() {
     } catch (error: any) {
       console.error('Failed to load payment configs:', error);
       setError(t('manageShop.paymentSettings.errors.loadFailed'));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -234,11 +256,11 @@ export default function PaymentSettings() {
       const response = await apiClient.updatePaymentConfig(payload);
 
       if (response.success) {
-        setSuccess(`✓ ${t('manageShop.paymentSettings.savedSuccess', { name: gateway.name })}`);
+        setSuccess(t('manageShop.paymentSettings.savedSuccess', { name: nameFor(gatewayId) }));
 
         // Mark gateway as saved
         setSavedGateways(prev => new Set(prev).add(gatewayId));
-        
+
         // Keep success message longer so user sees it
         setTimeout(() => setSuccess(null), 4000);
       }
@@ -278,10 +300,10 @@ export default function PaymentSettings() {
         setGateways(prev => prev.map(gw =>
           gw.id === id ? { ...gw, enabled: !gw.enabled } : gw
         ));
-        
-        setSuccess(`✓ ${!gateway.enabled
-          ? t('manageShop.paymentSettings.activatedSuccess', { name: gateway.name })
-          : t('manageShop.paymentSettings.deactivatedSuccess', { name: gateway.name })}`);
+
+        setSuccess(!gateway.enabled
+          ? t('manageShop.paymentSettings.activatedSuccess', { name: nameFor(id) })
+          : t('manageShop.paymentSettings.deactivatedSuccess', { name: nameFor(id) }));
         setTimeout(() => setSuccess(null), 2500);
       }
     } catch (error: any) {
@@ -329,7 +351,7 @@ export default function PaymentSettings() {
         payment_methods: JSON.stringify(paymentSettings)
       });
 
-      setSuccess(`✓ ${t('manageShop.paymentSettings.settingsSavedSuccess')}`);
+      setSuccess(t('manageShop.paymentSettings.settingsSavedSuccess'));
       setTimeout(() => setSuccess(null), 3000);
     } catch (error: any) {
       console.error('Failed to save payment settings:', error);
@@ -339,362 +361,400 @@ export default function PaymentSettings() {
     }
   };
 
-  return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">{t('manageShop.paymentSettings.title')}</h1>
-        <p className="text-gray-600 mt-1">{t('manageShop.paymentSettings.subtitle')}</p>
+  const enabledCount = gateways.filter((gateway) => gateway.enabled).length;
+  const signal = derivePaymentSignal({ phase: error ? 'error' : loading ? 'loading' : 'ready', enabledCount }, t);
+  const shopName = authService.getCurrentShop()?.shop_name || t('manageShop.paymentSettings.title');
+  const defaultGatewayName = defaultGateway ? nameFor(defaultGateway) : undefined;
+  const advanceRuleLabel = {
+    none: t('manageShop.paymentSettings.noPayment'),
+    full: t('manageShop.paymentSettings.fullPayment'),
+    delivery: t('manageShop.paymentSettings.deliveryOnly'),
+    percentage: t('manageShop.paymentSettings.percentage'),
+    fixed: t('manageShop.paymentSettings.fixedAmount'),
+  }[advancePaymentRule];
+
+  const advanceOption = (value: 'none' | 'full' | 'delivery' | 'percentage' | 'fixed', title: string, description?: string, children?: React.ReactNode) => (
+    <label
+      className={`flex items-start gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+        advancePaymentRule === value
+          ? 'border-em-violet-600 bg-em-violet-50'
+          : 'border-em-border hover:border-em-border-strong'
+      }`}
+    >
+      <input
+        type="radio"
+        name="advance-payment"
+        value={value}
+        checked={advancePaymentRule === value}
+        onChange={(e) => setAdvancePaymentRule(e.target.value as any)}
+        className="w-5 h-5 mt-0.5 accent-em-violet-600"
+      />
+      <div className="flex-1">
+        <div className="font-medium text-em-text-primary">{title}</div>
+        {description && <div className="text-sm text-em-text-secondary">{description}</div>}
+        {children}
       </div>
+    </label>
+  );
 
-      {/* Success/Error Messages */}
-      {error && (
-        <div className="max-w-4xl mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="max-w-4xl mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-          {success}
-        </div>
-      )}
+  return (
+    <MotionConfig reducedMotion="user">
+    <div className="em-payment min-h-full p-4 md:p-6">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6">
+        {/* Execution-page header (§29): title + signal + factual pills only. */}
+        <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
+          <PageHeader
+            title={t('manageShop.paymentSettings.title')}
+            breadcrumb={[{ label: shopName }]}
+            signal={signal}
+            signalTestId="payment-signal"
+            signalAnnounce={false}
+            meta={
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t('manageShop.paymentSettings.enabledMethodsLabel')}: {enabledCount}
+                </span>
+                <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t('manageShop.paymentSettings.defaultBadge')}: {defaultGatewayName || '—'}
+                </span>
+                <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t('manageShop.paymentSettings.advanceRuleLabel')}: {advanceRuleLabel}
+                </span>
+              </div>
+            }
+          />
+        </motion.div>
 
-      <div className="max-w-4xl space-y-6">
-        {/* Payment Gateways */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('manageShop.paymentSettings.gatewaysTitle')}</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            {t('manageShop.paymentSettings.gatewaysSubtitle')}
-          </p>
+        {/* Success/Error Messages */}
+        {error && (
+          <div role="alert" className="flex items-center gap-2 rounded-xl border border-em-danger-700/20 bg-em-danger-100 px-4 py-3 text-sm text-em-danger-700">
+            <span className="flex-1">{error}</span>
+            <button
+              onClick={() => setError(null)}
+              aria-label={t('common.close')}
+              className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-danger-700 hover:text-em-danger-700/80 ${FOCUS_RING}`}
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        {success && (
+          <div role="status" className="flex items-center gap-2 rounded-xl border border-em-success-700/20 bg-em-success-100 px-4 py-3 text-sm text-em-success-700">
+            <span className="flex-1">{success}</span>
+            <button
+              onClick={() => setSuccess(null)}
+              aria-label={t('common.close')}
+              className={`min-h-11 min-w-11 inline-flex items-center justify-center text-em-success-700 hover:text-em-success-700/80 ${FOCUS_RING}`}
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+        )}
 
-          <div className="space-y-3">
-            {gateways.map((gateway) => (
-              <div key={gateway.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                <div className="flex items-center gap-4 p-4 hover:bg-gray-50 transition-colors">
-                  <div className="w-12 h-12 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
-                    {gateway.logo}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className="font-semibold text-gray-900">{gateway.name}</div>
-                      {defaultGateway === gateway.id && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
-                          <Star className="w-3 h-3 fill-current" />
-                          {t('manageShop.paymentSettings.defaultBadge')}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600">{gateway.description}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {gateway.enabled && defaultGateway !== gateway.id && !gateway.requiresContact && (
-                      <button
-                        onClick={() => handleSetDefault(gateway.id)}
-                        disabled={settingDefaultGateway === gateway.id}
-                        title={t('manageShop.paymentSettings.setDefaultTitle')}
-                        className="px-3 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-lg hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 border border-emerald-200"
-                      >
-                        {settingDefaultGateway === gateway.id
-                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          : <Star className="w-3.5 h-3.5" />}
-                        <span className="hidden md:inline">{t('manageShop.paymentSettings.setDefault')}</span>
-                      </button>
-                    )}
-                    {gateway.requiresContact ? (
-                      <a
-                        href="mailto:support@easymod.tech?subject=Integrate AamarPay or SSLCommerz"
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                        title={t('manageShop.paymentSettings.contactUsTitle')}
-                      >
-                        <Mail className="w-4 h-4" />
-                        <span className="text-sm font-medium">{t('manageShop.paymentSettings.contactUs')}</span>
-                      </a>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => toggleGateway(gateway.id)}
-                          disabled={(gateway.id !== 'cod' && !savedGateways.has(gateway.id)) || savingGateway === gateway.id}
-                          title={gateway.id !== 'cod' && !savedGateways.has(gateway.id) ? t('manageShop.paymentSettings.saveConfigFirst') : t('manageShop.paymentSettings.toggleActivateTitle')}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                            gateway.enabled ? 'bg-blue-600' : 'bg-gray-300'
-                          } ${(gateway.id !== 'cod' && !savedGateways.has(gateway.id)) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              gateway.enabled ? 'translate-x-6' : 'translate-x-1'
-                            }`}
-                          />
-                        </button>
-                        {gateway.config && (
-                          <button
-                            onClick={() => toggleExpand(gateway.id)}
-                            className="p-2 text-gray-600 hover:text-gray-900"
-                          >
-                            {expandedGateway === gateway.id ? (
-                              <ChevronUp className="w-5 h-5" />
-                            ) : (
-                              <ChevronDown className="w-5 h-5" />
-                            )}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Configuration Forms */}
-                {expandedGateway === gateway.id && gateway.config && !gateway.requiresContact && (
-                  <div className="border-t border-gray-200 p-4 bg-gray-50">
-                    {/* bKash individual config */}
-                    {isMfsGateway(gateway.id) && (
-                      <div className="space-y-4">
-                        {/* Mode selector */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            {t('manageShop.paymentSettings.paymentMode')}
-                          </label>
-                          <div className="flex gap-2">
-                            {(['self', 'merchant'] as const).map((mode) => (
-                              <button
-                                key={mode}
-                                type="button"
-                                onClick={() => updateGatewayConfig(gateway.id, 'accountType', mode)}
-                                className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
-                                  (gateway.config.accountType || 'self') === mode
-                                    ? 'bg-blue-600 text-white border-blue-600'
-                                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
-                                }`}
-                              >
-                                {mode === 'self' ? t('manageShop.paymentSettings.modeSelf') : t('manageShop.paymentSettings.modeMerchant')}
-                              </button>
-                            ))}
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {(gateway.config.accountType || 'self') === 'self'
-                              ? t('manageShop.paymentSettings.modeSelfHint')
-                              : t('manageShop.paymentSettings.modeMerchantHint')}
-                          </p>
-                        </div>
-
-                            {/* Receiver number is required for both supported modes. */}
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                {t('manageShop.paymentSettings.mfsPhoneNumber', { name: gateway.name })}
-                              </label>
-                              <input
-                                type="tel"
-                                value={gateway.config.phone || ''}
-                                onChange={(e) => updateGatewayConfig(gateway.id, 'phone', e.target.value)}
-                                placeholder="01XXXXXXXXX"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                            </div>
-
-                            {/* Self MFS fields */}
-                            {(gateway.config.accountType || 'self') === 'self' && (
-                              <div>
-                                <p className="text-xs text-gray-500">
-                                  {t('manageShop.paymentSettings.modeSelfHint')}
-                                </p>
-                              </div>
-                            )}
-
-                        {/* Merchant API fields */}
-                        {gateway.config.accountType === 'merchant' && (
-                          <div className="space-y-3">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.paymentSettings.appKey')}</label>
-                              <input
-                                type="text"
-                                value={gateway.config.app_key || ''}
-                                onChange={(e) => updateGatewayConfig(gateway.id, 'app_key', e.target.value)}
-                                placeholder={t('manageShop.paymentSettings.appKeyPlaceholder')}
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.paymentSettings.appSecret')}</label>
-                              <input
-                                type="password"
-                                value={gateway.config.app_secret || ''}
-                                onChange={(e) => updateGatewayConfig(gateway.id, 'app_secret', e.target.value)}
-                                placeholder={t('manageShop.paymentSettings.appSecretPlaceholder')}
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.paymentSettings.username')}</label>
-                                <input
-                                  type="text"
-                                  value={gateway.config.username || ''}
-                                  onChange={(e) => updateGatewayConfig(gateway.id, 'username', e.target.value)}
-                                  placeholder={t('manageShop.paymentSettings.merchantUsernamePlaceholder')}
-                                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.paymentSettings.password')}</label>
-                                <input
-                                  type="password"
-                                  value={gateway.config.password || ''}
-                                  onChange={(e) => updateGatewayConfig(gateway.id, 'password', e.target.value)}
-                                  placeholder={t('manageShop.paymentSettings.merchantPasswordPlaceholder')}
-                                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        <button
-                          onClick={() => saveGatewayConfig(gateway.id)}
-                          disabled={savingGateway === gateway.id}
-                          className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {savingGateway === gateway.id ? t('common.saving') : t('manageShop.paymentSettings.saveGateway', { name: gateway.name })}
-                        </button>
-                      </div>
-                    )}
-
-                  </div>
-                )}
+        {loading ? (
+          <div className="space-y-4" aria-label={t('manageShop.paymentSettings.title')}>
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="animate-pulse space-y-3 rounded-xl border border-em-border bg-em-bg-surface p-6">
+                <div className="h-5 w-1/3 rounded bg-em-bg-muted" />
+                <div className="h-3 w-2/3 rounded bg-em-bg-muted" />
+                <div className="h-9 w-40 rounded bg-em-bg-muted" />
               </div>
             ))}
           </div>
-        </div>
+        ) : (
+        <div className="space-y-6">
+          {/* Payment Gateways */}
+          <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible" className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h2 className="text-lg font-semibold text-em-text-primary mb-4">{t('manageShop.paymentSettings.gatewaysTitle')}</h2>
+            <p className="text-sm text-em-text-secondary mb-4">
+              {t('manageShop.paymentSettings.gatewaysSubtitle')}
+            </p>
 
-        {/* Advance Payment Rules */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('manageShop.paymentSettings.advanceTitle')}</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            {t('manageShop.paymentSettings.advanceSubtitle')}
-          </p>
+            <div className="space-y-3">
+              {gateways.map((gateway) => (
+                <div key={gateway.id} data-testid={`gateway-card-${gateway.id}`} className="border border-em-border rounded-xl overflow-hidden">
+                  <div className="flex items-center gap-4 p-4 hover:bg-em-bg-muted transition-colors">
+                    <div className="w-12 h-12 rounded-lg bg-em-bg-muted flex items-center justify-center flex-shrink-0">
+                      {gateway.logo}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="font-semibold text-em-text-primary">{nameFor(gateway.id)}</div>
+                        {defaultGateway === gateway.id && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-em-violet-100 text-em-violet-700">
+                            <Star className="w-3 h-3 fill-current" aria-hidden="true" />
+                            {t('manageShop.paymentSettings.defaultBadge')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-em-text-secondary">{descFor(gateway.id)}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {gateway.enabled && defaultGateway !== gateway.id && !gateway.requiresContact && (
+                        <EmButton
+                          variant="secondary"
+                          onClick={() => handleSetDefault(gateway.id)}
+                          disabled={settingDefaultGateway === gateway.id}
+                          loading={settingDefaultGateway === gateway.id}
+                          title={t('manageShop.paymentSettings.setDefaultTitle')}
+                          className="min-w-11 gap-1.5 px-3 text-xs"
+                        >
+                          <Star className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span className="hidden md:inline">{t('manageShop.paymentSettings.setDefault')}</span>
+                        </EmButton>
+                      )}
+                      {gateway.requiresContact ? (
+                        <a
+                          href="mailto:support@easymod.tech?subject=Integrate AamarPay or SSLCommerz"
+                          className={`flex min-h-11 items-center gap-2 px-4 py-2 bg-em-bg-muted text-em-text-primary rounded-lg hover:bg-em-border/60 transition-colors ${FOCUS_RING}`}
+                          title={t('manageShop.paymentSettings.contactUsTitle')}
+                        >
+                          <Mail className="w-4 h-4" aria-hidden="true" />
+                          <span className="text-sm font-medium">{t('manageShop.paymentSettings.contactUs')}</span>
+                        </a>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={gateway.enabled}
+                            aria-label={nameFor(gateway.id)}
+                            onClick={() => toggleGateway(gateway.id)}
+                            disabled={(gateway.id !== 'cod' && !savedGateways.has(gateway.id)) || savingGateway === gateway.id}
+                            title={gateway.id !== 'cod' && !savedGateways.has(gateway.id) ? t('manageShop.paymentSettings.saveConfigFirst') : t('manageShop.paymentSettings.toggleActivateTitle')}
+                            // 44px touch target (guardrails §18): the visual track
+                            // stays 24px tall inside a full-size hit area.
+                            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full transition-colors cursor-pointer ${
+                              (gateway.id !== 'cod' && !savedGateways.has(gateway.id)) ? 'opacity-50 cursor-not-allowed' : ''
+                            } ${FOCUS_RING}`}
+                          >
+                            <span className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full ${
+                              gateway.enabled ? 'bg-em-violet-600' : 'bg-em-border-strong'
+                            }`}>
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  gateway.enabled ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </span>
+                          </button>
+                          {gateway.config && (
+                            <button
+                              type="button"
+                              data-testid={`gateway-expand-${gateway.id}`}
+                              onClick={() => toggleExpand(gateway.id)}
+                              aria-expanded={expandedGateway === gateway.id}
+                              aria-label={t('manageShop.paymentSettings.configureGateway', { name: nameFor(gateway.id) })}
+                              className={`min-h-11 min-w-11 inline-flex items-center justify-center p-2 text-em-text-secondary hover:text-em-text-primary ${FOCUS_RING}`}
+                            >
+                              {expandedGateway === gateway.id ? (
+                                <ChevronUp className="w-5 h-5" aria-hidden="true" />
+                              ) : (
+                                <ChevronDown className="w-5 h-5" aria-hidden="true" />
+                              )}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
 
-          <div className="space-y-3">
-            <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-gray-300 transition-colors">
-              <input
-                type="radio"
-                name="advance-payment"
-                value="none"
-                checked={advancePaymentRule === 'none'}
-                onChange={(e) => setAdvancePaymentRule(e.target.value as any)}
-                className="w-4 h-4 text-blue-600"
-              />
-              <div className="flex-1">
-                <div className="font-medium text-gray-900">{t('manageShop.paymentSettings.noPayment')}</div>
-                <div className="text-sm text-gray-600">{t('manageShop.paymentSettings.noPaymentDesc')}</div>
-              </div>
-            </label>
+                  {/* Configuration Forms */}
+                  {expandedGateway === gateway.id && gateway.config && !gateway.requiresContact && (
+                    <div className="border-t border-em-border p-4 bg-em-bg-muted">
+                      {/* bKash individual config */}
+                      {isMfsGateway(gateway.id) && (
+                        <div className="space-y-4">
+                          {/* Mode selector */}
+                          <div>
+                            <label className="block text-sm font-medium text-em-text-primary mb-2">
+                              {t('manageShop.paymentSettings.paymentMode')}
+                            </label>
+                            <div className="flex gap-2">
+                              {(['self', 'merchant'] as const).map((mode) => (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  onClick={() => updateGatewayConfig(gateway.id, 'accountType', mode)}
+                                  aria-pressed={(gateway.config.accountType || 'self') === mode}
+                                  className={`flex-1 min-h-11 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${FOCUS_RING} ${
+                                    (gateway.config.accountType || 'self') === mode
+                                      ? 'bg-em-violet-600 text-white border-em-violet-600'
+                                      : 'bg-em-bg-surface text-em-text-primary border-em-border-strong hover:border-em-violet-300'
+                                  }`}
+                                >
+                                  {mode === 'self' ? t('manageShop.paymentSettings.modeSelf') : t('manageShop.paymentSettings.modeMerchant')}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="text-xs text-em-text-secondary mt-1">
+                              {(gateway.config.accountType || 'self') === 'self'
+                                ? t('manageShop.paymentSettings.modeSelfHint')
+                                : t('manageShop.paymentSettings.modeMerchantHint')}
+                            </p>
+                          </div>
 
-            <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-gray-300 transition-colors">
-              <input
-                type="radio"
-                name="advance-payment"
-                value="full"
-                checked={advancePaymentRule === 'full'}
-                onChange={(e) => setAdvancePaymentRule(e.target.value as any)}
-                className="w-4 h-4 text-blue-600"
-              />
-              <div className="flex-1">
-                <div className="font-medium text-gray-900">{t('manageShop.paymentSettings.fullPayment')}</div>
-                <div className="text-sm text-gray-600">{t('manageShop.paymentSettings.fullPaymentDesc')}</div>
-              </div>
-            </label>
+                          {/* Receiver number is required for both supported modes. */}
+                          <div>
+                            <label className="block text-sm font-medium text-em-text-primary mb-2">
+                              {t('manageShop.paymentSettings.mfsPhoneNumber', { name: nameFor(gateway.id) })}
+                            </label>
+                            <input
+                              type="tel"
+                              aria-label={t('manageShop.paymentSettings.mfsPhoneNumber', { name: nameFor(gateway.id) })}
+                              value={gateway.config.phone || ''}
+                              onChange={(e) => updateGatewayConfig(gateway.id, 'phone', e.target.value)}
+                              placeholder="01XXXXXXXXX"
+                              className={INPUT_CLASSES}
+                            />
+                          </div>
 
-            <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-gray-300 transition-colors">
-              <input
-                type="radio"
-                name="advance-payment"
-                value="delivery"
-                checked={advancePaymentRule === 'delivery'}
-                onChange={(e) => setAdvancePaymentRule(e.target.value as any)}
-                className="w-4 h-4 text-blue-600"
-              />
-              <div className="flex-1">
-                <div className="font-medium text-gray-900">{t('manageShop.paymentSettings.deliveryOnly')}</div>
-                <div className="text-sm text-gray-600">{t('manageShop.paymentSettings.deliveryOnlyDesc')}</div>
-              </div>
-            </label>
+                          {/* Merchant API fields */}
+                          {gateway.config.accountType === 'merchant' && (
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-sm font-medium text-em-text-primary mb-1">{t('manageShop.paymentSettings.appKey')}</label>
+                                <input
+                                  type="text"
+                                  aria-label={t('manageShop.paymentSettings.appKey')}
+                                  value={gateway.config.app_key || ''}
+                                  onChange={(e) => updateGatewayConfig(gateway.id, 'app_key', e.target.value)}
+                                  placeholder={t('manageShop.paymentSettings.appKeyPlaceholder')}
+                                  className={INPUT_CLASSES}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-em-text-primary mb-1">{t('manageShop.paymentSettings.appSecret')}</label>
+                                <input
+                                  type="password"
+                                  aria-label={t('manageShop.paymentSettings.appSecret')}
+                                  value={gateway.config.app_secret || ''}
+                                  onChange={(e) => updateGatewayConfig(gateway.id, 'app_secret', e.target.value)}
+                                  placeholder={t('manageShop.paymentSettings.appSecretPlaceholder')}
+                                  className={INPUT_CLASSES}
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-sm font-medium text-em-text-primary mb-1">{t('manageShop.paymentSettings.username')}</label>
+                                  <input
+                                    type="text"
+                                    aria-label={t('manageShop.paymentSettings.username')}
+                                    value={gateway.config.username || ''}
+                                    onChange={(e) => updateGatewayConfig(gateway.id, 'username', e.target.value)}
+                                    placeholder={t('manageShop.paymentSettings.merchantUsernamePlaceholder')}
+                                    className={INPUT_CLASSES}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-em-text-primary mb-1">{t('manageShop.paymentSettings.password')}</label>
+                                  <input
+                                    type="password"
+                                    aria-label={t('manageShop.paymentSettings.password')}
+                                    value={gateway.config.password || ''}
+                                    onChange={(e) => updateGatewayConfig(gateway.id, 'password', e.target.value)}
+                                    placeholder={t('manageShop.paymentSettings.merchantPasswordPlaceholder')}
+                                    className={INPUT_CLASSES}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
 
-            <label className="flex items-start gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-gray-300 transition-colors">
-              <input
-                type="radio"
-                name="advance-payment"
-                value="percentage"
-                checked={advancePaymentRule === 'percentage'}
-                onChange={(e) => setAdvancePaymentRule(e.target.value as any)}
-                className="w-4 h-4 text-blue-600 mt-1"
-              />
-              <div className="flex-1">
-                <div className="font-medium text-gray-900 mb-2">{t('manageShop.paymentSettings.percentage')}</div>
-                <div className="flex items-center gap-2">
+                          <EmButton
+                            variant="primary"
+                            onClick={() => saveGatewayConfig(gateway.id)}
+                            disabled={savingGateway === gateway.id}
+                            loading={savingGateway === gateway.id}
+                            className="w-full"
+                          >
+                            {savingGateway === gateway.id ? t('common.saving') : t('manageShop.paymentSettings.saveGateway', { name: nameFor(gateway.id) })}
+                          </EmButton>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Advance Payment Rules */}
+          <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible" className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h2 className="text-lg font-semibold text-em-text-primary mb-4">{t('manageShop.paymentSettings.advanceTitle')}</h2>
+            <p className="text-sm text-em-text-secondary mb-4">
+              {t('manageShop.paymentSettings.advanceSubtitle')}
+            </p>
+
+            <div className="space-y-3">
+              {advanceOption('none', t('manageShop.paymentSettings.noPayment'), t('manageShop.paymentSettings.noPaymentDesc'))}
+              {advanceOption('full', t('manageShop.paymentSettings.fullPayment'), t('manageShop.paymentSettings.fullPaymentDesc'))}
+              {advanceOption('delivery', t('manageShop.paymentSettings.deliveryOnly'), t('manageShop.paymentSettings.deliveryOnlyDesc'))}
+              {advanceOption('percentage', t('manageShop.paymentSettings.percentage'), undefined, (
+                <div className="flex items-center gap-2 mt-2">
                   <input
                     type="number"
+                    aria-label={t('manageShop.paymentSettings.percentage')}
                     value={advancePercentage}
                     onChange={(e) => setAdvancePercentage(parseFloat(e.target.value) || 0)}
                     disabled={advancePaymentRule !== 'percentage'}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+                    className={`w-24 px-3 py-2 min-h-11 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none disabled:bg-em-bg-muted disabled:text-em-text-disabled ${FOCUS_RING}`}
                     min="0"
                     max="100"
                   />
-                  <span className="text-gray-600">{t('manageShop.paymentSettings.percentageSuffix')}</span>
+                  <span className="text-em-text-secondary">{t('manageShop.paymentSettings.percentageSuffix')}</span>
                 </div>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-gray-300 transition-colors">
-              <input
-                type="radio"
-                name="advance-payment"
-                value="fixed"
-                checked={advancePaymentRule === 'fixed'}
-                onChange={(e) => setAdvancePaymentRule(e.target.value as any)}
-                className="w-4 h-4 text-blue-600 mt-1"
-              />
-              <div className="flex-1">
-                <div className="font-medium text-gray-900 mb-2">{t('manageShop.paymentSettings.fixedAmount')}</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-600">৳</span>
+              ))}
+              {advanceOption('fixed', t('manageShop.paymentSettings.fixedAmount'), undefined, (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-em-text-secondary">৳</span>
                   <input
                     type="number"
+                    aria-label={t('manageShop.paymentSettings.fixedAmount')}
                     value={advanceFixed}
                     onChange={(e) => setAdvanceFixed(parseFloat(e.target.value) || 0)}
                     disabled={advancePaymentRule !== 'fixed'}
-                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+                    className={`w-32 px-3 py-2 min-h-11 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none disabled:bg-em-bg-muted disabled:text-em-text-disabled ${FOCUS_RING}`}
                     min="0"
                     step="10"
                   />
-                  <span className="text-gray-600">{t('manageShop.paymentSettings.fixedSuffix')}</span>
+                  <span className="text-em-text-secondary">{t('manageShop.paymentSettings.fixedSuffix')}</span>
                 </div>
-              </div>
-            </label>
-          </div>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Payment Process Message */}
+          <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible" className="bg-em-bg-surface rounded-xl border border-em-border p-6">
+            <h2 className="text-lg font-semibold text-em-text-primary mb-4">{t('manageShop.paymentSettings.paymentMessage')}</h2>
+            <p className="text-sm text-em-text-secondary mb-4">
+              {t('manageShop.paymentSettings.paymentMessageSubtitle')}
+            </p>
+
+            <textarea
+              value={paymentMessage}
+              onChange={(e) => setPaymentMessage(e.target.value)}
+              placeholder={t('manageShop.paymentSettings.paymentMessagePlaceholder')}
+              aria-label={t('manageShop.paymentSettings.paymentMessage')}
+              rows={5}
+              className={`w-full px-4 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none mb-4 ${FOCUS_RING}`}
+            />
+
+            <EmButton
+              variant="primary"
+              onClick={savePaymentSettings}
+              disabled={savingSettings}
+              loading={savingSettings}
+              className="w-full"
+            >
+              {savingSettings ? t('manageShop.paymentSettings.saving') : t('manageShop.paymentSettings.updatePayment')}
+            </EmButton>
+          </motion.div>
         </div>
-
-        {/* Payment Process Message */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('manageShop.paymentSettings.paymentMessage')}</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            {t('manageShop.paymentSettings.paymentMessageSubtitle')}
-          </p>
-
-          <textarea
-            value={paymentMessage}
-            onChange={(e) => setPaymentMessage(e.target.value)}
-            placeholder={t('manageShop.paymentSettings.paymentMessagePlaceholder')}
-            rows={5}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-          />
-
-          <button
-            onClick={savePaymentSettings}
-            disabled={savingSettings}
-            className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-          >
-            {savingSettings ? t('manageShop.paymentSettings.saving') : t('manageShop.paymentSettings.updatePayment')}
-          </button>
-        </div>
+        )}
       </div>
     </div>
+    </MotionConfig>
   );
 }

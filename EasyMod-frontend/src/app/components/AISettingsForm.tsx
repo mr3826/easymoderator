@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useId, useState, useRef } from "react";
 import { useTranslation } from 'react-i18next';
 import { Plus, X, ChevronDown, ChevronUp } from "lucide-react";
 import type { ShopAISettings } from "@/api/types/dashboard";
@@ -7,6 +7,16 @@ import { queryClient } from "@/app/lib/queryClient";
 import type { TelegramNotificationStatus } from "@/api/types/notification";
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
+import { EmButton } from "./dashboard/EmButton";
+
+// Explicit focus-visible outline (guardrails §18). The .em-automation scope
+// rule covers the real app; these utilities keep the ring in router-less and
+// provider-less unit renders too, and stop transition-all animating it.
+const FOCUS_RING =
+  'focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none';
+
+const FIELD_CLASS =
+  `min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary ${FOCUS_RING}`;
 
 type NormalizedShopAISettings = Omit<ShopAISettings, 'automation_mode'> & {
   automation_mode: AiReplyMode;
@@ -69,10 +79,13 @@ interface TagInputProps {
   values: string[];
   onChange: (v: string[]) => void;
   placeholder?: string;
+  hint?: string;
 }
 
-function TagInput({ label, values, onChange, placeholder }: TagInputProps) {
+function TagInput({ label, values, onChange, placeholder, hint }: TagInputProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState("");
+  const inputId = useId();
 
   const add = () => {
     const v = draft.trim();
@@ -82,32 +95,40 @@ function TagInput({ label, values, onChange, placeholder }: TagInputProps) {
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
-      <div className="flex flex-wrap gap-2 mb-2">
+      <label htmlFor={inputId} className="mb-1 block text-sm font-medium text-em-text-primary">{label}</label>
+      {hint && <p className="mb-2 text-xs text-em-text-secondary">{hint}</p>}
+      <div className="mb-2 flex flex-wrap gap-2">
         {values.map((v) => (
-          <span key={v} className="flex items-center gap-1 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
+          <span key={v} className="flex items-center gap-1 rounded-full bg-em-violet-100 px-2 py-1 text-xs text-em-violet-700">
             {v}
-            <button type="button" onClick={() => onChange(values.filter((x) => x !== v))} className="hover:text-blue-600">
-              <X className="w-3 h-3" />
+            <button
+              type="button"
+              onClick={() => onChange(values.filter((x) => x !== v))}
+              aria-label={t('manageShop.aiSettings.removeKeyword', { value: v })}
+              className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-em-violet-700 hover:bg-em-violet-50 ${FOCUS_RING}`}
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
             </button>
           </span>
         ))}
       </div>
       <div className="flex gap-2">
         <input
+          id={inputId}
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder={placeholder}
-          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={`flex-1 ${FIELD_CLASS}`}
         />
         <button
           type="button"
           onClick={add}
-          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          aria-label={t('manageShop.aiSettings.addKeyword')}
+          className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-em-violet-600 text-white hover:bg-em-violet-700 ${FOCUS_RING}`}
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -152,6 +173,11 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
       const settingsForSave = {
         ...aiSettings,
         auto_reply_enabled: autoReplyForMode(aiSettings.automation_mode),
+        // The standalone ask-email toggle is gone; the "Email address" option in
+        // Required Order Fields is the single source. Derive the legacy scalar so
+        // a previously-stored `true` cannot survive as an invisible, un-flippable
+        // value that contradicts the only control the merchant can still see.
+        ask_email: aiSettings.required_fields.email_address,
       };
       const persistedSettings = await onSave(settingsForSave);
       try {
@@ -174,21 +200,30 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
 
   const noticeClass = (type: "success" | "error") =>
     type === "success"
-      ? "bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm"
-      : "bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm";
+      ? "rounded-lg border border-em-success-700/20 bg-em-success-100 px-4 py-3 text-sm text-em-success-700"
+      : "rounded-lg border border-em-danger-700/20 bg-em-danger-100 px-4 py-3 text-sm text-em-danger-700";
+
+  const closingEnabled = Boolean(aiSettings.closing?.enabled);
 
   return (
-    <section>
-      <h3 className="text-base font-semibold text-gray-900 mb-1">{t('manageShop.aiSettings.title')}</h3>
-      <p className="text-sm text-gray-500 mb-4">
+    <section aria-labelledby="ai-settings-title">
+      <h2 id="ai-settings-title" className="mb-1 text-base font-semibold text-em-text-primary">{t('manageShop.aiSettings.title')}</h2>
+      <p className="mb-4 text-sm text-em-text-secondary">
         {t('manageShop.aiSettings.subtitle')}
       </p>
 
-      {notice && <div className={`mb-4 ${noticeClass(notice.type)}`}>{notice.message}</div>}
+      {notice && (
+        <div
+          role={notice.type === "success" ? "status" : "alert"}
+          className={`mb-4 ${noticeClass(notice.type)}`}
+        >
+          {notice.message}
+        </div>
+      )}
 
       <div className="space-y-6">
         <div>
-          <label id="ai-reply-mode-label" className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.aiSettings.automationModeLabel')}</label>
+          <label id="ai-reply-mode-label" className="mb-2 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.automationModeLabel')}</label>
           <RadioGroup
             value={aiSettings.automation_mode}
             onValueChange={handleAutomationModeChange}
@@ -219,7 +254,7 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
                 <div
                   key={option.mode}
                   className={`relative min-h-24 rounded-xl border p-4 text-left transition-colors ${
-                    active ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                    active ? 'border-em-violet-600 bg-em-violet-50' : 'border-em-border bg-em-bg-surface hover:border-em-border-strong'
                   }`}
                 >
                   <RadioGroupItem
@@ -230,9 +265,9 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
                     className="absolute left-4 top-4"
                   />
                   <label htmlFor={optionId} className="block min-h-16 cursor-pointer pl-7">
-                    <p className="mb-0.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">{option.mode}</p>
-                    <p className="mb-1 text-sm font-bold text-gray-900">{option.title}</p>
-                    <p className="text-xs text-gray-600">{option.desc}</p>
+                    <p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-em-text-secondary">{option.mode}</p>
+                    <p className="mb-1 text-sm font-bold text-em-text-primary">{option.title}</p>
+                    <p className="text-xs text-em-text-secondary">{option.desc}</p>
                   </label>
                 </div>
               );
@@ -241,8 +276,9 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.aiSettings.languageLabel')}</label>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <label id="ai-language-label" className="mb-2 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.languageLabel')}</label>
+          <p className="mb-2 text-xs text-em-text-secondary">{t('manageShop.aiSettings.languageHint')}</p>
+          <div role="group" aria-labelledby="ai-language-label" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {([
               { value: 'mixed' as const, label: t('manageShop.aiSettings.language.mixed') },
               { value: 'bn' as const, label: t('manageShop.aiSettings.language.bn') },
@@ -251,9 +287,12 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
               <button
                 key={lang.value}
                 type="button"
+                aria-pressed={aiSettings.primary_language === lang.value}
                 onClick={() => setAISettings({ ...aiSettings, primary_language: lang.value })}
-                className={`min-h-12 rounded-lg border px-3 text-sm font-medium ${
-                  aiSettings.primary_language === lang.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-700'
+                className={`min-h-12 rounded-lg border px-3 text-sm font-medium ${FOCUS_RING} ${
+                  aiSettings.primary_language === lang.value
+                    ? 'border-em-violet-600 bg-em-violet-50 text-em-violet-700'
+                    : 'border-em-border text-em-text-primary hover:bg-em-bg-muted'
                 }`}
               >
                 <span className="font-bold">{lang.value}</span>
@@ -264,28 +303,33 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('manageShop.aiSettings.confidenceLabel')} <span className="font-semibold text-blue-700">{aiSettings.confidence_threshold}%</span>
+            <label htmlFor="confidence-threshold" className="mb-1 flex min-h-11 items-center gap-1 text-sm font-medium text-em-text-primary">
+              {t('manageShop.aiSettings.confidenceLabel')} <span className="font-semibold text-em-violet-700">{aiSettings.confidence_threshold}%</span>
             </label>
-            <p className="text-xs text-gray-500 mb-2">{t('manageShop.aiSettings.confidenceHint')}</p>
+            <p className="mb-2 text-xs text-em-text-secondary">{t('manageShop.aiSettings.confidenceHint')}</p>
             <input
+              id="confidence-threshold"
               type="range"
               min={0}
               max={100}
               step={5}
               value={aiSettings.confidence_threshold}
+              aria-valuetext={`${aiSettings.confidence_threshold}%`}
               onChange={(e) => setAISettings({ ...aiSettings, confidence_threshold: Number(e.target.value) })}
-              className="w-full accent-blue-600"
+              className={`w-full accent-em-violet-600 ${FOCUS_RING}`}
             />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <div className="mt-1 flex justify-between text-xs text-em-text-secondary">
               <span>{t('manageShop.aiSettings.confidenceCautious')}</span><span>{t('manageShop.aiSettings.confidenceBalanced')}</span><span>{t('manageShop.aiSettings.confidenceIndependent')}</span>
             </div>
+            <p className="mt-2 rounded-lg border border-em-info-700/20 bg-em-info-100 px-3 py-2 text-xs text-em-info-700">
+              {t('manageShop.aiSettings.confidenceRealityNote')}
+            </p>
           </div>
           <div>
-            <label htmlFor="max-auto-order-value" className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.aiSettings.maxAutoOrderLabel')}</label>
-            <p className="text-xs text-gray-500 mb-2">{t('manageShop.aiSettings.maxAutoOrderHint')}</p>
+            <label htmlFor="max-auto-order-value" className="mb-1 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.maxAutoOrderLabel')}</label>
+            <p className="mb-2 text-xs text-em-text-secondary">{t('manageShop.aiSettings.maxAutoOrderHint')}</p>
             <input
               id="max-auto-order-value"
               type="number"
@@ -293,29 +337,23 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
               step={100}
               value={aiSettings.max_auto_order_value}
               onChange={(e) => setAISettings({ ...aiSettings, max_auto_order_value: Number(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={FIELD_CLASS}
             />
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-6">
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <div
-              onClick={() => setAISettings({ ...aiSettings, ask_email: !aiSettings.ask_email })}
-              className={`relative w-10 h-6 rounded-full transition-colors ${aiSettings.ask_email ? "bg-blue-600" : "bg-gray-300"}`}
-            >
-              <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${aiSettings.ask_email ? "translate-x-4" : ""}`} />
-            </div>
-            <span className="text-sm text-gray-700">{t('manageShop.aiSettings.askEmail')}</span>
-          </label>
-        </div>
+        {/* The standalone "Ask customer for email" toggle was removed (founder
+            decision): it duplicated the "Email address" option in Required
+            Order Fields below, and the two could contradict each other. The
+            legacy `ask_email` scalar is now derived from that checkbox on save
+            (see handleSave) rather than carried as a hidden second source. */}
 
-        <div className="space-y-4 border-t border-gray-100 pt-6">
+        <div className="space-y-4 border-t border-em-border pt-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.aiSettings.greetingLabel')} <span className="text-gray-400 font-normal">{t('manageShop.aiSettings.greetingHint')}</span></label>
-            <div className="mb-2 rounded-md bg-gray-100 px-3 py-2 text-xs text-gray-600">
-              <span className="font-semibold text-gray-700">{t('manageShop.aiSettings.disclosurePrefix')} </span>
-              <span className="font-medium text-gray-800">{t('manageShop.aiSettings.disclosureText')}</span>
+            <label className="mb-2 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.greetingLabel')} <span className="font-normal text-em-text-secondary">{t('manageShop.aiSettings.greetingHint')}</span></label>
+            <div className="mb-2 rounded-md bg-em-bg-muted px-3 py-2 text-xs text-em-text-secondary">
+              <span className="font-semibold text-em-text-primary">{t('manageShop.aiSettings.disclosurePrefix')} </span>
+              <span className="font-medium text-em-text-primary">{t('manageShop.aiSettings.disclosureText')}</span>
               <span> {t('manageShop.aiSettings.disclosureSuffix')}</span>
             </div>
             <textarea
@@ -324,22 +362,26 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
               value={aiSettings.greeting?.custom_text || ""}
               onChange={(e) => setAISettings({ ...aiSettings, greeting: { ...aiSettings.greeting!, custom_text: e.target.value } })}
               placeholder={t('manageShop.aiSettings.greetingPlaceholder')}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={FIELD_CLASS}
             />
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-700">{t('manageShop.aiSettings.closingLabel')} <span className="text-gray-400 font-normal">{t('manageShop.aiSettings.closingHint')}</span></label>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <div
-                  onClick={() => setAISettings({ ...aiSettings, closing: { ...aiSettings.closing!, enabled: !aiSettings.closing?.enabled } })}
-                  className={`relative w-10 h-6 rounded-full transition-colors ${aiSettings.closing?.enabled ? "bg-blue-600" : "bg-gray-300"}`}
-                >
-                  <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${aiSettings.closing?.enabled ? "translate-x-4" : ""}`} />
-                </div>
-                <span className="text-xs text-gray-600">{aiSettings.closing?.enabled ? t('manageShop.aiSettings.toggleOn') : t('manageShop.aiSettings.toggleOff')}</span>
-              </label>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label className="block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.closingLabel')} <span className="font-normal text-em-text-secondary">{t('manageShop.aiSettings.closingHint')}</span></label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={closingEnabled}
+                aria-label={t('manageShop.aiSettings.closingLabel')}
+                onClick={() => setAISettings({ ...aiSettings, closing: { ...aiSettings.closing!, enabled: !aiSettings.closing?.enabled } })}
+                className={`inline-flex min-h-11 shrink-0 select-none items-center gap-2 rounded-lg px-1 disabled:cursor-not-allowed ${FOCUS_RING}`}
+              >
+                <span className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors ${closingEnabled ? "bg-em-violet-600" : "bg-em-border-strong"}`}>
+                  <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-em-bg-surface shadow transition-transform ${closingEnabled ? "translate-x-4" : ""}`} />
+                </span>
+                <span aria-hidden="true" className="text-xs text-em-text-secondary">{closingEnabled ? t('manageShop.aiSettings.toggleOn') : t('manageShop.aiSettings.toggleOff')}</span>
+              </button>
             </div>
             <textarea
               rows={2}
@@ -347,18 +389,18 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
               value={aiSettings.closing?.custom_text || ""}
               onChange={(e) => setAISettings({ ...aiSettings, closing: { ...aiSettings.closing!, custom_text: e.target.value } })}
               placeholder={t('manageShop.aiSettings.closingPlaceholder')}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={FIELD_CLASS}
             />
-            <p className="mt-1 text-xs text-gray-500">{t('manageShop.aiSettings.closingSocialNote')}</p>
+            <p className="mt-1 text-xs text-em-text-secondary">{t('manageShop.aiSettings.closingSocialNote')}</p>
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('manageShop.aiSettings.requiredFieldsLabel')}</label>
-          <p className="text-xs text-gray-500 mb-3">{t('manageShop.aiSettings.requiredFieldsHint')}</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <label className="mb-2 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.requiredFieldsLabel')}</label>
+          <p className="mb-3 text-xs text-em-text-secondary">{t('manageShop.aiSettings.requiredFieldsHint')}</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {(Object.keys(aiSettings.required_fields) as Array<keyof ShopAISettings['required_fields']>).map((field) => (
-              <label key={field} className="flex items-center gap-2 cursor-pointer">
+              <label key={field} className="flex min-h-11 cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
                   checked={aiSettings.required_fields[field]}
@@ -366,28 +408,31 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
                     ...aiSettings,
                     required_fields: { ...aiSettings.required_fields, [field]: e.target.checked }
                   })}
-                  className="w-4 h-4 accent-blue-600"
+                  className={`h-4 w-4 accent-em-violet-600 ${FOCUS_RING}`}
                 />
-                <span className="text-sm text-gray-700 capitalize">{t(`manageShop.aiSettings.fields.${field}`)}</span>
+                <span className="text-sm capitalize text-em-text-primary">{t(`manageShop.aiSettings.fields.${field}`)}</span>
               </label>
             ))}
           </div>
         </div>
 
-        <div className="border border-gray-200 rounded-lg">
+        <div className="rounded-lg border border-em-border">
           <button
             type="button"
+            id="handoff-toggle"
+            aria-expanded={showHandoffSection}
+            aria-controls={showHandoffSection ? "handoff-panel" : undefined}
             onClick={() => setShowHandoffSection(!showHandoffSection)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className={`flex min-h-11 w-full items-center justify-between rounded-lg px-4 py-3 text-sm font-medium text-em-text-primary hover:bg-em-bg-muted ${FOCUS_RING}`}
           >
             <span>{t('manageShop.aiSettings.handoffTitle')}</span>
-            {showHandoffSection ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {showHandoffSection ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
           </button>
           {showHandoffSection && (
-            <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div id="handoff-panel" role="region" aria-labelledby="handoff-toggle" className="space-y-4 border-t border-em-border px-4 pb-4 pt-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label htmlFor="notification-channel" className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.aiSettings.notificationChannel')}</label>
+                  <label htmlFor="notification-channel" className="mb-1 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.notificationChannel')}</label>
                   <select
                     id="notification-channel"
                     value={aiSettings.handoff_settings.notification_channel}
@@ -395,13 +440,14 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
                       ...aiSettings,
                       handoff_settings: { ...aiSettings.handoff_settings, notification_channel: e.target.value as HandoffNotificationChannel }
                     })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={FIELD_CLASS}
                   >
                     <option value="in_app">{t('manageShop.aiSettings.notifInApp')}</option>
                     <option value="telegram">{t('manageShop.aiSettings.notifTelegram')}</option>
                   </select>
+                  <p className="mt-1 text-xs text-em-text-secondary">{t('manageShop.aiSettings.notificationChannelHint')}</p>
                   {aiSettings.handoff_settings.notification_channel === 'telegram' && (
-                    <p className={`mt-1 text-xs ${telegramConnected ? 'text-green-700' : 'text-amber-700'}`}>
+                    <p className={`mt-1 text-xs ${telegramConnected ? 'text-em-success-700' : 'text-em-warning-700'}`}>
                       {telegramConnected
                         ? t('manageShop.aiSettings.telegramConnected')
                         : t('manageShop.aiSettings.telegramDisconnected')}
@@ -409,7 +455,7 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
                   )}
                 </div>
                 <div>
-                  <label htmlFor="cooldown-minutes" className="block text-sm font-medium text-gray-700 mb-1">{t('manageShop.aiSettings.cooldownLabel')}</label>
+                  <label htmlFor="cooldown-minutes" className="mb-1 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.cooldownLabel')}</label>
                   <input
                     id="cooldown-minutes"
                     type="number"
@@ -420,12 +466,13 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
                       ...aiSettings,
                       handoff_settings: { ...aiSettings.handoff_settings, cooldown_minutes: Number(e.target.value) }
                     })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={FIELD_CLASS}
                   />
                 </div>
               </div>
               <TagInput
                 label={t('manageShop.aiSettings.triggerKeywordsLabel')}
+                hint={t('manageShop.aiSettings.triggerKeywordsHint')}
                 values={aiSettings.handoff_settings.trigger_keywords}
                 onChange={(v) => setAISettings({ ...aiSettings, handoff_settings: { ...aiSettings.handoff_settings, trigger_keywords: v } })}
                 placeholder={t('manageShop.aiSettings.triggerKeywordsPlaceholder')}
@@ -435,17 +482,15 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
         </div>
       </div>
 
-      <button
+      <EmButton
+        variant="primary"
         onClick={handleSave}
         disabled={isSaving || !isDirty}
-        className={`mt-6 px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
-          isSaving || !isDirty
-            ? "bg-blue-300 cursor-not-allowed"
-            : "bg-blue-600 hover:bg-blue-700"
-        }`}
+        loading={isSaving}
+        className="mt-6"
       >
         {isSaving ? t('common.saving') : t('manageShop.aiSettings.saveButton')}
-      </button>
+      </EmButton>
     </section>
   );
 }

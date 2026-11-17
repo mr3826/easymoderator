@@ -40,9 +40,10 @@ const ResetPassword = lazy(() => import("./components/ResetPassword"));
 const TwoFactorVerify = lazy(() => import("./components/TwoFactorVerify"));
 const RouteError = lazy(() => import("./components/RouteError"));
 const Subscription = lazy(() => import("./components/Subscription"));
-const Addons = lazy(() => import("./components/Addons"));
-const AdsStudioPage = lazy(() => import("./components/ads-studio/AdsStudioPage"));
-const StorefrontManager = lazy(() => import("./components/storefront/StorefrontManager"));
+// The Add-ons hub and both pilot workspaces are deliberately not imported: the
+// feature is hidden from the merchant app (founder decision 2026-11-17). The
+// components and their tests stay in the repo so it can be re-exposed later.
+// StorefrontBuyer is the PUBLIC buyer surface and stays routed at /store/:slug.
 const StorefrontBuyer = lazy(() => import("./components/storefront/StorefrontBuyer"));
 const PrivacyPolicy = lazy(() => import("./components/PrivacyPolicy"));
 const TermsOfService = lazy(() => import("./components/TermsOfService"));
@@ -224,9 +225,11 @@ export const router = createBrowserRouter([
 			{ path: "/reports", Component: withSuspense(Reports) },
 			{ path: "/audit-logs", Component: withSuspense(AuditLogs) },
 			{ path: "/subscription", Component: withSuspense(Subscription) },
-			{ path: "/addons", Component: withSuspense(Addons) },
-			{ path: "/addons/ads-studio", Component: withSuspense(AdsStudioPage) },
-			{ path: "/addons/storefront", Component: withSuspense(StorefrontManager) },
+			// Hidden, not deleted: retired add-on paths redirect like /more so old
+			// bookmarks land on the dashboard instead of a dead-end NotFound.
+			{ path: "/addons", loader: () => redirect("/dashboard") },
+			{ path: "/addons/ads-studio", loader: () => redirect("/dashboard") },
+			{ path: "/addons/storefront", loader: () => redirect("/dashboard") },
 			{ path: "/more", loader: () => redirect("/dashboard") },
 			{
 				path: "/team/users",

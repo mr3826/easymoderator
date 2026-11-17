@@ -9,11 +9,20 @@ import type { Opportunity } from '@/api/types/customer-intelligence';
 
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>();
+  const React = await import('react');
   return {
     ...actual,
     useLocation: () => ({ pathname: '/', search: '', hash: '', state: null }),
     useNavigate: () => vi.fn(),
     useParams: () => ({}),
+    // Harness-only anchor stand-in for the redesign's real <Link>s (no Router
+    // in these renders); existing assertions unchanged.
+    Link: ({ to, children, ...rest }: { to?: string; children?: import('react').ReactNode; [key: string]: unknown }) =>
+      React.createElement(
+        'a',
+        { href: to ?? '#', ...rest } as import('react').AnchorHTMLAttributes<HTMLAnchorElement>,
+        children,
+      ),
   };
 });
 

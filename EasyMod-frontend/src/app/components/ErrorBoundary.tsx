@@ -1,5 +1,6 @@
 
 import React, { Component, ReactNode } from 'react';
+import i18n from '@/i18n';
 // ...existing code...
 
 interface Props {
@@ -32,27 +33,27 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="min-h-screen bg-em-bg-app flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-em-bg-surface rounded-lg shadow-lg p-6 text-center">
+            <div className="w-16 h-16 bg-em-danger-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-em-danger-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
             </div>
-            <h1 className="text-xl font-semibold text-gray-900 mb-2">We could not open this screen</h1>
-            <p className="text-gray-600 mb-6">
-              Refresh the page. If it happens again, contact support with the screen you were trying to open.
+            <h1 className="text-xl font-semibold text-em-text-primary mb-2">{i18n.t('shell.boundary.title')}</h1>
+            <p className="text-em-text-secondary mb-6">
+              {i18n.t('shell.boundary.message')}
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full min-h-11 bg-em-violet-600 text-white py-2 px-4 rounded-lg hover:bg-em-violet-700 transition-colors focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none"
             >
-              Refresh Page
+              {i18n.t('shell.boundary.refresh')}
             </button>
             {import.meta.env.DEV && this.state.error && (
               <details className="mt-4 text-left">
-                <summary className="cursor-pointer text-sm text-gray-500">Error details</summary>
-                <pre className="mt-2 text-xs bg-gray-100 p-2 rounded overflow-auto">
+                <summary className="cursor-pointer text-sm text-em-text-secondary">{i18n.t('shell.boundary.details')}</summary>
+                <pre className="mt-2 text-xs bg-em-bg-muted p-2 rounded overflow-auto">
                   {this.state.error.stack}
                 </pre>
               </details>

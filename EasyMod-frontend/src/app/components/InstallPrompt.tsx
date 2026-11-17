@@ -71,23 +71,23 @@ export default function InstallPrompt() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl border border-emerald-100 bg-white p-4 shadow-lg">
+    <div className="fixed bottom-20 md:bottom-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl border border-em-border bg-em-bg-surface p-4 shadow-lg">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-          <Download className="h-5 w-5" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-em-violet-100 text-em-violet-700">
+          <Download className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="text-sm font-semibold text-em-text-primary">
             {t("pwa.installTitle", "Install EasyModerator")}
           </p>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-em-text-secondary">
             {t("pwa.installSubtitle", "Add to your home screen for faster, app-like access.")}
           </p>
         </div>
         <button
           type="button"
           onClick={install}
-          className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+          className="shrink-0 min-h-11 rounded-lg bg-em-violet-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-em-violet-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none"
         >
           {t("pwa.install", "Install")}
         </button>
@@ -95,9 +95,9 @@ export default function InstallPrompt() {
           type="button"
           onClick={dismiss}
           aria-label={t("pwa.dismiss", "Dismiss")}
-          className="shrink-0 text-gray-400 hover:text-gray-600"
+          className="shrink-0 min-h-11 min-w-11 inline-flex items-center justify-center text-em-text-secondary hover:text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none"
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>

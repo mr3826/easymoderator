@@ -4,14 +4,14 @@ import { useTranslation } from "react-i18next";
 import type { Order } from "@/api/types/order";
 import { canBookCourierForOrder, getExpectedCourierCollection } from "./orderRules";
 
-// Semantic token-aligned status pill classes
+// em-token status pill classes (guardrails §8 semantic tones)
 const STATUS_CLASSES: Record<string, string> = {
-  draft: "bg-muted text-muted-foreground",
-  confirmed: "bg-blue-100 text-blue-700",
-  processing: "bg-yellow-100 text-yellow-700",
-  completed: "bg-green-100 text-green-700",
-  delivered: "bg-green-100 text-green-700",
-  cancelled: "bg-destructive/10 text-destructive",
+  draft: "bg-em-bg-em-bg-muted text-em-text-secondary",
+  confirmed: "bg-em-info-100 text-em-info-700",
+  processing: "bg-em-warning-100 text-em-warning-700",
+  completed: "bg-em-success-100 text-em-success-700",
+  delivered: "bg-em-success-100 text-em-success-700",
+  cancelled: "bg-em-danger-100 text-em-danger-700",
 };
 
 interface OrderRowProps {
@@ -48,15 +48,15 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
   const expectedCollection = getExpectedCourierCollection(order);
 
   return (
-    <article className="rounded-xl border border-border bg-card p-3">
+    <article className="rounded-xl border border-em-border bg-em-bg-surface p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-card-foreground">{order.customerName}</p>
-          <p className="truncate text-xs text-muted-foreground">#{order.orderNumber || order.id}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</p>
+          <p className="truncate text-sm font-bold text-em-text-primary">{order.customerName}</p>
+          <p className="truncate text-xs text-em-text-secondary">#{order.orderNumber || order.id}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</p>
         </div>
         <span
           className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${
-            STATUS_CLASSES[order.status] ?? "bg-muted text-muted-foreground"
+            STATUS_CLASSES[order.status] ?? "bg-em-bg-muted text-em-text-secondary"
           }`}
         >
           {t(`orders.status.${order.status}`, { defaultValue: order.status })}
@@ -64,30 +64,30 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
       </div>
 
       <div className="mt-2 flex items-center justify-between gap-2">
-        <p className="truncate text-xs text-muted-foreground">{itemSummary}</p>
-        <p className="shrink-0 text-sm font-bold text-foreground">{formatCurrency(order.total)}</p>
+        <p className="truncate text-xs text-em-text-secondary">{itemSummary}</p>
+        <p className="shrink-0 text-sm font-bold text-em-text-primary">{formatCurrency(order.total)}</p>
       </div>
 
       <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-        <p className="col-span-2 truncate text-muted-foreground">
-          <span className="font-semibold text-foreground">{t("orders.columns.channel")}:</span> {order.channel || t("orders.channelUnknown")}
+        <p className="col-span-2 truncate text-em-text-secondary">
+          <span className="font-semibold text-em-text-primary">{t("orders.columns.channel")}:</span> {order.channel || t("orders.channelUnknown")}
         </p>
-        <p className="rounded-md bg-muted px-2 py-1.5 text-muted-foreground">
-          <span className="font-semibold text-foreground">{t("orders.columns.payment")}:</span> {paymentLabel} · {paymentMethod}
+        <p className="rounded-md bg-em-bg-muted px-2 py-1.5 text-em-text-secondary">
+          <span className="font-semibold text-em-text-primary">{t("orders.columns.payment")}:</span> {paymentLabel} · {paymentMethod}
         </p>
-        <p className="rounded-md bg-muted px-2 py-1.5 text-muted-foreground">
-          <span className="font-semibold text-foreground">{t("orders.columns.delivery")}:</span> {deliveryLabel}
+        <p className="rounded-md bg-em-bg-muted px-2 py-1.5 text-em-text-secondary">
+          <span className="font-semibold text-em-text-primary">{t("orders.columns.delivery")}:</span> {deliveryLabel}
         </p>
-        <p className="col-span-2 rounded-md bg-muted px-2 py-1.5 text-muted-foreground">
-          <span className="font-semibold text-foreground">{t("orders.columns.expectedCollection")}:</span>{" "}
+        <p className="col-span-2 rounded-md bg-em-bg-muted px-2 py-1.5 text-em-text-secondary">
+          <span className="font-semibold text-em-text-primary">{t("orders.columns.expectedCollection")}:</span>{" "}
           {expectedCollection === null ? t("orders.expectedCollectionUnknown") : formatCurrency(expectedCollection)}
         </p>
-        <p className="col-span-2 truncate text-muted-foreground">
+        <p className="col-span-2 truncate text-em-text-secondary">
           {providerLabel}{order.delivery_tracking_code ? ` · ${order.delivery_tracking_code}` : ` · ${t("orders.fulfillment.trackingUnavailable")}`}
         </p>
-        <p className="col-span-2 text-muted-foreground">{formatDate(order.createdAt)}</p>
+        <p className="col-span-2 text-em-text-secondary">{formatDate(order.createdAt)}</p>
         {order.rto_risk === "high" && (
-          <p className="col-span-2 inline-flex items-center gap-1 font-semibold text-amber-800">
+          <p className="col-span-2 inline-flex items-center gap-1 font-semibold text-em-warning-700">
             <AlertTriangle className="h-3 w-3" /> {t("orders.rtoSignal")}
           </p>
         )}
@@ -97,7 +97,7 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
         <button
           type="button"
           onClick={() => onViewDetail(order)}
-          className="min-h-10 rounded-lg border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted"
+          className="min-h-11 rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm font-semibold text-em-text-primary hover:bg-em-bg-muted"
         >
           {order.status === "draft" ? t("orders.row.reviewDraft") : t("orders.row.viewDetail")}
         </button>
@@ -105,7 +105,7 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
           <button
             type="button"
             onClick={() => onDispatch(order)}
-            className="min-h-10 rounded-lg bg-primary px-3 text-sm font-bold text-primary-foreground"
+            className="min-h-11 rounded-lg bg-em-violet-600 px-3 text-sm font-bold text-white"
           >
             {t("orders.row.dispatch")}
           </button>
@@ -115,7 +115,7 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
             href={`https://steadfast.com.bd/track?trackingCode=${encodeURIComponent(order.delivery_tracking_code)}`}
             target="_blank"
             rel="noreferrer"
-            className="col-span-2 min-h-10 rounded-lg border border-border px-3 py-2 text-center text-sm font-semibold text-primary"
+            className="col-span-2 min-h-11 rounded-lg border border-em-border px-3 py-2 text-center text-sm font-semibold text-em-violet-700"
           >
             {t("orders.row.track")}
           </a>
@@ -154,46 +154,46 @@ export function OrderTableRow({ order, selected, formatCurrency, formatDate, onV
   const expectedCollection = getExpectedCourierCollection(order);
 
   return (
-    <tr className={selected ? "bg-primary/5" : "hover:bg-muted/30"}>
+    <tr className={selected ? "bg-em-violet-50" : "hover:bg-em-bg-muted/30"}>
       <td className="whitespace-nowrap px-3 py-3 align-top">
-        <button type="button" onClick={() => onViewDetail(order)} className="font-semibold text-primary hover:underline">
+        <button type="button" onClick={() => onViewDetail(order)} className="inline-flex min-h-11 items-center font-semibold text-em-violet-700 hover:underline">
           {order.orderNumber || order.id}
         </button>
-        {order.rto_risk === "high" && <p className="mt-1 flex items-center gap-1 text-xs text-amber-800"><AlertTriangle className="h-3 w-3" />{t("orders.rtoSignal")}</p>}
+        {order.rto_risk === "high" && <p className="mt-1 flex items-center gap-1 text-xs text-em-warning-700"><AlertTriangle className="h-3 w-3" />{t("orders.rtoSignal")}</p>}
       </td>
       <td className="max-w-[180px] px-3 py-3 align-top">
-        <p className="truncate font-medium text-foreground">{order.customerName}</p>
-        <p className="truncate text-xs text-muted-foreground">{order.customerPhone || "—"}</p>
+        <p className="truncate font-medium text-em-text-primary">{order.customerName}</p>
+        <p className="truncate text-xs text-em-text-secondary">{order.customerPhone || "—"}</p>
       </td>
-      <td className="max-w-[220px] px-3 py-3 align-top text-muted-foreground"><p className="truncate">{itemSummary}</p></td>
-      <td className="max-w-[110px] px-3 py-3 align-top text-muted-foreground">{order.channel || t("orders.channelUnknown")}</td>
+      <td className="max-w-[220px] px-3 py-3 align-top text-em-text-secondary"><p className="truncate">{itemSummary}</p></td>
+      <td className="max-w-[110px] px-3 py-3 align-top text-em-text-secondary">{order.channel || t("orders.channelUnknown")}</td>
       <td className="whitespace-nowrap px-3 py-3 text-right align-top font-semibold">{formatCurrency(order.total)}</td>
       <td className="px-3 py-3 align-top">
-        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${STATUS_CLASSES[order.status] ?? "bg-muted text-muted-foreground"}`}>
+        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${STATUS_CLASSES[order.status] ?? "bg-em-bg-muted text-em-text-secondary"}`}>
           {t(`orders.status.${order.status}`, { defaultValue: order.status })}
         </span>
       </td>
       <td className="max-w-[170px] px-3 py-3 align-top">
         <p>{paymentLabel}</p>
-        <p className="truncate text-xs text-muted-foreground">{order.payment_method || t("orders.paymentMethod.unknown")}</p>
+        <p className="truncate text-xs text-em-text-secondary">{order.payment_method || t("orders.paymentMethod.unknown")}</p>
       </td>
       <td className="max-w-[200px] px-3 py-3 align-top">
         <p>{deliveryLabel}</p>
-        <p className="truncate text-xs text-muted-foreground">
+        <p className="truncate text-xs text-em-text-secondary">
           {order.delivery_tracking_code ? `${providerLabel} · ${order.delivery_tracking_code}` : providerLabel}
         </p>
       </td>
       <td className="whitespace-nowrap px-3 py-3 align-top font-medium">
         {expectedCollection === null ? t("orders.expectedCollectionUnknown") : formatCurrency(expectedCollection)}
       </td>
-      <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-muted-foreground">{formatDate(order.createdAt)}</td>
+      <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-em-text-secondary">{formatDate(order.createdAt)}</td>
       <td className="whitespace-nowrap px-3 py-3 align-top">
         <div className="flex gap-2">
-          <button type="button" onClick={() => onViewDetail(order)} className="rounded-md border border-border px-2 py-1.5 text-xs font-semibold hover:bg-muted">
+          <button type="button" onClick={() => onViewDetail(order)} className="min-h-11 rounded-md border border-em-border px-2 py-1.5 text-xs font-semibold hover:bg-em-bg-muted">
             {t("orders.row.viewDetail")}
           </button>
           {canDispatch && (
-            <button type="button" onClick={() => onDispatch(order)} className="rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground">
+            <button type="button" onClick={() => onDispatch(order)} className="min-h-11 rounded-md bg-em-violet-600 px-2 py-1.5 text-xs font-semibold text-white">
               {t("orders.row.dispatch")}
             </button>
           )}
