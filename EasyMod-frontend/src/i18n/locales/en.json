@@ -2994,6 +2994,21 @@
   "subscription": {
     "title": "Billing",
     "subtitle": "Delivered-order billing, invoices, and payment",
+    "invoiceCountLabel": "Invoices",
+    "dueCountLabel": "Due",
+    "signal": {
+      "blocked": "Terms unavailable",
+      "pending": "Loading billing",
+      "due": "Invoice due",
+      "current": "Billing current",
+      "attention": "No invoices",
+      "reason": {
+        "termsUnavailable": "Commercial terms could not be validated, so no price is shown.",
+        "dueCount": "{{count}} invoice(s) awaiting payment.",
+        "invoiceCount": "{{count}} invoice(s) on record.",
+        "noInvoices": "Invoices appear here once orders are delivered and confirmed."
+      }
+    },
     "loading": "Loading billing details...",
     "entitlementsUnavailable": "Feature availability is temporarily unavailable.",
     "loadingFeatures": "Checking feature availability...",

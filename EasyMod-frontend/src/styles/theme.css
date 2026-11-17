@@ -298,7 +298,8 @@
 .em-channels,
 .em-orders,
 .em-customers,
-.em-products {
+.em-products,
+.em-billing {
   font-family:
     "Inter",
     "Hind Siliguri",
@@ -324,7 +325,8 @@
 .em-channels :focus-visible,
 .em-orders :focus-visible,
 .em-customers :focus-visible,
-.em-products :focus-visible {
+.em-products :focus-visible,
+.em-billing :focus-visible {
   outline: 2px solid var(--em-focus-light) !important;
   outline-offset: 2px !important;
 }
@@ -340,7 +342,8 @@
 .em-channels .em-tabular,
 .em-orders .em-tabular,
 .em-customers .em-tabular,
-.em-products .em-tabular {
+.em-products .em-tabular,
+.em-billing .em-tabular {
   font-variant-numeric: tabular-nums;
 }
 
@@ -401,7 +404,10 @@
   .em-customers *::after,
   .em-products *,
   .em-products *::before,
-  .em-products *::after {
+  .em-products *::after,
+  .em-billing *,
+  .em-billing *::before,
+  .em-billing *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }

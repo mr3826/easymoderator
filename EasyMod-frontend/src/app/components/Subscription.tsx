@@ -9,10 +9,14 @@ import {
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { motion, MotionConfig } from "motion/react";
 import { toast } from "sonner";
+import { fadeUp } from "@/lib/motion";
+import { PageHeader } from "./dashboard/PageHeader";
+import { deriveBillingSignal } from "./subscription/derive";
 import { Badge } from "@/app/components/ui/badge";
 import { Button } from "@/app/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/app/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader } from "@/app/components/ui/card";
 import {
   cancelInvoicePayment,
   completeInvoicePayment,
@@ -39,6 +43,8 @@ import { ClaimProvider } from "./claims/ClaimProvider";
  * comes from the claim registry. If the contract cannot be validated no price
  * is shown at all.
  */
+
+const ANIMATE = import.meta.env.MODE !== "test";
 
 interface InvoiceRow {
   id: string;
@@ -177,6 +183,17 @@ export default function Subscription() {
   const outstanding = invoices.find(
     (invoice) => invoice.status === "pending" || invoice.status === "overdue",
   );
+  const outstandingCount = invoices.filter(
+    (invoice) => invoice.status === "pending" || invoice.status === "overdue",
+  ).length;
+  const signal = deriveBillingSignal(
+    {
+      phase: contractQuery.error ? "error" : contractQuery.isLoading || invoicesLoading ? "loading" : "ready",
+      invoiceCount: invoices.length,
+      outstandingCount,
+    },
+    t,
+  );
 
   const invoiceStatusLabel = (status: string) => {
     const known = ["paid", "pending", "overdue", "cancelled"];
@@ -186,66 +203,85 @@ export default function Subscription() {
   };
 
   const invoiceStatusClass = (status: string) => {
-    if (status === "paid") return "bg-emerald-100 text-emerald-700";
-    if (status === "overdue") return "bg-red-100 text-red-700";
-    if (status === "cancelled") return "bg-gray-100 text-gray-600";
-    return "bg-amber-100 text-amber-700";
+    if (status === "paid") return "bg-em-success-100 text-em-success-700";
+    if (status === "overdue") return "bg-em-danger-100 text-em-danger-700";
+    if (status === "cancelled") return "bg-em-bg-muted text-em-text-secondary";
+    return "bg-em-warning-100 text-em-warning-700";
   };
 
   return (
-    <div className="mx-auto max-w-7xl p-4 font-bn md:p-8">
-      <div className="mb-6 flex flex-col gap-3 md:mb-8 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">{t("subscription.title")}</h1>
-          <p className="mt-1 text-sm text-gray-600 md:text-base">{t("subscription.subtitle")}</p>
-        </div>
-        {outstanding && (
-          <Button
-            onClick={() => void handlePayInvoice(outstanding.rawId)}
-            disabled={!bkashEnabled || payingInvoiceId === outstanding.rawId}
-          >
-            <CreditCard className="mr-2 h-4 w-4" />
-            {bkashEnabled ? t("subscription.payInvoice") : t("subscription.bkashUnavailable")}
-          </Button>
-        )}
-      </div>
+    <MotionConfig reducedMotion="user">
+    <div className="em-billing min-h-full p-4 md:p-6">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6">
+        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
+          <PageHeader
+            title={t("subscription.title")}
+            breadcrumb={[]}
+            signal={signal}
+            signalTestId="billing-signal"
+            signalAnnounce={false}
+            meta={
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t("subscription.invoiceCountLabel")}: {invoices.length}
+                </span>
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t("subscription.dueCountLabel")}: {outstandingCount}
+                </span>
+              </div>
+            }
+          />
+        </motion.div>
 
-      {error && <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-      {success && <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</div>}
+        {outstanding && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              onClick={() => void handlePayInvoice(outstanding.rawId)}
+              disabled={!bkashEnabled || payingInvoiceId === outstanding.rawId}
+              title={bkashEnabled ? undefined : t("subscription.bkashUnavailable")}
+            >
+              <CreditCard className="mr-2 h-4 w-4" />
+              {bkashEnabled ? t("subscription.payInvoice") : t("subscription.bkashUnavailable")}
+            </Button>
+          </div>
+        )}
+
+      {error && <div role="alert" className="rounded-xl border border-em-danger-700/20 bg-em-danger-100 p-4 text-sm text-em-danger-700">{error}</div>}
+      {success && <div role="status" className="rounded-xl border border-em-success-700/20 bg-em-success-100 p-4 text-sm text-em-success-700">{success}</div>}
 
       <ClaimProvider surface="subscription">
-        <Card className="mb-6 overflow-hidden border-emerald-100 bg-gradient-to-br from-white to-emerald-50/60">
+        <Card className="mb-6 overflow-hidden border-em-border bg-em-bg-surface">
           <CardHeader>
-            <CardTitle>{t("subscription.contractTitle")}</CardTitle>
-            <p className="text-sm text-gray-500">{t("subscription.contractSubtitle")}</p>
+            <h2 className="text-lg font-semibold text-em-text-primary">{t("subscription.contractTitle")}</h2>
+            <p className="text-sm text-em-text-secondary">{t("subscription.contractSubtitle")}</p>
           </CardHeader>
           <CardContent className="space-y-3">
             {contractQuery.isLoading && (
-              <p role="status" className="text-sm text-gray-500">{t("subscription.loading")}</p>
+              <p role="status" className="text-sm text-em-text-secondary">{t("subscription.loading")}</p>
             )}
             {contractQuery.error && (
-              <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <div role="alert" className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-3 text-sm text-em-warning-700">
                 {t("subscription.contractUnavailable")}
               </div>
             )}
             {contract && (
               <>
                 <div className="flex flex-wrap items-baseline gap-2">
-                  <span className="text-3xl font-bold text-gray-900">
+                  <span className="text-3xl font-bold text-em-text-primary">
                     {formatMinor(contract.unit_price_minor)}
                   </span>
-                  <span className="text-sm text-gray-600">{t("subscription.perDeliveredOrder")}</span>
+                  <span className="text-sm text-em-text-secondary">{t("subscription.perDeliveredOrder")}</span>
                 </div>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-em-text-secondary">
                   {t("subscription.dueWithin", { days: contract.due_days })}
                 </p>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-em-text-secondary">
                   {t("subscription.zeroRatedNote", { amount: formatMinor(0) })}
                 </p>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
+                <p className="text-xs uppercase tracking-wide text-em-text-secondary">
                   {t("subscription.contractVersion", { version: contract.contract_version })}
                 </p>
-                <div className="space-y-2 rounded-lg bg-white/70 p-3 text-sm text-gray-700">
+                <div className="space-y-2 rounded-lg bg-em-bg-muted/70 p-3 text-sm text-em-text-primary">
                   <Claim id="billing.delivered_order" surface="subscription" className="block" />
                   <Claim id="billing.overdue_policy" surface="subscription" className="block" />
                 </div>
@@ -256,17 +292,17 @@ export default function Subscription() {
 
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>{t("subscription.capabilitiesTitle")}</CardTitle>
-            <p className="text-sm text-gray-500">{t("subscription.capabilitiesSubtitle")}</p>
+            <h2 className="text-lg font-semibold text-em-text-primary">{t("subscription.capabilitiesTitle")}</h2>
+            <p className="text-sm text-em-text-secondary">{t("subscription.capabilitiesSubtitle")}</p>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2 text-sm text-gray-700">
-              <h3 className="font-semibold text-gray-900">{t("subscription.capabilityGroups.ai")}</h3>
+            <div className="space-y-2 text-sm text-em-text-primary">
+              <h3 className="font-semibold text-em-text-primary">{t("subscription.capabilityGroups.ai")}</h3>
               <Claim id="ai.draft_reply" surface="subscription" className="block" />
               <Claim id="ai.auto_reply" surface="subscription" className="block" />
             </div>
-            <div className="space-y-2 text-sm text-gray-700">
-              <h3 className="font-semibold text-gray-900">{t("subscription.capabilityGroups.courier")}</h3>
+            <div className="space-y-2 text-sm text-em-text-primary">
+              <h3 className="font-semibold text-em-text-primary">{t("subscription.capabilityGroups.courier")}</h3>
               <Claim id="courier.pathao.booking_live" surface="subscription" className="block" />
               <Claim id="courier.steadfast.booking_live" surface="subscription" className="block" />
               <Claim id="courier.redx.booking_live" surface="subscription" className="block" />
@@ -277,8 +313,8 @@ export default function Subscription() {
               <Claim id="courier.cod_settlement.steadfast" surface="subscription" className="block" />
               <Claim id="courier.cod_settlement.redx" surface="subscription" className="block" />
             </div>
-            <div className="space-y-2 text-sm text-gray-700">
-              <h3 className="font-semibold text-gray-900">{t("subscription.capabilityGroups.voiceAndTools")}</h3>
+            <div className="space-y-2 text-sm text-em-text-primary">
+              <h3 className="font-semibold text-em-text-primary">{t("subscription.capabilityGroups.voiceAndTools")}</h3>
               <Claim id="voice.transcription" surface="subscription" className="block" />
               <Claim id="addons.ads_studio.pilot" surface="subscription" className="block" />
               <Claim id="addons.storefront.pilot" surface="subscription" className="block" />
@@ -289,22 +325,22 @@ export default function Subscription() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{t("subscription.invoicesTitle")}</CardTitle>
+          <h2 className="text-lg font-semibold text-em-text-primary">{t("subscription.invoicesTitle")}</h2>
         </CardHeader>
         <CardContent>
           {invoicesLoading ? (
-            <p role="status" className="py-8 text-center text-sm text-gray-500">{t("subscription.loading")}</p>
+            <p role="status" className="py-8 text-center text-sm text-em-text-secondary">{t("subscription.loading")}</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px]">
+              <table className="w-full min-w-[720px]" aria-label={t("subscription.invoicesTitle")}>
                 <thead>
-                  <tr className="border-b border-gray-200 text-left text-sm text-gray-600">
-                    <th className="px-3 py-3">{t("subscription.invoiceColumns.id")}</th>
-                    <th className="px-3 py-3">{t("subscription.invoiceColumns.period")}</th>
-                    <th className="px-3 py-3">{t("subscription.invoiceColumns.type")}</th>
-                    <th className="px-3 py-3">{t("subscription.invoiceColumns.amount")}</th>
-                    <th className="px-3 py-3">{t("subscription.invoiceColumns.status")}</th>
-                    <th className="px-3 py-3">{t("subscription.invoiceColumns.action")}</th>
+                  <tr className="border-b border-em-border text-left text-sm text-em-text-secondary">
+                    <th scope="col" className="px-3 py-3">{t("subscription.invoiceColumns.id")}</th>
+                    <th scope="col" className="px-3 py-3">{t("subscription.invoiceColumns.period")}</th>
+                    <th scope="col" className="px-3 py-3">{t("subscription.invoiceColumns.type")}</th>
+                    <th scope="col" className="px-3 py-3">{t("subscription.invoiceColumns.amount")}</th>
+                    <th scope="col" className="px-3 py-3">{t("subscription.invoiceColumns.status")}</th>
+                    <th scope="col" className="px-3 py-3">{t("subscription.invoiceColumns.action")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -349,17 +385,19 @@ export default function Subscription() {
                 </tbody>
               </table>
               {invoices.length === 0 && (
-                <p className="py-8 text-center text-sm text-gray-500">{t("subscription.noInvoices")}</p>
+                <p className="py-8 text-center text-sm text-em-text-secondary">{t("subscription.noInvoices")}</p>
               )}
             </div>
           )}
         </CardContent>
-        <CardFooter className="text-sm text-gray-500">
-          <AlertCircle className="mr-2 h-4 w-4 shrink-0 text-gray-400" />
+        <CardFooter className="text-sm text-em-text-secondary">
+          <AlertCircle className="mr-2 h-4 w-4 shrink-0 text-em-text-secondary" />
           {t("subscription.invoiceDisclaimer")}
         </CardFooter>
       </Card>
+      </div>
     </div>
+    </MotionConfig>
   );
 }
 
@@ -411,11 +449,11 @@ function InvoiceTableRows({
   const canPay = bkashEnabled && (invoice.status === "pending" || invoice.status === "overdue");
   return (
     <>
-      <tr className="border-b border-gray-100 text-sm">
-        <td className="px-3 py-4 font-medium text-gray-900">{invoice.id}</td>
-        <td className="px-3 py-4 text-gray-600">{invoice.billingPeriod}</td>
-        <td className="px-3 py-4 text-gray-600">{labels.type}</td>
-        <td className="px-3 py-4 font-semibold text-gray-900">{labels.amount}</td>
+      <tr className="border-b border-em-border text-sm">
+        <td className="px-3 py-4 font-medium text-em-text-primary">{invoice.id}</td>
+        <td className="px-3 py-4 text-em-text-secondary">{invoice.billingPeriod}</td>
+        <td className="px-3 py-4 text-em-text-secondary">{labels.type}</td>
+        <td className="px-3 py-4 font-semibold text-em-text-primary">{labels.amount}</td>
         <td className="px-3 py-4">
           <Badge className={labels.statusClass}>{labels.status}</Badge>
         </td>
@@ -428,9 +466,15 @@ function InvoiceTableRows({
               </Button>
             )}
             {!bkashEnabled && invoice.status !== "paid" && (
-              <span className="text-xs text-gray-400">{labels.bkashUnavailable}</span>
+              <span className="text-xs text-em-text-secondary">{labels.bkashUnavailable}</span>
             )}
-            <Button variant="ghost" size="sm" onClick={onToggle} aria-expanded={isExpanded}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggle}
+              aria-expanded={isExpanded}
+              aria-controls={`billing-lines-${invoice.rawId}`}
+            >
               <ReceiptText className="mr-1 h-3.5 w-3.5" />
               {isExpanded ? labels.hide : labels.view}
             </Button>
@@ -439,6 +483,7 @@ function InvoiceTableRows({
               size="icon"
               onClick={() => window.open(buildApiUrl(`/api/subscription/invoices/${invoice.rawId}/pdf`), "_blank")}
               title={labels.viewInvoice}
+              aria-label={labels.viewInvoice}
             >
               <Eye className="h-4 w-4" />
             </Button>
@@ -447,6 +492,7 @@ function InvoiceTableRows({
               size="icon"
               onClick={() => window.open(buildApiUrl(`/api/subscription/invoices/${invoice.rawId}/pdf`), "_blank")}
               title={labels.downloadInvoice}
+              aria-label={labels.downloadInvoice}
             >
               <Download className="h-4 w-4" />
             </Button>
@@ -454,33 +500,33 @@ function InvoiceTableRows({
         </td>
       </tr>
       {isExpanded && (
-        <tr className="border-b border-gray-100 bg-slate-50">
-          <td colSpan={6} className="px-3 py-3">
+        <tr className="border-b border-em-border bg-em-bg-muted">
+          <td colSpan={6} className="px-3 py-3" id={`billing-lines-${invoice.rawId}`}>
             {linesLoading && (
-              <p role="status" className="flex items-center gap-2 text-sm text-gray-500">
+              <p role="status" className="flex items-center gap-2 text-sm text-em-text-secondary">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {labels.linesLoading}
               </p>
             )}
             {!linesLoading && linesError && (
-              <p role="status" className="text-sm text-amber-700">{labels.linesUnavailable}</p>
+              <p role="alert" className="text-sm text-em-warning-700">{labels.linesUnavailable}</p>
             )}
             {!linesLoading && !linesError && lines && lines.length === 0 && (
-              <p className="text-sm text-gray-500">{labels.linesEmpty}</p>
+              <p className="text-sm text-em-text-secondary">{labels.linesEmpty}</p>
             )}
             {!linesLoading && !linesError && lines && lines.length > 0 && (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm" aria-label={labels.view}>
                 <thead>
-                  <tr className="text-left text-xs text-gray-500">
-                    <th className="py-1 pr-4">{labels.lineOrder}</th>
-                    <th className="py-1 pr-4">{labels.lineKind}</th>
-                    <th className="py-1 pr-4">{labels.lineOutcome}</th>
-                    <th className="py-1">{labels.lineAmount}</th>
+                  <tr className="text-left text-xs text-em-text-secondary">
+                    <th scope="col" className="py-1 pr-4">{labels.lineOrder}</th>
+                    <th scope="col" className="py-1 pr-4">{labels.lineKind}</th>
+                    <th scope="col" className="py-1 pr-4">{labels.lineOutcome}</th>
+                    <th scope="col" className="py-1">{labels.lineAmount}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {lines.map((line) => (
-                    <tr key={line.id} className="text-gray-700">
+                    <tr key={line.id} className="text-em-text-primary">
                       <td className="py-1 pr-4 font-mono text-xs">{line.orderId ?? "—"}</td>
                       <td className="py-1 pr-4">{line.lineKind ?? "—"}</td>
                       <td className="py-1 pr-4">{line.outcome ?? "—"}</td>

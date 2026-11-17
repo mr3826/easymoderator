@@ -137,6 +137,13 @@ vi.mock('lucide-react', () => {
     Eye: Icon,
     Loader2: Icon,
     ReceiptText: Icon,
+    // Redesign kit (PageHeader/SignalBadge) imports these too.
+    ChevronRight: Icon,
+    BadgeCheck: Icon,
+    CheckCircle2: Icon,
+    Clock4: Icon,
+    OctagonX: Icon,
+    TriangleAlert: Icon,
   };
 });
 
