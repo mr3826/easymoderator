@@ -74,8 +74,26 @@ const KNOWN_PATTERNS = [
     /^\/api\/notifications\/in-app\/[\w-]+\/read$/,
 ];
 
-async function setupRoutes(page: Page) {
+// A period whose usage the invoice job has already frozen into metadata. The
+// default fixture deliberately has none, so the fail-closed empty state is what
+// the original assertions see.
+const usageInvoices = [
+    {
+        id: INVOICE_ID, invoice_number: 'INV-2', billing_period: '2026-10', amount: 640,
+        status: 'pending', invoice_type: 'delivered_order', created_at: '2026-11-01T00:00:00.000Z',
+        billing_period_start: '2026-10-01T00:00:00.000Z',
+        billing_period_end: '2026-11-01T00:00:00.000Z',
+        due_date: '2026-11-08T12:00:00.000Z',
+        metadata: {
+            deliveredCount: 64, zeroRatedCount: 9, grossMinor: 64000, creditMinor: 0, netMinor: 64000,
+            lines: [{ orderId: 'order-1', kind: 'billable', outcome: 'DELIVERED', amountMinor: 1000, occurredAt: '2026-10-12' }],
+        },
+    },
+];
+
+async function setupRoutes(page: Page, opts: { withUsage?: boolean } = {}) {
     const state = { signedIn: false, unexpected: [] as string[], linesQueries: [] as string[] };
+    const invoiceRows = opts.withUsage ? usageInvoices : invoices;
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -99,7 +117,7 @@ async function setupRoutes(page: Page) {
         if (path === '/api/dashboard/metrics') return route.fulfill({ json: json({}) });
         if (path === '/api/dashboard/queue') return route.fulfill({ json: json({}) });
         if (path === '/api/subscription') return route.fulfill({ json: json({ plan: 'MERCHANT', status: 'active', contract: 'DELIVERED_ORDER' }) });
-        if (path === '/api/subscription/invoices') return route.fulfill({ json: json(invoices) });
+        if (path === '/api/subscription/invoices') return route.fulfill({ json: json(invoiceRows) });
         if (path === '/api/commercial/billing-lines') {
             state.linesQueries.push(url.searchParams.get('invoiceId') ?? '');
             return route.fulfill({ json: json({ invoiceId: INVOICE_ID, contractVersion: '1.0.0', lines }) });
@@ -166,6 +184,23 @@ test('bKash stays opt-in: the pay action is disabled with an honest reason', asy
     const pay = page.getByRole('button', { name: /bKash payment is not available right now/i }).first();
     await expect(pay).toBeDisabled();
     await expect(page.getByText('bKash payment is not available right now.').first()).toBeVisible();
+    expect(state.unexpected).toEqual([]);
+});
+
+test('usage is read from the invoices already fetched — no extra request', async ({ page }) => {
+    const state = await setupRoutes(page, { withUsage: true });
+    await loginAndGo(page);
+    await expect(page.getByText('Delivered orders billed')).toBeVisible();
+    await expect(page.getByText(/Delivered billed: 64/)).toBeVisible();
+    await expect(page.getByText(/1 Oct – 31 Oct/)).toBeVisible();
+    await expect(page.getByText(/64 delivered · 9 zero-rated/)).toBeVisible();
+    await expect(page.getByText(/Due 8 Nov 2026/)).toBeVisible();
+    // Still strictly on demand: the usage panel must not prefetch any lines.
+    expect(state.linesQueries).toEqual([]);
+    await page.getByRole('button', { name: /billing lines/i }).click();
+    await expect.poll(() => state.linesQueries.length).toBe(1);
+    await expect(page.getByRole('columnheader', { name: 'Outcome date' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: '12 Oct 2026' })).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
 

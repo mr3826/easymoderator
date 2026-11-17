@@ -99,6 +99,9 @@ export interface Invoice {
   subscription_id: string;
   invoice_number: string;
   billing_period: string;
+  /** Period bounds as stored by the invoice job; `end` is exclusive. */
+  billing_period_start?: string;
+  billing_period_end?: string;
   amount: number | string;
   base_amount?: number | string;
   extra_usage_amount?: number | string;

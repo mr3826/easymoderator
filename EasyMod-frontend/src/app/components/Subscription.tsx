@@ -1,5 +1,7 @@
 import {
   AlertCircle,
+  CheckCircle2,
+  Clock4,
   CreditCard,
   Download,
   Eye,
@@ -14,6 +16,7 @@ import { toast } from "sonner";
 import { fadeUp } from "@/lib/motion";
 import { PageHeader } from "./dashboard/PageHeader";
 import { deriveBillingSignal } from "./subscription/derive";
+import { deriveUsageSummary, invoiceUsage, outcomeDateFor, type InvoiceUsageDetail } from "./subscription/usage";
 import { Badge } from "@/app/components/ui/badge";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/app/components/ui/card";
@@ -54,6 +57,13 @@ interface InvoiceRow {
   status: string;
   type: string;
   date: string;
+  /** Inclusive period bounds, formatted; "" when the payload has none. */
+  periodRange: string;
+  dueDate: string;
+  paidAt: string;
+  /** Frozen usage from the invoice job, or null for legacy invoice types. */
+  usage: InvoiceUsageDetail | null;
+  metadata: Record<string, unknown> | null;
 }
 
 const invoiceAmountMinor = (amount: number | string): number | null => {
@@ -67,6 +77,38 @@ export default function Subscription() {
   const locale = String(i18n?.language ?? "").toLowerCase();
   const formatMinor = (minor: number) => (locale.startsWith("bn") ? formatBdtBn(minor) : formatBdt(minor));
   const localeCode = locale.startsWith("bn") ? "bn-BD" : "en-GB";
+
+  const formatDay = (value?: string | null) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toLocaleDateString(localeCode, { day: "numeric", month: "short", year: "numeric" });
+  };
+
+  // `occurredAt` is a DATEONLY value (UTC midnight). Formatting it in a local
+  // zone west of UTC would show the previous day, so pin the zone.
+  const formatUtcDay = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toLocaleDateString(localeCode, {
+      day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+    });
+  };
+
+  // The job stores `billing_period_end` EXCLUSIVE (1st of the next month), so
+  // the merchant-facing range subtracts a day. Both bounds are UTC midnights.
+  const formatPeriodRange = (start?: string, end?: string) => {
+    if (!start || !end) return "";
+    const from = new Date(start);
+    const to = new Date(end);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return "";
+    const utcDay = (d: Date) =>
+      d.toLocaleDateString(localeCode, { day: "numeric", month: "short", timeZone: "UTC" });
+    return t("subscription.usagePeriodRange", {
+      start: utcDay(from),
+      end: utcDay(new Date(to.getTime() - 86_400_000)),
+    });
+  };
 
   const bkashEnabled = isBkashEnabled();
   const contractQuery = useCommercialContract();
@@ -92,13 +134,12 @@ export default function Subscription() {
               amount: invoiceAmountMinor(invoice.amount),
               status: invoice.status,
               type: invoice.invoice_type || "delivered_order",
-              date: invoice.created_at
-                ? new Date(invoice.created_at).toLocaleDateString(localeCode, {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })
-                : "",
+              date: formatDay(invoice.created_at),
+              periodRange: formatPeriodRange(invoice.billing_period_start, invoice.billing_period_end),
+              dueDate: formatDay(invoice.due_date),
+              paidAt: formatDay(invoice.paid_at),
+              usage: invoiceUsage(invoice.metadata),
+              metadata: invoice.metadata ?? null,
             }))
           : [],
       );
@@ -186,6 +227,10 @@ export default function Subscription() {
   const outstandingCount = invoices.filter(
     (invoice) => invoice.status === "pending" || invoice.status === "overdue",
   ).length;
+  // Usage is read from the invoice rows already fetched — the job freezes each
+  // period's delivered/zero-rated counts into `metadata`. No extra request.
+  const usage = deriveUsageSummary(invoices);
+
   const signal = deriveBillingSignal(
     {
       phase: contractQuery.error ? "error" : contractQuery.isLoading || invoicesLoading ? "loading" : "ready",
@@ -228,6 +273,11 @@ export default function Subscription() {
                 <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
                   {t("subscription.dueCountLabel")}: {outstandingCount}
                 </span>
+                {usage.hasDetail && (
+                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                    {t("subscription.usageDeliveredPillLabel")}: {usage.deliveredCount}
+                  </span>
+                )}
               </div>
             }
           />
@@ -278,6 +328,9 @@ export default function Subscription() {
                 <p className="text-sm text-em-text-secondary">
                   {t("subscription.zeroRatedNote", { amount: formatMinor(0) })}
                 </p>
+                <p className="text-sm text-em-text-secondary">
+                  {t("subscription.cycleLabel")}: {t("subscription.cycleMonthly")} · {t("subscription.paymentLabel")}: {t("subscription.paymentPostpaid")}
+                </p>
                 <p className="text-xs uppercase tracking-wide text-em-text-secondary">
                   {t("subscription.contractVersion", { version: contract.contract_version })}
                 </p>
@@ -322,6 +375,52 @@ export default function Subscription() {
           </CardContent>
         </Card>
       </ClaimProvider>
+
+      {/* Usage truth (ADR-0011): every number here is read from the invoice rows
+          already fetched — the job freezes each period's counts into metadata.
+          Billed periods only; nothing is projected or estimated. */}
+      <Card className="mb-6 border-em-border bg-em-bg-surface">
+        <CardHeader>
+          <h2 className="text-lg font-semibold text-em-text-primary">{t("subscription.usageTitle")}</h2>
+          <p className="text-sm text-em-text-secondary">{t("subscription.usageSubtitle")}</p>
+        </CardHeader>
+        <CardContent>
+          {invoicesLoading ? (
+            <p role="status" className="text-sm text-em-text-secondary">{t("subscription.loading")}</p>
+          ) : usage.hasDetail ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-em-border bg-em-bg-muted/60 p-4">
+                  <p className="flex items-center gap-2 text-xs font-medium text-em-text-secondary">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {t("subscription.usageDeliveredLabel")}
+                  </p>
+                  <p className="em-tabular mt-1 text-2xl font-bold text-em-text-primary">{usage.deliveredCount}</p>
+                </div>
+                <div className="rounded-xl border border-em-border bg-em-bg-muted/60 p-4">
+                  <p className="flex items-center gap-2 text-xs font-medium text-em-text-secondary">
+                    <ReceiptText className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {t("subscription.usageZeroRatedLabel")}
+                  </p>
+                  <p className="em-tabular mt-1 text-2xl font-bold text-em-text-primary">{usage.zeroRatedCount}</p>
+                </div>
+                <div className="rounded-xl border border-em-border bg-em-bg-muted/60 p-4">
+                  <p className="flex items-center gap-2 text-xs font-medium text-em-text-secondary">
+                    <Clock4 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {t("subscription.usageOutstandingLabel")}
+                  </p>
+                  <p className="em-tabular mt-1 text-2xl font-bold text-em-text-primary">{formatMinor(usage.outstandingMinor)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-em-text-secondary">
+                {t("subscription.usagePeriodsLabel", { count: usage.periodsCovered })}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-em-text-secondary">{t("subscription.usageNoDetail")}</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -369,6 +468,22 @@ export default function Subscription() {
                           lineKind: t("subscription.billingLineColumns.kind"),
                           lineOutcome: t("subscription.billingLineColumns.outcome"),
                           lineAmount: t("subscription.billingLineColumns.amount"),
+                          lineOccurredAt: t("subscription.billingLineColumns.occurredAt"),
+                          usageLine: invoice.usage
+                            ? t("subscription.usagePerPeriod", {
+                                delivered: invoice.usage.deliveredCount,
+                                zeroRated: invoice.usage.zeroRatedCount,
+                              })
+                            : "",
+                          dueLine: invoice.status === "paid" && invoice.paidAt
+                            ? t("subscription.invoicePaidOn", { date: invoice.paidAt })
+                            : invoice.dueDate
+                              ? t("subscription.invoiceDueOn", { date: invoice.dueDate })
+                              : "",
+                          outcomeDate: (orderId) => {
+                            const occurredAt = outcomeDateFor(invoice.metadata, orderId);
+                            return occurredAt ? formatUtcDay(occurredAt) : "—";
+                          },
                           status: invoiceStatusLabel(invoice.status),
                           statusClass: invoiceStatusClass(invoice.status),
                           type: t(`subscription.invoiceTypes.${invoice.type}`, invoice.type),
@@ -414,6 +529,10 @@ interface InvoiceTableLabels {
   lineKind: string;
   lineOutcome: string;
   lineAmount: string;
+  lineOccurredAt: string;
+  usageLine: string;
+  dueLine: string;
+  outcomeDate: (orderId: string | null | undefined) => string;
   status: string;
   statusClass: string;
   type: string;
@@ -451,11 +570,16 @@ function InvoiceTableRows({
     <>
       <tr className="border-b border-em-border text-sm">
         <td className="px-3 py-4 font-medium text-em-text-primary">{invoice.id}</td>
-        <td className="px-3 py-4 text-em-text-secondary">{invoice.billingPeriod}</td>
+        <td className="px-3 py-4 text-em-text-secondary">
+          <span className="block">{invoice.billingPeriod}</span>
+          {invoice.periodRange && <span className="block text-xs">{invoice.periodRange}</span>}
+          {labels.usageLine && <span className="em-tabular block text-xs">{labels.usageLine}</span>}
+        </td>
         <td className="px-3 py-4 text-em-text-secondary">{labels.type}</td>
         <td className="px-3 py-4 font-semibold text-em-text-primary">{labels.amount}</td>
         <td className="px-3 py-4">
           <Badge className={labels.statusClass}>{labels.status}</Badge>
+          {labels.dueLine && <span className="mt-1 block text-xs text-em-text-secondary">{labels.dueLine}</span>}
         </td>
         <td className="px-3 py-4">
           <div className="flex items-center gap-2">
@@ -515,26 +639,35 @@ function InvoiceTableRows({
               <p className="text-sm text-em-text-secondary">{labels.linesEmpty}</p>
             )}
             {!linesLoading && !linesError && lines && lines.length > 0 && (
-              <table className="w-full text-sm" aria-label={labels.view}>
-                <thead>
-                  <tr className="text-left text-xs text-em-text-secondary">
-                    <th scope="col" className="py-1 pr-4">{labels.lineOrder}</th>
-                    <th scope="col" className="py-1 pr-4">{labels.lineKind}</th>
-                    <th scope="col" className="py-1 pr-4">{labels.lineOutcome}</th>
-                    <th scope="col" className="py-1">{labels.lineAmount}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((line) => (
-                    <tr key={line.id} className="text-em-text-primary">
-                      <td className="py-1 pr-4 font-mono text-xs">{line.orderId ?? "—"}</td>
-                      <td className="py-1 pr-4">{line.lineKind ?? "—"}</td>
-                      <td className="py-1 pr-4">{line.outcome ?? "—"}</td>
-                      <td className="py-1">{labels.formatMinor(line.amountMinor)}</td>
+              <>
+                {labels.usageLine && (
+                  <p className="em-tabular mb-2 text-xs font-medium text-em-text-secondary">{labels.usageLine}</p>
+                )}
+                <table className="w-full text-sm" aria-label={labels.view}>
+                  <thead>
+                    <tr className="text-left text-xs text-em-text-secondary">
+                      <th scope="col" className="py-1 pr-4">{labels.lineOrder}</th>
+                      <th scope="col" className="py-1 pr-4">{labels.lineKind}</th>
+                      <th scope="col" className="py-1 pr-4">{labels.lineOutcome}</th>
+                      <th scope="col" className="py-1 pr-4">{labels.lineOccurredAt}</th>
+                      <th scope="col" className="py-1">{labels.lineAmount}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {lines.map((line) => (
+                      <tr key={line.id} className="text-em-text-primary">
+                        <td className="py-1 pr-4 font-mono text-xs">{line.orderId ?? "—"}</td>
+                        <td className="py-1 pr-4">{line.lineKind ?? "—"}</td>
+                        <td className="py-1 pr-4">{line.outcome ?? "—"}</td>
+                        {/* The API's createdAt is row-insert time; the real outcome
+                            date only exists in the invoice's frozen line list. */}
+                        <td className="py-1 pr-4 text-xs">{labels.outcomeDate(line.orderId)}</td>
+                        <td className="py-1">{labels.formatMinor(line.amountMinor)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </td>
         </tr>

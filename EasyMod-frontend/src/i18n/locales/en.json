@@ -3056,6 +3056,22 @@
       "courier": "Couriers and COD",
       "voiceAndTools": "Voice and add-ons"
     },
+    "usageTitle": "Usage",
+    "usageSubtitle": "Billed periods only. Orders you deliver in the current period appear here once that invoice is issued.",
+    "usageDeliveredLabel": "Delivered orders billed",
+    "usageZeroRatedLabel": "Zero-rated orders",
+    "usageOutstandingLabel": "Outstanding",
+    "usagePeriodsLabel": "Periods with detail: {{count}}",
+    "usageNoDetail": "Usage detail is available for invoices issued under the current contract. Older invoices show amounts only.",
+    "usageDeliveredPillLabel": "Delivered billed",
+    "usagePerPeriod": "{{delivered}} delivered · {{zeroRated}} zero-rated",
+    "usagePeriodRange": "{{start}} – {{end}}",
+    "invoiceDueOn": "Due {{date}}",
+    "invoicePaidOn": "Paid {{date}}",
+    "cycleLabel": "Billing cycle",
+    "cycleMonthly": "Monthly",
+    "paymentLabel": "Payment",
+    "paymentPostpaid": "Postpaid",
     "invoicesTitle": "Invoices",
     "invoiceColumns": {
       "id": "Invoice ID",
@@ -3092,7 +3108,8 @@
       "order": "Order",
       "kind": "Kind",
       "outcome": "Outcome",
-      "amount": "Amount"
+      "amount": "Amount",
+      "occurredAt": "Outcome date"
     },
     "noInvoices": "No invoices yet.",
     "invoiceDisclaimer": "Amounts come from validated billing lines; the invoice PDF is the final document.",

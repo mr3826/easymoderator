@@ -13,6 +13,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Subscription from '../../Subscription';
 import { deriveBillingSignal } from '../derive';
+import { deriveUsageSummary, invoiceUsage, outcomeDateFor } from '../usage';
 import { useCommercialContract, useClaimDecisions } from '@/api/domains/commercialContract';
 import { getInvoices, getBillingLines, cancelInvoicePayment } from '@/api/domains/subscription';
 
@@ -162,5 +163,96 @@ describe('payment banners', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/payment was cancelled/i);
     expect(sessionStorage.getItem('easymod_pay_ctx')).toBeNull();
+  });
+});
+
+describe('usage derivation (pure)', () => {
+  const meta = (delivered: number, zero: number) => ({
+    deliveredCount: delivered, zeroRatedCount: zero, grossMinor: delivered * 1000, creditMinor: 0, netMinor: delivered * 1000,
+  });
+
+  it('sums only invoices that carry usable metadata', () => {
+    const summary = deriveUsageSummary([
+      { amount: 64000, status: 'pending', metadata: meta(64, 9) },
+      { amount: 12000, status: 'paid', metadata: meta(12, 3) },
+      { amount: 5000, status: 'overdue', metadata: null },
+    ]);
+    expect(summary.hasDetail).toBe(true);
+    expect(summary.periodsCovered).toBe(2);
+    expect(summary.deliveredCount).toBe(76);
+    expect(summary.zeroRatedCount).toBe(12);
+    // Outstanding counts pending + overdue only, regardless of metadata.
+    expect(summary.outstandingMinor).toBe(69000);
+  });
+
+  it('fails closed when no invoice has detail, and rejects malformed counts', () => {
+    expect(deriveUsageSummary([{ amount: 1000, status: 'pending', metadata: null }]).hasDetail).toBe(false);
+    expect(invoiceUsage({ deliveredCount: -1, zeroRatedCount: 0 })).toBeNull();
+    expect(invoiceUsage({ deliveredCount: 'many', zeroRatedCount: 0 })).toBeNull();
+    expect(invoiceUsage(undefined)).toBeNull();
+  });
+
+  it('reads the real outcome date from the frozen line list, not the API createdAt', () => {
+    const metadata = { lines: [{ orderId: 'order-1', occurredAt: '2026-10-12' }] };
+    expect(outcomeDateFor(metadata, 'order-1')).toBe('2026-10-12');
+    expect(outcomeDateFor(metadata, 'order-unknown')).toBeNull();
+    expect(outcomeDateFor({ lines: 'nope' }, 'order-1')).toBeNull();
+    expect(outcomeDateFor(null, 'order-1')).toBeNull();
+  });
+});
+
+describe('usage on the billing page', () => {
+  const USAGE_INVOICE = {
+    id: INVOICE_ID,
+    invoice_number: 'INV-2',
+    billing_period: '2026-10',
+    billing_period_start: '2026-10-01T00:00:00.000Z',
+    billing_period_end: '2026-11-01T00:00:00.000Z',
+    amount: 640,
+    status: 'pending',
+    invoice_type: 'delivered_order',
+    created_at: '2026-11-01T00:00:00.000Z',
+    due_date: '2026-11-08T12:00:00.000Z',
+    metadata: {
+      deliveredCount: 64,
+      zeroRatedCount: 9,
+      grossMinor: 64000,
+      creditMinor: 0,
+      netMinor: 64000,
+      lines: [{ orderId: 'order-1', kind: 'billable', outcome: 'DELIVERED', amountMinor: 1000, occurredAt: '2026-10-12' }],
+    },
+  };
+
+  it('says so honestly when no invoice carries usage detail', async () => {
+    renderPage();
+    expect(await screen.findByText(/Usage detail is available for invoices issued under the current contract/i)).toBeInTheDocument();
+    expect(screen.queryByText('Delivered orders billed')).toBeNull();
+  });
+
+  it('shows billed usage, period bounds, due date and the real outcome date', async () => {
+    vi.mocked(getInvoices).mockResolvedValue([USAGE_INVOICE] as never);
+    vi.mocked(getBillingLines).mockResolvedValue([{
+      id: 'line-1', invoiceId: INVOICE_ID, orderId: 'order-1', lineKind: 'DELIVERED_ORDER',
+      outcome: 'DELIVERED', unitPriceMinor: 1000, amountMinor: 1000, currency: 'BDT',
+      contractVersion: '1.0.0', createdAt: '2026-11-01T00:00:00.000Z',
+    }] as never);
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('Delivered orders billed')).toBeInTheDocument();
+    expect(screen.getByText('64')).toBeInTheDocument();
+    expect(screen.getByText('9')).toBeInTheDocument();
+    expect(screen.getByText(/Delivered billed: 64/)).toBeInTheDocument();
+    // Period bounds are inclusive: the stored end is exclusive.
+    expect(screen.getByText(/1 Oct – 31 Oct/)).toBeInTheDocument();
+    expect(screen.getByText(/64 delivered · 9 zero-rated/)).toBeInTheDocument();
+    expect(screen.getByText(/Due 8 Nov 2026/)).toBeInTheDocument();
+    // The invoices table keeps its six columns; detail rides inside existing cells.
+    const table = screen.getByRole('table', { name: 'Invoices' });
+    expect(table.querySelectorAll('th[scope="col"]').length).toBe(6);
+
+    await user.click(screen.getByRole('button', { name: /billing lines/i }));
+    expect(await screen.findByText('12 Oct 2026')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Outcome date' })).toBeInTheDocument();
   });
 });

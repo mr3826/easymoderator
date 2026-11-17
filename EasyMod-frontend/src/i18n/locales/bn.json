@@ -3056,6 +3056,22 @@
       "courier": "কুরিয়ার ও COD",
       "voiceAndTools": "ভয়েস ও অ্যাড-অন"
     },
+    "usageTitle": "ব্যবহার",
+    "usageSubtitle": "শুধু বিল হওয়া সময়কাল। চলতি সময়ে ডেলিভারি করা অর্ডার সেই ইনভয়েস issued হওয়ার পর এখানে দেখাবে।",
+    "usageDeliveredLabel": "বিল হওয়া ডেলিভারি অর্ডার",
+    "usageZeroRatedLabel": "শূন্য-বিল অর্ডার",
+    "usageOutstandingLabel": "বাকি",
+    "usagePeriodsLabel": "বিস্তারিতসহ সময়কাল: {{count}}",
+    "usageNoDetail": "বর্তমান চুক্তির অধীনে issued ইনভয়েসের জন্য ব্যবহারের বিস্তারিত পাওয়া যায়। পুরোনো ইনভয়েসে শুধু পরিমাণ দেখায়।",
+    "usageDeliveredPillLabel": "বিল হওয়া ডেলিভারি",
+    "usagePerPeriod": "{{delivered}} ডেলিভারি · {{zeroRated}} শূন্য-বিল",
+    "usagePeriodRange": "{{start}} – {{end}}",
+    "invoiceDueOn": "পরিশোধের শেষ তারিখ {{date}}",
+    "invoicePaidOn": "পরিশোধিত {{date}}",
+    "cycleLabel": "বিলিং চক্র",
+    "cycleMonthly": "মাসিক",
+    "paymentLabel": "পরিশোধ",
+    "paymentPostpaid": "পোস্টপেইড",
     "invoicesTitle": "ইনভয়েস",
     "invoiceColumns": {
       "id": "ইনভয়েস আইডি",
@@ -3092,7 +3108,8 @@
       "order": "অর্ডার",
       "kind": "ধরন",
       "outcome": "ফলাফল",
-      "amount": "পরিমাণ"
+      "amount": "পরিমাণ",
+      "occurredAt": "ফলাফলের তারিখ"
     },
     "noInvoices": "এখনো কোনো ইনভয়েস নেই।",
     "invoiceDisclaimer": "পরিমাণ যাচাইকৃত বিলিং লাইন থেকে আসে; ইনভয়েস PDF চূড়ান্ত নথি।",
