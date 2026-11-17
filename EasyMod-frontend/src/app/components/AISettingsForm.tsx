@@ -173,6 +173,11 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
       const settingsForSave = {
         ...aiSettings,
         auto_reply_enabled: autoReplyForMode(aiSettings.automation_mode),
+        // The standalone ask-email toggle is gone; the "Email address" option in
+        // Required Order Fields is the single source. Derive the legacy scalar so
+        // a previously-stored `true` cannot survive as an invisible, un-flippable
+        // value that contradicts the only control the merchant can still see.
+        ask_email: aiSettings.required_fields.email_address,
       };
       const persistedSettings = await onSave(settingsForSave);
       try {
@@ -337,21 +342,11 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
           </div>
         </div>
 
-        <div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={aiSettings.ask_email}
-            onClick={() => setAISettings({ ...aiSettings, ask_email: !aiSettings.ask_email })}
-            className={`inline-flex min-h-11 select-none items-center gap-3 rounded-lg px-1 text-sm text-em-text-primary disabled:cursor-not-allowed ${FOCUS_RING}`}
-          >
-            <span className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors ${aiSettings.ask_email ? "bg-em-violet-600" : "bg-em-border-strong"}`}>
-              <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-em-bg-surface shadow transition-transform ${aiSettings.ask_email ? "translate-x-4" : ""}`} />
-            </span>
-            <span>{t('manageShop.aiSettings.askEmail')}</span>
-          </button>
-          <p className="mt-1 text-xs text-em-text-secondary">{t('manageShop.aiSettings.askEmailHint')}</p>
-        </div>
+        {/* The standalone "Ask customer for email" toggle was removed (founder
+            decision): it duplicated the "Email address" option in Required
+            Order Fields below, and the two could contradict each other. The
+            legacy `ask_email` scalar is now derived from that checkbox on save
+            (see handleSave) rather than carried as a hidden second source. */}
 
         <div className="space-y-4 border-t border-em-border pt-6">
           <div>

@@ -177,4 +177,32 @@ describe('pricing validation', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Each weight tier must have From (kg) less than To (kg)'));
     expect(orderApi.updateDeliverySettings).not.toHaveBeenCalled();
   });
+
+  it('offers the same save affordance in both pricing cards and confirms beside it', async () => {
+    render(<DeliverySettings />);
+    await screen.findByTestId('delivery-signal');
+    // The merchant edits at the bottom of the page; the save must be there too,
+    // not only in the General card header far above.
+    const weightSave = screen.getByTestId('weight-charges-save');
+    const areaSave = screen.getByTestId('area-pricing-save');
+    expect(weightSave).toHaveAccessibleName('Save delivery charges');
+    expect(areaSave).toHaveAccessibleName('Save delivery charges');
+
+    fireEvent.change(screen.getByPlaceholderText('To (kg)'), { target: { value: '5' } });
+    fireEvent.click(weightSave);
+    await waitFor(() => expect(orderApi.updateDeliverySettings).toHaveBeenCalledWith(
+      expect.objectContaining({ weight_tiers: [{ from_kg: 0, to_kg: 5, extra_charge: 0 }] }),
+    ));
+    // Confirmation lands next to the action, not only in the page-top banner.
+    await waitFor(() => expect(screen.getAllByText('Saved').length).toBeGreaterThan(0));
+    // …and clears as soon as the merchant edits again.
+    fireEvent.change(screen.getByPlaceholderText('To (kg)'), { target: { value: '7' } });
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('says the weight tiers are recorded only, not applied to quotes', async () => {
+    render(<DeliverySettings />);
+    await screen.findByTestId('delivery-signal');
+    expect(screen.getByText(/not applied to delivery quotes or courier bookings yet/i)).toBeInTheDocument();
+  });
 });

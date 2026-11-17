@@ -2410,6 +2410,9 @@
       "addArea": "+ Add Area",
       "codAllowed": "COD Allowed",
       "weightCharges": "Weight Based Extra Charges",
+      "saveCharges": "Save delivery charges",
+      "saveChargesScope": "Saves the general, area and weight settings on this page.",
+      "chargesSaved": "Saved",
       "addTier": "+ Add Tier",
       "weightFrom": "From (kg)",
       "weightTo": "To (kg)",
@@ -2507,8 +2510,8 @@
       },
       "removeArea": "Remove area",
       "removeTier": "Remove tier",
-      "weightTierTooltip": "Weight tier guide: Add extra charges by weight range. Example: 0-1 kg = 0, 1-3 kg = 20. Extra charge adds to base delivery charge.",
-      "weightTierInfo": "Add extra charges for weight ranges. Example: 0-1 kg = 0, 1-3 kg = 20, 3-5 kg = 40. The extra charge is added on top of the base delivery charge.",
+      "weightTierTooltip": "Weight tier guide: record extra charges by weight range. Example: 0-1 kg = 0, 1-3 kg = 20. Recorded only — delivery quotes and courier bookings do not use these tiers yet.",
+      "weightTierInfo": "Record extra charges for weight ranges. Example: 0-1 kg = 0, 1-3 kg = 20, 3-5 kg = 40. Recorded for your reference — these tiers are not applied to delivery quotes or courier bookings yet.",
       "enterCredentials": "Enter {{provider}} Credentials"
     },
     "paymentSettings": {

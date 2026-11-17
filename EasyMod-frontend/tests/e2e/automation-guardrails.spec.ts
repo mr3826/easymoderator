@@ -150,21 +150,29 @@ test('execution header: title + signal + factual pills, no header CTA', async ({
     expect(state.unexpected).toEqual([]);
 });
 
-test('toggles are real switches: keyboard operable, dirty-gated, and saved canonically', async ({ page }) => {
+test('the closing toggle is a real switch: keyboard operable, dirty-gated, saved canonically', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    const askEmail = page.getByRole('switch', { name: 'Ask customer for email' });
-    await expect(askEmail).toHaveAttribute('aria-checked', 'false');
+    // The duplicate "Ask customer for email" toggle is gone; the email option
+    // lives only in Required Order Fields.
+    await expect(page.getByRole('switch', { name: 'Ask customer for email' })).toHaveCount(0);
+    await expect(page.getByLabel(/email address/i)).toBeVisible();
+    const closing = page.getByRole('switch', { name: 'Closing message' });
+    await expect(closing).toHaveAttribute('aria-checked', 'true');
     const save = page.getByRole('button', { name: 'Save Reply Settings', exact: true });
     await expect(save).toBeDisabled();
-    await askEmail.focus();
+    await closing.focus();
     await page.keyboard.press('Space');
-    await expect(askEmail).toHaveAttribute('aria-checked', 'true');
+    await expect(closing).toHaveAttribute('aria-checked', 'false');
     await expect(save).toBeEnabled();
     const put = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/shop/ai-settings' && r.method() === 'PUT');
     await save.click();
     const request = await put;
-    expect(request.postDataJSON()).toMatchObject({ ask_email: true, automation_mode: 'DRAFT', auto_reply_enabled: false });
+    expect(request.postDataJSON()).toMatchObject({
+        closing: { enabled: false },
+        automation_mode: 'DRAFT',
+        auto_reply_enabled: false,
+    });
     await expect(page.getByText('Reply settings saved.', { exact: true })).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
@@ -174,7 +182,6 @@ test('non-owner: the fieldset disables the switches and the header says read-onl
     await loginAndGo(page);
     // Playwright treats a disabled <fieldset> as enabled itself and only reports
     // its DESCENDANTS as disabled — so assert the real controls, then the attr.
-    await expect(page.getByRole('switch', { name: 'Ask customer for email' })).toBeDisabled();
     await expect(page.getByRole('switch', { name: 'Closing message' })).toBeDisabled();
     await expect(page.getByTestId('automation-settings-fieldset')).toHaveAttribute('disabled', '');
     await expect(page.getByRole('button', { name: 'Save Reply Settings', exact: true })).toBeDisabled();
@@ -188,7 +195,7 @@ test('emergency stop locks the editor; resume unlocks it after a reload', async 
     const state = await setupRoutes(page, { stopped: true });
     await loginAndGo(page);
     await expect(page.getByTestId('automation-emergency-stop-notice')).toContainText(/locked to Manual until the emergency stop is resumed/i);
-    await expect(page.getByRole('switch', { name: 'Ask customer for email' })).toBeDisabled();
+    await expect(page.getByRole('switch', { name: 'Closing message' })).toBeDisabled();
     await expect(page.getByTestId('automation-settings-fieldset')).toHaveAttribute('disabled', '');
     await expect(page.getByTestId('automation-signal')).toContainText('AI replies stopped');
 
@@ -198,7 +205,7 @@ test('emergency stop locks the editor; resume unlocks it after a reload', async 
     // The page's own settings snapshot is not wired to the card's query cache
     // (documented gap), so re-navigate before asserting the unlocked editor.
     await page.goto('/manage-shop/automation');
-    await expect(page.getByRole('switch', { name: 'Ask customer for email' })).toBeEnabled();
+    await expect(page.getByRole('switch', { name: 'Closing message' })).toBeEnabled();
     await expect(page.getByTestId('automation-emergency-stop-notice')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
@@ -226,7 +233,6 @@ test('honesty: recorded-only settings say so, and the fixed confidence is disclo
     await loginAndGo(page);
     await expect(page.getByText(/Order value does not limit automatic replies today/i)).toBeVisible();
     await expect(page.getByText(/Checkout does not ask for or enforce these fields today/i)).toBeVisible();
-    await expect(page.getByText(/Replies do not ask for an email address today/i)).toBeVisible();
     await expect(page.getByText(/any threshold at or below 90% passes every reply/i)).toBeVisible();
     await page.getByRole('button', { name: /When We Should Alert You/i }).click();
     await expect(page.getByText(/Alerts use EasyModerator's built-in sentiment checks, not this list/i)).toBeVisible();

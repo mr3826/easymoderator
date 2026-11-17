@@ -150,22 +150,42 @@ describe('execution header (§29)', () => {
 });
 
 describe('honest controls (§18)', () => {
-  it('exposes both toggles as keyboard-operable switches the fieldset can disable', async () => {
+  it('exposes the closing toggle as a keyboard-operable switch the fieldset can disable', async () => {
     renderPage();
-    const askEmail = await screen.findByRole('switch', { name: 'Ask customer for email' });
-    expect(askEmail).toHaveAttribute('aria-checked', 'false');
-    fireEvent.click(askEmail);
-    expect(askEmail).toHaveAttribute('aria-checked', 'true');
+    const closing = await screen.findByRole('switch', { name: 'Closing message' });
+    expect(closing).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(closing);
+    expect(closing).toHaveAttribute('aria-checked', 'false');
     // A real button is a form control, so Save becomes available.
     expect(screen.getByRole('button', { name: /Save Reply Settings/i })).not.toBeDisabled();
-    expect(screen.getByRole('switch', { name: 'Closing message' })).toBeInTheDocument();
+  });
+
+  it('drops the duplicate ask-email toggle and keeps the email option in Required Order Fields', async () => {
+    renderPage();
+    await screen.findByRole('slider');
+    expect(screen.queryByRole('switch', { name: 'Ask customer for email' })).toBeNull();
+    expect(screen.getAllByRole('switch')).toHaveLength(1);
+    expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
+  });
+
+  it('derives the legacy ask_email scalar from the email checkbox on save', async () => {
+    renderPage();
+    const emailCheckbox = await screen.findByLabelText(/email address/i);
+    expect(emailCheckbox).not.toBeChecked();
+    fireEvent.click(emailCheckbox);
+    fireEvent.click(screen.getByRole('button', { name: /Save Reply Settings/i }));
+    await waitFor(() => expect(apiClient.updateShopAISettings).toHaveBeenCalled());
+    expect(apiClient.updateShopAISettings).toHaveBeenCalledWith(expect.objectContaining({
+      ask_email: true,
+      required_fields: expect.objectContaining({ email_address: true }),
+    }));
   });
 
   it('disables the switches for a non-owner and says why', async () => {
     vi.mocked(authService.getCurrentShop).mockReturnValue({ id: 'shop-1', role: 'manager' } as never);
     renderPage();
-    const askEmail = await screen.findByRole('switch', { name: 'Ask customer for email' });
-    await waitFor(() => expect(askEmail).toBeDisabled());
+    const closing = await screen.findByRole('switch', { name: 'Closing message' });
+    await waitFor(() => expect(closing).toBeDisabled());
     expect(screen.getByTestId('automation-settings-fieldset')).toBeDisabled();
     expect(screen.getByText(/Only the shop owner can change automation defaults/i)).toBeInTheDocument();
     expect(screen.getByTestId('automation-signal').textContent).toContain('Read-only');
@@ -194,7 +214,6 @@ describe('honesty copy for settings the runtime never reads', () => {
     await screen.findByRole('slider');
     expect(screen.getByText(/Order value does not limit automatic replies today/i)).toBeInTheDocument();
     expect(screen.getByText(/Checkout does not ask for or enforce these fields today/i)).toBeInTheDocument();
-    expect(screen.getByText(/Replies do not ask for an email address today/i)).toBeInTheDocument();
     expect(screen.getByText(/Replies follow the language the customer writes in/i)).toBeInTheDocument();
     expect(screen.getByText(/any threshold at or below 90% passes every reply/i)).toBeInTheDocument();
     // The unproven-AUTO claim copy is untouched.

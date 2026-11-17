@@ -301,6 +301,10 @@ export default function DeliverySettings() {
   const [isSandbox, setIsSandbox] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  // Snapshot of the charges as last persisted, so each pricing card can show a
+  // confirmation next to its own save button and drop it again the moment the
+  // merchant edits anything. The page-level banner stays for the other actions.
+  const [savedChargesSnapshot, setSavedChargesSnapshot] = useState<string | null>(null);
   const [settingAiDefaultProvider, setSettingAiDefaultProvider] = useState<DeliveryProvider | null>(null);
   const [pickupModal, setPickupModal] = useState<{
     provider: DeliveryProvider;
@@ -363,7 +367,9 @@ export default function DeliverySettings() {
       }
 
       await orderApi.updateDeliverySettings(deliverySettings);
-      setDeliverySettings(applyDefaults(deliverySettings));
+      const persisted = applyDefaults(deliverySettings);
+      setDeliverySettings(persisted);
+      setSavedChargesSnapshot(JSON.stringify(persisted));
       setSuccessMessage(t('manageShop.deliverySettings.success.settingsSaved'));
     } catch (err: any) {
       setError(getErrorMessage(err, t('manageShop.deliverySettings.errors.saveFailed')));
@@ -372,6 +378,38 @@ export default function DeliverySettings() {
       setSavingSettings(false);
     }
   };
+
+  const chargesSaved =
+    savedChargesSnapshot !== null && savedChargesSnapshot === JSON.stringify(deliverySettings);
+
+  // General, area and weight all live in one settings object behind one PUT, so
+  // every pricing card carries the same save affordance where the merchant
+  // actually edits — the shared button in the General header alone was easy to
+  // miss from the bottom of the page. The label and helper state the real scope.
+  const renderChargesSave = (testId: string) => (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-em-border pt-4">
+      <p className="text-xs text-em-text-secondary">
+        {t('manageShop.deliverySettings.saveChargesScope')}
+      </p>
+      <div className="flex items-center gap-3">
+        {chargesSaved && (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-em-success-700">
+            <Check className="h-4 w-4" aria-hidden="true" />
+            {t('manageShop.deliverySettings.chargesSaved')}
+          </span>
+        )}
+        <EmButton
+          variant="primary"
+          onClick={handleSaveSettings}
+          disabled={savingSettings}
+          loading={savingSettings}
+          data-testid={testId}
+        >
+          {t('manageShop.deliverySettings.saveCharges')}
+        </EmButton>
+      </div>
+    </div>
+  );
 
   const updateSetting = (key: keyof DeliveryShopSettings, value: any) => {
     setDeliverySettings((prev) => ({
@@ -768,6 +806,8 @@ export default function DeliverySettings() {
               </div>
             ))}
           </div>
+
+          {renderChargesSave('area-pricing-save')}
         </div>
 
         <div className="border border-em-border rounded-xl bg-em-bg-surface p-6">
@@ -842,6 +882,8 @@ export default function DeliverySettings() {
               <p className="text-sm text-em-text-secondary">{t('manageShop.deliverySettings.noTiers')}</p>
             )}
           </div>
+
+          {renderChargesSave('weight-charges-save')}
         </div>
       </div>
 

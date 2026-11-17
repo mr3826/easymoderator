@@ -101,7 +101,6 @@ export default function ChannelsOverview() {
           />
         </motion.div>
 
-        <EmergencyStopCard />
         <BusinessDefaultsSummaryCard />
 
         {channelsQuery.isLoading && (
@@ -273,6 +272,11 @@ export default function ChannelsOverview() {
             {t("manageShop.channels.detail.ownerOnly")}
           </p>
         )}
+
+        {/* Emergency stop sits at the foot of the workspace (founder request):
+            the channel work comes first. An active stop is still announced at
+            the top by the header signal, so the state is never below-fold-only. */}
+        <EmergencyStopCard />
       </div>
     </div>
     </MotionConfig>
