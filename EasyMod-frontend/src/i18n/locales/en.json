@@ -2188,6 +2188,7 @@
       "addAnother": "Add another Facebook Page",
       "loginPopup": "Log in to Meta in the pop-up...",
       "selectPagesHint": "Select the Pages you want to connect (one or more)",
+      "reconnectHint": "Log in to Facebook again to refresh this Page's permissions. Only this Page can be selected.",
       "pageTaskRequired": "Messaging and Page management access are required on this Page",
       "connectCount": "Connect ({{count}})"
     },

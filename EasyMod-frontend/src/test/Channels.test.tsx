@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ChatSettings from '@/app/components/ChatSettings'
 import { toast } from 'sonner'
 import type { MetaChannel, MetaOAuthCallbackResult } from '@/api/domains/meta-channels'
@@ -61,6 +62,7 @@ vi.mock('@/api/domains/meta-channels', () => ({
   updateMetaChannelPurposeLabel:  vi.fn(),
   getMetaChannelSettings:         vi.fn().mockResolvedValue({}),
   updateMetaChannelSettings:      vi.fn(),
+  channelQueryKeys: { list: () => ['channels'], settings: (id: string) => ['channel-settings', id] },
 }))
 
 vi.mock('@/app/lib/useSubscriptionFeatures', () => ({
@@ -89,6 +91,19 @@ vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
 
 const CONNECT_BTN = /channels\.connectCard\.title/i
 
+// The connection hook now reads the shared react-query cache, so every render
+// must sit inside a QueryClientProvider.
+const renderChat = () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <BrowserRouter>
+      <QueryClientProvider client={client}>
+        <ChatSettings />
+      </QueryClientProvider>
+    </BrowserRouter>,
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('ChatSettings (Channels)', () => {
@@ -102,11 +117,7 @@ describe('ChatSettings (Channels)', () => {
   // ── 1. Render ───────────────────────────────────────────────────────────────
   it('renders the channel settings page with the Facebook connect button', async () => {
     await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatSettings />
-        </BrowserRouter>,
-      )
+      renderChat()
     })
 
     await waitFor(() => {
@@ -131,11 +142,7 @@ describe('ChatSettings (Channels)', () => {
     } as MetaOAuthCallbackResult)
 
     await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatSettings />
-        </BrowserRouter>,
-      )
+      renderChat()
     })
 
     fireEvent.click(await screen.findByRole('button', { name: CONNECT_BTN }))
@@ -163,11 +170,7 @@ describe('ChatSettings (Channels)', () => {
     mockInitiateMetaOAuth.mockResolvedValue({ redirectUrl: 'https://facebook.com/dialog/oauth' })
 
     await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatSettings />
-        </BrowserRouter>,
-      )
+      renderChat()
     })
 
     fireEvent.click(await screen.findByRole('button', { name: CONNECT_BTN }))
@@ -206,11 +209,7 @@ describe('ChatSettings (Channels)', () => {
     } as MetaOAuthCallbackResult)
 
     await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatSettings />
-        </BrowserRouter>,
-      )
+      renderChat()
     })
 
     fireEvent.click(await screen.findByRole('button', { name: CONNECT_BTN }))
@@ -257,11 +256,7 @@ describe('ChatSettings (Channels)', () => {
     })
 
     await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatSettings />
-        </BrowserRouter>,
-      )
+      renderChat()
     })
 
     fireEvent.click(await screen.findByRole('button', { name: CONNECT_BTN }))
@@ -305,11 +300,7 @@ describe('ChatSettings (Channels)', () => {
     })
 
     await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatSettings />
-        </BrowserRouter>,
-      )
+      renderChat()
     })
 
     fireEvent.click(await screen.findByRole('button', { name: CONNECT_BTN }))
@@ -345,11 +336,7 @@ describe('ChatSettings (Channels)', () => {
     })
 
     await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatSettings />
-        </BrowserRouter>,
-      )
+      renderChat()
     })
 
     fireEvent.click(await screen.findByRole('button', { name: CONNECT_BTN }))

@@ -5,6 +5,7 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChannelConnectionManager, {
   ChannelHealthGrid,
 } from '@/app/components/channels/ChannelConnectionManager';
@@ -42,6 +43,7 @@ vi.mock('@/api/domains/meta-channels', () => ({
   reconnectMetaChannel: vi.fn(),
   getMetaChannelConsentSummary: vi.fn(),
   updateMetaChannelPurposeLabel: vi.fn(),
+  channelQueryKeys: { list: () => ['channels'], settings: (id: string) => ['channel-settings', id] },
 }));
 
 vi.mock('sonner', () => ({
@@ -50,6 +52,16 @@ vi.mock('sonner', () => ({
 
 import { listMetaChannels } from '@/api/domains/meta-channels';
 
+// The manager drives the shared react-query cache via the connection hook.
+function renderManager(props: { embedded?: boolean } = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <ChannelConnectionManager {...props} />
+    </QueryClientProvider>,
+  );
+}
+
 describe('ChannelConnectionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -57,7 +69,7 @@ describe('ChannelConnectionManager', () => {
   });
 
   it('renders the connection surface without a Page-level AI participation control', async () => {
-    render(<ChannelConnectionManager />);
+    renderManager();
 
     expect(await screen.findByText('Channel Settings')).toBeInTheDocument();
     expect(screen.queryByText(/Page AI participation/i)).not.toBeInTheDocument();
@@ -69,7 +81,7 @@ describe('ChannelConnectionManager', () => {
   });
 
   it('renders the health grid for a healthy channel without behaviour change', async () => {
-    render(<ChannelConnectionManager />);
+    renderManager();
 
     await waitFor(() => {
       expect(screen.getByTestId('channel-health-grid')).toBeInTheDocument();
@@ -79,10 +91,14 @@ describe('ChannelConnectionManager', () => {
     });
   });
 
-  it('hides the header when embedded', async () => {
-    render(<ChannelConnectionManager embedded />);
-    await screen.findByTestId('channel-health-grid');
+  it('embedded mode is connector-only: no header and no duplicate channel grid', async () => {
+    renderManager({ embedded: true });
+    // The overview owns the channel grid; the embedded manager only connects.
+    expect(
+      await screen.findByRole('button', { name: /Add another Facebook Page/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Channel Settings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('channel-health-grid')).not.toBeInTheDocument();
   });
 
   it('ChannelHealthGrid is pure presentation and takes a channel', () => {

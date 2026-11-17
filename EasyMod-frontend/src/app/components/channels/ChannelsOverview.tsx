@@ -10,7 +10,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowRight, Link2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Link2, Plus } from "lucide-react";
 import { motion, MotionConfig } from "motion/react";
 import { listMetaChannels, type MetaChannel } from "@/api/domains/meta-channels";
 import type { ChannelAutomationWarning } from "@/api/types/conversation";
@@ -264,6 +264,20 @@ export default function ChannelsOverview() {
                 </article>
               );
             })}
+          </div>
+        )}
+
+        {channels.length > 0 && !showConnector && !channelsQuery.isLoading && !channelsQuery.isError && (
+          <div className="pt-1">
+            <EmButton
+              variant="secondary"
+              data-testid="channels-add-another"
+              onClick={() => setShowConnector(true)}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {t("channels.connectCard.addAnother")}
+            </EmButton>
           </div>
         )}
 

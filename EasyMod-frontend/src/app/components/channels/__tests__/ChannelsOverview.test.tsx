@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChannelsOverview from '@/app/components/channels/ChannelsOverview';
@@ -139,6 +139,21 @@ describe('ChannelsOverview', () => {
 
     expect(await screen.findByText('No channels connected')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Connect a Page/i })).toBeInTheDocument();
+  });
+
+  it('offers an add-another control once a Page is connected (defect 1) and opens the connector', async () => {
+    metaApi.listMetaChannels.mockResolvedValue([baseChannel('p1')]);
+    renderOverview();
+
+    const addBtn = await screen.findByTestId('channels-add-another');
+    expect(addBtn).toBeInTheDocument();
+    expect(screen.queryByText('No channels connected')).not.toBeInTheDocument();
+
+    fireEvent.click(addBtn);
+    expect(await screen.findByRole('button', { name: /Connect Facebook Page/i })).toBeInTheDocument();
+    // The embedded connector is connector-only: the Page is listed once (the
+    // overview grid), never duplicated by the manager's own channel grid.
+    expect(screen.getAllByText('Page p1')).toHaveLength(1);
   });
 
   it('renders an error with retry that refetches', async () => {

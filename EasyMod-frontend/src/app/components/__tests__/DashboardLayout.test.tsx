@@ -83,4 +83,20 @@ describe('DashboardLayout navigation', () => {
     const mobileNavigation = screen.getAllByRole('navigation', { name: 'Workspace navigation' })[1]
     expect(within(mobileNavigation).getByRole('link', { name: 'Products' })).toHaveAttribute('aria-current', 'page')
   })
+
+  it('highlights Chat on the channels overview, a channel detail, and automation (defect 4)', () => {
+    for (const route of ['/manage-shop/channels', '/manage-shop/channels/c-1', '/manage-shop/automation']) {
+      const { unmount } = renderLayout(route)
+      const chat = screen.getByRole('link', { name: /Chat settings/i })
+      expect(chat).toHaveAttribute('aria-current', 'page')
+      expect(chat).toHaveAttribute('href', '/manage-shop/channels')
+      unmount()
+    }
+  })
+
+  it('does not highlight Chat outside the channels/automation group', () => {
+    const { unmount } = renderLayout('/manage-shop/business-info')
+    expect(screen.getByRole('link', { name: /Chat settings/i })).not.toHaveAttribute('aria-current')
+    unmount()
+  })
 })

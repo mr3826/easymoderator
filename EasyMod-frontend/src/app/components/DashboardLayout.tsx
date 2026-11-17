@@ -52,7 +52,7 @@ export default function DashboardLayout() {
 
   const settingsNavigation = [
     { name: t('nav.businessInfo'), path: '/manage-shop/business-info', icon: Building2 },
-    { name: t('nav.chat'), path: '/manage-shop/chat-settings', icon: MessageSquare },
+    { name: t('nav.chat'), path: '/manage-shop/channels', icon: MessageSquare, groupPaths: ['/manage-shop/channels', '/manage-shop/automation'] },
     { name: t('nav.delivery'), path: '/manage-shop/delivery-settings', icon: Truck },
     { name: t('nav.payment'), path: '/manage-shop/payment-settings', icon: CreditCard },
     { name: t('nav.notifications'), path: '/manage-shop/notifications', icon: Bell },
@@ -74,13 +74,23 @@ export default function DashboardLayout() {
 
   const subscriptionItem = { name: t('nav.subscription'), path: '/subscription', icon: CreditCard };
 
+  // One matcher for every nav surface (settings rail, mobile, page title) so the
+  // Chat group — canonical /manage-shop/channels + its detail + /automation —
+  // lights up consistently and the redirect alias never needs special-casing
+  // (defect 4).
+  const navItemMatches = (item: { path: string; groupPaths?: string[] }) =>
+    location.pathname === item.path ||
+    (item.path !== dashboardPath && location.pathname.startsWith(item.path)) ||
+    (item.path === '/products' && location.pathname.startsWith('/categories')) ||
+    (item.groupPaths ?? []).some(
+      (groupPath) =>
+        location.pathname === groupPath ||
+        location.pathname.startsWith(`${groupPath}/`),
+    );
+
   // Derive page title from current route (check settings group first — more specific paths)
   const allNavItems = [...settingsNavigation, ...navigation, subscriptionItem];
-  const activeNav = allNavItems.find(item =>
-    item.path === location.pathname ||
-    (item.path !== dashboardPath && location.pathname.startsWith(item.path)) ||
-    (item.path === '/products' && location.pathname.startsWith('/categories'))
-  );
+  const activeNav = allNavItems.find(navItemMatches);
   const pageTitle = activeNav?.name
     ?? (location.pathname.startsWith('/manage-shop') ? t('nav.settings') : 'EasyModerator');
 
@@ -161,7 +171,7 @@ export default function DashboardLayout() {
                   name={item.name}
                   path={item.path}
                   icon={item.icon}
-                  isActive={location.pathname === item.path || location.pathname.startsWith(item.path)}
+                  isActive={navItemMatches(item)}
                   collapsed={collapsed}
                 />
               ))}
@@ -175,7 +185,7 @@ export default function DashboardLayout() {
             name={subscriptionItem.name}
             path={subscriptionItem.path}
             icon={subscriptionItem.icon}
-            isActive={location.pathname === subscriptionItem.path || location.pathname.startsWith(subscriptionItem.path)}
+            isActive={navItemMatches(subscriptionItem)}
             collapsed={collapsed}
           />
         </div>
