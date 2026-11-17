@@ -7,7 +7,7 @@
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Orders from '../../Orders';
 import { deriveOrdersSignal } from '../derive';
@@ -31,6 +31,7 @@ vi.mock('@/api', () => ({
     createOrder: vi.fn(),
     updateOrder: vi.fn(),
     confirmOrder: vi.fn(),
+    cancelOrder: vi.fn(),
   },
 }));
 
@@ -115,6 +116,24 @@ describe('create-order dialog', () => {
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+describe('cancellation uses the cancel endpoint', () => {
+  it('calls cancelOrder, never the generic status update that always answers 409', async () => {
+    // Regression: ORDER_STATUS_TRANSITIONS has no path to 'cancelled', so routing
+    // Cancel through updateOrder threw 409 every time and left the order active
+    // with its stock unrestored.
+    const source = order();
+    vi.mocked(apiClient.getOrders).mockResolvedValue([source] as never);
+    vi.mocked(apiClient.cancelOrder).mockResolvedValue({ ...source, status: 'cancelled' } as never);
+    renderOrders();
+    const detailButtons = await screen.findAllByRole('button', { name: /view detail/i });
+    fireEvent.click(detailButtons[0]);
+    const panel = await screen.findByTestId('order-detail-panel');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(apiClient.cancelOrder).toHaveBeenCalledWith(source.id));
+    expect(apiClient.updateOrder).not.toHaveBeenCalled();
   });
 });
 

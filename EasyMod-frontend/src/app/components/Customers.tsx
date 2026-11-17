@@ -309,7 +309,7 @@ function LegacyCustomers() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder={t('customers.searchNamePlaceholder')}
                 aria-label={t('customers.searchNamePlaceholder')}
-                className="w-full pl-8 pr-3 py-2 text-sm border border-em-border rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600 focus:border-transparent"
+                className="min-h-11 w-full pl-8 pr-3 py-2 text-sm border border-em-border rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600 focus:border-transparent"
               />
             </div>
             <div className="lg:w-48 relative">
@@ -321,7 +321,7 @@ function LegacyCustomers() {
                 onChange={(e) => handlePhoneChange(e.target.value.replace(/[^\d+]/g, "").slice(0, 17))}
                 placeholder={t('customers.searchPhonePlaceholder')}
                 aria-label={t('customers.searchPhonePlaceholder')}
-                className="w-full pl-8 pr-3 py-2 text-sm border border-em-border rounded-lg tabular-nums focus:outline-none focus:ring-2 focus:ring-em-violet-600 focus:border-transparent"
+                className="min-h-11 w-full pl-8 pr-3 py-2 text-sm border border-em-border rounded-lg tabular-nums focus:outline-none focus:ring-2 focus:ring-em-violet-600 focus:border-transparent"
               />
             </div>
             <div className="lg:w-44">
@@ -329,7 +329,7 @@ function LegacyCustomers() {
                 value={channelFilter}
                 onChange={(e) => handleChannelChange(toCustomerChannelFilter(e.target.value))}
                 aria-label={t('customers.allChannels')}
-                className="w-full px-3 py-2 text-sm border border-em-border rounded-lg bg-em-bg-surface focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                className="min-h-11 w-full px-3 py-2 text-sm border border-em-border rounded-lg bg-em-bg-surface focus:outline-none focus:ring-2 focus:ring-em-violet-600"
               >
                 <option value="all">{t('customers.allChannels')}</option>
                 {REST_CHANNELS.map((ch) => (
@@ -344,7 +344,7 @@ function LegacyCustomers() {
                 type="button"
                 onClick={clearQuery}
                 data-testid="customers-clear-filters"
-                className="flex items-center justify-center gap-1 px-3 py-2 text-sm text-em-text-secondary hover:bg-em-bg-muted rounded-lg border border-em-border"
+                className="flex min-h-11 items-center justify-center gap-1 px-3 py-2 text-sm text-em-text-secondary hover:bg-em-bg-muted rounded-lg border border-em-border"
               >
                 <X className="w-4 h-4" aria-hidden="true" />
                 {t('customers.clearFilters')}
@@ -482,7 +482,7 @@ function LegacyCustomers() {
                                 <div className="flex items-center justify-end gap-1">
                                   <button
                                     onClick={() => setSelectedCustomer(customer)}
-                                    className="px-2.5 py-1.5 text-sm font-medium text-em-violet-700 hover:bg-em-success-100 rounded-lg"
+                                    className="min-h-11 px-2.5 py-1.5 text-sm font-medium text-em-violet-700 hover:bg-em-success-100 rounded-lg"
                                   >
                                     {t('common.view')}
                                   </button>
@@ -490,7 +490,7 @@ function LegacyCustomers() {
                                     <button
                                       onClick={() => setShowDeleteConfirm(customer.id)}
                                       aria-label={t('customers.deleteModal.title')}
-                                      className="p-1.5 text-em-text-secondary hover:text-em-danger-700 hover:bg-em-danger-100 rounded-lg"
+                                      className="inline-flex min-h-11 min-w-11 items-center justify-center p-1.5 text-em-text-secondary hover:text-em-danger-700 hover:bg-em-danger-100 rounded-lg"
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
@@ -712,7 +712,7 @@ function LegacyCustomers() {
                   id="customer-channel"
                   value={newCustomer.channel}
                   onChange={(e) => setNewCustomer({ ...newCustomer, channel: toCustomerChannel(e.target.value) })}
-                  className="w-full px-3 py-2 text-sm border border-em-border rounded-lg bg-em-bg-surface focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                  className="min-h-11 w-full px-3 py-2 text-sm border border-em-border rounded-lg bg-em-bg-surface focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                 >
                   <option value="">{t('customers.addModal.channelPlaceholder')}</option>
                   {REST_CHANNELS.map((ch) => (

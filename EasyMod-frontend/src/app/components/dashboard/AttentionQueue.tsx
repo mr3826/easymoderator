@@ -81,7 +81,7 @@ export function AttentionQueue({ groups, hasAllWorkSources, caughtUp }: Attentio
                   <span>{t("dashboard.pulse.work.moreInGroup", { count: group.hiddenCount })}</span>
                   <Link
                     to={group.items[WORK_ITEMS_PER_GROUP].to}
-                    className="font-semibold text-em-violet-700 hover:underline"
+                    className="inline-flex min-h-11 items-center font-semibold text-em-violet-700 hover:underline"
                   >
                     {t(group.kind === "reply" ? "dashboard.pulse.work.openNextConversation" : "dashboard.pulse.work.reviewNextOrder")}
                   </Link>

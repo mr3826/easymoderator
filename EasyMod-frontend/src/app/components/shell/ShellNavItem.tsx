@@ -52,7 +52,10 @@ export function ShellNavItem({
       aria-label={collapsed ? name : undefined}
       title={collapsed ? name : undefined}
       className={cn(
-        "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
+        // 44px touch target (guardrails §18) — the rail is also the navigation
+        // on tablets, where the pointer is a finger. The nav scrolls, so the
+        // extra height cannot push the sidebar footer out of view.
+        "group relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
         FOCUS_RING,
         isActive
           ? "bg-em-violet-50 text-em-violet-700"

@@ -200,10 +200,14 @@ export default function FaqSettings() {
       return;
     }
 
+    // `faq_responses` has ONE text column and the API resolves it as
+    // `category || question`. Sending a category therefore overwrote the
+    // merchant's question with "General" — and that wrong text then reached the
+    // RAG index and the AI prompt. Send the question only and let the server
+    // fall through to it, exactly as the gap-publish flow already does.
     const payload = {
       question: editingFaq.question.trim(),
       answer: editingFaq.answer.trim(),
-      category: editingFaq.category.trim() || "General",
       active: editingFaq.active,
       confidence: editingFaq.confidence || 1,
       source: editingFaq.source || "manual",
@@ -392,9 +396,9 @@ export default function FaqSettings() {
                             >
                               {faq.active ? t("manageShop.faqs.status.active") : t("manageShop.faqs.status.inactive")}
                             </span>
-                            <span className="rounded-full bg-em-violet-50 px-2 py-0.5 text-xs font-semibold text-em-violet-700">
-                              {faq.category || "General"}
-                            </span>
+                            {/* No category pill: the API returns category and
+                                question as the same value, so it only duplicated
+                                the heading above. */}
                           </div>
                           <p className="text-sm leading-6 text-em-text-primary">{faq.answer}</p>
                           <div className="em-tabular mt-2 flex flex-wrap gap-3 text-xs text-em-text-secondary">
@@ -488,18 +492,10 @@ export default function FaqSettings() {
                     placeholder={t("manageShop.faqs.modal.answerPlaceholder")}
                   />
                 </label>
-                <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-em-text-primary">
-                    {t("manageShop.faqs.modal.categoryLabel")}
-                  </span>
-                  <input
-                    type="text"
-                    value={editingFaq.category}
-                    onChange={(event) => setEditingFaq({ ...editingFaq, category: event.target.value })}
-                    className={`min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-4 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`}
-                    placeholder={t("manageShop.faqs.modal.categoryPlaceholder")}
-                  />
-                </label>
+                {/* The separate Category input was removed: the API stores the
+                    question and the category in the SAME column, so offering two
+                    fields for one value was the defect. Real categories need a
+                    schema change, not a second input. */}
               </div>
 
               <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">

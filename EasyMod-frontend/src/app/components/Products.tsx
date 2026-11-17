@@ -477,14 +477,14 @@ export default function Products() {
           <div className="flex gap-3">
             <button
               onClick={() => setShowUploadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
+              className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
             >
               <Upload className="w-5 h-5" />
               {t('products.uploadFile')}
             </button>
             <button
               onClick={() => navigate('/products/add')}
-              className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
+              className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
             >
               <Plus className="w-5 h-5" />
               {t('products.addManually')}
@@ -498,7 +498,7 @@ export default function Products() {
               <div className="relative">
                 <button
                   onClick={() => setShowUploadModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
+                  className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
                 >
                   <Upload className="w-5 h-5" />
                   {t('products.uploadFile')}
@@ -512,7 +512,7 @@ export default function Products() {
               </div>
               <button
                 onClick={() => navigate('/products/add')}
-                className="flex items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
+                className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
               >
                 <Plus className="w-5 h-5" />
                 {t('products.addManually')}

@@ -16,7 +16,7 @@ const FOCUS_RING =
   'focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none';
 
 const FIELD_CLASS =
-  `w-full rounded-lg border border-em-border bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary ${FOCUS_RING}`;
+  `min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary ${FOCUS_RING}`;
 
 type NormalizedShopAISettings = Omit<ShopAISettings, 'automation_mode'> & {
   automation_mode: AiReplyMode;
@@ -305,7 +305,7 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div>
-            <label htmlFor="confidence-threshold" className="mb-1 block text-sm font-medium text-em-text-primary">
+            <label htmlFor="confidence-threshold" className="mb-1 flex min-h-11 items-center gap-1 text-sm font-medium text-em-text-primary">
               {t('manageShop.aiSettings.confidenceLabel')} <span className="font-semibold text-em-violet-700">{aiSettings.confidence_threshold}%</span>
             </label>
             <p className="mb-2 text-xs text-em-text-secondary">{t('manageShop.aiSettings.confidenceHint')}</p>

@@ -108,7 +108,12 @@ export async function listFaqs(): Promise<FAQ[]> {
  * });
  * ```
  */
-export async function createFaq(faq: Omit<FAQ, 'id' | 'createdAt' | 'updatedAt'>): Promise<FAQ> {
+// `category` is optional: the API resolves its single text column as
+// `category || question`, so callers that mean "store this question" must be
+// able to omit category entirely rather than send a value that overrides it.
+export async function createFaq(
+  faq: Omit<FAQ, 'id' | 'createdAt' | 'updatedAt' | 'category'> & { category?: string },
+): Promise<FAQ> {
   const response: AxiosResponse<ApiResponse<FAQ>> = await httpClient.post('/api/knowledge/faqs', faq);
   return mapFaqFromBackend(response.data.data);
 }

@@ -97,7 +97,7 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
         <button
           type="button"
           onClick={() => onViewDetail(order)}
-          className="min-h-10 rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm font-semibold text-em-text-primary hover:bg-em-bg-em-bg-muted"
+          className="min-h-11 rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm font-semibold text-em-text-primary hover:bg-em-bg-muted"
         >
           {order.status === "draft" ? t("orders.row.reviewDraft") : t("orders.row.viewDetail")}
         </button>
@@ -105,7 +105,7 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
           <button
             type="button"
             onClick={() => onDispatch(order)}
-            className="min-h-10 rounded-lg bg-em-violet-600 px-3 text-sm font-bold text-white"
+            className="min-h-11 rounded-lg bg-em-violet-600 px-3 text-sm font-bold text-white"
           >
             {t("orders.row.dispatch")}
           </button>
@@ -115,7 +115,7 @@ export function OrderRow({ order, formatCurrency, formatDate, onViewDetail, onDi
             href={`https://steadfast.com.bd/track?trackingCode=${encodeURIComponent(order.delivery_tracking_code)}`}
             target="_blank"
             rel="noreferrer"
-            className="col-span-2 min-h-10 rounded-lg border border-em-border px-3 py-2 text-center text-sm font-semibold text-em-violet-700"
+            className="col-span-2 min-h-11 rounded-lg border border-em-border px-3 py-2 text-center text-sm font-semibold text-em-violet-700"
           >
             {t("orders.row.track")}
           </a>
@@ -154,9 +154,9 @@ export function OrderTableRow({ order, selected, formatCurrency, formatDate, onV
   const expectedCollection = getExpectedCourierCollection(order);
 
   return (
-    <tr className={selected ? "bg-em-violet-50" : "hover:bg-em-bg-em-bg-muted/30"}>
+    <tr className={selected ? "bg-em-violet-50" : "hover:bg-em-bg-muted/30"}>
       <td className="whitespace-nowrap px-3 py-3 align-top">
-        <button type="button" onClick={() => onViewDetail(order)} className="font-semibold text-em-violet-700 hover:underline">
+        <button type="button" onClick={() => onViewDetail(order)} className="inline-flex min-h-11 items-center font-semibold text-em-violet-700 hover:underline">
           {order.orderNumber || order.id}
         </button>
         {order.rto_risk === "high" && <p className="mt-1 flex items-center gap-1 text-xs text-em-warning-700"><AlertTriangle className="h-3 w-3" />{t("orders.rtoSignal")}</p>}
@@ -189,11 +189,11 @@ export function OrderTableRow({ order, selected, formatCurrency, formatDate, onV
       <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-em-text-secondary">{formatDate(order.createdAt)}</td>
       <td className="whitespace-nowrap px-3 py-3 align-top">
         <div className="flex gap-2">
-          <button type="button" onClick={() => onViewDetail(order)} className="rounded-md border border-em-border px-2 py-1.5 text-xs font-semibold hover:bg-em-bg-em-bg-muted">
+          <button type="button" onClick={() => onViewDetail(order)} className="min-h-11 rounded-md border border-em-border px-2 py-1.5 text-xs font-semibold hover:bg-em-bg-muted">
             {t("orders.row.viewDetail")}
           </button>
           {canDispatch && (
-            <button type="button" onClick={() => onDispatch(order)} className="rounded-md bg-em-violet-600 px-2 py-1.5 text-xs font-semibold text-white">
+            <button type="button" onClick={() => onDispatch(order)} className="min-h-11 rounded-md bg-em-violet-600 px-2 py-1.5 text-xs font-semibold text-white">
               {t("orders.row.dispatch")}
             </button>
           )}

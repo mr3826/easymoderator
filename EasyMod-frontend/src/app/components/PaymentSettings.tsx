@@ -497,7 +497,7 @@ export default function PaymentSettings() {
                           disabled={settingDefaultGateway === gateway.id}
                           loading={settingDefaultGateway === gateway.id}
                           title={t('manageShop.paymentSettings.setDefaultTitle')}
-                          className="gap-1.5 px-3 text-xs"
+                          className="min-w-11 gap-1.5 px-3 text-xs"
                         >
                           <Star className="w-3.5 h-3.5" aria-hidden="true" />
                           <span className="hidden md:inline">{t('manageShop.paymentSettings.setDefault')}</span>
@@ -522,15 +522,21 @@ export default function PaymentSettings() {
                             onClick={() => toggleGateway(gateway.id)}
                             disabled={(gateway.id !== 'cod' && !savedGateways.has(gateway.id)) || savingGateway === gateway.id}
                             title={gateway.id !== 'cod' && !savedGateways.has(gateway.id) ? t('manageShop.paymentSettings.saveConfigFirst') : t('manageShop.paymentSettings.toggleActivateTitle')}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                              gateway.enabled ? 'bg-em-violet-600' : 'bg-em-border-strong'
-                            } ${(gateway.id !== 'cod' && !savedGateways.has(gateway.id)) ? 'opacity-50 cursor-not-allowed' : ''} ${FOCUS_RING}`}
+                            // 44px touch target (guardrails §18): the visual track
+                            // stays 24px tall inside a full-size hit area.
+                            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full transition-colors cursor-pointer ${
+                              (gateway.id !== 'cod' && !savedGateways.has(gateway.id)) ? 'opacity-50 cursor-not-allowed' : ''
+                            } ${FOCUS_RING}`}
                           >
-                            <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                gateway.enabled ? 'translate-x-6' : 'translate-x-1'
-                              }`}
-                            />
+                            <span className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full ${
+                              gateway.enabled ? 'bg-em-violet-600' : 'bg-em-border-strong'
+                            }`}>
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  gateway.enabled ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </span>
                           </button>
                           {gateway.config && (
                             <button

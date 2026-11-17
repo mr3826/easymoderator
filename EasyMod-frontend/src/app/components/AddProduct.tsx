@@ -469,7 +469,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                       value={productName}
                       onChange={(e) => setProductName(e.target.value)}
                       placeholder={t('products.form.productNamePlaceholder')}
-                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
                   </div>
                   <div>
@@ -480,7 +480,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder={t('products.form.descriptionPlaceholder')}
                       rows={4}
-                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -495,7 +495,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                         onChange={(e) => setBasePrice(e.target.value)}
                         placeholder="0.00"
                         step="0.01"
-                        className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                        className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       />
                     </div>
                     <div>
@@ -506,7 +506,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                         value={sku}
                         onChange={(e) => setSku(e.target.value)}
                         placeholder="SKU-001"
-                        className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                        className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       />
                     </div>
                   </div>
@@ -542,7 +542,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
       <div className="mb-6 md:mb-8">
         <button
           onClick={() => navigate("/products")}
-          className="text-em-text-secondary hover:text-em-text-primary flex items-center gap-2 mb-4 text-sm"
+          className="text-em-text-secondary hover:text-em-text-primary flex min-h-11 items-center gap-2 mb-4 text-sm"
         >
           ← {t('products.detail.backToProducts')}
         </button>
@@ -580,7 +580,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
                   placeholder={t('products.form.productNamePlaceholder')}
-                  className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                  className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                 />
               </div>
 
@@ -593,7 +593,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('products.form.descriptionFullPlaceholder')}
                   rows={6}
-                  className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                  className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                 />
               </div>
 
@@ -616,14 +616,14 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                           placeholder="0.00"
                           step="0.01"
                           min="0"
-                          className="w-full pl-8 pr-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                          className="min-h-11 w-full pl-8 pr-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                         />
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-4 pt-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={discountable}
@@ -632,7 +632,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                       />
                       <span className="text-sm text-em-text-primary">{t('products.form.allowDiscounts')}</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={taxable}
@@ -783,7 +783,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                     />
                     <button
                       onClick={generateSku}
-                      className="px-3 py-2 bg-em-bg-muted text-em-text-primary rounded-lg hover:bg-em-bg-muted whitespace-nowrap text-sm"
+                      className="min-h-11 px-3 py-2 bg-em-bg-muted text-em-text-primary rounded-lg hover:bg-em-bg-muted whitespace-nowrap text-sm"
                     >
                       Auto
                     </button>
@@ -796,7 +796,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                   {t('products.form.stockTracking')} <span className="text-em-danger-700">*</span>
                 </label>
                 <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
                       name="stockType"
@@ -807,7 +807,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                     />
                     <span className="text-sm text-em-text-primary">{t('products.form.dontTrackInventory')}</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
                       name="stockType"
@@ -833,7 +833,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                       onChange={(e) => setStockQuantity(e.target.value)}
                       placeholder="0"
                       min="0"
-                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
                   </div>
 
@@ -847,12 +847,12 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                       onChange={(e) => setMinStockThreshold(e.target.value)}
                       placeholder="5"
                       min="0"
-                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
                     <p className="text-xs text-em-text-secondary mt-1">{t('products.form.lowStockNotify')}</p>
                   </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={lowStockAlert}
@@ -892,7 +892,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
                     placeholder={t('products.form.brandPlaceholder')}
-                    className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                    className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                   />
                 </div>
 
@@ -1061,7 +1061,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                         value={variant.name}
                         onChange={(e) => updateVariant(index, "name", e.target.value)}
                         placeholder="e.g., Size, Color, Material"
-                        className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                        className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       />
                     </div>
 
@@ -1138,7 +1138,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                             onChange={(e) => updateVariant(index, "priceAdjustment", e.target.value)}
                             placeholder="0.00"
                             step="0.01"
-                            className="w-full pl-8 pr-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                            className="min-h-11 w-full pl-8 pr-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                           />
                         </div>
                       </div>
@@ -1151,7 +1151,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                           value={variant.sku}
                           onChange={(e) => updateVariant(index, "sku", e.target.value)}
                           placeholder="Optional"
-                          className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                          className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                         />
                       </div>
                     </div>
@@ -1197,7 +1197,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                       onChange={(e) => setMinOrderQty(e.target.value)}
                       placeholder="1"
                       min="1"
-                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
                   </div>
                   <div>
@@ -1210,7 +1210,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                       onChange={(e) => setMaxOrderQty(e.target.value)}
                       placeholder="No limit"
                       min="1"
-                      className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                     />
                   </div>
                 </div>
@@ -1221,7 +1221,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                   </label>
                   <div className="space-y-3">
                     <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
+                      <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
                           name="returnable"
@@ -1231,7 +1231,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                         />
                         <span className="text-sm text-em-text-primary">{t('products.form.returnable')}</span>
                       </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
+                      <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
                           name="returnable"
@@ -1254,7 +1254,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                           onChange={(e) => setReturnWindow(e.target.value)}
                           placeholder="30"
                           min="1"
-                          className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                          className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                         />
                       </div>
                     )}
@@ -1270,7 +1270,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                     value={warranty}
                     onChange={(e) => setWarranty(e.target.value)}
                     placeholder={t('products.form.warrantyPlaceholder')}
-                    className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                    className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                   />
                 </div>
 
@@ -1282,7 +1282,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                     type="date"
                     value={expiryDate}
                     onChange={(e) => setExpiryDate(e.target.value)}
-                    className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                    className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                   />
                   <p className="text-xs text-em-text-secondary mt-1">{t('products.form.expiryHelp')}</p>
                 </div>
@@ -1344,12 +1344,12 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                           placeholder="0"
                           step="0.01"
                           min="0"
-                          className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                          className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                         />
                         <select
                           value={weightUnit}
                           onChange={(e) => setWeightUnit(e.target.value as any)}
-                          className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                          className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                         >
                           <option value="kg">Kilograms (kg)</option>
                           <option value="g">Grams (g)</option>
@@ -1432,12 +1432,12 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                         value={handlingTime}
                         onChange={(e) => setHandlingTime(e.target.value)}
                         placeholder={t('products.form.handlingTimePlaceholder')}
-                        className="w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                        className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       />
                       <p className="text-xs text-em-text-secondary mt-1">{t('products.form.handlingTimeHelp')}</p>
                     </div>
 
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={freeShipping}

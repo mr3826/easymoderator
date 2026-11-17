@@ -400,6 +400,11 @@ export default function Orders() {
       let updatedOrder: Order;
       if (newStatus === 'confirmed') {
         updatedOrder = await apiClient.confirmOrder(orderId);
+      } else if (newStatus === 'cancelled') {
+        // Cancellation has its own endpoint. The generic status PATCH cannot do
+        // it: ORDER_STATUS_TRANSITIONS has no path to 'cancelled' from any state,
+        // so it always answered 409 and the order stayed active (stock unrestored).
+        updatedOrder = await apiClient.cancelOrder(orderId);
       } else {
         updatedOrder = await apiClient.updateOrder(orderId, { status: newStatus });
       }
@@ -728,7 +733,7 @@ export default function Orders() {
                   aria-pressed={active}
                   data-testid={`orders-bucket-${bucket.key}`}
                   onClick={() => { setIsLoading(true); setDeliveryBucket(bucket.key); }}
-                  className={`flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                  className={`flex min-h-11 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-colors ${
                     active
                       ? 'border-em-violet-600 bg-em-violet-600 text-white'
                       : 'border-em-border bg-em-bg-surface text-em-text-primary hover:border-em-violet-600'
@@ -737,7 +742,7 @@ export default function Orders() {
                   <span>{t(bucket.labelKey)}</span>
                   <span
                     data-testid={`orders-bucket-count-${bucket.key}`}
-                    className={`rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
+                    className={`rounded-full px-1.5 py-0.5 text-xs tabular-nums ${
                       active ? 'bg-white/20' : 'bg-em-bg-muted text-em-text-secondary'
                     }`}
                   >
@@ -757,12 +762,12 @@ export default function Orders() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('orders.searchPlaceholder')}
                 aria-label={t('orders.searchLabel')}
-                className="min-h-10 w-full rounded-lg border border-em-border bg-em-bg-surface pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
+                className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-em-violet-600"
               />
             </label>
             <label>
               <span className="sr-only">{t('orders.filterDate')}</span>
-              <select aria-label={t('orders.filterDate')} value={dateFilter} onChange={(e) => { setIsLoading(true); setDateFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
+              <select aria-label={t('orders.filterDate')} value={dateFilter} onChange={(e) => { setIsLoading(true); setDateFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.dateAll')}</option>
                 <option value="today">{t('orders.dateToday')}</option>
                 <option value="last7days">{t('orders.dateLast7')}</option>
@@ -771,7 +776,7 @@ export default function Orders() {
             </label>
             <label>
               <span className="sr-only">{t('orders.filterOrderStatus')}</span>
-              <select aria-label={t('orders.filterOrderStatus')} value={orderStatusFilter} onChange={(e) => { setIsLoading(true); setOrderStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
+              <select aria-label={t('orders.filterOrderStatus')} value={orderStatusFilter} onChange={(e) => { setIsLoading(true); setOrderStatusFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.orderStatusAll')}</option>
                 <option value="draft">{t('orders.statusDraft')}</option>
                 <option value="confirmed">{t('orders.statusConfirmed')}</option>
@@ -783,7 +788,7 @@ export default function Orders() {
             </label>
             <label>
               <span className="sr-only">{t('orders.filterFulfillmentStatus')}</span>
-              <select aria-label={t('orders.filterFulfillmentStatus')} value={fulfillmentStatusFilter} onChange={(e) => { setIsLoading(true); setFulfillmentStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
+              <select aria-label={t('orders.filterFulfillmentStatus')} value={fulfillmentStatusFilter} onChange={(e) => { setIsLoading(true); setFulfillmentStatusFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.fulfillmentStatusAll')}</option>
                 <option value="unfulfilled">{t('orders.fulfillmentStatus.unfulfilled')}</option>
                 <option value="fulfilled">{t('orders.fulfillmentStatus.fulfilled')}</option>
@@ -793,7 +798,7 @@ export default function Orders() {
             </label>
             <label>
               <span className="sr-only">{t('orders.filterPaymentStatus')}</span>
-              <select aria-label={t('orders.filterPaymentStatus')} value={paymentStatusFilter} onChange={(e) => { setIsLoading(true); setPaymentStatusFilter(e.target.value); }} className="min-h-10 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
+              <select aria-label={t('orders.filterPaymentStatus')} value={paymentStatusFilter} onChange={(e) => { setIsLoading(true); setPaymentStatusFilter(e.target.value); }} className="min-h-11 w-full rounded-lg border border-em-border bg-em-bg-surface px-3 text-sm">
                 <option value="all">{t('orders.paymentStatusAll')}</option>
                 <option value="pending">{t('orders.paymentStatus.pending')}</option>
                 <option value="paid">{t('orders.paymentStatus.paid')}</option>
@@ -816,7 +821,7 @@ export default function Orders() {
                 setDateFilter('all');
                 setDeliveryBucket('all');
               }}
-              className="text-xs font-semibold text-em-violet-700 hover:underline"
+              className="inline-flex min-h-11 items-center text-xs font-semibold text-em-violet-700 hover:underline"
             >
               {t('orders.clearFilters')}
             </button>
@@ -1482,7 +1487,7 @@ export default function Orders() {
                       type="button"
                       onClick={() => void handleCorrectPaymentMethod()}
                       disabled={!paymentMethodCorrection || isUpdatingPaymentMethod}
-                      className="mt-2 min-h-9 rounded-lg bg-em-violet-600 px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="mt-2 min-h-11 rounded-lg bg-em-violet-600 px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isUpdatingPaymentMethod ? t('orders.loading') : t('orders.detailModal.savePaymentMethod')}
                     </button>

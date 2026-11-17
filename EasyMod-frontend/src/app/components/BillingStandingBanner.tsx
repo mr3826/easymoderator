@@ -57,14 +57,16 @@ function StandingNotice({ onDismiss }: { onDismiss: () => void }) {
         <p className="mt-0.5">
           <Claim id={OVERDUE_CLAIM_ID} surface="usage-banner" />
         </p>
-        <Link to="/subscription" className="mt-1 inline-block font-semibold underline">
+        {/* 44px touch target (guardrails §18) — this banner renders on every
+            merchant page, so its two controls are the widest-reach targets. */}
+        <Link to="/subscription" className="mt-1 inline-flex min-h-11 items-center font-semibold underline">
           {t("billingStanding.manage")}
         </Link>
       </div>
       <button
         type="button"
         onClick={onDismiss}
-        className="rounded p-1 hover:bg-black/5"
+        className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded hover:bg-black/5"
         aria-label={t("billingStanding.dismiss")}
       >
         <X className="h-4 w-4" aria-hidden="true" />

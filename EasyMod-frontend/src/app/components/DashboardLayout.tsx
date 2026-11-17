@@ -187,7 +187,7 @@ export default function DashboardLayout() {
               href={buildMarketingUrl("/privacy-policy")}
               target="_blank"
               rel="noopener noreferrer"
-              className={`text-xs text-em-text-secondary hover:text-em-text-primary hover:underline ${FOCUS_RING}`}
+              className={`inline-flex min-h-11 items-center text-xs text-em-text-secondary hover:text-em-text-primary hover:underline ${FOCUS_RING}`}
             >
               {t('common.privacyPolicy')}
             </a>

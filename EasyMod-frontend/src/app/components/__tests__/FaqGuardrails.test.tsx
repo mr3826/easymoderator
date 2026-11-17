@@ -120,6 +120,31 @@ describe('FAQ dialogs', () => {
     expect(document.activeElement).toBe(add);
   });
 
+  it('saves the typed QUESTION and never sends a category that would overwrite it', async () => {
+    // Regression: the API resolves its single text column as `category || question`.
+    // The editor used to always send category:"General", so the merchant's question
+    // was discarded and the wrong text reached the RAG index and the AI prompt.
+    vi.mocked(apiClient.createKnowledgeFaq).mockImplementation(async (payload) => ({
+      ...faq(), ...payload, id: 'faq-new',
+    }) as never);
+    renderPage();
+    fireEvent.click(await screen.findByTestId('faq-add'));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Question'), {
+      target: { value: 'Do you ship to Chittagong?' },
+    });
+    fireEvent.change(within(dialog).getByLabelText('Answer'), {
+      target: { value: 'Yes, delivery takes 3 days.' },
+    });
+    // The editor no longer offers a second input for the same column.
+    expect(within(dialog).queryByLabelText(/category/i)).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(apiClient.createKnowledgeFaq).toHaveBeenCalled());
+    const sent = vi.mocked(apiClient.createKnowledgeFaq).mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.question).toBe('Do you ship to Chittagong?');
+    expect(sent).not.toHaveProperty('category');
+  });
+
   it('delete asks through a danger confirm dialog, not window.confirm', async () => {
     vi.mocked(apiClient.deleteKnowledgeFaq).mockResolvedValue({ message: 'ok' } as never);
     renderPage();
