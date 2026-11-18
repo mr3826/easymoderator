@@ -274,4 +274,73 @@ describe('RAG query deadline', () => {
         expect(global.fetch).toHaveBeenCalledTimes(1);
         expect(jest.getTimerCount()).toBe(0);
     });
+
+    test('an embedding timeout aborts the provider request and prevents a later search', async () => {
+        jest.useFakeTimers();
+        const previousProvider = process.env.EMBEDDING_PROVIDER;
+        const previousOpenAiKey = process.env.OPENAI_API_KEY;
+        process.env.EMBEDDING_PROVIDER = 'openai';
+        process.env.OPENAI_API_KEY = 'mock-only-embedding-key';
+
+        let finishEmbedding;
+        let embeddingSignal;
+        let enterEmbedding;
+        const embeddingEntered = new Promise((resolve) => { enterEmbedding = resolve; });
+        let searchCalls = 0;
+        const openAiIdentity = require('../embedding.service').getEmbeddingSpaceIdentity();
+        const openAiManifest = createManifestPayload({
+            collection: 'knowledge_documents',
+            identity: openAiIdentity,
+            state: 'ACTIVE',
+        });
+
+        global.fetch.mockImplementation((url, init = {}) => {
+            const endpoint = String(url);
+            calls.push({ url: endpoint, init });
+            if (endpoint.includes('api.openai.com/v1/embeddings')) {
+                embeddingSignal = init.signal;
+                enterEmbedding();
+                return new Promise((resolve) => {
+                    finishEmbedding = () => resolve({
+                        ok: true,
+                        json: async () => ({ data: [{ embedding: new Array(openAiIdentity.dimensions).fill(0.1) }] }),
+                    });
+                });
+            }
+            if (endpoint.includes('/points/scroll')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ result: { points: [{ id: EMBEDDING_SPACE_MANIFEST_POINT_ID, payload: openAiManifest }] } }),
+                });
+            }
+            if (/\/collections\/[^/]+$/.test(endpoint)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ result: { config: { params: { vectors: { size: openAiIdentity.dimensions } } } } }),
+                });
+            }
+            if (endpoint.includes('/points/search')) searchCalls++;
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({ result: [] }) });
+        });
+
+        try {
+            const pending = rag.queryData(query, { timeoutMs: 25 });
+            await embeddingEntered;
+            const timeout = expect(pending).rejects.toMatchObject({ name: 'TimeoutError' });
+            await jest.advanceTimersByTimeAsync(25);
+            await timeout;
+
+            expect(embeddingSignal.aborted).toBe(true);
+            finishEmbedding();
+            await jest.advanceTimersByTimeAsync(0);
+            expect(searchCalls).toBe(0);
+        } finally {
+            if (previousProvider === undefined) delete process.env.EMBEDDING_PROVIDER;
+            else process.env.EMBEDDING_PROVIDER = previousProvider;
+            if (previousOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+            else process.env.OPENAI_API_KEY = previousOpenAiKey;
+        }
+    });
 });

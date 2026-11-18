@@ -282,13 +282,18 @@ describe('META-E2E-003 — a product this shop really sells', () => {
         expect(stored.metadata.provider_message_id).toMatch(/^mid\./);
         expect(stored.metadata).toMatchObject({
             confidence_mode: 'shadow', confidence_scope: 'delivered',
+            confidence_would_hold_policy_version: 'low-confidence-gate-v1',
+            confidence_would_hold_settings_scope: 'generation_snapshot',
             confidence_reason_codes: expect.arrayContaining(['RAG_UNAVAILABLE']),
             confidence_components: expect.objectContaining({
                 deliveredTextLength: stored.content.trim().length, knowledgeOutcome: 'FAILED', verifiedProductCount: 1,
             }),
         });
-        expect((await getReplyConfidenceRollup(IDS.shopA)).delivered).toBeGreaterThan(0);
-        expect((await getReplyConfidenceRollup(IDS.shopB)).delivered).toBe(0);
+        const rollup = await getReplyConfidenceRollup(IDS.shopA);
+        expect(rollup.delivered).toBeGreaterThan(0);
+        expect(rollup.retrieval.FAILED).toBeGreaterThan(0);
+        expect(rollup.retrievalCovered).toBeGreaterThan(0);
+        expect((await getReplyConfidenceRollup(IDS.shopB)).retrievalCovered).toBe(0);
         expect(stored.source_references).toEqual(
             expect.arrayContaining([expect.objectContaining({ kind: 'product', id: IDS.knownProduct })]),
         );

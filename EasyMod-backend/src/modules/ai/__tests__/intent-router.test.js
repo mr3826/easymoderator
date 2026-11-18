@@ -63,6 +63,7 @@ const { FaqResponse } = require('src/modules/entities');
 const grounding = require('src/modules/ai/grounding');
 const { faqSnapshot } = require('src/modules/ai/knowledge-snapshot');
 const { hashOperatingContext } = require('src/modules/ai/shop-operating-context.service');
+const { deriveReplyConfidence } = require('../reply-confidence.service');
 const { loadSyntheticMediaFixture } = require('../../../../scripts/product-experience/synthetic-media-fixtures');
 
 const SHOP = 'shop-1';
@@ -827,6 +828,42 @@ describe('B — Bengali product-intent gate', () => {
             );
         }
     });
+});
+
+describe('RAG diagnostic propagation', () => {
+    test('a retrieval timeout remains visible alongside independent verified product evidence', async () => {
+        const timeout = Object.assign(new Error('mock retrieval timeout'), { name: 'TimeoutError' });
+        rag.queryData.mockRejectedValueOnce(timeout);
+        productSearch.searchByAttributes.mockResolvedValueOnce([{
+            id: 'shirt-1', shop_id: SHOP, name: 'Test Everyday Shirt', price: 900,
+            quantity: 7, track_quantity: true, variants: [],
+        }]);
+
+        const result = await route({
+            shopId: SHOP,
+            message: 'Tell me about the Test Everyday Shirt.',
+            systemPrompt: 'BASE',
+            language: 'English',
+        });
+
+        expect(result.source).toBe('grounding_product_presentation');
+        expect(result.grounding).toMatchObject({
+            productStatus: 'VERIFIED',
+            verifiedProducts: [expect.objectContaining({ id: 'shirt-1' })],
+        });
+        expect(result.knowledgeObservation).toEqual({ knowledgeFailed: true, knowledgeOutcome: 'TIMEOUT' });
+
+        const observation = deriveReplyConfidence({
+            groundingDecision: 'SEND',
+            evidence: { ...result.grounding, ...result.knowledgeObservation },
+            replySource: result.source,
+            deliveredText: result.response,
+        });
+        expect(observation.score).toBe(1);
+        expect(observation.components).toMatchObject({ knowledgeOutcome: 'TIMEOUT', verifiedProductCount: 1 });
+        expect(observation.reasonCodes).toContain('RAG_TIMEOUT');
+    });
+
 });
 
 describe('C — RAG product hit re-fetched live', () => {
@@ -1671,8 +1708,10 @@ describe('settings generation and inactive FAQ cache boundaries', () => {
         expect(first.grounding.policyText).toContain('Accepted payment: COD ONLY.');
         expect(first.grounding.knowledgeSnapshots).toEqual([faqSnapshot(faq)]);
         expect(first.grounding.operatingContextHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(first.knowledgeObservation).toEqual({ knowledgeFailed: false, knowledgeOutcome: 'NOT_REQUESTED' });
         expect(firstVerdict.decision).toBe(grounding.GroundingDecision.SEND);
         expect(cached.source).toBe('cache');
+        expect(cached.knowledgeObservation).toEqual({ knowledgeFailed: false, knowledgeOutcome: 'NOT_REQUESTED' });
         expect(cached.grounding.knowledgeIds).toEqual(['faq-delivery-1']);
         expect(cached.grounding.policyText).toContain('60 taka');
         expect(cached.grounding.policyText).toContain('Accepted payment: COD ONLY.');

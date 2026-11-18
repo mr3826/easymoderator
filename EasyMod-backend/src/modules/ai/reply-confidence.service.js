@@ -79,6 +79,7 @@ const VALID_DECISIONS = new Set(Object.values(GroundingDecision));
 const VALID_PRODUCT_STATUSES = new Set(Object.values(ProductEvidenceStatus));
 const VALID_KNOWLEDGE_OUTCOMES = new Set([
     'NOT_REQUESTED',
+    'UNKNOWN',
     'FOUND',
     'EMPTY_RESULT',
     'NO_MATCHES',
@@ -121,7 +122,7 @@ const factComponents = ({
     knowledgeFound: evidence?.knowledgeFound === true,
     knowledgeFailed: evidence?.knowledgeFailed === true,
     knowledgeOutcome: evidence?.knowledgeOutcome
-        || (evidence?.knowledgeFailed === true ? 'FAILED' : evidence?.knowledgeFound === true ? 'FOUND' : 'EMPTY'),
+        || (evidence?.knowledgeFailed === true ? 'FAILED' : 'NOT_REQUESTED'),
     evidenceSource: orderFlowHandled
         ? 'deterministic_order_flow'
         : groundingDecision === GroundingDecision.SAFE_FALLBACK

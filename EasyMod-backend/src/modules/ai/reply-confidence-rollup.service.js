@@ -2,6 +2,10 @@
 
 const { sequelize } = require('../../utils/database/database-setup');
 const { CONFIDENCE_REASON } = require('./reply-confidence.service');
+const {
+    WOULD_HOLD_POLICY_VERSION,
+    WOULD_HOLD_SETTINGS_SCOPE,
+} = require('./confidence-gate.service');
 
 // Operator-only: callers must authorize the shop before invoking this service.
 // This query never runs in the worker, and needs no new table or data migration.
@@ -19,6 +23,8 @@ async function getReplyConfidenceRollup(shopId, hours = 24) {
                 m.metadata->'confidence_score' AS score,
                 m.metadata->'confidence_reason_codes' AS reasons,
                 m.metadata->'confidence_would_hold' AS "wouldHold",
+                m.metadata->>'confidence_would_hold_policy_version' AS "wouldHoldPolicyVersion",
+                m.metadata->>'confidence_would_hold_settings_scope' AS "wouldHoldSettingsScope",
                 m.metadata->'confidence_components'->>'knowledgeOutcome' AS retrieval,
                 m.metadata->'confidence_compute_ms' AS "computeMs"
             FROM conversation_turns t
@@ -41,16 +47,26 @@ async function getReplyConfidenceRollup(shopId, hours = 24) {
         const allowed = new Set(Object.values(CONFIDENCE_REASON));
         const report = {
             hours, turns: Math.min(rows.length, 5000), truncated: rows.length > 5000,
-            missing: 0, suggestion: 0, delivered: 0, unscored: 0, wouldHold: 0,
+            missing: 0, suggestion: 0, delivered: 0, unscored: 0,
+            wouldHold: 0, wouldHoldCovered: 0, wouldHoldUnknown: 0,
             scoreBuckets: { belowHalf: 0, halfToBelowThreeQuarters: 0, threeQuartersOrAbove: 0 },
-            reasons: {}, retrieval: {}, computeP95Ms: null,
+            reasons: {}, retrieval: {}, retrievalCovered: 0, retrievalUnknown: 0, computeP95Ms: null,
         };
         const retrievalOutcomes = new Set(['FOUND', 'FAILED', 'TIMEOUT', 'NOT_REQUESTED',
-            'EMPTY_RESULT', 'NO_MATCHES', 'NO_VALID_RESULTS', 'NO_KNOWLEDGE_EVIDENCE']);
+            'EMPTY_RESULT', 'NO_MATCHES', 'NO_VALID_RESULTS', 'NO_KNOWLEDGE_EVIDENCE', 'UNKNOWN']);
         const compute = [];
         for (const row of rows.slice(0, 5000)) {
+            if (row.wouldHoldPolicyVersion === WOULD_HOLD_POLICY_VERSION
+                && row.wouldHoldSettingsScope === WOULD_HOLD_SETTINGS_SCOPE
+                && typeof row.wouldHold === 'boolean') {
+                report.wouldHoldCovered++;
+                if (row.wouldHold) report.wouldHold++;
+            } else {
+                report.wouldHoldUnknown++;
+            }
             if (row.scope !== 'suggestion' && row.scope !== 'delivered') {
                 report.missing++;
+                report.retrievalUnknown++;
                 continue;
             }
             report[row.scope]++;
@@ -60,9 +76,12 @@ async function getReplyConfidenceRollup(shopId, hours = 24) {
             } else {
                 report.unscored++;
             }
-            if (row.wouldHold === true) report.wouldHold++;
             if (retrievalOutcomes.has(row.retrieval)) {
                 report.retrieval[row.retrieval] = (report.retrieval[row.retrieval] || 0) + 1;
+                if (row.retrieval === 'UNKNOWN') report.retrievalUnknown++;
+                else report.retrievalCovered++;
+            } else {
+                report.retrievalUnknown++;
             }
             if (Number.isSafeInteger(row.computeMs) && row.computeMs >= 0) compute.push(row.computeMs);
             for (const code of new Set(Array.isArray(row.reasons) ? row.reasons : [])) {

@@ -415,6 +415,40 @@ test('shadow evidence never changes a legacy low-confidence hold', async () => {
     }
 });
 
+test('shadow would_hold remains scoped to generation settings after a live threshold change', async () => {
+    mockProcessNewIntent.mockResolvedValueOnce({ response: 'candidate response', confidence: 0.9, source: 'llm' });
+    mockGetShopAiSettings
+        .mockResolvedValueOnce(shopSettings('AUTO'))
+        .mockResolvedValueOnce({ ...shopSettings('AUTO'), confidence_threshold: 95 });
+    const scorer = jest.spyOn(replyConfidence, 'deriveReplyConfidence').mockReturnValue({
+        score: 0.8, components: {}, reasonCodes: ['GROUNDED'], provenance: 'model',
+    });
+
+    try {
+        expect(await processMessageJob(makeJob())).toMatchObject({
+            sent: false, confidence: 0.9, reason: 'low_confidence',
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockStoreAIResponse.mock.calls[0][2]).toMatchObject({
+            confidence_would_hold: false,
+            confidence_would_hold_policy_version: 'low-confidence-gate-v1',
+            confidence_would_hold_settings_scope: 'generation_snapshot',
+        });
+    } finally {
+        scorer.mockRestore();
+    }
+});
+
+test('a failed intent pipeline marks its retrieval observation as unknown', async () => {
+    mockProcessNewIntent.mockRejectedValueOnce(new Error('mock pipeline failure'));
+
+    await processMessageJob(makeJob());
+
+    expect(mockStoreAIResponse.mock.calls[0][2]).toMatchObject({
+        confidence_components: expect.objectContaining({ knowledgeOutcome: 'UNKNOWN' }),
+    });
+});
+
 test('AUTO waits for a slow model without sending a recovery holding message', async () => {
     let resolveModel;
     mockProcessNewIntent.mockImplementationOnce(() => new Promise((resolve) => {

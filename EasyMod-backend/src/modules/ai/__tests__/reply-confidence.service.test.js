@@ -107,17 +107,43 @@ describe('deriveReplyConfidence — evidence score, not a probability', () => {
         expect(result.reasonCodes).toContain(CONFIDENCE_REASON.RAG_UNAVAILABLE);
     });
 
-    test('a failed knowledge retrieval does not discount independently verified product evidence', () => {
+    test.each([
+        ['FAILED', CONFIDENCE_REASON.RAG_UNAVAILABLE],
+        ['TIMEOUT', CONFIDENCE_REASON.RAG_TIMEOUT],
+    ])('a knowledge %s remains visible without discounting independent product evidence', (knowledgeOutcome, reason) => {
         const result = deriveReplyConfidence({
             groundingDecision: GroundingDecision.SEND,
-            evidence: { ...groundedEvidence, knowledgeFailed: true },
+            evidence: {
+                ...groundedEvidence,
+                knowledgeFailed: true,
+                knowledgeOutcome,
+            },
             replySource: 'llm',
             deliveredText: 'The black Panjabi is 1290 taka and in stock.',
         });
 
         expect(result.score).toBe(1);
-        expect(result.reasonCodes).toContain(CONFIDENCE_REASON.RAG_UNAVAILABLE);
+        expect(result.components).toMatchObject({ knowledgeOutcome, verifiedProductCount: 1 });
+        expect(result.reasonCodes).toContain(reason);
         expect(result.reasonCodes).not.toContain(CONFIDENCE_REASON.GROUNDED);
+    });
+
+    test('an unavailable diagnostic is distinct from retrieval that was not requested', () => {
+        const unknown = deriveReplyConfidence({
+            groundingDecision: GroundingDecision.SEND,
+            evidence: { ...groundedEvidence, knowledgeOutcome: 'UNKNOWN' },
+            deliveredText: 'The black Panjabi is 1290 taka and in stock.',
+        });
+        const notRequested = deriveReplyConfidence({
+            groundingDecision: GroundingDecision.SEND,
+            evidence: groundedEvidence,
+            deliveredText: 'The black Panjabi is 1290 taka and in stock.',
+        });
+
+        expect(unknown.components.knowledgeOutcome).toBe('UNKNOWN');
+        expect(notRequested.components.knowledgeOutcome).toBe('NOT_REQUESTED');
+        expect(unknown.score).toBe(1);
+        expect(notRequested.score).toBe(1);
     });
 
     test('a knowledge outage is distinguished from a reply with no evidence at all', () => {
@@ -328,7 +354,7 @@ describe('deriveReplyConfidence — evidence score, not a probability', () => {
     test('a fallback provider is recorded without being treated as ungrounded', () => {
         const result = deriveReplyConfidence({
             groundingDecision: GroundingDecision.SEND,
-            evidence: groundedEvidence,
+            evidence: { ...groundedEvidence, knowledgeFailed: true, knowledgeOutcome: 'TIMEOUT' },
             replySource: 'llm',
             provider: 'openai',
             fallbackUsed: true,
@@ -336,7 +362,8 @@ describe('deriveReplyConfidence — evidence score, not a probability', () => {
         });
         expect(result.provenance).toBe(PROVENANCE.FALLBACK);
         expect(result.reasonCodes).toContain(CONFIDENCE_REASON.PROVIDER_FALLBACK);
-        expect(result.score).toBeGreaterThanOrEqual(0.75);
+        expect(result.reasonCodes).toContain(CONFIDENCE_REASON.RAG_TIMEOUT);
+        expect(result.score).toBe(0.95);
     });
 
     test('components are recorded as facts for later calibration', () => {

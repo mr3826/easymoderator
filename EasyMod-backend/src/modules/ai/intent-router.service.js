@@ -536,6 +536,7 @@ const route = async ({
                     confidence: 1.0,
                     source: 'cache',
                     grounding: cachedEvidence,
+                    knowledgeObservation: { knowledgeFailed: false, knowledgeOutcome: 'NOT_REQUESTED' },
                 };
             }
         }
@@ -658,6 +659,7 @@ const route = async ({
                         source: 'faq',
                         provider,
                         grounding: faqEvidence,
+                        knowledgeObservation: { knowledgeFailed: false, knowledgeOutcome: 'NOT_REQUESTED' },
                         sourceReferences: [{
                             kind: 'faq',
                             id: String(best.faq.id),

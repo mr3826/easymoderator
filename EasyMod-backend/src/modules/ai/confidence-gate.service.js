@@ -25,6 +25,8 @@
 const { AI_REPLY_MODES, isNonDeliveringMode } = require('../shop/ai-reply-mode');
 
 const DEFAULT_THRESHOLD = 0.75;
+const WOULD_HOLD_POLICY_VERSION = 'low-confidence-gate-v1';
+const WOULD_HOLD_SETTINGS_SCOPE = 'generation_snapshot';
 
 /** Normalize a threshold (0–1 fraction OR 0–100 percentage) to a 0–1 fraction. */
 function normalizeThreshold(raw, fallback = DEFAULT_THRESHOLD) {
@@ -74,4 +76,6 @@ module.exports = {
     normalizeThreshold,
     normalizeConfidence,
     DEFAULT_THRESHOLD,
+    WOULD_HOLD_POLICY_VERSION,
+    WOULD_HOLD_SETTINGS_SCOPE,
 };

@@ -2827,6 +2827,7 @@ async function processMessageJob(job) {
                 : 'Thank you for your message! We will respond shortly.';
             confidence = 0;
             sourceReferences = null;
+            knowledgeObservation = { knowledgeFailed: false, knowledgeOutcome: 'UNKNOWN' };
             fallbackKnowledgeGapSource = 'ai_pipeline_error';
         }
     }
@@ -2881,9 +2882,17 @@ async function processMessageJob(job) {
         const start = process.hrtime.bigint();
         let observation;
         let wouldHold = null;
+        let wouldHoldPolicyVersion = null;
+        let wouldHoldSettingsScope = null;
         try {
             const { deriveReplyConfidence } = require('../modules/ai/reply-confidence.service');
-            const { shouldHoldForLowConfidence } = require('../modules/ai/confidence-gate.service');
+            const {
+                shouldHoldForLowConfidence,
+                WOULD_HOLD_POLICY_VERSION,
+                WOULD_HOLD_SETTINGS_SCOPE,
+            } = require('../modules/ai/confidence-gate.service');
+            wouldHoldPolicyVersion = WOULD_HOLD_POLICY_VERSION;
+            wouldHoldSettingsScope = WOULD_HOLD_SETTINGS_SCOPE;
             observation = deriveReplyConfidence({
                 groundingDecision: groundingVerdict.decision,
                 groundingReason: groundingVerdict.reasonCode,
@@ -2901,6 +2910,8 @@ async function processMessageJob(job) {
                 if (!Number.isFinite(observation.score) || observation.score < 0 || observation.score > 1) {
                     throw new Error('Invalid shadow score');
                 }
+                // This is deliberately the generation-time prediction. The live
+                // send gate re-resolves settings later and remains authoritative.
                 wouldHold = !committedOrder && shouldHoldForLowConfidence({
                     confidence: observation.score,
                     automationMode: aiSettings.automation_mode,
@@ -2920,6 +2931,8 @@ async function processMessageJob(job) {
             confidence_reason_codes: observation.reasonCodes,
             confidence_provenance: observation.provenance,
             confidence_would_hold: wouldHold,
+            confidence_would_hold_policy_version: wouldHoldPolicyVersion,
+            confidence_would_hold_settings_scope: wouldHoldSettingsScope,
             confidence_mode: 'shadow',
             confidence_scope: scope,
             confidence_turn_id: turnId,
