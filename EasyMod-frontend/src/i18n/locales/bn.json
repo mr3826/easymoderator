@@ -879,6 +879,17 @@
     "aiSuggestionNotSent": "AI-এর পরামর্শ — পাঠানো হয়নি",
     "editedSuggestionLabel": "AI-এর পরামর্শ সম্পাদনা করুন",
     "confidence": "নির্ভরযোগ্যতা: {{percent}}%",
+    "confidenceSignal": {
+      "verified": "চেকআউট প্রক্রিয়ার উত্তর",
+      "grounded": "সহায়ক তথ্য পাওয়া গেছে — তথ্য যাচাই করা হয়নি",
+      "knowledgeUnavailable": "নলেজ বেস পাওয়া যায়নি — উত্তরটি যাচাই করুন",
+      "noEvidence": "ক্যাটালগ বা FAQ-এ কোনো তথ্য পাওয়া যায়নি",
+      "retrievalFailed": "পণ্যের তথ্য পাওয়া যায়নি — উত্তরটি যাচাই করুন",
+      "review": "সহায়ক তথ্য যাচাই করুন",
+      "safeFallback": "বিকল্প উত্তর — মূল দাবিটি প্রত্যাহার করা হয়েছে",
+      "notRecorded": "প্রমাণ সংরক্ষিত নেই",
+      "evidenceSignalLabel": "AI উত্তরের প্রমাণ-সংকেত"
+    },
     "lowConfidence": "কম নির্ভরযোগ্যতা — পাঠানোর আগে যাচাই করুন",
     "useThis": "এটি পাঠান",
     "editAndUse": "ঠিক করে পাঠান",
@@ -2922,7 +2933,7 @@
         "en": "ইংরেজি"
       },
       "confidenceLabel": "EasyModerator কতটা নিশ্চিত হলে নিজে reply পাঠাবে?",
-      "confidenceHint": "আরও সতর্ক ◀━━━●━━━▶ আরও স্বাধীন",
+      "confidenceHint": "এই বিদ্যমান সীমাই পুরোনো reply-check নিয়ন্ত্রণ করে। প্রমাণ-স্কোর শুধু shadow-তে চলে, পাঠানো বদলায় না।",
       "confidenceCautious": "সতর্ক",
       "confidenceBalanced": "মাঝামাঝি",
       "confidenceIndependent": "স্বাধীন",

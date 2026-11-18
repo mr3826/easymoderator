@@ -47,8 +47,11 @@ const ingestData = async (req, res, next) => {
 const queryData = async (req, res, next) => {
     try {
         const shopId = getAuthenticatedShopId(req);
+        const { query, limit, filters } = req.body;
         const result = await ragService.queryData({
-            ...req.body,
+            query,
+            limit,
+            filters,
             shopId
         });
 

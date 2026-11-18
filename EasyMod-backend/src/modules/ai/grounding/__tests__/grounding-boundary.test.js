@@ -26,6 +26,8 @@ jest.mock('src/config/memory-cache', () => ({
         async setex(k, _ttl, v) { this.store.set(k, v); return 'OK'; }
     },
 }));
+// Keep these routing assertions independent of Redis readiness and reconnects.
+jest.mock('src/utils/shop-settings-cache', () => ({ getShopSettingsGeneration: jest.fn(async () => 0) }));
 jest.mock('src/modules/ai/llm.service', () => ({ chat: jest.fn() }));
 jest.mock('src/modules/ai/bert-client.service', () => ({ classify: jest.fn(async () => null) }));
 jest.mock('src/modules/ai/gemini-cache.service', () => ({ getOrCreate: jest.fn(async () => null) }));

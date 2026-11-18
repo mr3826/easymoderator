@@ -167,6 +167,7 @@ jest.mock('src/modules/ai/grounding', () => ({
 }));
 
 const { processMessageJob } = require('src/jobs/message-worker');
+const replyConfidence = require('src/modules/ai/reply-confidence.service');
 
 const makeJob = (overrides = {}) => ({
     id: 'job-1',
@@ -363,6 +364,55 @@ test('DRAFT stores a reviewable candidate and never calls the provider', async (
             suggestion_visibility: 'VISIBLE_DRAFT_REVIEW',
         }),
     }));
+});
+
+test.each([0, 1, 'failure'])('shadow observation %s cannot change the legacy AUTO send', async (score) => {
+    mockProcessNewIntent.mockResolvedValueOnce({ response: 'candidate response', confidence: 0.9, source: 'llm' });
+    const scorer = jest.spyOn(replyConfidence, 'deriveReplyConfidence').mockImplementation(() => {
+        if (score === 'failure') throw new Error('scorer failed');
+        return { score, components: {}, reasonCodes: ['GROUNDED'], provenance: 'model' };
+    });
+    try {
+        expect(await processMessageJob(makeJob())).toMatchObject({ sent: true, confidence: 0.9 });
+        expect(mockSendMessage).toHaveBeenCalledTimes(1);
+        expect(mockStoreAIResponse.mock.calls[0][2]).toMatchObject({ confidence_scope: 'suggestion' });
+        expect(mockStoredMessageUpdate).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({
+            confidence_scope: 'delivered', confidence_score: score === 'failure' ? null : score,
+            confidence_would_hold: score === 'failure' ? null : score === 0,
+        }) }));
+        expect(mockSendMessage.mock.invocationCallOrder[0]).toBeLessThan(scorer.mock.invocationCallOrder[1]);
+    } finally {
+        scorer.mockRestore();
+    }
+});
+
+test('policy-transformed outbound text does not label the stored proposal as delivered evidence', async () => {
+    mockEvaluateOutbound.mockResolvedValueOnce({ allow: true, transform: { text: 'Policy-selected text' } });
+    const scorer = jest.spyOn(replyConfidence, 'deriveReplyConfidence');
+    try {
+        expect(await processMessageJob(makeJob())).toMatchObject({ sent: true });
+        expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
+            normalizedMessage: expect.objectContaining({ text: 'Policy-selected text' }),
+        }));
+        expect(scorer).toHaveBeenCalledTimes(1);
+        expect(mockStoredMessageUpdate.mock.calls.some(([values]) => values.metadata?.confidence_scope === 'delivered')).toBe(false);
+    } finally {
+        scorer.mockRestore();
+    }
+});
+
+test('shadow evidence never changes a legacy low-confidence hold', async () => {
+    mockProcessNewIntent.mockResolvedValueOnce({ response: 'candidate response', confidence: 0.5, source: 'llm' });
+    const scorer = jest.spyOn(replyConfidence, 'deriveReplyConfidence').mockReturnValue({
+        score: 1, components: {}, reasonCodes: ['GROUNDED'], provenance: 'model',
+    });
+    try {
+        expect(await processMessageJob(makeJob())).toMatchObject({ sent: false, handoff: true, reason: 'low_confidence_handoff' });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockStoreAIResponse.mock.calls[0][2].confidence_would_hold).toBe(false);
+    } finally {
+        scorer.mockRestore();
+    }
 });
 
 test('AUTO waits for a slow model without sending a recovery holding message', async () => {
@@ -582,6 +632,33 @@ test('AUTO persists every provider MID returned for a multi-part send', async ()
             provider_message_ids: ['provider-text', 'provider-image'],
         }),
     }));
+});
+
+test('AUTO adds delivered evidence when an echo wins without rewriting delivery state', async () => {
+    const { Message } = require('src/modules/conversation/conversation.entity');
+    const acknowledgedAt = '2026-11-18T00:00:00.000Z';
+    const confirmed = {
+        id: 'ai-1', content: 'candidate response', sender: 'ai', delivery_state: 'DELIVERED',
+        delivery_source: 'AUTO', provider_message_id: 'provider-1',
+        metadata: { confidence_scope: 'suggestion', provider_accepted_at: acknowledgedAt, delivered: true },
+    };
+    mockSendMessage.mockImplementationOnce(async () => {
+        Message.findOne = jest.fn().mockResolvedValue(confirmed);
+        Message.update = jest.fn().mockResolvedValue([1]);
+        return { providerMessageId: 'provider-1' };
+    });
+    try {
+        expect(await processMessageJob(makeJob())).toMatchObject({ sent: true });
+        expect(mockSendMessage).toHaveBeenCalledTimes(1);
+        expect(Message.update).toHaveBeenCalledTimes(1);
+        expect(Message.update.mock.calls[0][0]).toEqual({ metadata: expect.objectContaining({
+            confidence_scope: 'delivered', provider_accepted_at: acknowledgedAt, provider_message_ids: ['provider-1'],
+        }) });
+        expect(confirmed.delivery_state).toBe('DELIVERED');
+    } finally {
+        delete Message.findOne;
+        delete Message.update;
+    }
 });
 
 test('AUTO fails closed when the provider returns no message ID', async () => {

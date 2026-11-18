@@ -141,19 +141,26 @@ const mergeMessageLifecycle = (current: Message, incoming: Message): Message => 
     || incomingRank < currentRank;
 
   if (keepCurrentLifecycle) {
+    const metadata = { ...(incoming.metadata || {}), ...(current.metadata || {}) };
+    if (isProviderConfirmed(current)) metadata.reply_evidence = current.metadata?.reply_evidence ?? null;
     return {
       ...current,
       ...incoming,
       delivery_state: current.delivery_state,
       provider_message_id: current.provider_message_id,
       delivery_source: current.delivery_source,
-      metadata: { ...(incoming.metadata || {}), ...(current.metadata || {}) },
+      metadata,
     };
+  }
+  const metadata = { ...(current.metadata || {}), ...(incoming.metadata || {}) };
+  if (incoming.delivery_source === "DRAFT_APPROVAL" || incoming.metadata?.delivery_source === "DRAFT_APPROVAL"
+    || (isProviderConfirmed(incoming) && !isProviderConfirmed(current) && incoming.metadata?.reply_evidence === undefined)) {
+    metadata.reply_evidence = null;
   }
   return {
     ...current,
     ...incoming,
-    metadata: { ...(current.metadata || {}), ...(incoming.metadata || {}) },
+    metadata,
   };
 };
 

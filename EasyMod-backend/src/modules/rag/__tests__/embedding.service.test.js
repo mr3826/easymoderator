@@ -113,21 +113,21 @@ describe('probe', () => {
     test('gemini asks for exactly QDRANT_VECTOR_SIZE dimensions', async () => {
         process.env.EMBEDDING_PROVIDER = 'gemini';
         process.env.GEMINI_API_KEY = 'AIza-test';
-        const { vectorSize } = svc.getProviderInfo();
+        const vectorSize = svc.getProviderInfo().vectorSize;
 
         const realFetch = global.fetch;
         global.fetch = jest.fn(async () => ({
             ok: true,
             status: 200,
-            json: async () => ({ embedding: { values: new Array(vectorSize).fill(0.1) } }),
+            json: async () => ({ embedding: { values: new Array(svc.getProviderInfo().vectorSize).fill(0.1) } }),
         }));
         try {
             const result = await svc.probe();
-            expect(result).toMatchObject({ ok: true, provider: 'gemini', semantic: true, dimensions: vectorSize });
+            expect(result).toMatchObject({ ok: true, provider: 'gemini', semantic: true, dimensions: svc.getProviderInfo().vectorSize });
 
             const [url, init] = global.fetch.mock.calls[0];
             expect(url).toContain('models/gemini-embedding-2:embedContent');
-            expect(JSON.parse(init.body).outputDimensionality).toBe(vectorSize);
+            expect(JSON.parse(init.body).outputDimensionality).toBe(svc.getProviderInfo().vectorSize);
         } finally {
             global.fetch = realFetch;
         }
@@ -193,12 +193,13 @@ describe('probe', () => {
         process.env.EMBEDDING_PROVIDER = 'gemini';
         process.env.GEMINI_API_KEY = 'AIza-test';
         process.env.EMBEDDING_HTTP_MAX_RETRIES = '0';
-        const { vectorSize } = svc.getProviderInfo();
+        const vectorSize = svc.getProviderInfo().vectorSize;
+
         const realFetch = global.fetch;
         global.fetch = jest.fn(async () => ({
             ok: true,
             status: 200,
-            json: async () => ({ embedding: { values: new Array(vectorSize).fill(0.1) } }),
+            json: async () => ({ embedding: { values: new Array(svc.getProviderInfo().vectorSize).fill(0.1) } }),
         }));
         try {
             await svc.getEmbeddingResult('delivery query', { purpose: 'query' });
@@ -209,6 +210,113 @@ describe('probe', () => {
             expect(documentBody.content.parts[0].text).toBe('title: FAQ | text: delivery answer');
             expect(queryBody).not.toHaveProperty('taskType');
             expect(documentBody).not.toHaveProperty('taskType');
+        } finally {
+            global.fetch = realFetch;
+        }
+    });
+});
+
+describe('embedding abort signal', () => {
+    const realFetch = global.fetch;
+
+    afterEach(() => {
+        global.fetch = realFetch;
+    });
+
+    test('fetchWithRetries stops retrying after the signal aborts', async () => {
+        process.env.EMBEDDING_HTTP_MAX_RETRIES = '3';
+        process.env.EMBEDDING_RETRY_BACKOFF_MS = '0';
+        const controller = new AbortController();
+        const fetchCalls = [];
+        global.fetch = jest.fn(() => {
+            fetchCalls.push(1);
+            return new Promise((resolve, reject) => {
+                const poll = () => {
+                    if (controller.signal.aborted) {
+                        reject(controller.signal.reason || new Error('down'));
+                    } else {
+                        setTimeout(poll, 5);
+                    }
+                };
+                poll();
+            });
+        });
+        setTimeout(() => controller.abort(), 5);
+        await expect(svc.fetchWithRetries('http://tei/embed', {}, controller.signal, 3)).rejects.toMatchObject({ name: 'AbortError' });
+        expect(fetchCalls).toHaveLength(1);
+    });
+
+    test('OpenAI fetch receives the signal', async () => {
+        process.env.EMBEDDING_PROVIDER = 'openai';
+        process.env.OPENAI_API_KEY = 'sk-test';
+        const fetchCalls = [];
+        global.fetch = jest.fn((url, init) => {
+            fetchCalls.push(init.signal);
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: [{ embedding: new Array(svc.getProviderInfo().vectorSize).fill(0.1) }] }) });
+        });
+        try {
+            const signal = new AbortController().signal;
+            await svc.getEmbeddingResult('signal test', {
+                identity: svc.getEmbeddingSpaceIdentity({ provider: 'openai', dimensions: svc.getProviderInfo().vectorSize }),
+                signal,
+            });
+            expect(fetchCalls[0]).toBe(signal);
+        } finally {
+            global.fetch = realFetch;
+        }
+    });
+
+    test('Gemini fetch receives the signal', async () => {
+        process.env.GEMINI_API_KEY = 'AIza-test';
+        const fetchCalls = [];
+        global.fetch = jest.fn((url, init) => {
+            if (String(url).includes('generativelanguage')) {
+                fetchCalls.push(init.signal);
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({ embedding: { values: new Array(svc.getProviderInfo().vectorSize).fill(0.1) } }) });
+            }
+            return Promise.reject(new Error('unexpected ' + url));
+        });
+        try {
+            const signal = new AbortController().signal;
+            await svc.getEmbeddingResult('signal test', {
+                identity: svc.getEmbeddingSpaceIdentity({ provider: 'gemini', dimensions: svc.getProviderInfo().vectorSize }),
+                signal,
+            });
+            expect(fetchCalls[0]).toBe(signal);
+        } finally {
+            global.fetch = realFetch;
+        }
+    });
+
+    test('GCP fetch receives the signal', async () => {
+        process.env.EMBEDDING_API_URL = 'http://tei:8080/embed';
+        const fetchCalls = [];
+        global.fetch = jest.fn((url, init) => {
+            fetchCalls.push(init.signal);
+            return Promise.resolve({ ok: true, status: 200, json: async () => ([new Array(svc.getProviderInfo().vectorSize).fill(0.1)]) });
+        });
+        try {
+            const signal = new AbortController().signal;
+            await svc.getEmbeddingResult('signal test', {
+                identity: svc.getEmbeddingSpaceIdentity({ provider: 'gcp', dimensions: svc.getProviderInfo().vectorSize }),
+                signal,
+            });
+            expect(fetchCalls[0]).toBe(signal);
+        } finally {
+            global.fetch = realFetch;
+        }
+    });
+
+    test('local fallback performs no fetch', async () => {
+        delete process.env.EMBEDDING_PROVIDER;
+        const fetchCalls = [];
+        global.fetch = jest.fn(() => {
+            fetchCalls.push(1);
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        });
+        try {
+            await svc.getEmbeddingResult('local signal test');
+            expect(fetchCalls).toHaveLength(0);
         } finally {
             global.fetch = realFetch;
         }

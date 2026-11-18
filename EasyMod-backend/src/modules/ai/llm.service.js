@@ -318,6 +318,7 @@ const autoEscalateToPro = () => process.env.LLM_AUTO_ESCALATE_TO_PRO === 'true';
  * @param {string[]} [params.skipProviders] - Exclude specific providers from this call.
  * @param {number} [params.maxTokens]
  * @param {string} [params.cachedContentName] - Gemini Context Cache handle.
+ * @param {boolean} [params.observeFallback] - Include whether a later provider supplied the reply.
  * @returns {Promise<{ text: string, provider: string }>}
  */
 const chat = async (params) => {
@@ -347,6 +348,7 @@ const chat = async (params) => {
             const details = response && typeof response === 'object' ? response : null;
             const text = details ? details.text : response;
             if (typeof text !== 'string' || !text.trim()) throw new Error('Provider returned no usable text');
+            const observation = params.observeFallback ? { fallbackUsed: fallbackSequence > 0 } : {};
             return params.returnMetadata
                 ? {
                     text,
@@ -355,8 +357,9 @@ const chat = async (params) => {
                     requestId: details?.requestId || null,
                     latencyMs: details?.latencyMs ?? null,
                     usage: details?.usage || {},
+                    ...observation,
                 }
-                : { text, provider: name };
+                : { text, provider: name, ...observation };
         } catch (err) {
             if (providers.length === 1 && name === 'gemini-lite' && err?.code === 'GEMINI_RATE_LIMIT') {
                 soleGeminiRateLimit = true;

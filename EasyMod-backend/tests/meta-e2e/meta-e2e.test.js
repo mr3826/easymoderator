@@ -20,6 +20,7 @@ const transport = require('./transport');
 const fixtures = require('./fixtures');
 const grounding = require('../../src/modules/ai/grounding');
 const productSearch = require('../../src/modules/product/product-search.service');
+const { getReplyConfidenceRollup } = require('../../src/modules/ai/reply-confidence-rollup.service');
 const {
     UsageEvent, Subscription, Customer, Conversation, Message,
     Product,
@@ -238,9 +239,10 @@ describe('META-E2E-002 — the same conversation under repeated pressure', () =>
 
 describe('META-E2E-003 — a product this shop really sells', () => {
     test('the verified price and tenant-owned photo reach Meta', async () => {
-        const result = await harness.deliver({
-            text: 'black panjabi picture den',
-        });
+        const knowledge = jest.spyOn(require('../../src/modules/rag/rag.service'), 'queryData')
+            .mockResolvedValueOnce({ success: false, results: [] });
+        const result = await harness.deliver({ text: 'black panjabi picture den' })
+            .finally(() => knowledge.mockRestore());
 
         const decision = result.decision;
         expect(decision.decision).toBe(GroundingDecision.SEND);
@@ -278,6 +280,15 @@ describe('META-E2E-003 — a product this shop really sells', () => {
         // thread without guessing which row it was.
         expect(stored.metadata.delivered).toBe(true);
         expect(stored.metadata.provider_message_id).toMatch(/^mid\./);
+        expect(stored.metadata).toMatchObject({
+            confidence_mode: 'shadow', confidence_scope: 'delivered',
+            confidence_reason_codes: expect.arrayContaining(['RAG_UNAVAILABLE']),
+            confidence_components: expect.objectContaining({
+                deliveredTextLength: stored.content.trim().length, knowledgeOutcome: 'FAILED', verifiedProductCount: 1,
+            }),
+        });
+        expect((await getReplyConfidenceRollup(IDS.shopA)).delivered).toBeGreaterThan(0);
+        expect((await getReplyConfidenceRollup(IDS.shopB)).delivered).toBe(0);
         expect(stored.source_references).toEqual(
             expect.arrayContaining([expect.objectContaining({ kind: 'product', id: IDS.knownProduct })]),
         );

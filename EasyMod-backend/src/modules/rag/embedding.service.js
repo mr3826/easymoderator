@@ -57,7 +57,33 @@ const ensureVectorSize = (vector, expectedSize = vectorSize) => {
   return vector;
 };
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const abortError = (signal) => {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const error = new Error('Embedding request aborted');
+  error.name = 'AbortError';
+  return error;
+};
+
+const throwIfAborted = (signal) => {
+  if (signal?.aborted) throw abortError(signal);
+};
+
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) {
+    reject(abortError(signal));
+    return;
+  }
+
+  const onAbort = () => {
+    clearTimeout(timer);
+    reject(abortError(signal));
+  };
+  const timer = setTimeout(() => {
+    signal?.removeEventListener('abort', onAbort);
+    resolve();
+  }, ms);
+  signal?.addEventListener('abort', onAbort, { once: true });
+});
 
 const sanitizeProviderError = (error) => {
   let summary = String(error?.message || error || 'unknown error')
@@ -78,13 +104,15 @@ const shouldRetryStatus = (status) => [408, 429, 500, 502, 503, 504].includes(st
 const fetchWithRetries = async (
   url,
   requestInit,
+  signal,
   retries = Number.parseInt(process.env.EMBEDDING_HTTP_MAX_RETRIES || String(EMBEDDING_HTTP_MAX_RETRIES), 10),
 ) => {
   let lastError;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    throwIfAborted(signal);
     try {
-      const response = await fetch(url, requestInit);
+      const response = await fetch(url, { ...requestInit, signal });
 
       if (response.ok) {
         return response;
@@ -95,15 +123,16 @@ const fetchWithRetries = async (
       error.status = response.status;
 
       if (attempt < retries && shouldRetryStatus(response.status)) {
-        await sleep(EMBEDDING_RETRY_BACKOFF_MS * (attempt + 1));
+        await sleep(EMBEDDING_RETRY_BACKOFF_MS * (attempt + 1), signal);
         continue;
       }
 
       throw error;
     } catch (error) {
+      if (signal?.aborted) throw abortError(signal);
       lastError = error;
       if (attempt < retries) {
-        await sleep(EMBEDDING_RETRY_BACKOFF_MS * (attempt + 1));
+        await sleep(EMBEDDING_RETRY_BACKOFF_MS * (attempt + 1), signal);
         continue;
       }
     }
@@ -136,7 +165,7 @@ const buildEmbeddingCandidateUrls = (rawUrl) => {
   return [...new Set(candidates.filter(Boolean))];
 };
 
-const getOpenAiEmbedding = async (text, { model = OPENAI_FALLBACK_MODEL, dimensions = vectorSize } = {}) => {
+const getOpenAiEmbedding = async (text, { model = OPENAI_FALLBACK_MODEL, dimensions = vectorSize, signal } = {}) => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not set');
@@ -151,7 +180,8 @@ const getOpenAiEmbedding = async (text, { model = OPENAI_FALLBACK_MODEL, dimensi
     // text-embedding-3-* supports a `dimensions` param to truncate output.
     // Always pass it so the embedding size matches the Qdrant collection's
     // configured vector size (QDRANT_VECTOR_SIZE).
-    body: JSON.stringify({ model, input: text, dimensions })
+    body: JSON.stringify({ model, input: text, dimensions }),
+    signal
   });
 
   if (!response.ok) {
@@ -182,7 +212,7 @@ const getOpenAiEmbedding = async (text, { model = OPENAI_FALLBACK_MODEL, dimensi
 // taskType field belongs to Gemini Embedding 1 and is deliberately not sent.
 const getGeminiEmbedding = async (
   text,
-  { model = 'gemini-embedding-2', dimensions = vectorSize, purpose = 'query', title = null } = {},
+  { model = 'gemini-embedding-2', dimensions = vectorSize, purpose = 'query', title = null, signal } = {},
 ) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -205,7 +235,8 @@ const getGeminiEmbedding = async (
           content: { parts: [{ text: input }] },
           outputDimensionality: dimensions,
         })
-      }
+      },
+      signal
     );
   } catch (error) {
     const safeError = new Error(`Gemini embeddings failed: ${sanitizeProviderError(error)}`);
@@ -231,7 +262,7 @@ const getGeminiEmbedding = async (
   return ensureVectorSize(data?.embedding?.values, dimensions);
 };
 
-const getGcpEmbedding = async (text, { model = 'text-embedding-3-small', dimensions = vectorSize } = {}) => {
+const getGcpEmbedding = async (text, { model = 'text-embedding-3-small', dimensions = vectorSize, signal } = {}) => {
   const apiUrl = process.env.EMBEDDING_API_URL;
   if (!apiUrl) {
     throw new Error('EMBEDDING_API_URL is not set for GCP provider');
@@ -258,10 +289,11 @@ const getGcpEmbedding = async (text, { model = 'text-embedding-3-small', dimensi
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
-      });
+      }, signal);
       data = await response.json();
       break;
     } catch (error) {
+      if (signal?.aborted) throw abortError(signal);
       errors.push(`${url} -> ${error.message}`);
     }
   }
@@ -361,7 +393,7 @@ const getEmbeddingSpaceIdentity = ({ provider, model, version, dimensions } = {}
  * it. No provider fallback happens here: fallback is a collection-level
  * decision made by rag.service after resolving a compatible collection.
  */
-const getEmbeddingResult = async (text, { identity = null, purpose = 'query', title = null } = {}) => {
+const getEmbeddingResult = async (text, { identity = null, purpose = 'query', title = null, signal } = {}) => {
   const resolvedIdentity = identity || getEmbeddingSpaceIdentity();
   const content = normalizeText(text);
   if (!content) {
@@ -374,6 +406,7 @@ const getEmbeddingResult = async (text, { identity = null, purpose = 'query', ti
       dimensions: resolvedIdentity.dimensions,
       purpose,
       title,
+      signal,
     });
     return { vector, identity: resolvedIdentity };
   }
@@ -382,6 +415,7 @@ const getEmbeddingResult = async (text, { identity = null, purpose = 'query', ti
     const vector = await getOpenAiEmbedding(content, {
       model: resolvedIdentity.model,
       dimensions: resolvedIdentity.dimensions,
+      signal,
     });
     return { vector, identity: resolvedIdentity };
   }
@@ -390,6 +424,7 @@ const getEmbeddingResult = async (text, { identity = null, purpose = 'query', ti
     const vector = await getGcpEmbedding(content, {
       model: resolvedIdentity.model,
       dimensions: resolvedIdentity.dimensions,
+      signal,
     });
     return { vector, identity: resolvedIdentity };
   }
@@ -490,5 +525,6 @@ module.exports = {
   getEmbeddingSpaceIdentity,
   localEmbed,
   getProviderInfo,
-  probe
+  probe,
+  fetchWithRetries
 };

@@ -1,0 +1,7 @@
+# Stage 2 Evaluation Baseline
+
+Run `node EasyMod-backend/scripts/eval-shadow-confidence.js development` and `node EasyMod-backend/scripts/eval-shadow-confidence.js heldout`. Both ran on the isolated candidate with Node 20.20.2. The holdout is 16 synthetic cases, with one unscored deterministic order prompt. At the diagnostic threshold `0.75`, 4/8 review-worthy cases were flagged (Wilson 95% interval 21.5%-78.5%); there were four false-safe and zero false-hold cases among 15 scored cases. This is not a representative sample.
+
+`linen-stock`, `conflicting-faq`, and `context-variants` scored `1.0`; `cancel-promise` scored `0.85`. The inputs seed a grounding verdict and evidence. Their results demonstrate that retrieval/context availability is not claim verification, not that the production worker would send the fixture text. Provider-captured replay remains separate. No weight tuning or threshold activation is authorized.
+
+For a representative evaluation, collect approved de-identified snapshots with shop/turn grouping and time-correct evidence. Stratify across Bangla, Banglish and English, product and stock, FAQ, unknowns, multi-turn, conflicting evidence, fallbacks, retrieval outages and unsupported material claims. Use two blinded independent annotators plus adjudication, split by shop/turn, and report false-safe, false-hold and unscored rates with denominators by stratum. No real sample has been collected here.

@@ -35,6 +35,11 @@ const qdrantCollection = process.env.QDRANT_COLLECTION || 'knowledge_documents';
 const qdrantFallbackCollection = String(process.env.QDRANT_FALLBACK_COLLECTION || '').trim() || null;
 const qdrantApiKey = process.env.QDRANT_API_KEY;
 const perTenantMode = process.env.QDRANT_PER_TENANT === 'true';
+const DEFAULT_QUERY_TIMEOUT_MS = 8000;
+const configuredQueryTimeoutMs = Number(process.env.RAG_QUERY_TIMEOUT_MS);
+const RAG_QUERY_TIMEOUT_MS = Number.isSafeInteger(configuredQueryTimeoutMs)
+    && configuredQueryTimeoutMs > 0 && configuredQueryTimeoutMs <= 2 ** 31 - 1
+    ? configuredQueryTimeoutMs : DEFAULT_QUERY_TIMEOUT_MS;
 
 // RAG collections contain merchant-domain data, not Growth OS administration data.
 // Every service path must have a selected merchant shop before touching Qdrant.
@@ -74,9 +79,11 @@ const qdrantPath = (collection, suffix = '') =>
     `${qdrantUrl}/collections/${encodeURIComponent(collection)}${suffix}`;
 
 const qdrantJson = async (url, init = {}) => {
+    init.signal?.throwIfAborted();
     const response = await fetch(url, {
         ...init,
         headers: { ...getQdrantHeaders(), ...(init.headers || {}) },
+        signal: init.signal,
     });
     if (!response.ok) throw new Error(`Qdrant HTTP ${response.status}`);
     return response.json();
@@ -93,8 +100,9 @@ const extractVectorSize = (info) => {
     return null;
 };
 
-const readCollectionInfo = async (collection) => {
-    const response = await fetch(qdrantPath(collection), { headers: getQdrantHeaders() });
+const readCollectionInfo = async (collection, { signal } = {}) => {
+    signal?.throwIfAborted();
+    const response = await fetch(qdrantPath(collection), { headers: getQdrantHeaders(), signal });
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`Qdrant collection check failed: HTTP ${response.status}`);
     return response.json();
@@ -118,8 +126,8 @@ const contentFilter = (filter = null) => {
     };
 };
 
-const readCollectionBinding = async (collection) => {
-    const info = await readCollectionInfo(collection);
+const readCollectionBinding = async (collection, { signal } = {}) => {
+    const info = await readCollectionInfo(collection, { signal });
     if (!info) {
         const error = new Error(`Qdrant collection is unavailable: ${collection}`);
         error.name = 'EmbeddingCollectionUnavailableError';
@@ -135,6 +143,7 @@ const readCollectionBinding = async (collection) => {
             with_payload: true,
             with_vector: false,
         }),
+        signal,
     });
     const manifestPoint = manifestResult?.result?.points?.[0];
     const identity = identityFromPayload(manifestPoint?.payload);
@@ -164,19 +173,20 @@ const readCollectionBinding = async (collection) => {
     };
 };
 
-const createCollection = async (collection, identity) => {
+const createCollection = async (collection, identity, { signal } = {}) => {
     const response = await fetch(qdrantPath(collection), {
         method: 'PUT',
         headers: getQdrantHeaders(),
         body: JSON.stringify({
             vectors: { size: identity.dimensions, distance: 'Cosine' },
         }),
+        signal,
     });
     if (!response.ok && response.status !== 409) {
         throw new Error(`Failed to create Qdrant collection: HTTP ${response.status}`);
     }
 
-    if (response.status === 409) return readCollectionBinding(collection);
+    if (response.status === 409) return readCollectionBinding(collection, { signal });
 
     const manifest = createManifestPayload({
         collection,
@@ -199,11 +209,11 @@ const createCollection = async (collection, identity) => {
 
 const ensureCollection = async (
     shopId,
-    { baseCollection = qdrantCollection, allowCreate = false, forQuery = false, requestedIdentity = null } = {},
+    { baseCollection = qdrantCollection, allowCreate = false, forQuery = false, requestedIdentity = null, signal } = {},
 ) => {
     const collection = resolveCollectionName(shopId, baseCollection);
     const desiredIdentity = requestedIdentity || getEmbeddingSpaceIdentity();
-    const info = await readCollectionInfo(collection);
+    const info = await readCollectionInfo(collection, { signal });
 
     let binding;
     if (!info) {
@@ -213,9 +223,9 @@ const ensureCollection = async (
             error.code = 'EMBEDDING_COLLECTION_UNAVAILABLE';
             throw error;
         }
-        binding = await createCollection(collection, desiredIdentity);
+        binding = await createCollection(collection, desiredIdentity, { signal });
     } else {
-        binding = await readCollectionBinding(collection);
+        binding = await readCollectionBinding(collection, { signal });
     }
 
     if (requestedIdentity) assertEmbeddingSpaceCompatible(binding.identity, requestedIdentity, 'collection');
@@ -235,8 +245,8 @@ const ensureCollection = async (
     return binding;
 };
 
-const setCollectionState = async (collection, state) => {
-    const binding = await readCollectionBinding(collection);
+const setCollectionState = async (collection, state, { signal } = {}) => {
+    const binding = await readCollectionBinding(collection, { signal });
     assertStateTransition(binding.state, state);
     if (binding.state === state) return binding;
 
@@ -268,7 +278,7 @@ const buildShopFilter = (shopId, extraFilters) => {
     return { must: [shopFilter, extraFilters] };
 };
 
-const upsertPoint = async ({ id, vector, identity, payload, binding }) => {
+const upsertPoint = async ({ id, vector, identity, payload, binding, signal }) => {
     assertEmbeddingSpaceCompatible(binding.identity, identity, 'document');
     return qdrantJson(qdrantPath(binding.collection, '/points?wait=true'), {
         method: 'PUT',
@@ -283,10 +293,11 @@ const upsertPoint = async ({ id, vector, identity, payload, binding }) => {
                 },
             }],
         }),
+        signal,
     });
 };
 
-const searchPoints = async ({ vector, identity, limit = 5, filter, binding }) => {
+const searchPoints = async ({ vector, identity, limit = 5, filter, binding, signal }) => {
     assertEmbeddingSpaceCompatible(binding.identity, identity, 'query');
     const result = await qdrantJson(qdrantPath(binding.collection, '/points/search'), {
         method: 'POST',
@@ -296,6 +307,7 @@ const searchPoints = async ({ vector, identity, limit = 5, filter, binding }) =>
             with_payload: true,
             filter: contentFilter(filter),
         }),
+        signal,
     });
     return result.result || [];
 };
@@ -351,13 +363,14 @@ const ingestData = async ({ text, metadata = {} }) => {
     }
 };
 
-const searchWithBinding = async ({ embedding, limit, filter, binding }) => {
+const searchWithBinding = async ({ embedding, limit, filter, binding, signal }) => {
     const results = await searchPoints({
         vector: embedding.vector,
         identity: embedding.identity,
         limit,
         filter,
         binding,
+        signal,
     });
     return {
         success: true,
@@ -374,61 +387,99 @@ const searchWithBinding = async ({ embedding, limit, filter, binding }) => {
     };
 };
 
-const embedQueryForBinding = (content, binding) => getEmbeddingResult(content, {
+const embedQueryForBinding = (content, binding, { signal } = {}) => getEmbeddingResult(content, {
     identity: binding.identity,
     purpose: 'query',
+    signal,
 });
 
-const queryData = async ({ query, limit = 5, filters, shopId }) => {
+const queryData = async ({ query, limit = 5, filters, shopId }, { timeoutMs = RAG_QUERY_TIMEOUT_MS, signal: parentSignal } = {}) => {
     const scopedShopId = requireShopId(shopId);
     const content = normalizeText(query);
     if (!content) throw new Error('Query text is required');
 
-    const primaryBinding = await ensureCollection(scopedShopId, { forQuery: true, allowCreate: false });
-    const searchFilter = perTenantMode ? filters : buildShopFilter(scopedShopId, filters);
+    const controller = new AbortController();
+    const { signal } = controller;
+    const abort = () => controller.abort(new DOMException('RAG query cancelled', 'AbortError'));
+    if (parentSignal?.aborted) abort();
+    signal.throwIfAborted();
+    parentSignal?.addEventListener('abort', abort, { once: true });
 
-    let primaryEmbedding;
-    try {
-        primaryEmbedding = await embedQueryForBinding(content, primaryBinding);
-    } catch (error) {
-        // Only query embedding failure may trigger collection-level fallback. A
-        // Qdrant search failure is never converted into a provider switch.
-        if (primaryBinding.identity.provider !== 'gemini' || error.code === 'EMBEDDING_SPACE_MISMATCH') throw error;
-        if (!qdrantFallbackCollection) {
-            const controlled = new Error('Gemini query embedding unavailable and no READY OpenAI collection is configured');
-            controlled.name = 'EmbeddingFallbackCollectionUnavailableError';
-            controlled.code = 'EMBEDDING_FALLBACK_COLLECTION_UNAVAILABLE';
-            throw controlled;
+    const budget = Number.isSafeInteger(timeoutMs) && timeoutMs > 0
+        ? Math.min(timeoutMs, RAG_QUERY_TIMEOUT_MS) : RAG_QUERY_TIMEOUT_MS;
+    const timer = setTimeout(() => {
+        controller.abort(new DOMException('RAG query deadline exceeded', 'TimeoutError'));
+    }, budget);
+    let rejectOnAbort;
+    const cancelled = new Promise((_, reject) => {
+        rejectOnAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', rejectOnAbort, { once: true });
+    });
+
+    const retrieve = async () => {
+        const primaryBinding = await ensureCollection(scopedShopId, { forQuery: true, allowCreate: false, signal });
+        const searchFilter = perTenantMode ? filters : buildShopFilter(scopedShopId, filters);
+
+        let primaryEmbedding;
+        try {
+            signal.throwIfAborted();
+            primaryEmbedding = await embedQueryForBinding(content, primaryBinding, { signal });
+        } catch (error) {
+            // Only query embedding failure may trigger collection-level fallback. A
+            // Qdrant search failure is never converted into a provider switch.
+            signal.throwIfAborted();
+            if (primaryBinding.identity.provider !== 'gemini' || error.code === 'EMBEDDING_SPACE_MISMATCH') throw error;
+            if (!qdrantFallbackCollection) {
+                const controlled = new Error('Gemini query embedding unavailable and no READY OpenAI collection is configured');
+                controlled.name = 'EmbeddingFallbackCollectionUnavailableError';
+                controlled.code = 'EMBEDDING_FALLBACK_COLLECTION_UNAVAILABLE';
+                throw controlled;
+            }
+
+            const fallbackBinding = await ensureCollection(scopedShopId, {
+                baseCollection: qdrantFallbackCollection,
+                forQuery: true,
+                allowCreate: false,
+                signal,
+            });
+            signal.throwIfAborted();
+            if (fallbackBinding.identity.provider !== 'openai') {
+                const invalid = new Error('configured embedding fallback collection is not OpenAI-bound');
+                invalid.name = 'EmbeddingFallbackCollectionMismatchError';
+                invalid.code = 'EMBEDDING_FALLBACK_COLLECTION_MISMATCH';
+                throw invalid;
+            }
+
+            console.warn('Embedding collection fallback: gemini -> ready openai collection');
+            const fallbackEmbedding = await embedQueryForBinding(content, fallbackBinding, { signal });
+            return searchWithBinding({
+                embedding: fallbackEmbedding,
+                limit,
+                filter: searchFilter,
+                binding: fallbackBinding,
+                signal,
+            });
         }
 
-        const fallbackBinding = await ensureCollection(scopedShopId, {
-            baseCollection: qdrantFallbackCollection,
-            forQuery: true,
-            allowCreate: false,
-        });
-        if (fallbackBinding.identity.provider !== 'openai') {
-            const invalid = new Error('configured embedding fallback collection is not OpenAI-bound');
-            invalid.name = 'EmbeddingFallbackCollectionMismatchError';
-            invalid.code = 'EMBEDDING_FALLBACK_COLLECTION_MISMATCH';
-            throw invalid;
-        }
-
-        console.warn('Embedding collection fallback: gemini -> ready openai collection');
-        const fallbackEmbedding = await embedQueryForBinding(content, fallbackBinding);
         return searchWithBinding({
-            embedding: fallbackEmbedding,
+            embedding: primaryEmbedding,
             limit,
             filter: searchFilter,
-            binding: fallbackBinding,
+            binding: primaryBinding,
+            signal,
         });
-    }
+    };
 
-    return searchWithBinding({
-        embedding: primaryEmbedding,
-        limit,
-        filter: searchFilter,
-        binding: primaryBinding,
-    });
+    try {
+        // Fetch receives the signal; the race also bounds the caller if an adapter ignores it.
+        const result = await Promise.race([retrieve(), cancelled]);
+        signal.throwIfAborted();
+        return result;
+    } finally {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', rejectOnAbort);
+        parentSignal?.removeEventListener('abort', abort);
+    }
 };
 
 const deletePoint = async (id, shopId) => {

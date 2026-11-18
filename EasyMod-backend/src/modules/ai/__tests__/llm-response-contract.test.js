@@ -92,6 +92,11 @@ describe('LLM provider response and credential contract', () => {
 
         expect(result).toMatchObject({ text: 'fallback answer', provider: 'openai' });
         expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(result).not.toHaveProperty('fallbackUsed');
+        global.fetch.mockClear();
+        await expect(llm.chat({ messages: [{ role: 'user', content: 'hello' }], observeFallback: true }))
+            .resolves.toEqual({ ...result, fallbackUsed: true });
+        expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
     test('treats Gemini safety blocks as provider failures and does not expose response text', async () => {

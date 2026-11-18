@@ -126,8 +126,7 @@ describe('inbox execution-page header (§29)', () => {
     )
     renderInbox()
     await screen.findByRole('heading', { name: 'Shared Inbox', level: 1 })
-    const signal = await screen.findByTestId('inbox-signal')
-    expect(signal.textContent).toContain('Needs review')
+    await waitFor(() => expect(screen.getByTestId('inbox-signal')).toHaveTextContent('Needs review'))
     expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
     expect(screen.queryByText('Customers are waiting for a reply on this page.')).toBeNull()
     expect(screen.getByTestId('inbox-ai-reply-mode').textContent).toBe('AI reply mode: Manual replies only')
@@ -152,8 +151,7 @@ describe('inbox execution-page header (§29)', () => {
   it('caught-up state adds no CTA and never polls', async () => {
     vi.mocked(apiClient.getConversations).mockResolvedValue(list([conv('conv-1', 'Alice')]) as never)
     renderInbox()
-    await screen.findByTestId('inbox-signal')
-    expect(screen.getByTestId('inbox-signal').textContent).toContain('All caught up')
+    await waitFor(() => expect(screen.getByTestId('inbox-signal')).toHaveTextContent('All caught up'))
     expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
     await waitFor(() => expect(vi.mocked(apiClient.getConversations)).toHaveBeenCalledTimes(1))
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -182,6 +180,32 @@ describe('inbox execution-page header (§29)', () => {
     expect(rail.textContent).not.toMatch(/seen by|delivered to customer/i)
     const input = screen.getByTestId('message-input')
     expect(input.getAttribute('placeholder')).toBe('Type your reply here...')
+  })
+
+  it('shows safe evidence labels on new replies and marks historical replies as unrecorded', async () => {
+    routerState.location.search = '?conversation=conv-1'
+    vi.mocked(apiClient.getConversations).mockResolvedValue(list([conv('conv-1', 'Alice')]) as never)
+    vi.mocked(apiClient.getMessages).mockResolvedValue(messages([
+      customerMsg,
+      {
+        id: 'msg-ai-new', conversation_id: 'conv-1', sender: 'ai', content: 'The item is in stock.',
+        message_type: 'text', created_at: now, updated_at: now, delivery_state: 'SENT',
+        provider_message_id: 'meta-1', is_transcript_message: true,
+        metadata: { reply_evidence: { provenance: 'model', reasons: ['GROUNDED'] } },
+      },
+      {
+        id: 'msg-ai-old', conversation_id: 'conv-1', sender: 'ai', content: 'Older reply.',
+        message_type: 'text', created_at: now, updated_at: now, delivery_state: 'SENT',
+        provider_message_id: 'meta-2', is_transcript_message: true,
+      },
+    ]) as never)
+
+    renderInbox()
+
+    expect(await screen.findByText('The item is in stock.')).toBeInTheDocument()
+    expect(await screen.findByText('Older reply.')).toBeInTheDocument()
+    const labels = screen.getAllByTestId('ai-confidence-evidence').map((el) => el.textContent)
+    expect(labels).toEqual(['Evidence found — not a fact check', 'Evidence not recorded'])
   })
 
   it('resolve dialog is a labelled modal and keeps the note as the last textarea', async () => {

@@ -65,4 +65,16 @@ describe('rag.controller', () => {
             status: 400,
         }));
     });
+
+    it('keeps operational controls out of query input', async () => {
+        const res = createRes();
+        const next = jest.fn();
+        await controller.queryData({
+            user: { shopId: 'shop-1' },
+            body: { query: 'delivery', limit: 2, filters: {}, timeoutMs: 0, signal: {}, shopId: 'other' },
+        }, res, next);
+        expect(ragService.queryData).toHaveBeenCalledWith({ query: 'delivery', limit: 2, filters: {}, shopId: 'shop-1' });
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(next).not.toHaveBeenCalled();
+    });
 });

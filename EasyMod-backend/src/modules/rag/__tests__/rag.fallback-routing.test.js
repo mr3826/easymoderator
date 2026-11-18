@@ -96,4 +96,51 @@ describe('collection-level fallback routing', () => {
         expect(calls.some((url) => url.includes('/collections/knowledge_documents/points/search')))
             .toBe(false);
     });
+
+    test('an expired retrieval budget does not launch OpenAI fallback', async () => {
+        const priorFetch = global.fetch;
+        const calls = [];
+        const hangingGemini = (init) => new Promise((_, reject) => {
+            const poll = () => {
+                if (init.signal.aborted) {
+                    reject(init.signal.reason || new Error('aborted'));
+                } else {
+                    setTimeout(poll, 5);
+                }
+            };
+            poll();
+        });
+
+        jest.useFakeTimers();
+        global.fetch = jest.fn((url, init) => {
+            const endpoint = String(url);
+            const collection = collectionFromUrl(endpoint);
+            calls.push(endpoint);
+            if (endpoint.includes('generativelanguage.googleapis.com')) {
+                return hangingGemini(init);
+            }
+            if (String(url).includes('api.openai.com')) {
+                return Promise.reject(new Error('OpenAI must not be called while retrieval is bounded'));
+            }
+            if (endpoint.includes('/points/scroll')) {
+                return { ok: true, status: 200, json: async () => ({ result: { points: [{ id: EMBEDDING_SPACE_MANIFEST_POINT_ID, payload: manifestFor(collection) }] } }) };
+            }
+            if (/\/collections\/[^/]+$/.test(endpoint)) {
+                return { ok: true, status: 200, json: async () => ({ result: { config: { params: { vectors: { size: 384 } } } } }) };
+            }
+            return { ok: true, status: 200, json: async () => ({ result: [] }) };
+        });
+        try {
+            const assertion = expect(rag.queryData({ query: 'delivery', shopId: 'shop-1' }, { timeoutMs: 25 }))
+                .rejects.toMatchObject({ name: 'TimeoutError' });
+            await jest.advanceTimersByTimeAsync(0);
+            expect(calls.filter((url) => url.includes('generativelanguage.googleapis.com'))).toHaveLength(1);
+            await jest.advanceTimersByTimeAsync(25);
+            await assertion;
+        } finally {
+            global.fetch = priorFetch;
+            jest.useRealTimers();
+        }
+        expect(calls.some((url) => url.includes('api.openai.com'))).toBe(false);
+    });
 });

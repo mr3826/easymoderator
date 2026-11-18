@@ -421,6 +421,8 @@ class AIChatbotController {
                 sourceReferences: routerResult.sourceReferences || null,
                 grounding: evidence,
                 source: routerResult.source || null,
+                knowledgeObservation: routerResult.knowledgeObservation,
+                fallbackUsed: routerResult.fallbackUsed,
                 provider: routerResult.provider || null,
                 humanRequired: routerResult.humanRequired === true,
                 productPresentation,
