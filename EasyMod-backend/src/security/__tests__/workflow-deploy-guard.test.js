@@ -105,6 +105,82 @@ describe('production workflow branch safety', () => {
         expect(workflow).toContain('chmod 600 "$ROLLBACK_STATE_DIR/.env.prod"');
     });
 
+    test('every supplied backend digest is source-verified before migration', () => {
+        expect(workflow).toContain('if [ -n "$EXISTING_BACKEND_DIGEST$EXISTING_FRONTEND_DIGEST$EXPECTED_ROLLBACK_BACKEND_DIGEST$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]; then');
+        expect(workflow).toContain('[ -z "$digest" ] && continue');
+
+        const backendRevisionCheck = workflow.indexOf('candidate_revision=$(docker image inspect');
+        const productionMigration = workflow.indexOf('Running database migrations before service replacement');
+        expect(backendRevisionCheck).toBeGreaterThan(-1);
+        expect(productionMigration).toBeGreaterThan(backendRevisionCheck);
+        expect(workflow).toContain('test "$candidate_revision" = "$SHA"');
+    });
+
+    test('reader-only exact promotion retains the incumbent frontend digest', () => {
+        expect(workflow).toContain('if [ "$RELEASE_TARGET" = backend ]; then');
+        expect(workflow).toContain('test "$EXISTING_FRONTEND_DIGEST" = "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"');
+        expect(workflow).toContain('candidate_revision=$(docker image inspect');
+        expect(workflow).toContain('docker pull --platform linux/arm64 "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"');
+        expect(releaseWorkflow).toContain('Exact frontend digest: retained rollback frontend for target=backend');
+        expect(releaseWorkflow).toContain('expected_rollback_backend_digest: ${{ inputs.expected_rollback_backend_digest }}');
+        expect(releaseWorkflow).toContain('expected_rollback_frontend_digest: ${{ inputs.expected_rollback_frontend_digest }}');
+    });
+
+    test('always-run cleanup removes only the run-scoped staged candidate environment', () => {
+        const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*?)\n  # ── 4\./)?.[1];
+        expect(deployBlock).toBeDefined();
+
+        const stageIndex = deployBlock.indexOf('name: Stage candidate config on droplet');
+        const deployIndex = deployBlock.indexOf('name: Deploy via SSH');
+        const cleanupIndex = deployBlock.indexOf('name: Remove staged candidate credentials');
+        expect(stageIndex).toBeGreaterThan(-1);
+        expect(deployIndex).toBeGreaterThan(stageIndex);
+        expect(cleanupIndex).toBeGreaterThan(deployIndex);
+        expect(deployBlock.slice(cleanupIndex)).toContain('if: always()');
+        expect(deployBlock.slice(cleanupIndex)).toContain('candidate/.env.prod');
+        expect(deployBlock.slice(cleanupIndex)).toContain('refusing to clean a candidate environment outside this workflow attempt');
+    });
+
+    test('Stage 2 promotion requires an exact pair and a patched reader rollback floor', () => {
+        expect(workflow).toContain('reply-confidence.service.js');
+        expect(workflow).toContain('reply-confidence-rollup.service.js');
+        expect(workflow).toContain('test -f EasyMod-backend/src/modules/ai/reply-confidence.service.js');
+        expect(workflow).toContain('test -f EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js');
+        expect(workflow).toContain('[ "$DEPLOY_CONFIRMATION" = "DEPLOY-$SHA" ]');
+        expect(workflow).toContain('test "$RELEASE_TARGET" = all');
+        expect(workflow).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST$GROWTH_OVERRIDE$SCHEMA_DRIFT_REQUEST"');
+        expect(workflow).toContain('git merge-base --is-ancestor "$rollback_revision" "$SHA"');
+        expect(workflow).toContain('message-evidence-projection.js');
+        expect(workflow).toContain("git grep -Fq -e 'projectMessageEvidence('");
+        expect(workflow).toContain("git grep -Fq -e 'projectMessageEvent('");
+        expect(workflow).toContain('fetch-depth: 0');
+
+        const readerVerifierStart = workflow.indexOf('verify_reader_projection_source()');
+        const readerVerifierEnd = workflow.indexOf("echo \"$label reader source verified: $revision\"", readerVerifierStart);
+        const readerVerifier = workflow.slice(readerVerifierStart, readerVerifierEnd);
+        expect(readerVerifier).not.toContain('reply-confidence.service.js');
+        expect(readerVerifier).not.toContain('reply-confidence-rollup.service.js');
+    });
+
+    test('forward cutover verifies backend, worker, routed health, and synthetic queue consumption', () => {
+        const exactImages = workflow.indexOf('candidate_worker_running=$(resolve_container_digest easymod-worker-1)');
+        const workerHealth = workflow.indexOf('candidate_worker_healthy=false');
+        const caddyStart = workflow.indexOf('Starting Caddy after candidate backend and worker health passed');
+        const routedHealth = workflow.indexOf('frontend_route_status=$(curl');
+        const versionCheck = workflow.indexOf('Version check passed: ${payload.gitSha}');
+        const workerCanary = workflow.indexOf("messageQueue.add('canary'");
+
+        expect(exactImages).toBeGreaterThan(-1);
+        expect(workerHealth).toBeGreaterThan(exactImages);
+        expect(caddyStart).toBeGreaterThan(workerHealth);
+        expect(routedHealth).toBeGreaterThan(caddyStart);
+        expect(workflow).toContain("api_route_status=$(curl --silent --max-time 5 --noproxy '*'");
+        expect(workflow).toContain('Candidate backend, worker, and routed health checks passed');
+        expect(workerCanary).toBeGreaterThan(versionCheck);
+        expect(workflow).toContain('Candidate worker synthetic queue canary passed');
+        expect(workflow).toContain('WORKFLOW_RUN_ATTEMPT,DEPLOYED_AT');
+    });
+
     test('build and deploy jobs are restricted to main', () => {
         const buildBlock = workflow.match(/\n  build:\n([\s\S]*?)\n  # ── 4\./)?.[1];
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
@@ -566,7 +642,7 @@ describe('production workflow branch safety', () => {
         expect(debtCheckIndex).toBeGreaterThan(gateIndex);
         expect(skippedIndex).toBeGreaterThan(-1);
         expect(deployBlock).toContain(
-            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST',
+            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,WORKFLOW_RUN_ATTEMPT,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST',
         );
     });
 

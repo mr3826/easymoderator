@@ -53,7 +53,7 @@ on:
         default: ''
         type: string
       existing_frontend_digest:
-        description: 'Rehearsed frontend digest (requires target=all and an exact backend digest)'
+        description: 'Exact frontend digest: retained rollback frontend for target=backend, or candidate frontend for target=all'
         required: false
         default: ''
         type: string

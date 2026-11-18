@@ -133,7 +133,7 @@ on:
         default: ''
         type: string
       existing_frontend_digest:
-        description: 'Rehearsed frontend digest (requires target=all and an exact backend digest).'
+        description: 'Exact frontend digest: retained rollback frontend for target=backend, or candidate frontend for target=all.'
         required: false
         default: ''
         type: string
@@ -937,9 +937,13 @@ jobs:
       EXISTING_FRONTEND_DIGEST: ${{ inputs.existing_frontend_digest }}
       EXPECTED_ROLLBACK_BACKEND_DIGEST: ${{ inputs.expected_rollback_backend_digest }}
       EXPECTED_ROLLBACK_FRONTEND_DIGEST: ${{ inputs.expected_rollback_frontend_digest }}
+      DEPLOY_CONFIRMATION: ${{ inputs.deploy_confirmation }}
+      GROWTH_OVERRIDE: ${{ inputs.growth_image_override }}
+      SCHEMA_DRIFT_REQUEST: ${{ inputs.expect_schema_drift }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up QEMU
@@ -963,18 +967,84 @@ jobs:
           SEED_REQUEST: ${{ inputs.seed_admin }}
         run: |
           SHA="${{ github.sha }}"
-          if [ -n "$EXISTING_FRONTEND_DIGEST$EXPECTED_ROLLBACK_BACKEND_DIGEST$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]; then
+          stage2_source_present=false
+          if [ -f EasyMod-backend/src/modules/ai/reply-confidence.service.js ] \
+            || [ -f EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js ]; then
+            stage2_source_present=true
+          fi
+          stage2_promotion=false
+          if [ "$stage2_source_present" = true ] \
+            && [ "$DEPLOY_CONFIRMATION" = "DEPLOY-$SHA" ]; then
+            stage2_promotion=true
             test "$RELEASE_TARGET" = all
-            test "$EXISTING_CANDIDATE_SHA" = "$SHA"
+            test -n "$EXISTING_BACKEND_DIGEST"
+            test -n "$EXISTING_CANDIDATE_SHA"
+            test -n "$EXISTING_FRONTEND_DIGEST"
+            test -n "$EXPECTED_ROLLBACK_BACKEND_DIGEST"
+            test -n "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"
+            test -z "$WIPE_REQUEST$SEED_REQUEST$GROWTH_OVERRIDE$SCHEMA_DRIFT_REQUEST"
+            test -f EasyMod-backend/src/modules/ai/reply-confidence.service.js
+            test -f EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js
+          fi
+          if [ -n "$EXISTING_BACKEND_DIGEST$EXISTING_FRONTEND_DIGEST$EXPECTED_ROLLBACK_BACKEND_DIGEST$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]; then
             test -z "$WIPE_REQUEST$SEED_REQUEST"
             for digest in "$EXISTING_BACKEND_DIGEST" "$EXISTING_FRONTEND_DIGEST" "$EXPECTED_ROLLBACK_BACKEND_DIGEST" "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"; do
+              [ -z "$digest" ] && continue
               [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             done
-            for image in "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST" "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"; do
-              docker pull --platform linux/arm64 "$image"
-              revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")
-              test "$revision" = "$SHA"
+            if [ "$RELEASE_TARGET" = backend ]; then
+              test "$EXISTING_CANDIDATE_SHA" = "$SHA"
+              test "$EXISTING_FRONTEND_DIGEST" = "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"
+              docker pull --platform linux/arm64 "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST"
+              candidate_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST")
+              test "$candidate_revision" = "$SHA"
+              docker pull --platform linux/arm64 "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"
+            elif [ "$RELEASE_TARGET" = all ]; then
+              test "$EXISTING_CANDIDATE_SHA" = "$SHA"
+              for image in "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST" "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"; do
+                docker pull --platform linux/arm64 "$image"
+                revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")
+                test "$revision" = "$SHA"
+              done
+            else
+              echo 'ERROR: exact paired promotion requires target=backend (reader-only) or target=all' >&2
+              exit 1
+            fi
+          fi
+
+          verify_reader_projection_source() {
+            local revision="$1"
+            local label="$2"
+            local projection_path=EasyMod-backend/src/modules/conversation/message-evidence-projection.js
+            local conversation_path=EasyMod-backend/src/modules/conversation/conversation.service.js
+            local sse_path=EasyMod-backend/src/utils/sse-manager.js
+            for path in "$projection_path" "$conversation_path" "$sse_path"; do
+              if ! git cat-file -e "$revision:$path"; then
+                echo "ERROR: $label lacks the patched reader source: $path" >&2
+                return 1
+              fi
             done
+            if ! git grep -Fq -e 'projectMessageEvidence' "$revision" -- "$projection_path" \
+              || ! git grep -Fq -e 'projectMessageEvidence(' "$revision" -- "$conversation_path" \
+              || ! git grep -Fq -e 'projectMessageEvent' "$revision" -- "$projection_path" \
+              || ! git grep -Fq -e 'projectMessageEvent(' "$revision" -- "$sse_path"; then
+              echo "ERROR: $label does not apply the public evidence projection to REST and SSE" >&2
+              return 1
+            fi
+            echo "$label reader source verified: $revision"
+          }
+
+          if [ "$stage2_promotion" = true ]; then
+            verify_reader_projection_source "$SHA" 'Stage 2 candidate'
+            rollback_backend_image="$GHCR_BACKEND@$EXPECTED_ROLLBACK_BACKEND_DIGEST"
+            docker pull --platform linux/arm64 "$rollback_backend_image"
+            rollback_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$rollback_backend_image")
+            if ! [[ "$rollback_revision" =~ ^[0-9a-f]{40}$ ]] \
+              || ! git merge-base --is-ancestor "$rollback_revision" "$SHA"; then
+              echo 'ERROR: Stage 2 rollback backend revision is not a verified ancestor of the candidate' >&2
+              exit 1
+            fi
+            verify_reader_projection_source "$rollback_revision" 'Stage 2 rollback floor'
           fi
           # BUILD_TIME used to come from the repository's last-metadata-change
           # stamp rather than this build. It ran *behind* the commit it labelled
@@ -1270,7 +1340,7 @@ jobs:
           # migrate, up, health gates, rollback trap) must not be cut off by
           # appleboy's 10-minute command default; 30m is explicit headroom.
           command_timeout: 30m
-          envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST
+          envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,WORKFLOW_RUN_ATTEMPT,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST
           script: |
             set -e
             umask 077
@@ -1883,6 +1953,17 @@ jobs:
               exit 1
             fi
 
+            candidate_backend_running=$(resolve_container_digest easymod-backend-1)
+            candidate_worker_running=$(resolve_container_digest easymod-worker-1)
+            candidate_frontend_running=$(resolve_container_digest easymod-frontend-1)
+            if [ "$candidate_backend_running" != "$candidate_backend_image" ] \
+              || [ "$candidate_worker_running" != "$candidate_backend_image" ] \
+              || [ "$candidate_frontend_running" != "$candidate_frontend_image" ]; then
+              echo "ERROR: running backend, worker, or frontend does not match the exact candidate pair"
+              echo "backend=$candidate_backend_running worker=$candidate_worker_running frontend=$candidate_frontend_running"
+              exit 1
+            fi
+
             candidate_backend_healthy=false
             for i in $(seq 1 20); do
               candidate_backend_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-backend-1 2>/dev/null || echo missing)
@@ -1905,7 +1986,28 @@ jobs:
               exit 1
             fi
 
-            echo "==> Starting Caddy after candidate backend health passed"
+            candidate_worker_healthy=false
+            for i in $(seq 1 20); do
+              candidate_worker_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-worker-1 2>/dev/null || echo missing)
+              if [ "$candidate_worker_status" = "healthy" ]; then
+                echo "Candidate worker readiness check passed on attempt $i"
+                candidate_worker_healthy=true
+                break
+              fi
+              echo "Candidate worker health attempt $i: status=$candidate_worker_status — retrying in 5s..."
+              sleep 5
+            done
+            if [ "$candidate_worker_healthy" != "true" ]; then
+              echo "ERROR: candidate worker health check failed after 100s"
+              docker inspect easymod-worker-1 \
+                --format 'Candidate worker state: status={{.State.Status}} exit={{.State.ExitCode}} restart={{.RestartCount}} oom={{.State.OOMKilled}} error={{.State.Error}}' 2>/dev/null || true
+              docker inspect easymod-worker-1 \
+                --format 'Candidate worker health details: {{json .State.Health}}' 2>/dev/null || true
+              docker logs --tail 100 easymod-worker-1 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Starting Caddy after candidate backend and worker health passed"
             if ! docker compose --env-file .env.prod -f docker-compose.prod.yml \
               up -d --no-build --remove-orphans caddy; then
               echo "ERROR: candidate Caddy failed to start"
@@ -1931,15 +2033,19 @@ jobs:
 
             # Health check
             for i in $(seq 1 20); do
-              STATUS=$(docker exec easymod-backend-1 node -e "require('http').get('http://127.0.0.1:3000/health/ready', r => { process.stdout.write(String(r.statusCode)); process.exit(0); }).on('error', () => { process.stdout.write('000'); process.exit(0); })" 2>/dev/null || echo "000")
-              if [ "$STATUS" = "200" ]; then
-                echo "Health check passed on attempt $i"
+              backend_status=$(docker exec easymod-backend-1 node -e "require('http').get('http://127.0.0.1:3000/health/ready', r => { process.stdout.write(String(r.statusCode)); process.exit(0); }).on('error', () => { process.stdout.write('000'); process.exit(0); })" 2>/dev/null || echo "000")
+              worker_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-worker-1 2>/dev/null || echo missing)
+              frontend_route_status=$(curl --silent --max-time 5 --noproxy '*' --resolve 'easymod.tech:443:127.0.0.1' --output /dev/null --write-out '%{http_code}' https://easymod.tech/ 2>/dev/null || true)
+              api_route_status=$(curl --silent --max-time 5 --noproxy '*' --resolve 'api.easymod.tech:443:127.0.0.1' --output /dev/null --write-out '%{http_code}' https://api.easymod.tech/health/ready 2>/dev/null || true)
+              if [ "$backend_status" = "200" ] && [ "$worker_status" = "healthy" ] \
+                && [ "$frontend_route_status" = "200" ] && [ "$api_route_status" = "200" ]; then
+                echo "Candidate backend, worker, and routed health checks passed on attempt $i"
                 break
               fi
-              echo "Attempt $i: status=$STATUS — retrying in 5s..."
+              echo "Candidate health attempt $i: backend=$backend_status worker=$worker_status frontend_route=$frontend_route_status api_route=$api_route_status — retrying in 5s..."
               sleep 5
               if [ "$i" = "20" ]; then
-                echo "ERROR: Health check failed after 100s"
+                echo "ERROR: candidate backend, worker, or routed health check failed after 100s"
                 exit 1
               fi
             done
@@ -1981,6 +2087,47 @@ jobs:
             });
             NODE
 
+            # Prove the candidate worker consumed a synthetic canary job. The
+            # worker short-circuits canaries before database, AI, or provider work.
+            docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T \
+              -e RELEASE_CANARY_ID="release_canary_${WORKFLOW_RUN_ID}_${WORKFLOW_RUN_ATTEMPT}" \
+              backend node - <<'NODE'
+            const { messageQueue } = require('./src/jobs/message-queue');
+
+            (async () => {
+              let probe;
+              try {
+                const probeId = process.env.RELEASE_CANARY_ID;
+                if (!probeId || await messageQueue.getJob(probeId)) {
+                  throw new Error('release canary id is missing or already exists');
+                }
+                probe = await messageQueue.add('canary', { canary: true, enqueuedAt: Date.now() }, {
+                  jobId: probeId,
+                  attempts: 1,
+                  removeOnComplete: false,
+                  removeOnFail: false,
+                });
+                const deadline = Date.now() + 60000;
+                while (Date.now() < deadline) {
+                  const state = await probe.getState();
+                  if (state === 'completed') {
+                    console.log('Candidate worker synthetic queue canary passed');
+                    return;
+                  }
+                  if (state === 'failed') throw new Error('candidate worker synthetic queue canary failed');
+                  await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+                throw new Error('candidate worker did not consume the synthetic queue canary within 60s');
+              } finally {
+                if (probe) await probe.remove().catch(() => {});
+                await messageQueue.close();
+              }
+            })().catch((error) => {
+              console.error(error.message);
+              process.exitCode = 1;
+            });
+            NODE
+
              cat > "$ROLLBACK_STATE_DIR/deployment-metadata.json" <<EOF
             {
               "DEPLOYED_COMMIT": "${DEPLOYED_COMMIT}",
@@ -2011,6 +2158,7 @@ jobs:
           EXPECTED_ROLLBACK_FRONTEND_DIGEST: ${{ inputs.expected_rollback_frontend_digest }}
           DEPLOYED_COMMIT: ${{ inputs.existing_candidate_sha || github.sha }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
           DEPLOYED_AT: ${{ needs.build.outputs.build_time }}
           GH_ACTOR: ${{ github.actor }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -2018,6 +2166,38 @@ jobs:
           SEED_ADMIN: ${{ inputs.seed_admin }}
           ROLLBACK_STATE_DIR: /opt/easymod/.cutover-rollback/${{ github.run_id }}-${{ github.run_attempt }}
           SCHEMA_DRIFT_MODE: ${{ inputs.expect_schema_drift == 'DRIFT' }}
+
+      - name: Remove staged candidate credentials
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          DO_SSH_KNOWN_HOSTS: ${{ secrets.DO_SSH_KNOWN_HOSTS }}
+          ROLLBACK_STATE_DIR: /opt/easymod/.cutover-rollback/${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DO_SSH_PRIVATE_KEY" ] || [ -z "$DO_SSH_KNOWN_HOSTS" ]; then
+            echo '::warning::staged candidate credential cleanup could not authenticate; verify the run-scoped file was removed'
+            exit 0
+          fi
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DO_SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$DO_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F "$DEPLOY_HOST" -f "$HOME/.ssh/known_hosts" >/dev/null
+          candidate_env_path="$ROLLBACK_STATE_DIR/candidate/.env.prod"
+          expected_candidate_env_path="/opt/easymod/.cutover-rollback/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/candidate/.env.prod"
+          if [ "$candidate_env_path" != "$expected_candidate_env_path" ]; then
+            echo '::error::refusing to clean a candidate environment outside this workflow attempt'
+            exit 1
+          fi
+          if ssh -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@"$DEPLOY_HOST" \
+            "rm -f -- '$candidate_env_path'"; then
+            echo 'Run-scoped candidate credential cleanup completed'
+          else
+            echo '::warning::could not remove the run-scoped candidate environment file; it remains restricted by its mode-700 parent directory'
+          fi
 
   # PRODUCTION_DEPLOY_ENABLED is an operator-owned repository control. The
   # built-in GITHUB_TOKEN cannot mutate repository variables, so it must be
