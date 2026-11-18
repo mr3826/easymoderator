@@ -105,6 +105,15 @@ test('projects legacy source references separately from diagnostic metadata', ()
 test('projects message metadata for live, replay, and other message-shaped SSE events', () => {
     const message = {
         id: 'message-fixture',
+        conversation_id: 'conversation-fixture',
+        content: 'A public message',
+        sender: 'ai',
+        message_type: 'text',
+        ai_suggestion: 'A public suggestion',
+        ai_confidence: '0.93',
+        shop_id: 'private-shop-fixture',
+        external_id: 'private-external-fixture',
+        send_idempotency_key: 'private-idempotency-fixture',
         metadata,
         source_references: [{ kind: 'rag', id: 'source-fixture', title: 'Shipping policy', internal: 'fixture' }],
         reply_to: { provider_message_id: 'provider-fixture', content: 'Earlier message', private_context: 'fixture' },
@@ -115,6 +124,12 @@ test('projects message metadata for live, replay, and other message-shaped SSE e
     });
     expect(live.message).toEqual({
         id: 'message-fixture',
+        conversation_id: 'conversation-fixture',
+        content: 'A public message',
+        sender: 'ai',
+        message_type: 'text',
+        ai_suggestion: 'A public suggestion',
+        ai_confidence: 0.93,
         metadata: expectedMetadata,
         source_references: [{ kind: 'rag', id: 'source-fixture', title: 'Shipping policy' }],
         reply_to: { provider_message_id: 'provider-fixture', content: 'Earlier message' },
@@ -131,4 +146,12 @@ test('projects message metadata for live, replay, and other message-shaped SSE e
         metadata: expectedMetadata,
         message: { id: 'message-fixture', metadata: expectedMetadata },
     });
+});
+
+test('normalizes persisted decimal confidence strings in SSE messages', () => {
+    const projected = projectPublicMessageEvent('new_message', {
+        message: { id: 'message-fixture', ai_confidence: '0.93' },
+    });
+
+    expect(projected.message.ai_confidence).toBe(0.93);
 });

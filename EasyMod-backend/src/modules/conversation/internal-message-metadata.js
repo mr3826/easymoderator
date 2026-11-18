@@ -47,6 +47,13 @@ function nullableNumberValue(value) {
     return value === null || (typeof value === 'number' && Number.isFinite(value)) ? value : undefined;
 }
 
+function nullableNumericStringValue(value) {
+    if (typeof value === 'string' && value.trim() !== '') {
+        value = Number(value);
+    }
+    return nullableNumberValue(value);
+}
+
 function enumValue(values, nullable = false) {
     return (value) => (nullable && value === null) || values.has(value) ? value : undefined;
 }
@@ -138,6 +145,26 @@ const SOURCE_REFERENCE_FIELDS = Object.freeze({
     contextEligible: booleanValue,
 });
 
+const PUBLIC_MESSAGE_FIELDS = Object.freeze([
+    'id',
+    'conversation_id',
+    'content',
+    'sender',
+    'message_type',
+    'metadata',
+    'ai_suggestion',
+    'ai_confidence',
+    'source_references',
+    'message_tag',
+    'delivery_state',
+    'provider_message_id',
+    'delivery_source',
+    'reply_to',
+    'is_transcript_message',
+    'created_at',
+    'updated_at',
+]);
+
 function projectPublicSourceReferences(references) {
     if (!Array.isArray(references)) return null;
     return references.map((reference) => {
@@ -150,7 +177,10 @@ function projectPublicMessage(message) {
     const plain = typeof message?.toJSON === 'function' ? message.toJSON() : message;
     if (!isRecord(plain)) return plain;
 
-    const projected = { ...plain };
+    const projected = {};
+    for (const field of PUBLIC_MESSAGE_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(plain, field)) projected[field] = plain[field];
+    }
     if (Object.prototype.hasOwnProperty.call(plain, 'metadata')) {
         projected.metadata = projectPublicMessageMetadata(plain.metadata);
     }
@@ -170,7 +200,7 @@ function projectPublicMessage(message) {
         projected.ai_suggestion = nullableStringValue(plain.ai_suggestion) ?? null;
     }
     if (Object.prototype.hasOwnProperty.call(plain, 'ai_confidence')) {
-        projected.ai_confidence = nullableNumberValue(plain.ai_confidence) ?? null;
+        projected.ai_confidence = nullableNumericStringValue(plain.ai_confidence) ?? null;
     }
     if (Object.prototype.hasOwnProperty.call(plain, 'reply_to')) {
         projected.reply_to = projectReplyContext(plain.reply_to);
