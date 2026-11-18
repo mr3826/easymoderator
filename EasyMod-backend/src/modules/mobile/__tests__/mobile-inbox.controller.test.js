@@ -82,6 +82,39 @@ describe('mobile Inbox read contract', () => {
         expect(conversationService.getMessages).toHaveBeenCalledWith('conversation-a', 'shop-a', { page: 1, limit: 25 });
     });
 
+    test('preserves the shared projected message contract in mobile transcript responses', async () => {
+        const res = response();
+        const transcript = {
+            messages: [{
+                id: 'message-a',
+                conversation_id: 'conversation-a',
+                content: 'Catalog attached',
+                sender: 'customer',
+                message_type: 'file',
+                metadata: {
+                    file_name: 'catalog.pdf',
+                    file_url: 'https://assets.example.test/catalog.pdf',
+                    delivery_state: 'SENT',
+                    attachments: [{ type: 'file', name: 'catalog.pdf', url: 'https://assets.example.test/catalog.pdf' }],
+                },
+                source_references: [{ kind: 'faq', id: 'faq-a', title: 'Catalog' }],
+                ai_confidence: 0.9,
+                created_at: '2026-11-18T12:00:00.000Z',
+            }],
+            suggestions: [],
+            pagination: { total: 1, page: 1, limit: 25, totalPages: 1 },
+        };
+        conversationService.getMessages.mockResolvedValue(transcript);
+
+        await controller.getMessages({
+            params: { conversationId: 'conversation-a' },
+            query: { page: '1', limit: '25' },
+            shop: { id: 'shop-a' },
+        }, res, jest.fn());
+
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: transcript }));
+    });
+
     test('rejects an empty conversation id before reaching the service', async () => {
         const next = jest.fn();
         await controller.getConversation({ params: { conversationId: '' }, shop: { id: 'shop-a' } }, response(), next);
