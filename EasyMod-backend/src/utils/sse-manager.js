@@ -33,6 +33,7 @@
 
 const { createLogger } = require('./structured-logger');
 const SSEBus = require('./sse-bus');
+const { withoutInternalMessageEvent } = require('../modules/conversation/internal-message-metadata');
 
 const logger = createLogger('SSEManager');
 
@@ -76,7 +77,7 @@ function _writeFrame(res, id, event, data) {
         const payload =
             `id: ${id}\n` +
             `event: ${event}\n` +
-            `data: ${JSON.stringify(data)}\n\n`;
+            `data: ${JSON.stringify(withoutInternalMessageEvent(event, data))}\n\n`;
         res.write(payload);
         return true;
     } catch {
@@ -219,7 +220,7 @@ function disconnectUser(userId) {
  */
 function emit(shopId, event, data) {
     try {
-        _getBus().publish(shopId, event, data).catch((err) => {
+        _getBus().publish(shopId, event, withoutInternalMessageEvent(event, data)).catch((err) => {
             logger.warn('SSEManager: publish failed', { shopId, event, err: err.message });
         });
     } catch (err) {

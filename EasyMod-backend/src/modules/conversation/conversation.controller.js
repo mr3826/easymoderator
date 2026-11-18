@@ -1327,12 +1327,15 @@ class ConversationController {
             }
 
             const { customer_id, limit, within_hours } = req.query;
-            if (!customer_id) {
+            const validInteger = (value, max) => value === undefined
+                || (typeof value === 'string' && /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= max);
+            if (typeof customer_id !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(customer_id)
+                || !validInteger(limit, 100) || !validInteger(within_hours, 24 * 365)) {
                 return res.status(400).json({
                     success: false,
                     error: {
                         code: 'VALIDATION_ERROR',
-                        message: 'customer_id is required'
+                        message: 'Expected a customer UUID, a limit of 1 to 100, and within_hours of 1 to 8760'
                     }
                 });
             }
@@ -1346,22 +1349,24 @@ class ConversationController {
                 id: entry.id,
                 role: entry.role,
                 message: entry.message,
-                normalized_message: entry.metadata?.normalized_message || null,
+                normalized_message: typeof entry.metadata?.normalized_message === 'string'
+                    ? entry.metadata.normalized_message : null,
                 intent: entry.intent || null,
-                timestamp: entry.created_at,
-                metadata: entry.metadata || {}
+                timestamp: entry.created_at ?? entry.createdAt ?? null,
+                // Compatibility field: conversation metadata is not a public API contract.
+                metadata: {}
             }));
 
             res.status(200).json({
                 conversations,
                 total: entries.length
             });
-        } catch (error) {
+        } catch {
             res.status(500).json({
                 success: false,
                 error: {
                     code: 'CONVERSATION_HISTORY_FAILED',
-                    message: error.message
+                    message: 'Unable to load conversation history'
                 }
             });
         }

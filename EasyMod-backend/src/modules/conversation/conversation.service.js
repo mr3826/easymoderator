@@ -37,6 +37,7 @@ const {
     candidateStartedAtStateFor,
     isBeforeResumeBoundary,
 } = require('./message-lifecycle');
+const { withoutInternalMessageMetadata } = require('./internal-message-metadata');
 const {
     ATTACHMENT_URL_TTL_SECONDS,
     PREPARED_ATTACHMENT_METADATA,
@@ -581,7 +582,7 @@ const projectedAttachmentMetadata = (message, metadata, shopId) => {
 
 const mapMessage = (message, shopId) => {
     const metadata = normalizeObject(message?.metadata);
-    const responseMetadata = projectedAttachmentMetadata(message, metadata, shopId);
+    const responseMetadata = withoutInternalMessageMetadata(projectedAttachmentMetadata(message, metadata, shopId));
     const deliveryState = normalizeDeliveryState(message);
     const sender = message?.sender === 'business' ? 'agent' : message?.sender;
     return {
