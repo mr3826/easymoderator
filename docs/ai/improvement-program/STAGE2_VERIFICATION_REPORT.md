@@ -1,6 +1,6 @@
 # Stage 2 Verification Report
 
-**PARTIAL.** Isolated worktree changes based on `f38d8be033112c440c3f9e43888c8be1dd9775ec`, Node `20.20.2`. There is no final candidate SHA or GitHub Actions receipt.
+**PARTIAL.** This ledger retains historical local worktree evidence, based on `f38d8be033112c440c3f9e43888c8be1dd9775ec` using Node `20.20.2`. See [CI evidence](STAGE2_CI_EVIDENCE.md) for the later draft commit, merge checkout, and actual Actions results.
 
 | Gate | Evidence |
 |---|---|
@@ -11,14 +11,14 @@
 | Rollup | PostgreSQL 16 disposable fixture passed five assertions on the candidate SQL (same service with a `pg` adapter): scoped turns, delivered-versus-suggestion precedence, zero versus unscored, reason filtering and draft approval exclusion. Tiny-fixture `EXPLAIN (ANALYZE, BUFFERS)` is not production sizing. |
 | Meta-shaped Docker | **57/57**, 2 suites via `npm run test:backend:meta:e2e:docker`, ports `55571`/`56471`. Covers captured provider acknowledgment, persisted final-text evidence, observed RAG failure with independent product evidence, and the tenant-keyed PostgreSQL rollup. |
 | Docker integration | **262/262** on both the isolated candidate and clean `main` using `npm run test:backend:integration:docker` with separate services and ports. Both historical checkout failures pass; no checkout changes were imported. |
-| Security | **917/917**, 59 suites via `npm run test:security --workspace=easymod-backend -- --runInBand --coverage=false --silent --forceExit --detectOpenHandles`. The process exited cleanly; the JSON receipt reports zero failed suites/tests and `openHandles: []`. |
+| Security | **917/917**, 59 suites via `npm run test:security --workspace=easymod-backend -- --runInBand --coverage=false --silent --forceExit --detectOpenHandles`. The JSON receipt reports zero failures and `openHandles: []`; this invocation did not establish a natural process exit. |
 | Frontend focused | **7/7** inbox guardrails, including new and old reply rendering. Test fixtures wait for the expected inbox state instead of asserting against its loading placeholder. |
 | Reliability/rollback | [Static contract and isolated interruption checks](STAGE2_ROLLBACK_RECEIPT.md) pass. RAG retrieval deadline implemented and unit-tested. Exact application image rehearsal remains pending. |
 | Playwright | **20/20** in 3.5m across `ai-reply-mode.spec.ts` and `inbox-guardrails.spec.ts` with mocked APIs and one worker. |
 | Full frontend | **1,178/1,178** on the serial rerun. The previous run had one failure in an unchanged Customers test that passed in isolation on both trees. |
 | Builds and types | Backend entrypoint syntax check, Vite production build, and frontend `tsc --noEmit` passed. |
-| Backend unit | Complete candidate receipt after the retrieval-deadline change: **391/391 suites**, **5,314 passed**, 2 skipped, zero failures, `success: true`, `openHandles: []`, and a clean process exit. Equivalent clean-`main` receipt with the identical test-only Redis-settings mock: **388/388 suites**, **5,261 passed**, 2 skipped, zero failures, `success: true`, `openHandles: []`, and a clean process exit. The candidate adds three suites and 53 passing tests. No production grounding behavior changed. See [triage](STAGE2_REGRESSION_TRIAGE.md). |
-| Release | No candidate push, PR, deployment, or production runtime verification. |
+| Backend unit | Historical local receipt before the deadline cleanup fix and reader integration: **391/391 suites**, **5,314 passed**, 2 skipped. Main reference with the same test-only Redis-settings mock: **388/388 suites**, **5,261 passed**, 2 skipped. Both JSON receipts report success and no detected open handles; both invocations used `--forceExit`. The later draft CI results supersede these counts for the integrated tree. See [triage](STAGE2_REGRESSION_TRIAGE.md). |
+| Release | [Draft PR 273](https://github.com/mr3826/easymoderator/pull/273) is pushed. No deployment or production runtime verification. |
 
 ## Independent Review
 
@@ -35,4 +35,4 @@ Independent read-only reviews of the Stage 2 and rollback diffs requested change
 | Does the exact incumbent work after rollback? | Not proven by fixture images or handler tests. Require the exact digest rehearsal. |
 | Are unrelated automation and checkout included? | No, per scoped diff and integration comparison. |
 | Does the UI claim verified factual accuracy? | It describes an evidence signal and explicitly distinguishes it from fact-checking; browser and component tests passed. |
-| Is release backed by exact-SHA evidence? | Not yet. These are local worktree receipts, not protected CI or runtime results. |
+| Is release backed by exact-SHA evidence? | The draft PR has protected merge-tree CI evidence. It has no protected-main image-producing SHA or runtime receipt. |
