@@ -1,19 +1,15 @@
 'use strict';
 
 const { CONFIDENCE_REASON, PROVENANCE } = require('../ai/reply-confidence.service');
+const { withoutInternalMessageMetadata } = require('./internal-message-metadata');
 
 const reasons = new Set(Object.values(CONFIDENCE_REASON));
 const provenance = new Set(Object.values(PROVENANCE));
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
 
 function projectMessageEvidence(metadata, lifecycle = {}) {
-    const result = {};
     const source = record(metadata) ? metadata : {};
-    for (const [key, value] of Object.entries(source)) {
-        if (!key.startsWith('confidence_') && !key.startsWith('grounding_') && key !== 'reply_evidence') {
-            Object.defineProperty(result, key, { value, enumerable: true, configurable: true, writable: true });
-        }
-    }
+    const result = withoutInternalMessageMetadata(source);
     const approved = lifecycle.delivery_source === 'DRAFT_APPROVAL' || source.delivery_source === 'DRAFT_APPROVAL';
     const confirmed = ['SENT', 'DELIVERED'].includes(lifecycle.delivery_state ?? source.delivery_state)
         || source.delivered === true;
