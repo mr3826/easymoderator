@@ -1,24 +1,212 @@
 'use strict';
 
-// Before Stage 2 is deployed, keep its persisted diagnostic namespace private
-// so an API image restored during rollback can safely read newer message rows.
-function withoutInternalMessageMetadata(metadata) {
-    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
-    return Object.fromEntries(Object.entries(metadata).filter(([key]) =>
-        !key.startsWith('confidence_') && !key.startsWith('grounding_') && key !== 'reply_evidence'
-    ));
+const MESSAGE_TYPES = new Set(['text', 'image', 'file', 'location']);
+const DELIVERY_STATES = new Set([
+    'GENERATING',
+    'DRAFT_READY',
+    'SEND_PENDING',
+    'SENT',
+    'DELIVERED',
+    'FAILED',
+    'HELD',
+    'DISMISSED',
+]);
+const DELIVERY_STATUSES = new Set(['processing', 'pending', 'sent', 'failed', 'held', 'dismissed']);
+const SUGGESTION_VISIBILITIES = new Set([
+    'HIDDEN_AUTO_PROCESSING',
+    'VISIBLE_DRAFT_REVIEW',
+    'VISIBLE_HITL_REVIEW',
+    'VISIBLE_MERCHANT_REQUESTED',
+    'HIDDEN_SENT',
+    'HIDDEN_DISMISSED',
+]);
+const MESSAGE_SENDERS = new Set(['customer', 'agent', 'ai']);
+const SOURCE_KINDS = new Set(['rag', 'faq', 'product']);
+
+function isRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function withoutInternalMessageEvent(event, data) {
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
-    if (event === 'message_delivery_updated') {
-        return { ...data, metadata: withoutInternalMessageMetadata(data.metadata) };
-    }
-    if (event === 'new_message' && data.message && typeof data.message === 'object' && !Array.isArray(data.message)) {
-        const message = typeof data.message.toJSON === 'function' ? data.message.toJSON() : data.message;
-        return { ...data, message: { ...message, metadata: withoutInternalMessageMetadata(message.metadata) } };
-    }
-    return data;
+function stringValue(value) {
+    return typeof value === 'string' ? value : undefined;
 }
 
-module.exports = { withoutInternalMessageMetadata, withoutInternalMessageEvent };
+function nullableStringValue(value) {
+    return value === null || typeof value === 'string' ? value : undefined;
+}
+
+function booleanValue(value) {
+    return typeof value === 'boolean' ? value : undefined;
+}
+
+function numberValue(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function nullableNumberValue(value) {
+    return value === null || (typeof value === 'number' && Number.isFinite(value)) ? value : undefined;
+}
+
+function enumValue(values, nullable = false) {
+    return (value) => (nullable && value === null) || values.has(value) ? value : undefined;
+}
+
+function stringArrayValue(value) {
+    return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+        ? [...value]
+        : undefined;
+}
+
+function projectObject(value, fields) {
+    if (!isRecord(value)) return null;
+
+    const result = {};
+    for (const [key, project] of Object.entries(fields)) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        const projected = project(value[key]);
+        if (projected !== undefined) result[key] = projected;
+    }
+    return result;
+}
+
+const projectAttachment = (value) => projectObject(value, {
+    type: nullableStringValue,
+    url: nullableStringValue,
+    name: nullableStringValue,
+    mime_type: nullableStringValue,
+});
+
+const projectReplyContext = (value) => {
+    const projected = projectObject(value, {
+        provider_message_id: stringValue,
+        internal_message_id: nullableStringValue,
+        is_self_reply: booleanValue,
+        status: enumValue(new Set(['resolved', 'unavailable'])),
+        sender: enumValue(MESSAGE_SENDERS),
+        content: nullableStringValue,
+        message_type: enumValue(MESSAGE_TYPES),
+        file_name: nullableStringValue,
+    });
+    return projected && Object.keys(projected).length > 0 ? projected : null;
+};
+
+const projectAttachments = (value) => Array.isArray(value)
+    ? value.map(projectAttachment).filter(Boolean)
+    : undefined;
+
+const nullableMessageType = enumValue(MESSAGE_TYPES, true);
+const nullableDeliveryState = enumValue(DELIVERY_STATES, true);
+
+const MESSAGE_METADATA_FIELDS = Object.freeze({
+    message_type: enumValue(MESSAGE_TYPES),
+    attachments: projectAttachments,
+    image_url: stringValue,
+    file_url: stringValue,
+    file_name: stringValue,
+    mime_type: stringValue,
+    file_size: numberValue,
+    attachment_source: nullableStringValue,
+    attachment_storage_key: nullableStringValue,
+    attachment_available: booleanValue,
+    delivery_status: enumValue(DELIVERY_STATUSES),
+    delivery_error: stringValue,
+    delivered: booleanValue,
+    held_reason: stringValue,
+    delivery_state: enumValue(DELIVERY_STATES),
+    provider_message_id: nullableStringValue,
+    provider_message_ids: (value) => value === null ? null : stringArrayValue(value),
+    provider_send_attempted: booleanValue,
+    provider_send_confirmed: booleanValue,
+    delivery_source: nullableStringValue,
+    suggestion_visibility: enumValue(SUGGESTION_VISIBILITIES),
+    reply_to_provider_message_id: nullableStringValue,
+    reply_to_internal_message_id: nullableStringValue,
+    reply_to_is_self_reply: booleanValue,
+    reply_to: projectReplyContext,
+});
+
+function projectPublicMessageMetadata(metadata) {
+    if (!isRecord(metadata)) return null;
+    return projectObject(metadata, MESSAGE_METADATA_FIELDS);
+}
+
+const SOURCE_REFERENCE_FIELDS = Object.freeze({
+    kind: enumValue(SOURCE_KINDS),
+    id: nullableStringValue,
+    title: nullableStringValue,
+    score: nullableNumberValue,
+    contextEligible: booleanValue,
+});
+
+function projectPublicSourceReferences(references) {
+    if (!Array.isArray(references)) return null;
+    return references.map((reference) => {
+        const projected = projectObject(reference, SOURCE_REFERENCE_FIELDS);
+        return projected?.kind ? projected : null;
+    }).filter(Boolean);
+}
+
+function projectPublicMessage(message) {
+    const plain = typeof message?.toJSON === 'function' ? message.toJSON() : message;
+    if (!isRecord(plain)) return plain;
+
+    const projected = { ...plain };
+    if (Object.prototype.hasOwnProperty.call(plain, 'metadata')) {
+        projected.metadata = projectPublicMessageMetadata(plain.metadata);
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'message_type')) {
+        projected.message_type = nullableMessageType(plain.message_type) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'delivery_state')) {
+        projected.delivery_state = nullableDeliveryState(plain.delivery_state) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'provider_message_id')) {
+        projected.provider_message_id = nullableStringValue(plain.provider_message_id) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'delivery_source')) {
+        projected.delivery_source = nullableStringValue(plain.delivery_source) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'ai_suggestion')) {
+        projected.ai_suggestion = nullableStringValue(plain.ai_suggestion) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'ai_confidence')) {
+        projected.ai_confidence = nullableNumberValue(plain.ai_confidence) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'reply_to')) {
+        projected.reply_to = projectReplyContext(plain.reply_to);
+    }
+    if (Object.prototype.hasOwnProperty.call(plain, 'source_references')) {
+        projected.source_references = projectPublicSourceReferences(plain.source_references);
+    }
+    return projected;
+}
+
+function projectPublicMessageEvent(event, data) {
+    if (!isRecord(data)) return data;
+
+    let projected = data;
+    if (isRecord(data.message)) {
+        projected = { ...projected, message: projectPublicMessage(data.message) };
+    } else if (Array.isArray(data.messages)) {
+        projected = { ...projected, messages: data.messages.map(projectPublicMessage) };
+    }
+
+    const carriesMessageMetadata = event === 'message_delivery_updated'
+        || (typeof event === 'string' && event.startsWith('message_'))
+        || (data.message_id != null && Object.prototype.hasOwnProperty.call(data, 'metadata'));
+    if (carriesMessageMetadata && Object.prototype.hasOwnProperty.call(data, 'metadata')) {
+        projected = { ...projected, metadata: projectPublicMessageMetadata(data.metadata) };
+    }
+    if (carriesMessageMetadata && Object.prototype.hasOwnProperty.call(data, 'source_references')) {
+        projected = { ...projected, source_references: projectPublicSourceReferences(data.source_references) };
+    }
+
+    return projected;
+}
+
+module.exports = {
+    projectPublicMessageMetadata,
+    projectPublicSourceReferences,
+    projectPublicMessage,
+    projectPublicMessageEvent,
+};

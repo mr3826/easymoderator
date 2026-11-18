@@ -5,6 +5,7 @@ const { Op, literal, where: sequelizeWhere } = require('sequelize');
 const conversationService = require('./conversation.service');
 const cacheService = require('../../utils/cache.service');
 const sseManager = require('../../utils/sse-manager');
+const { projectPublicMessageMetadata } = require('./internal-message-metadata');
 const { cacheRedis } = require('../../config/redis');
 const { AppError } = require('../../utils/AppError');
 const {
@@ -379,7 +380,7 @@ function projectedMessageMetadata(message, shopId) {
     const projected = typeof conversationService.mapMessage === 'function'
         ? conversationService.mapMessage(message, shopId)
         : null;
-    return projected?.metadata || messageMetadata(message);
+    return projected?.metadata || projectPublicMessageMetadata(messageMetadata(message));
 }
 
 function providerClaimTokenPredicate(token) {
@@ -1418,6 +1419,14 @@ class ConversationController {
 
     async checkDuplicate(req, res) {
         try {
+            const shopId = req.user?.shopId;
+            if (!shopId) {
+                return res.status(400).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'Shop ID is required' }
+                });
+            }
+
             const { message_id, customer_id, timestamp } = req.body;
             if (!message_id || !customer_id) {
                 return res.status(400).json({
@@ -1430,7 +1439,7 @@ class ConversationController {
             }
 
             const key = `dedup:${customer_id}:${message_id}`;
-            const existing = await cacheService.get(key);
+            const existing = await cacheService.getForShop(shopId, key);
 
             if (existing) {
                 return res.status(200).json({
@@ -1440,7 +1449,7 @@ class ConversationController {
             }
 
             const originalTimestamp = timestamp || new Date().toISOString();
-            await cacheService.set(key, originalTimestamp, 86400);
+            await cacheService.setForShop(shopId, key, originalTimestamp, 86400);
 
             res.status(200).json({
                 is_duplicate: false,

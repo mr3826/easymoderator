@@ -1,7 +1,7 @@
 'use strict';
 
 const { CONFIDENCE_REASON, PROVENANCE } = require('../ai/reply-confidence.service');
-const { withoutInternalMessageMetadata } = require('./internal-message-metadata');
+const { projectPublicMessageMetadata, projectPublicMessageEvent } = require('./internal-message-metadata');
 
 const reasons = new Set(Object.values(CONFIDENCE_REASON));
 const provenance = new Set(Object.values(PROVENANCE));
@@ -9,7 +9,7 @@ const record = value => value && typeof value === 'object' && !Array.isArray(val
 
 function projectMessageEvidence(metadata, lifecycle = {}) {
     const source = record(metadata) ? metadata : {};
-    const result = withoutInternalMessageMetadata(source);
+    const result = projectPublicMessageMetadata(source);
     const approved = lifecycle.delivery_source === 'DRAFT_APPROVAL' || source.delivery_source === 'DRAFT_APPROVAL';
     const confirmed = ['SENT', 'DELIVERED'].includes(lifecycle.delivery_state ?? source.delivery_state)
         || source.delivered === true;
@@ -38,15 +38,17 @@ function projectMessageEvidence(metadata, lifecycle = {}) {
 }
 
 function projectMessageEvent(event, data) {
-    if (!record(data)) return data;
+    const projected = projectPublicMessageEvent(event, data);
+    if (!record(data)) return projected;
     if (event === 'new_message' && record(data.message)) {
         const message = typeof data.message.toJSON === 'function' ? data.message.toJSON() : data.message;
-        return { ...data, message: { ...message, metadata: projectMessageEvidence(message.metadata, message) } };
+        if (!record(message)) return projected;
+        return { ...projected, message: { ...projected.message, metadata: projectMessageEvidence(message.metadata, message) } };
     }
     if (event === 'message_delivery_updated') {
-        return { ...data, metadata: projectMessageEvidence(data.metadata, data) };
+        return { ...projected, metadata: projectMessageEvidence(data.metadata, data) };
     }
-    return data;
+    return projected;
 }
 
 module.exports = { projectMessageEvidence, projectMessageEvent };
