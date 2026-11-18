@@ -84,6 +84,27 @@ describe('production workflow branch safety', () => {
         expect(releaseWorkflow).toContain('secrets: inherit');
     });
 
+    test('paired promotion validates both immutable images and the rollback floor', () => {
+        expect(releaseWorkflow).toContain('existing_frontend_digest: ${{ inputs.existing_frontend_digest }}');
+        expect(workflow).toContain('frontend_digest: ${{ steps.frontend_image.outputs.digest || inputs.existing_frontend_digest }}');
+        expect(workflow).toContain('test "$RELEASE_TARGET" = all');
+        expect(workflow).toContain('test "$EXISTING_CANDIDATE_SHA" = "$SHA"');
+        expect(workflow).toContain('for digest in "$EXISTING_BACKEND_DIGEST" "$EXISTING_FRONTEND_DIGEST" "$EXPECTED_ROLLBACK_BACKEND_DIGEST" "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"');
+        expect(workflow).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST"');
+        expect(workflow).toContain('docker pull --platform linux/arm64 "$image"');
+        expect(workflow).toContain('test "$revision" = "$SHA"');
+        expect(workflow).toContain("needs.changes.outputs.frontend == 'true' && env.EXISTING_FRONTEND_DIGEST == ''");
+        expect(workflow.match(/labels: org\.opencontainers\.image\.revision=/g)).toHaveLength(2);
+        const floor = workflow.indexOf('[ "$previous_backend_image" != "$GHCR_BACKEND@$EXPECTED_ROLLBACK_BACKEND_DIGEST" ]');
+        const activation = workflow.indexOf('activation_started=true');
+        expect(floor).toBeGreaterThan(-1);
+        expect(activation).toBeGreaterThan(floor);
+        const frontendFloor = workflow.indexOf('[ "$previous_frontend_image" != "$GHCR_FRONTEND@$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]');
+        expect(frontendFloor).toBeGreaterThan(-1);
+        expect(activation).toBeGreaterThan(frontendFloor);
+        expect(workflow).toContain('chmod 600 "$ROLLBACK_STATE_DIR/.env.prod"');
+    });
+
     test('build and deploy jobs are restricted to main', () => {
         const buildBlock = workflow.match(/\n  build:\n([\s\S]*?)\n  # ── 4\./)?.[1];
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
@@ -136,13 +157,15 @@ describe('production workflow branch safety', () => {
     test('validates selected Growth metadata without requiring Node.js on the SSH host', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
         const growthStart = deployBlock.indexOf('growth_image_source=running');
-        const backendValidationStart = deployBlock.indexOf('# Validate the rendered environment with the candidate backend image');
-        const growthBlock = deployBlock.slice(growthStart, backendValidationStart);
+        const growthValidationStart = deployBlock.indexOf('if [ "$growth_image_source" != "running" ]; then', growthStart);
+        const backendValidationStart = deployBlock.indexOf('# Validate the rendered environment with the candidate backend image', growthValidationStart);
+        const growthBlock = deployBlock.slice(growthValidationStart, backendValidationStart);
 
         expect(growthStart).toBeGreaterThan(-1);
-        expect(backendValidationStart).toBeGreaterThan(growthStart);
-        expect(growthBlock).toContain('growth_image_source=override');
-        expect(growthBlock).toContain('growth_image_source=bootstrap');
+        expect(growthValidationStart).toBeGreaterThan(growthStart);
+        expect(backendValidationStart).toBeGreaterThan(growthValidationStart);
+        expect(deployBlock.slice(growthStart, growthValidationStart)).toContain('growth_image_source=override');
+        expect(deployBlock.slice(growthStart, growthValidationStart)).toContain('growth_image_source=bootstrap');
         expect(growthBlock).toContain('if [ "$growth_image_source" != "running" ]; then');
         expect(growthBlock).toContain('command -v jq');
         expect(growthBlock).toContain('jq --version');
@@ -543,7 +566,7 @@ describe('production workflow branch safety', () => {
         expect(debtCheckIndex).toBeGreaterThan(gateIndex);
         expect(skippedIndex).toBeGreaterThan(-1);
         expect(deployBlock).toContain(
-            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE',
+            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST',
         );
     });
 
@@ -680,8 +703,18 @@ describe('production workflow branch safety', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
 
         expect(deployBlock).toContain('verify_rollback() {');
-        expect(deployBlock).toContain('rollback health check failed after 100s');
-        expect(deployBlock).toContain('rollback || rc=70');
+        expect(deployBlock).toContain('rollback health check failed within the probe limit');
+        expect(deployBlock).toContain("--resolve 'easymod.tech:443:127.0.0.1'");
+        expect(deployBlock).toContain("--resolve 'api.easymod.tech:443:127.0.0.1'");
+        expect(deployBlock).toContain('rollback || exit 70');
+        const marker = deployBlock.indexOf('ln -- "$ROLLBACK_STATE_DIR/transaction" "$active_transaction"');
+        const trap = deployBlock.indexOf('trap finish_deploy EXIT');
+        expect(trap).toBeGreaterThan(-1);
+        expect(marker).toBeGreaterThan(trap);
+        for (const file of ['.env.prod', 'docker-compose.prod.yml', 'Caddyfile']) {
+            expect(deployBlock.indexOf(`cp -p "$candidate_dir/${file}" /opt/easymod/${file}`)).toBeGreaterThan(marker);
+        }
+        expect(deployBlock).toMatch(/rollback \|\| exit 70\s+fi\s+rm -- "\$active_transaction" \|\| exit 70/);
     });
 
     test('successful cutover proves the running image reports the requested commit', () => {

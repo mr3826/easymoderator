@@ -128,15 +128,17 @@ cleanup() {
     exit "$rc"
 }
 
-trap cleanup EXIT
-trap 'exit 130' INT TERM
-
-if [[ "${CI:-}" != "true" && "${ROLLBACK_REHEARSAL_ALLOW:-}" != "1" ]]; then
-    echo 'ERROR: rollback rehearsal requires CI=true or ROLLBACK_REHEARSAL_ALLOW=1' >&2
-    exit 1
+if [[ "${1:-}" == --exit-handler-only ]]; then
+    trap '[[ -z "$WORK_DIR" ]] || rm -rf -- "$WORK_DIR"' EXIT
+else
+    trap cleanup EXIT
+    if [[ "${CI:-}" != "true" && "${ROLLBACK_REHEARSAL_ALLOW:-}" != "1" ]]; then
+        echo 'ERROR: rollback rehearsal requires CI=true or ROLLBACK_REHEARSAL_ALLOW=1' >&2
+        exit 1
+    fi
+    mkdir -p "$REPO_ROOT/_tmp"
 fi
-
-mkdir -p "$REPO_ROOT/_tmp"
+trap 'exit 130' INT TERM
 
 WORK_DIR="$(mktemp -d)"
 EXTRACTED_FILE="$WORK_DIR/extracted-functions.sh"
@@ -162,26 +164,34 @@ extract_function() {
     fi
 
     end_line="$(awk -v start="$start_line" -v indent="$indent" \
-        'NR > start && $0 == indent "}" { print NR; exit }' "$WORKFLOW_FILE")"
+        '{ sub(/\r$/, "") } NR > start && $0 == indent "}" { print NR; exit }' "$WORKFLOW_FILE")"
     if [[ -z "$end_line" || "$end_line" -le "$start_line" ]]; then
         echo "ERROR: rollback function $name has no closing brace" >&2
         exit 1
     fi
 
     sed -n "${start_line},${end_line}p" "$WORKFLOW_FILE" \
-        | sed "s/^${indent}//" >> "$EXTRACTED_FILE"
+        | sed -e "s/^${indent}//" \
+            -e 's/\r$//' \
+            -e "s/--resolve 'easymod.tech:443:127.0.0.1' //g" \
+            -e "s/--resolve 'api.easymod.tech:443:127.0.0.1' //g" \
+            -e 's@https://easymod.tech/@http://127.0.0.1:18080/@g' \
+            -e 's@https://api.easymod.tech/health/ready@http://127.0.0.1:18080/health/ready@g' >> "$EXTRACTED_FILE"
     printf '\n' >> "$EXTRACTED_FILE"
 }
 
 for function_name in \
     resolve_container_digest \
     assert_immutable_ref \
+    config_hashes \
+    verify_config \
     verify_rollback \
+    finish_deploy \
     rollback; do
     extract_function "$function_name"
 done
 
-EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,verify_rollback,rollback'
+EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,config_hashes,verify_config,verify_rollback,finish_deploy,rollback'
 export EXTRACTED_FUNCTIONS
 if grep -Fq 'migrate:down' "$EXTRACTED_FILE"; then
     MIGRATE_DOWN_EXTRACTED=true
@@ -192,6 +202,49 @@ fi
 
 # shellcheck disable=SC1090
 source "$EXTRACTED_FILE"
+
+# Exercise the shipped EXIT handler independently of the fixture containers.
+# The success/metadata publication branch is not used in this test.
+for scenario in before_activation restored restore_failed; do
+    journal_dir="$WORK_DIR/exit-handler-$scenario"
+    mkdir -p "$journal_dir/candidate"
+    : > "$journal_dir/candidate/.env.prod"
+    : > "$journal_dir/transaction"
+    ln -- "$journal_dir/transaction" "$journal_dir/active"
+    if (
+        trap - EXIT
+        ROLLBACK_STATE_DIR="$journal_dir"
+        candidate_dir="$journal_dir/candidate"
+        active_transaction="$journal_dir/active"
+        activation_started=true
+        deploy_succeeded=false
+        if [[ "$scenario" == before_activation ]]; then activation_started=false; fi
+        rollback() {
+            : > "$journal_dir/restore-called"
+            [[ "$scenario" != restore_failed ]]
+        }
+        trap finish_deploy EXIT
+        trap 'exit 143' TERM
+        kill -TERM "$BASHPID"
+    ); then
+        echo "ERROR: interrupted deployment passed: $scenario" >&2
+        exit 1
+    else
+        journal_rc=$?
+    fi
+    [[ ! -e "$journal_dir/candidate/.env.prod" ]]
+    case "$scenario" in
+        before_activation) [[ "$journal_rc" == 143 && ! -e "$journal_dir/active" && ! -e "$journal_dir/restore-called" ]] ;;
+        restored) [[ "$journal_rc" == 143 && ! -e "$journal_dir/active" && -e "$journal_dir/restore-called" ]] ;;
+        restore_failed) [[ "$journal_rc" == 70 && -e "$journal_dir/active" && -e "$journal_dir/restore-called" ]] ;;
+    esac
+done
+echo 'Rollback EXIT handler interruption checks passed'
+if [[ "${1:-}" == --exit-handler-only ]]; then
+    # This lane is strictly local and does not run the full rehearsal or emit
+    # an exact-image receipt. Leave the host and Docker untouched.
+    exit 0
+fi
 
 if [[ -e "$STAGE_ROOT/.env.prod" || -e "$STAGE_ROOT/deployment-metadata.json" ]] \
     && [[ ! -f "$MARKER" ]]; then
@@ -242,12 +295,21 @@ services:
       interval: 1s
       timeout: 2s
       retries: 10
+  worker:
+    image: ${GHCR_IMAGE_BACKEND:?GHCR_IMAGE_BACKEND must be immutable}
+    container_name: easymod-worker-1
+    command: ["node", "-e", "setInterval(() => {}, 1000)"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 1s
+      timeout: 2s
+      retries: 10
   frontend:
     image: ${GHCR_IMAGE_FRONTEND:?GHCR_IMAGE_FRONTEND must be immutable}
     container_name: easymod-frontend-1
     env_file:
       - .env.prod
-    command: ["node", "-e", "require('http').createServer((_, res) => res.end()).listen(8080)"]
+    command: ["node", "-e", "require('http').createServer((_, res) => res.end(process.env.REHEARSAL_VARIANT)).listen(8080)"]
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8080/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 1s
@@ -282,12 +344,15 @@ REHEARSAL_VARIANT=candidate
 EOF
 cat > "$WORK_DIR/previous.Caddyfile" <<'EOF'
 :80 {
-    respond "previous" 200
+    reverse_proxy /health/ready backend:3000
+    reverse_proxy frontend:8080
 }
 EOF
 cat > "$WORK_DIR/candidate.Caddyfile" <<'EOF'
 :80 {
-    respond "candidate" 200
+    header X-Rehearsal-Variant candidate
+    reverse_proxy /health/ready backend:3000
+    reverse_proxy frontend:8080
 }
 EOF
 
@@ -329,15 +394,11 @@ chmod 700 "$ROLLBACK_STATE_DIR"
 cp -p "$STAGE_ROOT/.env.prod" "$ROLLBACK_STATE_DIR/.env.prod"
 cp -p "$STAGE_ROOT/docker-compose.prod.yml" "$ROLLBACK_STATE_DIR/docker-compose.prod.yml"
 cp -p "$STAGE_ROOT/Caddyfile" "$ROLLBACK_STATE_DIR/Caddyfile"
-sha256sum \
-    "$ROLLBACK_STATE_DIR/.env.prod" \
-    "$ROLLBACK_STATE_DIR/docker-compose.prod.yml" \
-    "$ROLLBACK_STATE_DIR/Caddyfile" \
-    > "$ROLLBACK_STATE_DIR/manifest.sha256"
+config_hashes "$ROLLBACK_STATE_DIR" > "$ROLLBACK_STATE_DIR/manifest.sha256"
 chmod 600 "$ROLLBACK_STATE_DIR/.env.prod" "$ROLLBACK_STATE_DIR/manifest.sha256"
 
 SNAPSHOT_ENV_HASH="$(sha256sum "$ROLLBACK_STATE_DIR/.env.prod" | awk '{print $1}')"
-MANIFEST_ENV_HASH="$(awk -v file="$ROLLBACK_STATE_DIR/.env.prod" '$2 == file {print $1}' "$ROLLBACK_STATE_DIR/manifest.sha256")"
+MANIFEST_ENV_HASH="$(awk '$2 == ".env.prod" {print $1}' "$ROLLBACK_STATE_DIR/manifest.sha256")"
 export SNAPSHOT_ENV_HASH MANIFEST_ENV_HASH
 
 install_variant candidate
