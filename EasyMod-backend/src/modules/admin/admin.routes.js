@@ -18,6 +18,7 @@ router.get('/meta-identity-readiness', ctrl.getMetaIdentityReadiness);
 router.get('/payment-processing-reconciliation', ctrl.getStalePaymentProcessing);
 router.get('/shops', ctrl.listShops);
 router.get('/shops/:shopId', ctrl.getShopOverview);
+router.get('/shops/:shopId/diagnostics', ctrl.getShopDiagnostics);
 router.get('/shops/:shopId/channels', ctrl.getShopChannels);
 router.get('/shops/:shopId/billing', ctrl.getShopBilling);
 router.get('/audit-logs', superOnly, ctrl.getAuditLogs);
