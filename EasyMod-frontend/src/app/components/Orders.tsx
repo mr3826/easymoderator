@@ -58,6 +58,7 @@ interface OrderItem {
 }
 
 interface ManualOrder {
+  customerId?: string;
   customerName: string;
   customerPhone: string;
   deliveryAddress: string;
@@ -207,6 +208,31 @@ export default function Orders() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Prefill & open manual create modal when launched from Inbox CustomerContextPanel
+  // (/orders?create=1&customerId=...&customerName=...&customerPhone=...&conversationId=...&channelId=...).
+  useEffect(() => {
+    if (searchParams.get('create') !== '1') return;
+    const customerId = searchParams.get('customerId')?.trim() || '';
+    const customerName = searchParams.get('customerName')?.trim() || '';
+    const customerPhone = searchParams.get('customerPhone')?.trim() || '';
+    const conversationId = searchParams.get('conversationId')?.trim() || '';
+    const channelId = searchParams.get('channelId')?.trim() || '';
+    setManualOrder((prev) => ({
+      ...prev,
+      ...(customerId ? { customerId } : {}),
+      ...(customerName ? { customerName } : {}),
+      ...(customerPhone ? { customerPhone } : {}),
+      channel: conversationId || channelId ? 'messenger' : prev.channel,
+    }));
+    setShowCreateOrder(true);
+    const next = new URLSearchParams(searchParams);
+    for (const key of ['create', 'customerId', 'customerName', 'customerPhone', 'conversationId', 'channelId']) {
+      next.delete(key);
+    }
+    setSearchParams(next, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Keep the URL shareable/back-navigable with the applied query.
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
@@ -278,6 +304,7 @@ export default function Orders() {
 
   // Manual order form state
   const [manualOrder, setManualOrder] = useState<ManualOrder>({
+    customerId: '',
     customerName: '',
     customerPhone: '',
     deliveryAddress: '',
@@ -594,7 +621,10 @@ export default function Orders() {
         street_address: manualOrder.streetAddress,
         zone: deriveZone(manualOrder.division, manualOrder.district),
       };
+      const validCustomerUuid = manualOrder.customerId
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(manualOrder.customerId.trim());
       const orderData = {
+        ...(validCustomerUuid ? { customer_id: manualOrder.customerId!.trim() } : {}),
         customer_name: manualOrder.customerName,
         customer_phone: manualOrder.customerPhone,
         delivery_address: structuredAddress,
@@ -634,6 +664,7 @@ export default function Orders() {
       setShowCreateOrder(false);
       toast.success(t('orders.createModal.createSuccess', { orderId: newOrder.orderNumber || newOrder.id }));
       setManualOrder({
+        customerId: '',
         customerName: '',
         customerPhone: '',
         deliveryAddress: '',

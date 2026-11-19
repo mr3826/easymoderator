@@ -980,6 +980,7 @@
       "crmFailed": "Could not save",
       "noLink": "This conversation is not linked to a customer record.",
       "viewProfile": "View customer profile",
+      "createOrder": "Create order",
       "openOrder": "Open order",
       "rto": {
         "clear": "No delivery-risk flags",

@@ -497,4 +497,22 @@ describe('FE-08 order → conversation association', () => {
     await new Promise((r) => setTimeout(r, 400))
     expect(screen.queryByText('SLOW ANSWER')).not.toBeInTheDocument()
   }, 10000)
+
+  it('opens and prefills create order modal from Inbox deep-link query params', async () => {
+    const customerUuid = '11111111-1111-4111-8111-111111111111'
+    render(
+      <MemoryRouter
+        initialEntries={[
+          `/orders?create=1&customerId=${customerUuid}&customerName=Rina+Akter&customerPhone=01712345678&conversationId=conv-1&channelId=mc-1`,
+        ]}
+      >
+        <Orders />
+      </MemoryRouter>,
+    )
+
+    const modal = await screen.findByTestId('create-order-modal')
+    expect(within(modal).getByDisplayValue('Rina Akter')).toBeInTheDocument()
+    expect(within(modal).getByDisplayValue('01712345678')).toBeInTheDocument()
+    expect(within(modal).getByDisplayValue('messenger')).toBeInTheDocument()
+  })
 })

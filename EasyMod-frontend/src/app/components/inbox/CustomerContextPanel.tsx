@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ExternalLink, StickyNote, Tags, X } from "lucide-react";
+import { ExternalLink, ShoppingBag, StickyNote, Tags, X } from "lucide-react";
 import { apiClient } from "@/api";
 import { getPilotStatus, getCustomer360 } from "@/api/domains/customer-intelligence";
 import { getOrders } from "@/api/domains/order";
@@ -234,19 +234,41 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
               {conversation.metaChannel?.displayName ? ` · ${conversation.metaChannel.displayName}` : ""}
               {conversation.updated_at ? ` · ${formatRelative(conversation.updated_at, i18n.language)}` : ""}
             </p>
-            {customerId && (
-              <a
-                href={`/customers?customerId=${encodeURIComponent(customerId)}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  navigate(`/customers?customerId=${encodeURIComponent(customerId)}`);
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              {customerId && (
+                <a
+                  href={`/customers?customerId=${encodeURIComponent(customerId)}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    navigate(`/customers?customerId=${encodeURIComponent(customerId)}`);
+                  }}
+                  className="inline-flex min-h-11 items-center gap-1 text-xs font-medium text-em-violet-700 hover:underline focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light"
+                >
+                  {t("inbox.context.viewProfile")}
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
+              )}
+              <button
+                type="button"
+                data-testid="context-create-order"
+                onClick={() => {
+                  const params = new URLSearchParams({ create: "1" });
+                  if (customerId) params.set("customerId", customerId);
+                  if (conversation.customer?.name || conversation.title) {
+                    params.set("customerName", conversation.customer?.name || conversation.title || "");
+                  }
+                  if (conversation.customer?.phone) params.set("customerPhone", conversation.customer.phone);
+                  if (conversation.id) params.set("conversationId", conversation.id);
+                  const channelId = conversation.metaChannel?.id ?? conversation.meta_channel_id;
+                  if (channelId) params.set("channelId", channelId);
+                  navigate(`/orders?${params.toString()}`);
                 }}
-                className="mt-1 inline-flex min-h-11 items-center gap-1 text-xs font-medium text-em-violet-700 hover:underline"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-em-border-strong bg-em-bg-surface px-2.5 text-xs font-medium text-em-text-primary hover:bg-em-bg-muted focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light"
               >
-                {t("inbox.context.viewProfile")}
-                <ExternalLink className="h-3 w-3" aria-hidden="true" />
-              </a>
-            )}
+                <ShoppingBag className="h-3.5 w-3.5 text-em-violet-700" aria-hidden="true" />
+                {t("inbox.context.createOrder")}
+              </button>
+            </div>
           </div>
         </div>
         {!customerId && (
