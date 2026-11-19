@@ -194,6 +194,12 @@ describe('inbox execution-page header (§29)', () => {
         metadata: { reply_evidence: { provenance: 'model', reasons: ['GROUNDED'] } },
       },
       {
+        id: 'msg-ai-fallback', conversation_id: 'conv-1', sender: 'ai', content: 'Please contact the shop for confirmation.',
+        message_type: 'text', created_at: now, updated_at: now, delivery_state: 'SENT',
+        provider_message_id: 'meta-fallback', is_transcript_message: true,
+        metadata: { reply_evidence: { provenance: 'safe_fallback', reasons: ['SAFE_COPY_DELIVERED', 'RAG_TIMEOUT'] } },
+      },
+      {
         id: 'msg-ai-old', conversation_id: 'conv-1', sender: 'ai', content: 'Older reply.',
         message_type: 'text', created_at: now, updated_at: now, delivery_state: 'SENT',
         provider_message_id: 'meta-2', is_transcript_message: true,
@@ -204,8 +210,13 @@ describe('inbox execution-page header (§29)', () => {
 
     expect(await screen.findByText('The item is in stock.')).toBeInTheDocument()
     expect(await screen.findByText('Older reply.')).toBeInTheDocument()
+    expect(await screen.findByText('Please contact the shop for confirmation.')).toBeInTheDocument()
     const labels = screen.getAllByTestId('ai-confidence-evidence').map((el) => el.textContent)
-    expect(labels).toEqual(['Evidence found — not a fact check', 'Evidence not recorded'])
+    expect(labels).toEqual([
+      'Evidence found — not a fact check',
+      'Knowledge base unavailable — check this reply',
+      'Evidence not recorded',
+    ])
   })
 
   it('resolve dialog is a labelled modal and keeps the note as the last textarea', async () => {

@@ -418,14 +418,14 @@ function deriveConfidenceSignal(
   if (meta?.delivery_source === "DRAFT_APPROVAL") {
     return { key: CONFIDENCE_SIGNAL_KEYS.notRecorded, tier: "neutral" };
   }
-  if (has("SAFE_COPY_DELIVERED")) {
-    return { key: CONFIDENCE_SIGNAL_KEYS.safeFallback, tier: "warning" };
-  }
   if (has("RETRIEVAL_FAILED")) {
     return { key: CONFIDENCE_SIGNAL_KEYS.retrievalFailed, tier: "danger" };
   }
   if (has("RAG_UNAVAILABLE") || has("RAG_TIMEOUT")) {
     return { key: CONFIDENCE_SIGNAL_KEYS.knowledgeUnavailable, tier: "danger" };
+  }
+  if (has("SAFE_COPY_DELIVERED")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.safeFallback, tier: "warning" };
   }
   if (has("NO_EVIDENCE") || has("KNOWLEDGE_NOT_FOUND")) {
     return { key: CONFIDENCE_SIGNAL_KEYS.noEvidence, tier: "warning" };
