@@ -158,8 +158,13 @@ describe('production workflow branch safety', () => {
         const readerVerifierStart = workflow.indexOf('verify_reader_projection_source()');
         const readerVerifierEnd = workflow.indexOf("echo \"$label reader source verified: $revision\"", readerVerifierStart);
         const readerVerifier = workflow.slice(readerVerifierStart, readerVerifierEnd);
-        expect(readerVerifier).not.toContain('reply-confidence.service.js');
-        expect(readerVerifier).not.toContain('reply-confidence-rollup.service.js');
+        expect(readerVerifier).toContain('for (const field of PUBLIC_MESSAGE_FIELDS)');
+        expect(readerVerifier).toContain('[ "$reader_kind" = writer ]');
+        expect(readerVerifier).toContain("git grep -Fq -e 'projectPublicMessageMetadata('");
+        expect(readerVerifier).toContain("git grep -Fq -e 'projectPublicMessageEvent('");
+        expect(readerVerifier).toContain('is not a reader-only recovery revision');
+        expect(workflow).toContain('verify_reader_projection_source "$SHA" \'Stage 2 candidate\' writer');
+        expect(workflow).toContain('verify_reader_projection_source "$rollback_revision" \'Stage 2 rollback floor\' reader');
     });
 
     test('forward cutover verifies backend, worker, routed health, and synthetic queue consumption', () => {

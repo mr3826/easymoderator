@@ -1015,27 +1015,34 @@ jobs:
           verify_reader_projection_source() {
             local revision="$1"
             local label="$2"
+            local reader_kind="$3"
+            local sanitizer_path=EasyMod-backend/src/modules/conversation/internal-message-metadata.js
             local projection_path=EasyMod-backend/src/modules/conversation/message-evidence-projection.js
             local conversation_path=EasyMod-backend/src/modules/conversation/conversation.service.js
             local sse_path=EasyMod-backend/src/utils/sse-manager.js
-            for path in "$projection_path" "$conversation_path" "$sse_path"; do
-              if ! git cat-file -e "$revision:$path"; then
-                echo "ERROR: $label lacks the patched reader source: $path" >&2
+            if ! git grep -Fq -e 'for (const field of PUBLIC_MESSAGE_FIELDS)' "$revision" -- "$sanitizer_path"; then
+              echo "ERROR: $label lacks the hardened public message projection" >&2
+              return 1
+            fi
+            if [ "$reader_kind" = writer ]; then
+              git grep -Fq -e 'projectPublicMessageMetadata(source)' "$revision" -- "$projection_path" \
+                && git grep -Fq -e 'projectPublicMessageEvent(event, data)' "$revision" -- "$projection_path" \
+                && git grep -Fq -e 'projectMessageEvidence(' "$revision" -- "$conversation_path" \
+                && git grep -Fq -e 'projectMessageEvent(' "$revision" -- "$sse_path" || return 1
+            else
+              if git cat-file -e "$revision:EasyMod-backend/src/modules/ai/reply-confidence.service.js" 2>/dev/null \
+                || git cat-file -e "$revision:EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js" 2>/dev/null; then
+                echo "ERROR: $label is not a reader-only recovery revision" >&2
                 return 1
               fi
-            done
-            if ! git grep -Fq -e 'projectMessageEvidence' "$revision" -- "$projection_path" \
-              || ! git grep -Fq -e 'projectMessageEvidence(' "$revision" -- "$conversation_path" \
-              || ! git grep -Fq -e 'projectMessageEvent' "$revision" -- "$projection_path" \
-              || ! git grep -Fq -e 'projectMessageEvent(' "$revision" -- "$sse_path"; then
-              echo "ERROR: $label does not apply the public evidence projection to REST and SSE" >&2
-              return 1
+              git grep -Fq -e 'projectPublicMessageMetadata(' "$revision" -- "$conversation_path" \
+                && git grep -Fq -e 'projectPublicMessageEvent(' "$revision" -- "$sse_path" || return 1
             fi
             echo "$label reader source verified: $revision"
           }
 
           if [ "$stage2_promotion" = true ]; then
-            verify_reader_projection_source "$SHA" 'Stage 2 candidate'
+            verify_reader_projection_source "$SHA" 'Stage 2 candidate' writer
             rollback_backend_image="$GHCR_BACKEND@$EXPECTED_ROLLBACK_BACKEND_DIGEST"
             docker pull --platform linux/arm64 "$rollback_backend_image"
             rollback_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$rollback_backend_image")
@@ -1044,7 +1051,7 @@ jobs:
               echo 'ERROR: Stage 2 rollback backend revision is not a verified ancestor of the candidate' >&2
               exit 1
             fi
-            verify_reader_projection_source "$rollback_revision" 'Stage 2 rollback floor'
+            verify_reader_projection_source "$rollback_revision" 'Stage 2 rollback floor' reader
           fi
           # BUILD_TIME used to come from the repository's last-metadata-change
           # stamp rather than this build. It ran *behind* the commit it labelled
