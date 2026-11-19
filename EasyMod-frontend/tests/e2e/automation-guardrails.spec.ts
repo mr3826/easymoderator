@@ -153,10 +153,11 @@ test('execution header: title + signal + factual pills, no header CTA', async ({
 test('the closing toggle is a real switch: keyboard operable, dirty-gated, saved canonically', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    // The duplicate "Ask customer for email" toggle is gone; the email option
-    // lives only in Required Order Fields.
+    // Unconsumed settings (ask_email, max-auto-order-value, required_fields)
+    // are hidden from the merchant UI.
     await expect(page.getByRole('switch', { name: 'Ask customer for email' })).toHaveCount(0);
-    await expect(page.getByLabel(/email address/i)).toBeVisible();
+    await expect(page.locator('#max-auto-order-value')).toHaveCount(0);
+    await expect(page.getByLabel(/email address/i)).toHaveCount(0);
     const closing = page.getByRole('switch', { name: 'Closing message' });
     await expect(closing).toHaveAttribute('aria-checked', 'true');
     const save = page.getByRole('button', { name: 'Save Reply Settings', exact: true });

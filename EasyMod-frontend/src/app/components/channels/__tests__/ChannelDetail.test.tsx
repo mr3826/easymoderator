@@ -423,4 +423,25 @@ describe('ChannelDetail', () => {
     );
     expect(metaApi.updateMetaChannelSettings).not.toHaveBeenCalled();
   });
+
+  it('surfaces non-secret connection, 3-scope, and webhook diagnostics on the Advanced tab', async () => {
+    metaApi.listMetaChannels.mockResolvedValue([
+      {
+        ...channel,
+        webhookSubscribedFields: ['messages'],
+        webhookLastVerifiedAt: '2026-11-19T10:00:00.000Z',
+        tokenExpiresAt: '2099-01-01T00:00:00.000Z',
+        lastError: null,
+      },
+    ]);
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+
+    const diag = screen.getByTestId('channel-connection-diagnostics');
+    expect(diag).toHaveTextContent('CONNECTED');
+    expect(diag).toHaveTextContent('pages_show_list, pages_manage_metadata, pages_messaging');
+    expect(diag).toHaveTextContent('messages');
+    expect(diag).not.toHaveTextContent('EAAG');
+  });
 });
