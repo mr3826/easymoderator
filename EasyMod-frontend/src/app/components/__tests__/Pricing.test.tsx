@@ -4,17 +4,15 @@ import { MemoryRouter } from "react-router-dom";
 import i18n from "@/i18n";
 import Pricing from "../Pricing";
 
-const { mockContractQuery, mockClaimDecisions, mockAddons } = vi.hoisted(() => ({
+const { mockContractQuery, mockClaimDecisions } = vi.hoisted(() => ({
   mockContractQuery: vi.fn(),
   mockClaimDecisions: vi.fn(),
-  mockAddons: vi.fn(),
 }));
 
 vi.mock("@/api/domains/commercialContract", () => ({
   useCommercialContract: mockContractQuery,
   useClaimDecisions: mockClaimDecisions,
 }));
-vi.mock("@/api/domains/publicAddons", () => ({ getPublicAddonCatalog: mockAddons }));
 
 const CONTRACT_HASH = `sha256:${"b".repeat(64)}`;
 const REGISTRY_HASH = `sha256:${"a".repeat(64)}`;
@@ -49,11 +47,6 @@ const contractPayload = {
   },
   claims: [],
 };
-
-const addonData = [
-  { code: "ADS_STUDIO", name: "EasyModerator Ads Studio", category: "advertising", availability: "pilot_approval_required", billing_terms: "not_activated", price_bdt_monthly: null, summary: "Import Meta Ads CSV reports and prepare grounded drafts.", limits: ["No direct Meta Ads API connection."] },
-  { code: "STOREFRONT", name: "EasyModerator Storefront", category: "commerce", availability: "pilot_approval_required", billing_terms: "not_activated", price_bdt_monthly: null, summary: "Publish selected products and receive COD orders.", limits: ["No online payment or courier automation."] },
-];
 
 const decision = (overrides: Record<string, unknown> = {}) => ({
   claimId: "billing.delivered_order",
@@ -90,7 +83,6 @@ describe("Pricing", () => {
     vi.clearAllMocks();
     await i18n.changeLanguage("en");
     availableContract();
-    mockAddons.mockResolvedValue(addonData);
     mockClaimDecisions.mockReturnValue({
       data: {
         surface: "pricing",
@@ -121,8 +113,7 @@ describe("Pricing", () => {
     expect(offer).toHaveAttribute("data-contract-hash", CONTRACT_HASH);
 
     expect(screen.getByRole("link", { name: /create an EasyModerator account/i })).toHaveAttribute("href", expect.stringContaining("/signup?lang=en"));
-    expect(await screen.findByRole("heading", { name: "EasyModerator Ads Studio" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "EasyModerator Storefront" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Ads Studio|Storefront/i })).not.toBeInTheDocument();
   });
 
   it("renders the contract claim and its contract-version attribute", async () => {

@@ -57,14 +57,6 @@ export function EvidenceFooter({ provenResult, whereNext, isStale, coverageCompl
             </li>
             <li>
               <Link
-                to="/reports"
-                className="inline-flex min-h-11 items-center rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm font-semibold text-em-text-primary hover:bg-em-bg-muted"
-              >
-                {t("dashboard.pulse.overview.openReports")}
-              </Link>
-            </li>
-            <li>
-              <Link
                 to="/audit-logs"
                 className="inline-flex min-h-11 items-center rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm font-semibold text-em-text-primary hover:bg-em-bg-muted"
               >
