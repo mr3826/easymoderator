@@ -238,4 +238,13 @@ describe('ActionQueuePanel (P+03)', () => {
     await waitFor(() => expect(screen.getAllByTestId('action-item')).toHaveLength(1));
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
+
+  it('shows honest partial-source degradation warning even when visible items are empty', async () => {
+    inboxApi.getInboxActions.mockResolvedValue({
+      featureDisabled: false,
+      data: { items: [], partial: true, generated_at: '2026-10-25T10:00:00Z' },
+    });
+    render(<ActionQueuePanel />);
+    expect(await screen.findByTestId('action-queue-partial')).toBeInTheDocument();
+  });
 });

@@ -146,7 +146,7 @@ export function ActionQueuePanel({ onSseRefresh }: ActionQueuePanelProps) {
   const items = Array.isArray(payload?.items) ? payload.items : [];
   const counts = payload && typeof payload.counts === 'object' ? payload.counts : undefined;
   if (!result || result.featureDisabled || !payload) return null;
-  if (items.length === 0 && !(counts && counts.total > 0)) return null;
+  if (items.length === 0 && !(counts && counts.total > 0) && payload.partial !== true) return null;
 
   // Server already sorts bucket asc → oldest fact first; group for display
   // without re-ordering, skipping empty buckets.
