@@ -5,8 +5,8 @@ let redisClient = null;
 let redisDeadInDev = false;
 
 /**
- * Validate Redis URL uses VPC-internal IP in production.
- * Block public IPs for security.
+ * Validate Redis URL uses an internal host in production.
+ * Warn on public IPs/FQDNs for security.
  */
 function validateRedisUrl(url) {
     if (!url || config.env !== 'production') return;
@@ -15,6 +15,11 @@ function validateRedisUrl(url) {
         const host = u.hostname.toLowerCase();
         // Allow localhost for local dev; block public IPs in prod
         if (host === 'localhost' || host === '127.0.0.1') return;
+        // Single-label hostnames (no dots) are Docker/compose network aliases
+        // (e.g. redis://redis:6379) or local hostnames — never publicly
+        // routable. Exclude IPv6 literals (bracketed, contain ':') so a
+        // public IPv6 address keeps warning as before.
+        if (host && !host.includes('.') && !host.includes(':')) return;
         // Private/VPC ranges: 10.x, 172.16-31.x, 192.168.x
         const parts = host.split('.');
         if (parts.length === 4) {
@@ -149,5 +154,6 @@ function isRedisAvailable() {
 module.exports = {
     getRedisClient,
     closeRedis,
-    isRedisAvailable
+    isRedisAvailable,
+    validateRedisUrl
 };
