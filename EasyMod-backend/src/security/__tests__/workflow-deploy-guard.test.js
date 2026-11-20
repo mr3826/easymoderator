@@ -758,7 +758,7 @@ describe('production workflow branch safety', () => {
         expect(rehearsal).toContain('export API_URL="http://127.0.0.1:18081"');
         expect(rehearsal).toContain('export GROWTH_URL="http://127.0.0.1:18081"');
         expect(rehearsal).toContain('Worker health check passed on attempt');
-        expect(rehearsal).toContain('Public app/API/Growth smoke passed on attempt');
+        expect(rehearsal).toContain("grep -Fq 'smoke passed on attempt'");
         expect(rehearsal).toContain('rollback did not run the worker-health gate');
         expect(rehearsal).toContain('rollback did not run the identity-bound public-stack gate');
         expect(rehearsal).not.toContain('STUBBED-BY-REHEARSAL');

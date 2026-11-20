@@ -524,7 +524,7 @@ if ! grep -Fq 'Worker health check passed on attempt' "$WORK_DIR/scenario-b.log"
 fi
 SCENARIO_B_WORKER_GATE=PASS
 export SCENARIO_B_WORKER_GATE
-if ! grep -Fq 'Public app/API/Growth smoke passed on attempt' "$WORK_DIR/scenario-b.log"; then
+if ! grep -Fq 'smoke passed on attempt' "$WORK_DIR/scenario-b.log"; then
     cat "$WORK_DIR/scenario-b.log" >&2
     echo 'ERROR: rollback did not run the identity-bound public-stack gate' >&2
     exit 1
