@@ -298,5 +298,27 @@ describe('CustomerContextPanel', () => {
     expect(params.get('customerPhone')).toBe('01712345678');
     expect(params.get('conversationId')).toBe('conv-1');
     expect(params.get('channelId')).toBe('mc-1');
+    // WP-03: the conversation's authoritative channel rides along so Orders
+    // never has to guess the origin surface from the ids above.
+    expect(params.get('channel')).toBe('facebook');
+  });
+
+  it('WP-03: Create order from a non-Messenger conversation passes its own channel, not messenger', async () => {
+    render(
+      <CustomerContextPanel
+        conversation={conversation({
+          channel: 'telegram',
+          customer: { id: 'cust-1', name: 'Rina Akter', phone: '01712345678', channel_user_id: 'tg-1' },
+        } as never)}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('context-create-order'));
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const dest = navigate.mock.calls[0][0] as string;
+    const params = new URLSearchParams(dest.split('?')[1]);
+    expect(params.get('channel')).toBe('telegram');
+    expect(params.get('conversationId')).toBe('conv-1');
   });
 });
