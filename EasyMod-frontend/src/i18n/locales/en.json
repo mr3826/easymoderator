@@ -988,6 +988,7 @@
       "crmFailed": "Could not save",
       "noLink": "This conversation is not linked to a customer record.",
       "viewProfile": "View customer profile",
+      "createOrder": "Create order",
       "openOrder": "Open order",
       "rto": {
         "clear": "No delivery-risk flags",
@@ -1576,6 +1577,7 @@
       "channel": "Channel",
       "channelManual": "Manual Entry",
       "channelFacebook": "Facebook",
+      "channelMessenger": "Messenger",
       "channelWebChat": "Web Chat",
       "channelTelegram": "Telegram",
       "address": "Delivery Address",
