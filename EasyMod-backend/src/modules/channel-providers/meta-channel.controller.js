@@ -497,3 +497,42 @@ exports.testWebhook = async (req, res, next) => {
         next(err);
     }
 };
+
+/**
+ * POST /api/channels/meta/:channelId/probe-interaction-fields
+ * Explicitly probes optional Meta interactive webhook fields when the shop's
+ * `interaction_choices` feature flag is enabled.
+ */
+exports.probeInteractionFields = async (req, res, next) => {
+    try {
+        const { channelId } = req.params;
+        const { shopId } = req.user;
+        const { isInteractionChoicesEnabled } = require('../pilot-features/pilot-features.service');
+        const enabled = await isInteractionChoicesEnabled(shopId);
+        if (!enabled) {
+            throw new AppError('Interaction choices are not enabled for this shop', 409, 'FEATURE_DISABLED');
+        }
+
+        const channel = await assertChannelBelongsToShop(channelId, shopId);
+        if (channel.platform !== 'facebook') {
+            throw new AppError(
+                'Only Facebook Messenger channels support interaction webhook probing',
+                400,
+                'UNSUPPORTED_PLATFORM',
+            );
+        }
+
+        const provider = getProvider(channel.platform);
+        const probeResult = await provider.probeInteractionWebhookFields({ channel });
+        res.json({
+            success: true,
+            data: {
+                channelId,
+                platform: channel.platform,
+                ...probeResult,
+            },
+        });
+    } catch (err) {
+        next(err);
+    }
+};

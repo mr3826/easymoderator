@@ -121,6 +121,21 @@ export async function createMessage(
   return response.data.data;
 }
 
+export async function sendProductCard(
+  conversationId: string,
+  payload: { product_id: string; quick_replies?: string[] },
+  options?: { idempotencyKey?: string },
+): Promise<Message> {
+  const response: AxiosResponse<ApiResponse<Message>> = options?.idempotencyKey
+    ? await httpClient.post(
+      `/api/conversation/${conversationId}/product-card`,
+      payload,
+      { headers: { 'Idempotency-Key': options.idempotencyKey }, __skipGlobalErrorToast: true },
+    )
+    : await httpClient.post(`/api/conversation/${conversationId}/product-card`, payload, { __skipGlobalErrorToast: true });
+  return response.data.data;
+}
+
 export async function approveAiDraft(
   conversationId: string,
   messageId: string,

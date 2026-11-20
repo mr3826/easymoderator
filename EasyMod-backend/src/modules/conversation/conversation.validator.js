@@ -120,6 +120,19 @@ class ConversationValidator {
             status: Joi.string().valid('active', 'closed', 'archived').required()
         })
     };
+
+    sendProductCard = {
+        params: Joi.object({
+            conversationId: Joi.string().uuid().required(),
+        }),
+        body: Joi.object({
+            product_id: Joi.string().uuid().required(),
+            quick_replies: Joi.array()
+                .items(Joi.string().trim().min(1).max(20))
+                .max(3)
+                .optional(),
+        }),
+    };
 }
 
 module.exports = new ConversationValidator();

@@ -843,6 +843,20 @@ function buildReplyMetadata(replyTo, resolvedReply) {
     };
 }
 
+function sanitizeReferralRef(raw) {
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.length > 64) return null;
+    const lower = trimmed.toLowerCase();
+    if (trimmed.includes('@') || lower.includes('http') || trimmed.includes('://')) {
+        return null;
+    }
+    if (/\d{8,}/.test(trimmed) || /\+?\d[\d\s-]{7,}\d/.test(trimmed)) {
+        return null;
+    }
+    return /^[A-Za-z0-9._-]{1,64}$/.test(trimmed) ? trimmed : null;
+}
+
 async function mergeConversationMetadata(shopId, conversationId, patch, metaChannelId = null) {
     if (typeof Conversation.findOne !== 'function') return;
     await sequelize.transaction(async (transaction) => {
@@ -1395,38 +1409,180 @@ async function processMessagingEvent({ messaging, channel, receipt, pageId, meta
 
         const messageText = messaging.message?.text || null;
         const attachments = messaging.message?.attachments || [];
-        if (!messageText && attachments.length === 0) {
-            logger.debug('Skipped non-message event', { pageId: metaAssetId, keys: Object.keys(messaging) });
-            await receiptService.markSkipped(receipt, 'NON_MESSAGE_EVENT');
-            return 'skipped';
-        }
-
+        const hasPostback = Boolean(messaging.postback && typeof messaging.postback === 'object');
+        const hasReferral = Boolean(messaging.referral && typeof messaging.referral === 'object');
         const receiptTime = receipt?.received_at ? new Date(receipt.received_at).getTime() : Date.now();
         const normalizedTimestamp = normalizeMetaTimestamp(
             messaging.timestamp,
             Number.isFinite(receiptTime) ? receiptTime : Date.now(),
         );
+
+        let isFeatureEnabled = null;
+        const checkInteractionChoicesEnabled = async () => {
+            if (isFeatureEnabled !== null) return isFeatureEnabled;
+            try {
+                const { isInteractionChoicesEnabled } = require('../pilot-features/pilot-features.service');
+                isFeatureEnabled = (await isInteractionChoicesEnabled(channel.shop_id)) === true;
+            } catch (_) {
+                isFeatureEnabled = false;
+            }
+            return isFeatureEnabled;
+        };
+
+        let effectiveMessageText = messageText;
+        let effectiveRawEvent = messaging;
+        let sanitizedReferralRef = null;
+
+        if (!messageText && attachments.length === 0) {
+            if (!hasPostback && !hasReferral) {
+                logger.debug('Skipped non-message event', { pageId: metaAssetId, keys: Object.keys(messaging) });
+                await receiptService.markSkipped(receipt, 'NON_MESSAGE_EVENT');
+                return 'skipped';
+            }
+
+            const enabled = await checkInteractionChoicesEnabled();
+            if (!enabled) {
+                await receiptService.markSkipped(receipt, 'INTERACTION_CHOICES_DISABLED');
+                return 'skipped';
+            }
+
+            sanitizedReferralRef = sanitizeReferralRef(
+                messaging.referral?.ref || messaging.postback?.referral?.ref,
+            );
+
+            if (hasPostback) {
+                const interactionsService = require('../interactions/interactions.service');
+                const parsedPostback = typeof interactionsService?.parsePayload === 'function'
+                    ? interactionsService.parsePayload(messaging.postback.payload)
+                    : null;
+                if (!parsedPostback) {
+                    logger.info('Skipped non-allowlisted Meta postback', {
+                        shopId: channel.shop_id,
+                        metaChannelId: channel.id,
+                    });
+                    await receiptService.markSkipped(receipt, 'POSTBACK_NOT_ALLOWLISTED');
+                    return 'skipped';
+                }
+                effectiveMessageText = String(messaging.postback.title || '[Selection]').trim().slice(0, 200)
+                    || '[Selection]';
+                effectiveRawEvent = {
+                    ...messaging,
+                    message: {
+                        mid: messaging.postback.mid || `postback:${receipt?.id || normalizedTimestamp}`,
+                        text: effectiveMessageText,
+                        quick_reply: { payload: messaging.postback.payload },
+                    },
+                };
+            } else {
+                // Pure m.me / short-link referral without message text.
+                if (!sanitizedReferralRef || !senderId) {
+                    await receiptService.markSkipped(receipt, 'REFERRAL_REF_INVALID');
+                    return 'skipped';
+                }
+
+                await sequelize.transaction(async (t) => {
+                    const customer = await findOrAdoptCustomer({
+                        shopId: channel.shop_id,
+                        channelType: 'messenger',
+                        channelUserId: senderId,
+                        metaChannelId: channel.id,
+                        defaults: {
+                            name: fallbackCustomerName('facebook', String(senderId)),
+                            metadata: fallbackCustomerMetadata({ platform: 'facebook' }),
+                        },
+                        transaction: t,
+                    });
+                    if (!customer?.id) return;
+
+                    await lockInboundConversationKey({
+                        shopId: channel.shop_id,
+                        channelType: 'messenger',
+                        metaChannelId: channel.id,
+                        customerId: customer.id,
+                        transaction: t,
+                    });
+
+                    const existingConv = await Conversation.findOne({
+                        where: {
+                            shop_id: channel.shop_id,
+                            customer_id: customer.id,
+                            channel: 'messenger',
+                            meta_channel_id: channel.id,
+                        },
+                        order: [['updated_at', 'DESC']],
+                        ...(t ? { transaction: t } : {}),
+                        ...(t?.LOCK?.UPDATE ? { lock: t.LOCK.UPDATE } : {}),
+                    });
+                    const referralPatch = {
+                        referral_source: sanitizedReferralRef,
+                        referral_source_type: 'm_me',
+                        referral_captured_at: new Date(normalizedTimestamp).toISOString(),
+                    };
+                    if (existingConv) {
+                        let prevMeta = existingConv.metadata || {};
+                        if (typeof prevMeta === 'string') {
+                            try { prevMeta = JSON.parse(prevMeta); } catch (_) { prevMeta = {}; }
+                        }
+                        if (!prevMeta || typeof prevMeta !== 'object' || Array.isArray(prevMeta)) {
+                            prevMeta = {};
+                        }
+                        await existingConv.update({
+                            metadata: { ...prevMeta, ...referralPatch },
+                        }, t ? { transaction: t } : undefined);
+                    } else if (typeof Conversation.create === 'function') {
+                        await Conversation.create({
+                            shop_id: channel.shop_id,
+                            customer_id: customer.id,
+                            channel: 'messenger',
+                            meta_channel_id: channel.id,
+                            status: 'active',
+                            hitl: false,
+                            message: `Referral: ${sanitizedReferralRef}`,
+                            metadata: referralPatch,
+                        }, t ? { transaction: t } : undefined);
+                    }
+                });
+
+                await receiptService.markProcessed(receipt, {
+                    shopId: channel.shop_id,
+                    metaChannelId: channel.id,
+                });
+                return 'processed';
+            }
+        } else if (messaging.referral?.ref) {
+            if (await checkInteractionChoicesEnabled()) {
+                sanitizedReferralRef = sanitizeReferralRef(messaging.referral.ref);
+            }
+        }
+
         const normalizedEvent = {
             platform: 'facebook',
             shop_id: channel.shop_id,
             meta_channel_id: channel.id,
             metaAssetId,
             sender: senderId,
-            message: messageText || '',
+            message: effectiveMessageText || '',
             attachments,
             reply_to: messaging.message?.reply_to || null,
             timestamp: normalizedTimestamp,
-            raw_event: messaging
+            raw_event: effectiveRawEvent
         };
 
         logger.info('Processing inbound Facebook message', {
             shopId: channel.shop_id,
             metaChannelId: channel.id,
             metaAssetId,
-            hasText: Boolean(messageText),
+            hasText: Boolean(effectiveMessageText),
             attachmentCount: attachments.length,
         });
         const storeResult = await storeIncomingMessage(normalizedEvent);
+        if (sanitizedReferralRef && storeResult?.conversation_id) {
+            await mergeConversationMetadata(channel.shop_id, storeResult.conversation_id, {
+                referral_source: sanitizedReferralRef,
+                referral_source_type: 'm_me',
+                referral_captured_at: new Date(normalizedTimestamp).toISOString(),
+            }, channel.id).catch(() => {});
+        }
         if (!storeResult.duplicate) {
             const msgJson = storeResult.message.toJSON ? storeResult.message.toJSON() : storeResult.message;
             sseManager.emit(channel.shop_id, 'new_message', {

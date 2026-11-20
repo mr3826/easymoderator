@@ -13,6 +13,7 @@ export type DismissReason = 'NOT_INTERESTED' | 'ALREADY_HANDLED' | 'NOT_A_REAL_R
 export interface PilotStatus {
   customer_intelligence: boolean;
   order_confidence_mode: 'off' | 'shadow' | 'enforce';
+  interaction_choices?: boolean;
 }
 
 export interface StateReason {

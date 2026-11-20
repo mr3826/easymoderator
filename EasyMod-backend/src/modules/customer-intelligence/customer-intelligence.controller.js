@@ -30,6 +30,7 @@ const getStatus = async (req, res, next) => {
             data: {
                 customer_intelligence: features.customerIntelligence,
                 order_confidence_mode: features.orderConfidenceMode,
+                interaction_choices: features.interactionChoices,
             },
         });
     } catch (error) {
