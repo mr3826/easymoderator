@@ -743,6 +743,27 @@ describe('production workflow branch safety', () => {
         expect(copyIndex).toBeGreaterThan(guardIndex);
     });
 
+    test('rollback rehearsal exercises the real worker-health and public-stack gates', () => {
+        const rehearsal = fs.readFileSync(
+            path.resolve(__dirname, '../../../../scripts/rollback-rehearsal.sh'),
+            'utf8',
+        );
+
+        expect(rehearsal).toContain(
+            "EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,verify_worker_health,verify_public_stack,verify_rollback,rollback'",
+        );
+        expect(rehearsal).toContain('container_name: easymod-worker-1');
+        expect(rehearsal).toContain('container_name: easymod-public-stub-1');
+        expect(rehearsal).toContain('export APP_URL="http://127.0.0.1:18081"');
+        expect(rehearsal).toContain('export API_URL="http://127.0.0.1:18081"');
+        expect(rehearsal).toContain('export GROWTH_URL="http://127.0.0.1:18081"');
+        expect(rehearsal).toContain('Worker health check passed on attempt');
+        expect(rehearsal).toContain('Public app/API/Growth smoke passed on attempt');
+        expect(rehearsal).toContain('rollback did not run the worker-health gate');
+        expect(rehearsal).toContain('rollback did not run the identity-bound public-stack gate');
+        expect(rehearsal).not.toContain('STUBBED-BY-REHEARSAL');
+    });
+
     test('successful cutover gates worker and identity-bound public app, API, and Growth health', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
         const workerIndex = deployBlock.indexOf('verify_worker_health || exit 1');

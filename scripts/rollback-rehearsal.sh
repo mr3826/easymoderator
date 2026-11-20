@@ -32,6 +32,10 @@ export SCENARIO_C=NOT_RUN
 export HEALTH_READY=NOT_RUN
 export HEALTH=NOT_RUN
 export FRONTEND_HEALTH=NOT_RUN
+export VERIFIED_WORKER_HEALTH_CALLS=0
+export VERIFIED_PUBLIC_STACK_CALLS=0
+export SCENARIO_B_WORKER_GATE=NOT_RUN
+export SCENARIO_B_PUBLIC_GATE=NOT_RUN
 
 write_report() {
     local exit_code="$1"
@@ -64,6 +68,10 @@ const report = {
         ready: process.env.HEALTH_READY,
         health: process.env.HEALTH,
         frontend: process.env.FRONTEND_HEALTH,
+    },
+    gates: {
+        workerHealth: process.env.SCENARIO_B_WORKER_GATE,
+        publicStack: process.env.SCENARIO_B_PUBLIC_GATE,
     },
     extractedFunctions: process.env.EXTRACTED_FUNCTIONS
         ? process.env.EXTRACTED_FUNCTIONS.split(',').filter(Boolean)
@@ -102,6 +110,7 @@ cleanup() {
             "$STAGE_ROOT/.env.prod" \
             "$STAGE_ROOT/docker-compose.prod.yml" \
             "$STAGE_ROOT/Caddyfile" \
+            "$STAGE_ROOT/public-stub.js" \
             "$MARKER"
         sudo rmdir "$STAGE_ROOT" 2>/dev/null || true
     fi
@@ -176,12 +185,14 @@ extract_function() {
 for function_name in \
     resolve_container_digest \
     assert_immutable_ref \
+    verify_worker_health \
+    verify_public_stack \
     verify_rollback \
     rollback; do
     extract_function "$function_name"
 done
 
-EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,verify_rollback,rollback'
+EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,verify_worker_health,verify_public_stack,verify_rollback,rollback'
 export EXTRACTED_FUNCTIONS
 if grep -Fq 'migrate:down' "$EXTRACTED_FILE"; then
     MIGRATE_DOWN_EXTRACTED=true
@@ -192,6 +203,18 @@ fi
 
 # shellcheck disable=SC1090
 source "$EXTRACTED_FILE"
+
+# The worker-health and identity-bound public-stack gates run against the
+# disposable fixture services below, so the rehearsal exercises the production
+# functions themselves instead of stubbing them out.
+previous_backend_commit='0000000000000000000000000000000000000000'
+previous_growth_commit='1111111111111111111111111111111111111111'
+export previous_backend_commit previous_growth_commit
+export REHEARSAL_BACKEND_COMMIT="$previous_backend_commit"
+export REHEARSAL_GROWTH_COMMIT="$previous_growth_commit"
+export APP_URL="http://127.0.0.1:18081"
+export API_URL="http://127.0.0.1:18081"
+export GROWTH_URL="http://127.0.0.1:18081"
 
 if [[ -e "$STAGE_ROOT/.env.prod" || -e "$STAGE_ROOT/deployment-metadata.json" ]] \
     && [[ ! -f "$MARKER" ]]; then
@@ -272,6 +295,28 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+  worker:
+    image: ${GHCR_IMAGE_BACKEND:?GHCR_IMAGE_BACKEND must be immutable}
+    container_name: easymod-worker-1
+    env_file:
+      - .env.prod
+    command: ["node", "-e", "require('http').createServer((_, res) => res.end()).listen(3000)"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 1s
+      timeout: 2s
+      retries: 10
+  public-stub:
+    image: ${GHCR_IMAGE_BACKEND:?GHCR_IMAGE_BACKEND must be immutable}
+    container_name: easymod-public-stub-1
+    environment:
+      REHEARSAL_BACKEND_COMMIT: ${REHEARSAL_BACKEND_COMMIT:?REHEARSAL_BACKEND_COMMIT must be set}
+      REHEARSAL_GROWTH_COMMIT: ${REHEARSAL_GROWTH_COMMIT:?REHEARSAL_GROWTH_COMMIT must be set}
+    command: ["node", "/rehearsal/public-stub.js"]
+    volumes:
+      - ./public-stub.js:/rehearsal/public-stub.js:ro
+    ports:
+      - "18081:8080"
 YAML
 
 cat > "$WORK_DIR/previous.env.prod" <<'EOF'
@@ -308,6 +353,46 @@ compose() {
 }
 
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
+
+cat > "$STAGE_ROOT/public-stub.js" <<'STUB_JS'
+const http = require('http');
+
+const backendCommit = process.env.REHEARSAL_BACKEND_COMMIT || '';
+const growthCommit = process.env.REHEARSAL_GROWTH_COMMIT || '';
+
+function send(res, status, type, body) {
+    res.writeHead(status, { 'content-type': type });
+    res.end(body);
+}
+
+http.createServer((req, res) => {
+    const path = (req.url || '').split('?')[0];
+    if (path === '/') {
+        return send(res, 200, 'text/html', '<!doctype html><html><body><div id="root"></div></body></html>');
+    }
+    if (path === '/health/ready') {
+        return send(
+            res,
+            200,
+            'application/json',
+            JSON.stringify({
+                service: 'easymod-backend',
+                status: 'ready',
+                database: 'connected',
+                redis: 'connected',
+            }),
+        );
+    }
+    if (path === '/api/version') {
+        return send(res, 200, 'application/json', JSON.stringify({ gitSha: backendCommit }));
+    }
+    if (path === '/build-info.json') {
+        return send(res, 200, 'application/json', JSON.stringify({ commit: growthCommit }));
+    }
+    return send(res, 404, 'text/plain', 'not found');
+}).listen(8080, '0.0.0.0');
+STUB_JS
+
 install_variant previous
 export GHCR_IMAGE_BACKEND="$PREV_IMG"
 export GHCR_IMAGE_FRONTEND="$PREV_IMG"
@@ -432,6 +517,20 @@ wait_for_growth_health() {
 
 wait_for_growth_health
 docker exec easymod-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+if ! grep -Fq 'Worker health check passed on attempt' "$WORK_DIR/scenario-b.log"; then
+    cat "$WORK_DIR/scenario-b.log" >&2
+    echo 'ERROR: rollback did not run the worker-health gate' >&2
+    exit 1
+fi
+SCENARIO_B_WORKER_GATE=PASS
+export SCENARIO_B_WORKER_GATE
+if ! grep -Fq 'Public app/API/Growth smoke passed on attempt' "$WORK_DIR/scenario-b.log"; then
+    cat "$WORK_DIR/scenario-b.log" >&2
+    echo 'ERROR: rollback did not run the identity-bound public-stack gate' >&2
+    exit 1
+fi
+SCENARIO_B_PUBLIC_GATE=PASS
+export SCENARIO_B_PUBLIC_GATE
 SCENARIO_B=PASS
 export SCENARIO_B
 
