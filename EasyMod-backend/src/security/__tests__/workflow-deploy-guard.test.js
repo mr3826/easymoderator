@@ -799,6 +799,8 @@ describe('production workflow branch safety', () => {
         expect(workflow).toContain('docker stats --no-stream');
         expect(workflow).toContain('used_memory_peak:');
         expect(workflow).toContain('evicted_keys:');
+        expect(workflow).toContain('$NF == "/" || $NF == "/var/lib/docker"');
+        expect(workflow).not.toContain('$1 == "/" || $1 == "/var/lib/docker"');
     });
 });
 
