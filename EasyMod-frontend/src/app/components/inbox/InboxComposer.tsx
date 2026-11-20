@@ -5,7 +5,7 @@
  * duration bands), the composer input keeps its exact placeholders and gains
  * data-testid="message-input" for the shared-inbox proof locator.
  */
-import { useEffect, useRef, useState, ChangeEvent } from "react";
+import { useRef, useState, ChangeEvent } from "react";
 import {
   Send, Loader2, X, Paperclip, Zap, AlertTriangle, Search, Pencil,
   Trash2, Plus, Save, FileText, Image as ImageIcon, Package,
@@ -16,7 +16,6 @@ import type { ResponseTemplate } from "@/api/types/conversation";
 import type { Conversation, Message } from "@/api/types/conversation";
 import type { Product } from "@/api/types/product";
 import { apiClient } from "@/api";
-import { getPilotStatus } from "@/api/domains/customer-intelligence";
 import { getDenyMessage } from "@/lib/policy/deny-messages";
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { EmButton } from "../dashboard/EmButton";
@@ -28,6 +27,7 @@ interface InboxComposerProps {
   selectedConversation: Conversation;
   is24hExpired: boolean;
   is24hWarning: boolean;
+  interactionChoicesEnabled?: boolean;
   templates: ResponseTemplate[];
   quickReplyTemplates: ResponseTemplate[];
   loadingTemplates: boolean;
@@ -66,6 +66,7 @@ export function InboxComposer({
   selectedConversation,
   is24hExpired,
   is24hWarning,
+  interactionChoicesEnabled = false,
   templates,
   quickReplyTemplates,
   loadingTemplates,
@@ -89,26 +90,11 @@ export function InboxComposer({
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
-  const [interactionChoicesEnabled, setInteractionChoicesEnabled] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [sendingProductId, setSendingProductId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    getPilotStatus()
-      .then((status) => {
-        if (active) setInteractionChoicesEnabled(Boolean(status?.interaction_choices));
-      })
-      .catch(() => {
-        if (active) setInteractionChoicesEnabled(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const isMessengerThread =
     selectedConversation.channel === "messenger" || selectedConversation.channel === "facebook";

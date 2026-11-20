@@ -24,7 +24,6 @@ import {
   type MetaChannelSettingsPatch,
 } from "@/api/domains/meta-channels";
 import { getShopAISettings } from "@/api/domains/shop";
-import { getPilotStatus } from "@/api/domains/customer-intelligence";
 import type { AiReplyMode } from "@/api/types/conversation";
 import { authService } from "@/app/lib/auth";
 import { getErrorMessage } from "@shared/lib/http/errors";
@@ -154,22 +153,8 @@ export default function ChannelDetail() {
 
   const connection = useMetaChannelConnection();
   useDialogFocus(disconnectDialogRef, Boolean(connection.confirmDisconnect));
-  const [interactionChoicesEnabled, setInteractionChoicesEnabled] = useState(false);
+  const interactionChoicesEnabled = settings?.interaction_choices === true;
   const [mmeRefTag, setMmeRefTag] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    getPilotStatus()
-      .then((status) => {
-        if (active) setInteractionChoicesEnabled(Boolean(status?.interaction_choices));
-      })
-      .catch(() => {
-        if (active) setInteractionChoicesEnabled(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const sanitizedMmeRef = mmeRefTag.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 64);
 

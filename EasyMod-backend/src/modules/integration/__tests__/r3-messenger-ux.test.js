@@ -267,6 +267,13 @@ jest.mock('../../channel-providers/meta-channel.service', () => ({
         return null;
     }),
     confirmWebhookActive: jest.fn(async () => {}),
+    getSettings: jest.fn(async () => ({
+        confidence_threshold_send: '0.80',
+        confidence_threshold_suggest: '0.50',
+        business_hours: null,
+        allow_order_creation: true,
+        purpose_label: null,
+    })),
 }));
 
 jest.mock('../../channel-providers/provider.registry', () => ({
@@ -426,10 +433,17 @@ describe('R3 Messenger UX — safety, grounding, policy, webhook & probe verific
         app = buildApp();
     });
 
-    it('1) gates GET /status and rejects product-card + probe with 409 FEATURE_DISABLED when interaction_choices=false', async () => {
+    it('1) preserves GET /customer-intelligence/status contract, exposes interaction_choices on channel settings, and rejects product-card + probe with 409 FEATURE_DISABLED when off', async () => {
         const statusOff = await request(app).get('/api/customer-intelligence/status');
         expect(statusOff.status).toBe(200);
-        expect(statusOff.body.data.interaction_choices).toBe(false);
+        expect(statusOff.body.data).toEqual({
+            customer_intelligence: false,
+            order_confidence_mode: 'off',
+        });
+
+        const chSettingsOff = await request(app).get(`/api/channels/meta/${CHAN_ID}/settings`);
+        expect(chSettingsOff.status).toBe(200);
+        expect(chSettingsOff.body.data.interaction_choices).toBe(false);
 
         const cardRes = await request(app)
             .post(`/api/conversation/${CONV_ID}/product-card`)
@@ -445,9 +459,9 @@ describe('R3 Messenger UX — safety, grounding, policy, webhook & probe verific
         expect(probeRes.body.code || probeRes.body.error?.code).toBe('FEATURE_DISABLED');
 
         mockState.features.interactionChoices = true;
-        const statusOn = await request(app).get('/api/customer-intelligence/status');
-        expect(statusOn.status).toBe(200);
-        expect(statusOn.body.data.interaction_choices).toBe(true);
+        const chSettingsOn = await request(app).get(`/api/channels/meta/${CHAN_ID}/settings`);
+        expect(chSettingsOn.status).toBe(200);
+        expect(chSettingsOn.body.data.interaction_choices).toBe(true);
     });
 
     it('2) sends DB-grounded product card generic template + quick replies and rejects cross-shop, OOS, and client price overrides', async () => {

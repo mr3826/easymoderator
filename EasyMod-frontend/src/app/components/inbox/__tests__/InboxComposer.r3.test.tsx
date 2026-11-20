@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { InboxComposer } from "../InboxComposer";
 import { apiClient } from "@/api";
-import { getPilotStatus } from "@/api/domains/customer-intelligence";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: "en" } }),
@@ -24,10 +23,6 @@ vi.mock("@/api", () => ({
     updateTemplate: vi.fn(),
     deleteTemplate: vi.fn(),
   },
-}));
-
-vi.mock("@/api/domains/customer-intelligence", () => ({
-  getPilotStatus: vi.fn(),
 }));
 
 const messengerConversation = {
@@ -55,32 +50,15 @@ describe("InboxComposer R3 product card picker", () => {
     vi.clearAllMocks();
   });
 
-  it("hides product card picker when interaction_choices is false", async () => {
-    vi.mocked(getPilotStatus).mockResolvedValue({
-      customer_intelligence: false,
-      order_confidence_mode: "off",
-      interaction_choices: false,
-    });
+  it("hides product card picker when interactionChoicesEnabled is omitted or false", () => {
+    const { rerender } = render(<InboxComposer {...baseProps} />);
+    expect(screen.queryByTestId("inbox-product-card-button")).not.toBeInTheDocument();
 
-    render(<InboxComposer {...baseProps} />);
-    await waitFor(() => expect(getPilotStatus).toHaveBeenCalledTimes(1));
+    rerender(<InboxComposer {...baseProps} interactionChoicesEnabled={false} />);
     expect(screen.queryByTestId("inbox-product-card-button")).not.toBeInTheDocument();
   });
 
-  it("fails closed and hides product card picker when pilot status fails", async () => {
-    vi.mocked(getPilotStatus).mockRejectedValue(new Error("network error"));
-
-    render(<InboxComposer {...baseProps} />);
-    await waitFor(() => expect(getPilotStatus).toHaveBeenCalledTimes(1));
-    expect(screen.queryByTestId("inbox-product-card-button")).not.toBeInTheDocument();
-  });
-
-  it("shows product card picker when interaction_choices is true and sends DB product card", async () => {
-    vi.mocked(getPilotStatus).mockResolvedValue({
-      customer_intelligence: false,
-      order_confidence_mode: "off",
-      interaction_choices: true,
-    });
+  it("shows product card picker when interactionChoicesEnabled is true and sends DB product card", async () => {
     vi.mocked(apiClient.getProducts).mockResolvedValue([
       {
         id: "prod-1",
@@ -102,8 +80,8 @@ describe("InboxComposer R3 product card picker", () => {
     } as any;
     vi.mocked(apiClient.sendProductCard).mockResolvedValue(sentMsg);
 
-    render(<InboxComposer {...baseProps} />);
-    const btn = await screen.findByTestId("inbox-product-card-button");
+    render(<InboxComposer {...baseProps} interactionChoicesEnabled={true} />);
+    const btn = screen.getByTestId("inbox-product-card-button");
     expect(btn).toBeEnabled();
 
     fireEvent.click(btn);
@@ -121,15 +99,9 @@ describe("InboxComposer R3 product card picker", () => {
     });
   });
 
-  it("disables product card button when 24h window is expired", async () => {
-    vi.mocked(getPilotStatus).mockResolvedValue({
-      customer_intelligence: false,
-      order_confidence_mode: "off",
-      interaction_choices: true,
-    });
-
-    render(<InboxComposer {...baseProps} is24hExpired={true} />);
-    const btn = await screen.findByTestId("inbox-product-card-button");
+  it("disables product card button when 24h window is expired", () => {
+    render(<InboxComposer {...baseProps} interactionChoicesEnabled={true} is24hExpired={true} />);
+    const btn = screen.getByTestId("inbox-product-card-button");
     expect(btn).toBeDisabled();
   });
 });

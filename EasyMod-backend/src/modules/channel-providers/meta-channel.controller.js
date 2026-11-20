@@ -284,7 +284,7 @@ function fallbackEffective(settings) {
     };
 }
 
-function serializeSettings(settings, resolved) {
+function serializeSettings(settings, resolved, options = {}) {
     if (!settings) return null;
     const effective = resolved?.effective || fallbackEffective(settings);
     return {
@@ -307,9 +307,20 @@ function serializeSettings(settings, resolved) {
         warnings:                   resolved?.warnings || [],
         emergency_stop:             serializeEmergencyStop(resolved?.emergencyStop),
         billing_ai_active:          resolved ? resolved.billingAiActive === true : false,
+        interaction_choices:        options?.interactionChoices === true,
         // Legacy dead thresholds: accepted for old clients, never rendered by the new UI.
         deprecated_fields:          ['confidenceThresholdSend', 'confidenceThresholdSuggest'],
     };
+}
+
+async function loadInteractionChoicesEnabled(shopId) {
+    try {
+        const { isInteractionChoicesEnabled } = require('../pilot-features/pilot-features.service');
+        if (typeof isInteractionChoicesEnabled !== 'function') return false;
+        return (await isInteractionChoicesEnabled(shopId)) === true;
+    } catch (_) {
+        return false;
+    }
 }
 
 async function loadSettingsState(shopId, channelId) {
@@ -331,8 +342,11 @@ exports.getSettings = async (req, res, next) => {
         const { shopId } = req.user;
         await assertChannelBelongsToShop(channelId, shopId);
         const settings = await metaChannelService.getSettings(channelId, { shopId });
-        const resolved = await loadSettingsState(shopId, channelId);
-        res.json({ success: true, data: serializeSettings(settings, resolved) });
+        const [resolved, interactionChoices] = await Promise.all([
+            loadSettingsState(shopId, channelId),
+            loadInteractionChoicesEnabled(shopId),
+        ]);
+        res.json({ success: true, data: serializeSettings(settings, resolved, { interactionChoices }) });
     } catch (err) {
         next(err);
     }
@@ -370,14 +384,20 @@ exports.updateChannelSettings = async (req, res, next) => {
 
         if (Object.keys(patch).length === 0) {
             const settings = await metaChannelService.getSettings(channelId, { shopId });
-            const resolved = await loadSettingsState(shopId, channelId);
-            return res.json({ success: true, data: serializeSettings(settings, resolved) });
+            const [resolved, interactionChoices] = await Promise.all([
+                loadSettingsState(shopId, channelId),
+                loadInteractionChoicesEnabled(shopId),
+            ]);
+            return res.json({ success: true, data: serializeSettings(settings, resolved, { interactionChoices }) });
         }
 
         await metaChannelService.updateSettings(channelId, patch, { shopId, userId });
         const updated = await metaChannelService.getSettings(channelId, { shopId });
-        const resolved = await loadSettingsState(shopId, channelId);
-        res.json({ success: true, data: serializeSettings(updated, resolved) });
+        const [resolved, interactionChoices] = await Promise.all([
+            loadSettingsState(shopId, channelId),
+            loadInteractionChoicesEnabled(shopId),
+        ]);
+        res.json({ success: true, data: serializeSettings(updated, resolved, { interactionChoices }) });
     } catch (err) {
         next(err);
     }
