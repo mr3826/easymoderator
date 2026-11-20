@@ -242,7 +242,12 @@ describe('ActionQueuePanel (P+03)', () => {
   it('shows honest partial-source degradation warning even when visible items are empty', async () => {
     inboxApi.getInboxActions.mockResolvedValue({
       featureDisabled: false,
-      data: { items: [], partial: true, generated_at: '2026-10-25T10:00:00Z' },
+      data: {
+        items: [],
+        partial: true,
+        counts: { total: 1, views: { attention: 1 } },
+        generated_at: '2026-10-25T10:00:00Z',
+      },
     });
     render(<ActionQueuePanel />);
     expect(await screen.findByTestId('action-queue-partial')).toBeInTheDocument();

@@ -1569,6 +1569,7 @@
       "channel": "Channel",
       "channelManual": "Manual Entry",
       "channelFacebook": "Facebook",
+      "channelMessenger": "Messenger",
       "channelWebChat": "Web Chat",
       "channelTelegram": "Telegram",
       "address": "Delivery Address",
