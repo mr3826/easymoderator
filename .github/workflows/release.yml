@@ -48,7 +48,7 @@ on:
         default: ''
         type: string
       existing_candidate_sha:
-        description: 'Full main SHA that produced existing_backend_digest'
+        description: 'Full main SHA for the release candidate; required for frontend-only deployments'
         required: false
         default: ''
         type: string
