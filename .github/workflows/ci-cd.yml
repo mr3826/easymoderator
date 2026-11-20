@@ -116,7 +116,7 @@ on:
         default: ''
         type: string
       existing_candidate_sha:
-        description: 'Full main SHA that produced existing_backend_digest.'
+        description: 'Full main SHA for the release candidate; required for frontend-only deployments.'
         required: false
         default: ''
         type: string
@@ -697,7 +697,7 @@ jobs:
 
             # Report only safe configuration states and immutable running image
             # references. Never emit credential values from the live process.
-            ssh -i ~/.ssh/deploy_key root@"$DEPLOY_HOST" \
+            probe_output=$(ssh -i ~/.ssh/deploy_key root@"$DEPLOY_HOST" \
               'set -eu
                for service in backend frontend; do
                  image=$(docker inspect -f "{{.Config.Image}}" "easymod-${service}-1")
@@ -711,8 +711,24 @@ jobs:
                    const state = name === \"BKASH_ENABLED\" ? (value === \"true\" ? \"enabled\" : \"disabled\") : (value ? \"configured\" : \"not configured\");
                    console.log(name + \"=\" + state);
                  }
-               "'
-           fi
+               "
+               echo PRODUCTION_CAPACITY
+               df -Pk / /var/lib/docker | awk '\''NR == 1 || $1 == "/" || $1 == "/var/lib/docker"'\''
+               docker system df
+               docker stats --no-stream --format '\''container={{.Name}} cpu={{.CPUPerc}} memory={{.MemUsage}}'\''
+               docker exec easymod-redis-1 redis-cli INFO memory | grep -E '\''^(used_memory:|used_memory_peak:|maxmemory:|maxmemory_policy:)'\'' || true
+               docker exec easymod-redis-1 redis-cli INFO stats | grep -E '\''^evicted_keys:'\'' || true')
+            printf '%s\n' "$probe_output"
+            printf '%s\n' "$probe_output" > _tmp/production-probe.txt
+            fi
+
+      - name: Upload production probe evidence
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.target == 'probe' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-probe-evidence
+          path: _tmp/production-probe.txt
+          if-no-files-found: error
 
   # ── 2d. Non-publishing Docker build validation ────────────────────────────
   # Build the exact current source on every branch, including pull requests,
@@ -1011,15 +1027,31 @@ jobs:
       github.ref == 'refs/heads/main' &&
       vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
       inputs.deploy_confirmation == format('DEPLOY-{0}', github.sha) &&
-      (inputs.target != 'frontend' || inputs.existing_candidate_sha != '')
+      (inputs.target != 'frontend' || inputs.existing_candidate_sha == github.sha)
     environment: production
     permissions:
       contents: read
       packages: read
+    env:
+      RELEASE_TARGET: ${{ inputs.target }}
+      APP_URL: ${{ vars.APP_URL || 'https://app.easymod.tech' }}
+      API_URL: ${{ vars.API_URL || 'https://api.easymod.tech' }}
+      GROWTH_URL: ${{ vars.GROWTH_URL || 'https://growth.easymod.tech' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+
+      - name: Reject backend substitutions in frontend-only releases
+        if: inputs.target == 'frontend'
+        env:
+          BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BACKEND_DIGEST:-}" ]; then
+            echo "ERROR: backend digest must be empty for a frontend-only release"
+            exit 1
+          fi
 
       - name: Render and validate .env.prod without shell interpolation
         run: node EasyMod-backend/scripts/render-production-env.js _tmp/.env.prod
@@ -1228,9 +1260,14 @@ jobs:
           # migrate, up, health gates, rollback trap) must not be cut off by
           # appleboy's 10-minute command default; 30m is explicit headroom.
           command_timeout: 30m
-          envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE
+          envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,RELEASE_TARGET,APP_URL,API_URL,GROWTH_URL
           script: |
             set -e
+
+            if [ "$RELEASE_TARGET" = "frontend" ] && [ -n "$BACKEND_DIGEST" ]; then
+              echo "ERROR: backend digest must be empty for a frontend-only release"
+              exit 1
+            fi
 
             if [ "$WIPE_DB" = "WIPE" ]; then
               echo "ERROR: WIPE_DB=WIPE is disabled for production cutover; use a reviewed isolated recovery procedure"
@@ -1289,6 +1326,177 @@ jobs:
             assert_immutable_ref "$candidate_frontend_image"
             export GHCR_IMAGE_BACKEND="$candidate_backend_image"
             export GHCR_IMAGE_FRONTEND="$candidate_frontend_image"
+
+            previous_backend_commit=$(docker run --rm --entrypoint node "$previous_backend_image" -e 'process.stdout.write(process.env.GIT_SHA || "")')
+            if ! printf '%s' "$previous_backend_commit" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              echo "ERROR: incumbent backend image does not contain a valid build commit"
+              exit 1
+            fi
+
+            extract_growth_commit() {
+              local image_ref="$1"
+              local build_info
+              build_info=$(docker run --rm "$image_ref" cat /usr/share/nginx/html/build-info.json 2>/dev/null || true)
+              if [ -z "$build_info" ]; then
+                return 1
+              fi
+              printf '%s' "$build_info" | docker exec -i easymod-backend-1 node -e '
+                let body = "";
+                process.stdin.on("data", (chunk) => { body += chunk; });
+                process.stdin.on("end", () => {
+                  try {
+                    const payload = JSON.parse(body);
+                    if (typeof payload.commit !== "string" || payload.commit.length === 0) {
+                      process.exit(1);
+                    }
+                    process.stdout.write(payload.commit);
+                  } catch (error) {
+                    console.error("Growth build identity is malformed");
+                    process.exit(1);
+                  }
+                });
+              '
+            }
+
+            verify_worker_health() {
+              local worker_status
+              for i in $(seq 1 30); do
+                worker_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-worker-1 2>/dev/null || echo missing)
+                if [ "$worker_status" = "healthy" ]; then
+                  echo "Worker health check passed on attempt $i"
+                  return 0
+                fi
+                sleep 5
+              done
+              echo "ERROR: worker health check failed after 150s: status=$worker_status"
+              docker inspect easymod-worker-1 \
+                --format 'Worker state: status={{.State.Status}} exit={{.State.ExitCode}} restart={{.RestartCount}} oom={{.State.OOMKilled}} error={{.State.Error}}' 2>/dev/null || true
+              docker inspect easymod-worker-1 \
+                --format 'Worker health details: {{json .State.Health}}' 2>/dev/null || true
+              docker logs --tail 100 easymod-worker-1 2>/dev/null || true
+              return 1
+            }
+
+            verify_public_stack() {
+              local expected_backend_commit="$1"
+              local expected_growth_commit="$2"
+              local app_code ready_code version_code growth_code app_body ready_body version_body growth_body
+              local deadline attempt growth_valid remaining
+
+              # One request, one budget: every call re-derives the time left in
+              # the shared deadline, so a batch of sequential requests can never
+              # run past it.
+              smoke_get() {
+                local smoke_remaining smoke_timeout
+                smoke_remaining=$(( deadline - $(date +%s) ))
+                if [ "$smoke_remaining" -le 0 ]; then
+                  return 124
+                fi
+                smoke_timeout=$(( smoke_remaining < 5 ? smoke_remaining : 5 ))
+                curl -m "$smoke_timeout" "$@"
+              }
+
+              if ! command -v curl >/dev/null 2>&1; then
+                echo "ERROR: curl is required on the deployment host for public smoke verification"
+                return 1
+              fi
+              if ! printf '%s' "$expected_backend_commit" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+                echo "ERROR: public smoke requires the expected backend commit"
+                return 1
+              fi
+              deadline=$(( $(date +%s) + 120 ))
+              attempt=0
+              while [ "$(date +%s)" -lt "$deadline" ]; do
+                attempt=$((attempt + 1))
+                app_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${APP_URL%/}/" 2>/dev/null || true)
+                ready_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${API_URL%/}/health/ready" 2>/dev/null || true)
+                version_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${API_URL%/}/api/version" 2>/dev/null || true)
+                if [ -n "$expected_growth_commit" ]; then
+                  growth_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${GROWTH_URL%/}/build-info.json" 2>/dev/null || true)
+                else
+                  growth_code=""
+                fi
+                if [ "$app_code" = "200" ] && [ "$ready_code" = "200" ] && [ "$version_code" = "200" ] \
+                  && { [ -z "$expected_growth_commit" ] || [ "$growth_code" = "200" ]; }; then
+                  app_body=$(smoke_get -fsS "${APP_URL%/}/" 2>/dev/null || true)
+                  ready_body=$(smoke_get -fsS "${API_URL%/}/health/ready" 2>/dev/null || true)
+                  version_body=$(smoke_get -fsS "${API_URL%/}/api/version" 2>/dev/null || true)
+                  if [ -n "$expected_growth_commit" ]; then
+                    growth_body=$(smoke_get -fsS "${GROWTH_URL%/}/build-info.json" 2>/dev/null || true)
+                  else
+                    growth_body=""
+                  fi
+                  if [[ "$app_body" == *'id="root"'* ]] \
+                    && printf '%s' "$ready_body" | timeout --signal=TERM --kill-after=5s 20s docker exec -i easymod-backend-1 node -e '
+                      let body = "";
+                      process.stdin.on("data", (chunk) => { body += chunk; });
+                      process.stdin.on("end", () => {
+                        const payload = JSON.parse(body);
+                        const ok = payload.service === "easymod-backend"
+                          && payload.status === "ready"
+                          && payload.database === "connected"
+                          && payload.redis === "connected";
+                        if (!ok) {
+                          console.error("Public readiness contract failed");
+                          process.exit(1);
+                        }
+                      });
+                    ' \
+                    && printf '%s' "$version_body" | timeout --signal=TERM --kill-after=5s 20s docker exec -i -e EXPECTED_BACKEND_COMMIT="$expected_backend_commit" easymod-backend-1 node -e '
+                      let body = "";
+                      process.stdin.on("data", (chunk) => { body += chunk; });
+                      process.stdin.on("end", () => {
+                        const payload = JSON.parse(body);
+                        if (payload.gitSha !== process.env.EXPECTED_BACKEND_COMMIT) {
+                          console.error(`Public API identity mismatch: expected ${process.env.EXPECTED_BACKEND_COMMIT}, got ${payload.gitSha || "(missing)"}`);
+                          process.exit(1);
+                        }
+                      });
+                    '; then
+                    growth_valid=true
+                    if [ -n "$expected_growth_commit" ]; then
+                      if printf '%s' "$growth_body" | timeout --signal=TERM --kill-after=5s 20s docker exec -i -e EXPECTED_GROWTH_COMMIT="$expected_growth_commit" easymod-backend-1 node -e '
+                        let body = "";
+                        process.stdin.on("data", (chunk) => { body += chunk; });
+                        process.stdin.on("end", () => {
+                          const payload = JSON.parse(body);
+                          if (payload.commit !== process.env.EXPECTED_GROWTH_COMMIT) {
+                            console.error(`Public Growth identity mismatch: expected ${process.env.EXPECTED_GROWTH_COMMIT}, got ${payload.commit || "(missing)"}`);
+                            process.exit(1);
+                          }
+                        });
+                      '; then
+                        growth_valid=true
+                      else
+                        growth_valid=false
+                      fi
+                    fi
+                    if [ "$growth_valid" = "true" ]; then
+                      if [ "$(date +%s)" -gt "$deadline" ]; then
+                        echo "ERROR: public app/API/Growth smoke exceeded the 120s deadline"
+                        return 1
+                      fi
+                      echo "Public app/API/Growth smoke passed on attempt $attempt"
+                      return 0
+                    fi
+                  fi
+                fi
+                remaining=$(( deadline - $(date +%s) ))
+                if [ "$remaining" -gt 0 ]; then
+                  sleep $(( remaining < 5 ? remaining : 5 ))
+                fi
+              done
+              echo "ERROR: public app/API/Growth smoke failed after the 120s deadline"
+              return 1
+            }
+
+            previous_growth_commit=
+            if [ -n "$previous_growth_image" ]; then
+              if ! previous_growth_commit=$(extract_growth_commit "$previous_growth_image"); then
+                echo "ERROR: incumbent Growth image does not contain a valid build commit"
+                exit 1
+              fi
+            fi
 
             # Growth OS is built and published by growth-os.yml, so this workflow
             # has no build-job digest to consume for it. When growth code changes
@@ -1409,6 +1617,20 @@ jobs:
               docker pull "$GHCR_IMAGE_FRONTEND"
             fi
 
+            candidate_backend_commit=$(docker run --rm --entrypoint node "$GHCR_IMAGE_BACKEND" -e 'process.stdout.write(process.env.GIT_SHA || "")')
+            if ! printf '%s' "$candidate_backend_commit" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              echo "ERROR: candidate backend image does not contain a valid build commit"
+              exit 1
+            fi
+            if [ "$RELEASE_TARGET" = "frontend" ] && [ "$candidate_backend_commit" != "$previous_backend_commit" ]; then
+              echo "ERROR: frontend-only release changed the incumbent backend commit"
+              exit 1
+            fi
+            if [ -n "$BACKEND_TAG" ] && [ "$candidate_backend_commit" != "$DEPLOYED_COMMIT" ]; then
+              echo "ERROR: candidate backend commit '$candidate_backend_commit' does not match release commit '$DEPLOYED_COMMIT'"
+              exit 1
+            fi
+
             if [ "$growth_image_source" != "running" ]; then
               if ! command -v jq >/dev/null 2>&1 || ! jq --version >/dev/null 2>&1; then
                 echo "ERROR: jq is required on the deployment host to validate Growth build metadata"
@@ -1431,6 +1653,16 @@ jobs:
                 exit 1
               fi
               echo "Growth image commit binding verified: $growth_build_commit"
+            fi
+
+            candidate_growth_commit=
+            if [ "$growth_image_source" = "running" ]; then
+              if ! candidate_growth_commit=$(extract_growth_commit "$candidate_growth_image"); then
+                echo "ERROR: running Growth image does not contain a valid build commit"
+                exit 1
+              fi
+            else
+              candidate_growth_commit="$growth_build_commit"
             fi
 
             # Validate the rendered environment with the candidate backend image
@@ -1482,6 +1714,7 @@ jobs:
                 echo "ERROR: rollback health check failed after 100s (backend)"
                 return 1
               fi
+              verify_worker_health || return 1
               if [ -n "$previous_growth_image" ]; then
                 local growth_status=starting
                 for i in $(seq 1 20); do
@@ -1502,7 +1735,8 @@ jobs:
                 echo "ERROR: restored Caddy configuration failed validation"
                 return 1
               fi
-              echo "Rollback backend, Growth, Caddy, and configuration checks passed"
+              verify_public_stack "$previous_backend_commit" "$previous_growth_commit" || return 1
+              echo "Rollback backend, worker, Growth, Caddy, public stack, and configuration checks passed"
               return 0
             }
 
@@ -1780,6 +2014,8 @@ jobs:
               exit 1
             fi
 
+            verify_worker_health || exit 1
+
             echo "==> Starting Caddy after candidate backend health passed"
             if ! docker compose --env-file .env.prod -f docker-compose.prod.yml \
               up -d --no-build --remove-orphans caddy; then
@@ -1822,7 +2058,7 @@ jobs:
             # Read the commit baked into the running image. A healthy container
             # is not sufficient evidence that the requested immutable image is
             # serving traffic; the version endpoint must identify this SHA.
-            docker exec -i -e EXPECTED_COMMIT="$DEPLOYED_COMMIT" easymod-backend-1 node - <<'NODE'
+            docker exec -i -e EXPECTED_BACKEND_COMMIT="$candidate_backend_commit" easymod-backend-1 node - <<'NODE'
             const http = require('http');
 
             const request = http.get('http://127.0.0.1:3000/api/version', (response) => {
@@ -1843,8 +2079,8 @@ jobs:
                   process.exit(1);
                 }
 
-                if (payload.gitSha !== process.env.EXPECTED_COMMIT) {
-                  console.error(`Version mismatch: expected ${process.env.EXPECTED_COMMIT}, got ${payload.gitSha || '(missing)'}`);
+                if (payload.gitSha !== process.env.EXPECTED_BACKEND_COMMIT) {
+                  console.error(`Version mismatch: expected ${process.env.EXPECTED_BACKEND_COMMIT}, got ${payload.gitSha || '(missing)'}`);
                   process.exit(1);
                 }
                 console.log(`Version check passed: ${payload.gitSha}`);
@@ -1856,12 +2092,15 @@ jobs:
             });
             NODE
 
+            verify_public_stack "$candidate_backend_commit" "$candidate_growth_commit" || exit 1
+
             # Clean up dangling images
             docker image prune -f
 
             cat > /opt/easymod/deployment-metadata.json <<EOF
             {
               "DEPLOYED_COMMIT": "${DEPLOYED_COMMIT}",
+              "BACKEND_COMMIT": "${candidate_backend_commit}",
               "BACKEND_IMAGE_DIGEST": "${GHCR_IMAGE_BACKEND}",
               "FRONTEND_IMAGE_DIGEST": "${GHCR_IMAGE_FRONTEND}",
               "GROWTH_IMAGE_DIGEST": "${GHCR_IMAGE_GROWTH}",
