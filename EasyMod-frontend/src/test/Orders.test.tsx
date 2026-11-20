@@ -503,7 +503,7 @@ describe('FE-08 order → conversation association', () => {
     render(
       <MemoryRouter
         initialEntries={[
-          `/orders?create=1&customerId=${customerUuid}&customerName=Rina+Akter&customerPhone=01712345678&conversationId=conv-1&channelId=mc-1`,
+          `/orders?create=1&customerId=${customerUuid}&customerName=Rina+Akter&customerPhone=01712345678&conversationId=conv-1&channelId=mc-1&channel=messenger`,
         ]}
       >
         <Orders />
@@ -514,5 +514,95 @@ describe('FE-08 order → conversation association', () => {
     expect(within(modal).getByDisplayValue('Rina Akter')).toBeInTheDocument()
     expect(within(modal).getByDisplayValue('01712-345-678')).toBeInTheDocument()
     expect(within(modal).getByDisplayValue(/messenger/i)).toBeInTheDocument()
+  })
+})
+
+// WP-03: the inbox→order path must preserve the originating conversation's
+// authoritative channel. The old code hardcoded 'messenger' whenever a
+// conversationId/channelId was present, mis-attributing every non-Messenger
+// order. These tests pin the pass-through contract end to end (deep link →
+// form prefill → createOrder payload).
+describe('WP-03: inbox-to-order channel attribution', () => {
+  const customerUuid = '11111111-1111-4111-8111-111111111111'
+  const productUuid = '22222222-2222-4222-8222-222222222222'
+
+  const inboxDeepLink = (channel?: string) =>
+    `/orders?create=1&customerId=${customerUuid}&customerName=Rina+Akter&customerPhone=01712345678&conversationId=conv-1&channelId=mc-1${channel ? `&channel=${channel}` : ''}`
+
+  const openCreateModalFromInbox = async (channel?: string) => {
+    render(
+      <MemoryRouter initialEntries={[inboxDeepLink(channel)]}>
+        <Orders />
+      </MemoryRouter>,
+    )
+    return screen.findByTestId('create-order-modal')
+  }
+
+  // Fills the remaining required fields (address, one product, payment
+  // method) and submits, returning the captured createOrder payload.
+  const submitOrder = async (modal: HTMLElement) => {
+    const { apiClient } = await import('@/api')
+    fireEvent.change(within(modal).getByDisplayValue('Select Division'), { target: { value: 'dhaka' } })
+    fireEvent.change(within(modal).getByDisplayValue('Select District'), { target: { value: 'dhaka_city' } })
+    fireEvent.change(within(modal).getByDisplayValue('Select Upazila / Thana'), { target: { value: 'Dhanmondi' } })
+    fireEvent.change(
+      within(modal).getByPlaceholderText('House / Road / Area (e.g. House 12, Road 4)'),
+      { target: { value: 'House 12, Road 4' } },
+    )
+    fireEvent.change(within(modal).getByPlaceholderText('Search and add products…'), { target: { value: 'Azal' } })
+    fireEvent.click(await within(modal).findByText('Azal Lawn Cap'))
+    fireEvent.change(within(modal).getByLabelText('Payment method'), { target: { value: 'cod' } })
+    fireEvent.click(within(modal).getByRole('button', { name: 'Create Order' }))
+
+    await waitFor(() => expect(apiClient.createOrder).toHaveBeenCalledTimes(1))
+    return vi.mocked(apiClient.createOrder).mock.calls[0][0] as unknown as Record<string, unknown>
+  }
+
+  const mockOneProduct = async () => {
+    const { apiClient } = await import('@/api')
+    vi.mocked(apiClient.getProducts).mockResolvedValue([
+      { id: productUuid, name: 'Azal Lawn Cap', price: 1200, sku: 'AZAL-1', stock: true, category: 'Caps' } as never,
+    ])
+    vi.mocked(apiClient.createOrder).mockResolvedValue(normalizedOrder({ channel: 'telegram' }))
+  }
+
+  it('an order created from a TELEGRAM conversation carries channel=telegram end to end', async () => {
+    await mockOneProduct()
+    const modal = await openCreateModalFromInbox('telegram')
+    expect(within(modal).getByDisplayValue('Telegram')).toBeInTheDocument()
+
+    const payload = await submitOrder(modal)
+    expect(payload.channel).toBe('telegram')
+    expect(payload.customer_id).toBe(customerUuid)
+  })
+
+  it('an order created from a MESSENGER conversation still carries channel=messenger', async () => {
+    await mockOneProduct()
+    const modal = await openCreateModalFromInbox('messenger')
+    expect(within(modal).getByDisplayValue('Messenger')).toBeInTheDocument()
+
+    const payload = await submitOrder(modal)
+    expect(payload.channel).toBe('messenger')
+  })
+
+  it('a web conversation is attributed as webchat (order-form vocabulary)', async () => {
+    const modal = await openCreateModalFromInbox('web')
+    expect(within(modal).getByDisplayValue('Web Chat')).toBeInTheDocument()
+  })
+
+  it('a facebook conversation keeps channel=facebook', async () => {
+    const modal = await openCreateModalFromInbox('facebook')
+    expect(within(modal).getByDisplayValue('Facebook')).toBeInTheDocument()
+  })
+
+  it('never infers Messenger from conversationId/channelId alone (legacy link without channel)', async () => {
+    const modal = await openCreateModalFromInbox(undefined)
+    expect(within(modal).getByDisplayValue('Manual Entry')).toBeInTheDocument()
+    expect(within(modal).queryByDisplayValue(/messenger/i)).not.toBeInTheDocument()
+  })
+
+  it('ignores an unknown channel value instead of fabricating attribution', async () => {
+    const modal = await openCreateModalFromInbox('carrier-pigeon')
+    expect(within(modal).getByDisplayValue('Manual Entry')).toBeInTheDocument()
   })
 })

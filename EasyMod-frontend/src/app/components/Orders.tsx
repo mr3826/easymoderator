@@ -36,6 +36,19 @@ const WORKLIST_BUCKETS: Array<{ key: OrderWorklistBucket; labelKey: string }> = 
   { key: 'delivered', labelKey: 'orders.buckets.delivered' },
 ];
 
+// WP-03: the originating conversation's authoritative channel (backend
+// conversation.validator.js vocabulary) mapped onto the order-create form's
+// channel vocabulary. 'web' conversations are attributed as 'webchat' orders.
+// Values outside this map are ignored — channel is NEVER inferred from the
+// mere presence of a conversation/channel id (the old Messenger hardcode).
+const CONVERSATION_TO_ORDER_CHANNEL: Record<string, string | undefined> = {
+  messenger: 'messenger',
+  facebook: 'facebook',
+  telegram: 'telegram',
+  web: 'webchat',
+  webchat: 'webchat',
+};
+
 const statusColors = {
   draft: 'bg-em-bg-muted text-em-text-secondary',
   pending: 'bg-em-warning-100 text-em-warning-700',
@@ -209,24 +222,28 @@ export default function Orders() {
   }, []);
 
   // Prefill & open manual create modal when launched from Inbox CustomerContextPanel
-  // (/orders?create=1&customerId=...&customerName=...&customerPhone=...&conversationId=...&channelId=...).
+  // (/orders?create=1&customerId=...&customerName=...&customerPhone=...&conversationId=...&channelId=...&channel=...).
+  // WP-03: the order's channel comes from the conversation's authoritative
+  // `channel` param — never guessed from conversationId/channelId presence.
+  // Missing/unknown values keep the form default ('manual') so the merchant
+  // sees an honest selection instead of a fabricated Messenger attribution.
   useEffect(() => {
     if (searchParams.get('create') !== '1') return;
     const customerId = searchParams.get('customerId')?.trim() || '';
     const customerName = searchParams.get('customerName')?.trim() || '';
     const customerPhone = searchParams.get('customerPhone')?.trim() || '';
-    const conversationId = searchParams.get('conversationId')?.trim() || '';
-    const channelId = searchParams.get('channelId')?.trim() || '';
+    const channelParam = searchParams.get('channel')?.trim().toLowerCase() || '';
+    const conversationChannel = CONVERSATION_TO_ORDER_CHANNEL[channelParam];
     setManualOrder((prev) => ({
       ...prev,
       ...(customerId ? { customerId } : {}),
       ...(customerName ? { customerName } : {}),
       ...(customerPhone ? { customerPhone } : {}),
-      channel: conversationId || channelId ? 'messenger' : prev.channel,
+      channel: conversationChannel ?? prev.channel,
     }));
     setShowCreateOrder(true);
     const next = new URLSearchParams(searchParams);
-    for (const key of ['create', 'customerId', 'customerName', 'customerPhone', 'conversationId', 'channelId']) {
+    for (const key of ['create', 'customerId', 'customerName', 'customerPhone', 'conversationId', 'channelId', 'channel']) {
       next.delete(key);
     }
     setSearchParams(next, { replace: true });

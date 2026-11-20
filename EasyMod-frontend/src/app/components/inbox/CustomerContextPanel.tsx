@@ -261,6 +261,11 @@ export default function CustomerContextPanel({ conversation, onClose, onConversa
                   if (conversation.id) params.set("conversationId", conversation.id);
                   const channelId = conversation.metaChannel?.id ?? conversation.meta_channel_id;
                   if (channelId) params.set("channelId", channelId);
+                  // WP-03: carry the conversation's authoritative channel so the
+                  // order keeps its true origin surface. channelId above is the
+                  // Meta Page row id, NOT a channel type — Orders must not (and
+                  // no longer does) infer Messenger from these ids alone.
+                  if (conversation.channel) params.set("channel", conversation.channel);
                   navigate(`/orders?${params.toString()}`);
                 }}
                 className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-em-border-strong bg-em-bg-surface px-2.5 text-xs font-medium text-em-text-primary hover:bg-em-bg-muted focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light"
