@@ -1465,10 +1465,19 @@ async function processMessagingEvent({ messaging, channel, receipt, pageId, meta
                 }
                 effectiveMessageText = String(messaging.postback.title || '[Selection]').trim().slice(0, 200)
                     || '[Selection]';
+                // The durable receipt is the event identity: it is unique per
+                // tap (payload-hash dedupe) and stable across reconciler
+                // replays, so message-level external_id dedupe stays idempotent
+                // for redelivery without conflating two different button taps.
+                // postback.mid names the outbound button message and is shared
+                // by every tap on it, so it is only a last-resort fallback.
+                const postbackExternalId = receipt?.id
+                    ? `postback:${receipt.id}`
+                    : messaging.postback.mid || `postback:${normalizedTimestamp}`;
                 effectiveRawEvent = {
                     ...messaging,
                     message: {
-                        mid: messaging.postback.mid || `postback:${receipt?.id || normalizedTimestamp}`,
+                        mid: postbackExternalId,
                         text: effectiveMessageText,
                         quick_reply: { payload: messaging.postback.payload },
                     },
@@ -1681,7 +1690,7 @@ async function handlePageWebhook(payload, resolveConnectedChannel) {
                     });
                     continue;
                 }
-                if (['message', 'optin', 'echo'].includes(receipt?.event_type)) {
+                if (receiptService.REPLAYABLE_EVENT_TYPES.includes(receipt?.event_type)) {
                     await receiptService.markStoreFailure(receipt, resolutionFailure, { pageId });
                 } else {
                     await receiptService.markSkipped(receipt, 'CHANNEL_RESOLUTION_FAILED');
@@ -1702,7 +1711,7 @@ async function handlePageWebhook(payload, resolveConnectedChannel) {
                     });
                     continue;
                 }
-                if (!['message', 'optin', 'echo'].includes(receipt?.event_type)) {
+                if (!receiptService.REPLAYABLE_EVENT_TYPES.includes(receipt?.event_type)) {
                     await receiptService.markSkipped(receipt, 'PAGE_NOT_CONNECTED');
                     continue;
                 }
@@ -1736,7 +1745,7 @@ async function handlePageWebhook(payload, resolveConnectedChannel) {
                     platform: 'facebook',
                 });
                 if (!eventChannel) {
-                    if (['message', 'optin', 'echo'].includes(receipt.event_type)) {
+                    if (receiptService.REPLAYABLE_EVENT_TYPES.includes(receipt.event_type)) {
                         await receiptService.markIdentityNotResolved(receipt, { pageId });
                     } else {
                         await receiptService.markSkipped(receipt, 'BOUND_CHANNEL_UNAVAILABLE');
