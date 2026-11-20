@@ -32,6 +32,9 @@ exports.listShops = async (req, res, next) => {
 exports.getShopOverview = async (req, res, next) => {
   try { ok(res, await adminService.getShopOverview(req.params.shopId)); } catch (e) { next(e); }
 };
+exports.getShopDiagnostics = async (req, res, next) => {
+  try { ok(res, await adminService.getShopDiagnostics(req.params.shopId, req.query.window)); } catch (e) { next(e); }
+};
 exports.getShopChannels = async (req, res, next) => {
   try { ok(res, await adminService.getShopChannels(req.params.shopId)); } catch (e) { next(e); }
 };
