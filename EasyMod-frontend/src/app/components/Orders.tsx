@@ -41,13 +41,15 @@ const WORKLIST_BUCKETS: Array<{ key: OrderWorklistBucket; labelKey: string }> = 
 // channel vocabulary. 'web' conversations are attributed as 'webchat' orders.
 // Values outside this map are ignored — channel is NEVER inferred from the
 // mere presence of a conversation/channel id (the old Messenger hardcode).
-const CONVERSATION_TO_ORDER_CHANNEL: Record<string, string | undefined> = {
-  messenger: 'messenger',
-  facebook: 'facebook',
-  telegram: 'telegram',
-  web: 'webchat',
-  webchat: 'webchat',
-};
+// A Map (not a plain object) so prototype-chain keys like '__proto__' or
+// 'constructor' from a hand-crafted URL fail closed to undefined (A3 review).
+const CONVERSATION_TO_ORDER_CHANNEL = new Map<string, string>([
+  ['messenger', 'messenger'],
+  ['facebook', 'facebook'],
+  ['telegram', 'telegram'],
+  ['web', 'webchat'],
+  ['webchat', 'webchat'],
+]);
 
 const statusColors = {
   draft: 'bg-em-bg-muted text-em-text-secondary',
@@ -233,7 +235,7 @@ export default function Orders() {
     const customerName = searchParams.get('customerName')?.trim() || '';
     const customerPhone = searchParams.get('customerPhone')?.trim() || '';
     const channelParam = searchParams.get('channel')?.trim().toLowerCase() || '';
-    const conversationChannel = CONVERSATION_TO_ORDER_CHANNEL[channelParam];
+    const conversationChannel = CONVERSATION_TO_ORDER_CHANNEL.get(channelParam);
     setManualOrder((prev) => ({
       ...prev,
       ...(customerId ? { customerId } : {}),

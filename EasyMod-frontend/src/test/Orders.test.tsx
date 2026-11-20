@@ -605,4 +605,21 @@ describe('WP-03: inbox-to-order channel attribution', () => {
     const modal = await openCreateModalFromInbox('carrier-pigeon')
     expect(within(modal).getByDisplayValue('Manual Entry')).toBeInTheDocument()
   })
+
+  // A3 security review: a plain-object lookup would resolve prototype-chain
+  // keys ('__proto__', 'constructor') to non-nullish values that survive the
+  // ?? fallback and leak into the form state and the createOrder payload.
+  // The Map lookup must fail closed to 'manual' for them, end to end.
+  it.each(['__proto__', 'constructor'])(
+    'fails closed to manual for prototype-chain channel=%s (prefill and payload)',
+    async (channel) => {
+      await mockOneProduct()
+      const modal = await openCreateModalFromInbox(channel)
+      expect(within(modal).getByDisplayValue('Manual Entry')).toBeInTheDocument()
+      expect(within(modal).queryByDisplayValue(/messenger/i)).not.toBeInTheDocument()
+
+      const payload = await submitOrder(modal)
+      expect(payload.channel).toBe('manual')
+    },
+  )
 })
