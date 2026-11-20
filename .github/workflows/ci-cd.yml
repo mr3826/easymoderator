@@ -713,7 +713,7 @@ jobs:
                  }
                "
                echo PRODUCTION_CAPACITY
-               df -Pk / /var/lib/docker | awk '\''NR == 1 || $1 == "/" || $1 == "/var/lib/docker"'\''
+                df -Pk / /var/lib/docker | awk '\''NR == 1 || $NF == "/" || $NF == "/var/lib/docker"'\''
                docker system df
                docker stats --no-stream --format '\''container={{.Name}} cpu={{.CPUPerc}} memory={{.MemUsage}}'\''
                docker exec easymod-redis-1 redis-cli INFO memory | grep -E '\''^(used_memory:|used_memory_peak:|maxmemory:|maxmemory_policy:)'\'' || true
