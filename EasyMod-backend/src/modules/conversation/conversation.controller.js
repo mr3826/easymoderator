@@ -15,6 +15,7 @@ const {
     AuditLog,
 } = require('../entities');
 const metaChannelService = require('../channel-providers/meta-channel.service');
+const stockStatusGuard = require('../product/stock-status-guard.service');
 const { getProvider } = require('../channel-providers/provider.registry');
 const conversationLockService = require('./conversation-lock.service');
 const policyEngine = require('../policy/policy.engine');
@@ -1558,7 +1559,16 @@ class ConversationController {
                     error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found' },
                 });
             }
-            if (product.track_quantity === true && Number(product.quantity ?? 0) <= 0) {
+            // Availability is decided by the authoritative stock-status guard —
+            // the same policy the chatbot uses. An explicit in_stock=false is
+            // unavailable even when quantity tracking is disabled or the stored
+            // quantity is still positive (mobile quick-update writes in_stock
+            // independently of quantity). Invalidate first so a stale cache
+            // entry can never resurrect an "Available"/"In stock" claim after
+            // a merchant stock update; the guard then re-reads the live row.
+            await stockStatusGuard.invalidate(shopId, product.id);
+            const stock = await stockStatusGuard.getStock(product.id, shopId);
+            if (stock.in_stock !== true) {
                 return res.status(409).json({
                     success: false,
                     error: { code: 'OUT_OF_STOCK', message: 'Product is out of stock' },
@@ -1567,9 +1577,11 @@ class ConversationController {
 
             const rawPrice = Number(product.price);
             const priceLabel = Number.isFinite(rawPrice) ? `৳${rawPrice}` : '';
-            const stockLabel = product.track_quantity === true
-                ? `In stock (${Number(product.quantity)})`
-                : 'Available';
+            // Guard contract: quantity is null when tracking is disabled,
+            // a positive number otherwise (non-positive was rejected above).
+            const stockLabel = stock.quantity === null
+                ? 'Available'
+                : `In stock (${Number(stock.quantity)})`;
             const subtitle = [priceLabel, stockLabel].filter(Boolean).join(' · ').slice(0, 80);
             const candidateImages = Array.isArray(product.images) ? product.images : [];
             const imageCandidate = candidateImages.find((img) => isHttpsUrl(img))
