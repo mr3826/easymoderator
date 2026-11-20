@@ -180,4 +180,91 @@ describe('Admin shop diagnostics (WP-05 / R4)', () => {
         const serialized = JSON.stringify(res.body);
         expect(serialized).not.toMatch(/psid|token_ct|access_token|customer_name|customer_phone|email|page_access/i);
     });
+
+    // WP-05 regression: diagnostics must reflect the authoritative
+    // shops.ai_emergency_stop column, not the legacy settings-JSON blob.
+    describe('emergency stop state (WP-05)', () => {
+        // Model Sequelize's attribute projection: a findByPk with `attributes`
+        // returns ONLY those columns, so a query that omits ai_emergency_stop
+        // cannot see the flag — exactly how the original defect behaved.
+        const mockShopRowWithProjection = (row) => {
+            mockModels.Shop.findByPk.mockImplementation(async (_id, options = {}) => {
+                const attrs = options?.attributes;
+                if (!Array.isArray(attrs)) return { ...row };
+                return Object.fromEntries(
+                    attrs.filter((key) => key in row).map((key) => [key, row[key]]),
+                );
+            });
+        };
+
+        test('reports emergencyStopActive=true when the authoritative column is true', async () => {
+            mockShopRowWithProjection({
+                ...mockShop,
+                ai_emergency_stop: true,
+                settings: { ai: { automation_mode: 'MANUAL' } },
+            });
+
+            const res = await request(buildApp()).get(`/api/admin/shops/${mockShop.id}/diagnostics`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.data.ai).toHaveProperty('emergencyStopActive');
+            expect(res.body.data.ai.emergencyStopActive).toBe(true);
+            expect(res.body.data.ai.automationMode).toBe('MANUAL');
+        });
+
+        test('reports emergencyStopActive=false when the authoritative column is false', async () => {
+            mockShopRowWithProjection({
+                ...mockShop,
+                ai_emergency_stop: false,
+            });
+
+            const res = await request(buildApp()).get(`/api/admin/shops/${mockShop.id}/diagnostics`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.data.ai.emergencyStopActive).toBe(false);
+        });
+
+        test('selects the authoritative ai_emergency_stop column for the requested shop only', async () => {
+            await request(buildApp()).get(`/api/admin/shops/${mockShop.id}/diagnostics`);
+
+            expect(mockModels.Shop.findByPk).toHaveBeenCalledWith(
+                mockShop.id,
+                expect.objectContaining({
+                    attributes: expect.arrayContaining(['ai_emergency_stop']),
+                }),
+            );
+        });
+
+        test('column=false overrides a stale settings-JSON stop blob claiming active=true', async () => {
+            mockShopRowWithProjection({
+                ...mockShop,
+                ai_emergency_stop: false,
+                settings: {
+                    ai: { automation_mode: 'AUTO' },
+                    ai_emergency_stop: { active: true },
+                },
+            });
+
+            const res = await request(buildApp()).get(`/api/admin/shops/${mockShop.id}/diagnostics`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.data.ai.emergencyStopActive).toBe(false);
+        });
+
+        test('column=true overrides a settings-JSON stop blob claiming active=false', async () => {
+            mockShopRowWithProjection({
+                ...mockShop,
+                ai_emergency_stop: true,
+                settings: {
+                    ai: { automation_mode: 'MANUAL' },
+                    ai_emergency_stop: { active: false },
+                },
+            });
+
+            const res = await request(buildApp()).get(`/api/admin/shops/${mockShop.id}/diagnostics`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.data.ai.emergencyStopActive).toBe(true);
+        });
+    });
 });

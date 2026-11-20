@@ -539,7 +539,11 @@ async function getShopDiagnostics(shopId, windowParam = '24h') {
   }
 
   const shop = await Shop.findByPk(shopId, {
-    attributes: ['id', 'is_active', 'settings'],
+    // ai_emergency_stop is the authoritative bypass-proof stop flag (dedicated
+    // shops column, ADR-0013 §6) — NOT the legacy settings-JSON blob. Omitting
+    // it here made readEmergencyStopState() see undefined and report
+    // emergencyStopActive=false even while the stop was engaged (WP-05).
+    attributes: ['id', 'is_active', 'settings', 'ai_emergency_stop'],
   });
   if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
 
