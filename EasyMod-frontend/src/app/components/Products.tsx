@@ -253,7 +253,12 @@ export default function Products() {
       });
       setUploadProgress(90);
 
-      const extracted = result.products.map(mapExtractedProduct);
+      const extractedSource = Array.isArray(result)
+        ? result
+        : Array.isArray(result?.products)
+          ? result.products
+          : [];
+      const extracted = extractedSource.map(mapExtractedProduct);
       if (extracted.length === 0) {
         throw new Error(t('products.errors.noProductsExtracted'));
       }

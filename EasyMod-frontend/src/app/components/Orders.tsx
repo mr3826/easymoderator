@@ -998,6 +998,7 @@ export default function Orders() {
                     >
                       <option value="manual">{t('orders.createModal.channelManual')}</option>
                       <option value="facebook">{t('orders.createModal.channelFacebook')}</option>
+                      <option value="messenger">{t('orders.createModal.channelMessenger', 'Messenger')}</option>
                       <option value="webchat">{t('orders.createModal.channelWebChat')}</option>
                       <option value="telegram">{t('orders.createModal.channelTelegram')}</option>
                     </select>

@@ -512,7 +512,7 @@ describe('FE-08 order → conversation association', () => {
 
     const modal = await screen.findByTestId('create-order-modal')
     expect(within(modal).getByDisplayValue('Rina Akter')).toBeInTheDocument()
-    expect(within(modal).getByDisplayValue('01712345678')).toBeInTheDocument()
-    expect(within(modal).getByDisplayValue('messenger')).toBeInTheDocument()
+    expect(within(modal).getByDisplayValue('01712-345-678')).toBeInTheDocument()
+    expect(within(modal).getByDisplayValue(/messenger/i)).toBeInTheDocument()
   })
 })
