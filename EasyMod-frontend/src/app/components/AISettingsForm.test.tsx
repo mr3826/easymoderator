@@ -283,9 +283,7 @@ describe('AISettingsForm', () => {
     
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
     
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '80' } });
     
     const saveButton = screen.getByRole('button', { name: /Save Reply Settings/i });
     fireEvent.click(saveButton);
@@ -307,9 +305,7 @@ describe('AISettingsForm', () => {
     
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
     
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '80' } });
     
     const saveButton = screen.getByRole('button', { name: /Save Reply Settings/i });
     fireEvent.click(saveButton);
@@ -329,10 +325,6 @@ describe('AISettingsForm', () => {
     
     // Check that provided values are used
     expect(screen.getByText('80%')).toBeInTheDocument();
-    
-    // Check that defaults are merged for missing values
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    expect(maxOrderInput).toHaveValue(5000);
 
     expect(screen.getByTestId('ai-reply-mode-auto')).toHaveAttribute('aria-checked', 'true');
   });
@@ -355,9 +347,7 @@ describe('AISettingsForm', () => {
 
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
 
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '80' } });
     fireEvent.click(screen.getByRole('button', { name: /Save Reply Settings/i }));
 
     await waitFor(() => {
