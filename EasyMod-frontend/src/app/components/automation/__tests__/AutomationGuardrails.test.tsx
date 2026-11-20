@@ -160,24 +160,25 @@ describe('honest controls (§18)', () => {
     expect(screen.getByRole('button', { name: /Save Reply Settings/i })).not.toBeDisabled();
   });
 
-  it('drops the duplicate ask-email toggle and keeps the email option in Required Order Fields', async () => {
+  it('drops the unconsumed ask-email, max-auto-order, and required-fields controls', async () => {
     renderPage();
     await screen.findByRole('slider');
     expect(screen.queryByRole('switch', { name: 'Ask customer for email' })).toBeNull();
+    expect(screen.queryByLabelText(/Maximum automatic order value/i)).toBeNull();
+    expect(screen.queryByLabelText(/email address/i)).toBeNull();
     expect(screen.getAllByRole('switch')).toHaveLength(1);
-    expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
   });
 
-  it('derives the legacy ask_email scalar from the email checkbox on save', async () => {
+  it('preserves legacy ask_email and required_fields values untouched when saving', async () => {
+    vi.mocked(apiClient.getShopAISettings).mockResolvedValue(settings({ ask_email: true }) as never);
     renderPage();
-    const emailCheckbox = await screen.findByLabelText(/email address/i);
-    expect(emailCheckbox).not.toBeChecked();
-    fireEvent.click(emailCheckbox);
+    const closing = await screen.findByRole('switch', { name: 'Closing message' });
+    fireEvent.click(closing);
     fireEvent.click(screen.getByRole('button', { name: /Save Reply Settings/i }));
     await waitFor(() => expect(apiClient.updateShopAISettings).toHaveBeenCalled());
     expect(apiClient.updateShopAISettings).toHaveBeenCalledWith(expect.objectContaining({
       ask_email: true,
-      required_fields: expect.objectContaining({ email_address: true }),
+      required_fields: settings().required_fields,
     }));
   });
 
@@ -209,11 +210,11 @@ describe('honest controls (§18)', () => {
 });
 
 describe('honesty copy for settings the runtime never reads', () => {
-  it('states that the recorded-only fields are not enforced, and discloses the fixed confidence', async () => {
+  it('hides dead checkout/order-limit fields and discloses language and fixed confidence', async () => {
     renderPage();
     await screen.findByRole('slider');
-    expect(screen.getByText(/Order value does not limit automatic replies today/i)).toBeInTheDocument();
-    expect(screen.getByText(/Checkout does not ask for or enforce these fields today/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Order value does not limit automatic replies today/i)).toBeNull();
+    expect(screen.queryByText(/Checkout does not ask for or enforce these fields today/i)).toBeNull();
     expect(screen.getByText(/Replies follow the language the customer writes in/i)).toBeInTheDocument();
     expect(screen.getByText(/any threshold at or below 90% passes every reply/i)).toBeInTheDocument();
     // The unproven-AUTO claim copy is untouched.

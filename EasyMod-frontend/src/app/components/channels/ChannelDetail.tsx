@@ -930,7 +930,64 @@ export default function ChannelDetail() {
               <h3 className="text-sm font-semibold text-em-text-primary">
                 {t("manageShop.channels.detail.connection")}
               </h3>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <dl
+                data-testid="channel-connection-diagnostics"
+                className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-em-border bg-em-bg-muted p-3 text-xs sm:grid-cols-2"
+              >
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.statusLabel")}</dt>
+                  <dd className="mt-0.5 font-medium text-em-text-primary">
+                    {channel.status}
+                    {channel.needsReconnect && (
+                      <span className="ml-2 rounded bg-em-warning-100 px-1.5 py-0.5 text-[11px] font-medium text-em-warning-700">
+                        {t("manageShop.channels.detail.reconnectRequired")}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.permissionsLabel")}</dt>
+                  <dd className="mt-0.5 font-mono text-[11px] text-em-text-primary">
+                    {t("manageShop.channels.detail.permissionsScopes")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.webhookFieldsLabel")}</dt>
+                  <dd className="mt-0.5 font-medium text-em-text-primary">
+                    {channel.webhookSubscribedFields?.length
+                      ? channel.webhookSubscribedFields.join(", ")
+                      : t("channels.health.notVerified")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.webhookVerifiedLabel")}</dt>
+                  <dd className="mt-0.5 text-em-text-primary">
+                    {channel.webhookLastVerifiedAt
+                      ? new Date(channel.webhookLastVerifiedAt).toLocaleString()
+                      : t("channels.health.notVerified")}
+                  </dd>
+                </div>
+                {channel.tokenExpiresAt && (
+                  <div>
+                    <dt className="text-em-text-secondary">{t("manageShop.channels.detail.tokenExpiryLabel")}</dt>
+                    <dd className="mt-0.5 text-em-text-primary">
+                      {new Date(channel.tokenExpiresAt).toLocaleDateString()}
+                      {new Date(channel.tokenExpiresAt).getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000 && (
+                        <span className="ml-2 rounded bg-em-warning-100 px-1.5 py-0.5 text-[11px] font-medium text-em-warning-700">
+                          {t("manageShop.channels.detail.tokenExpiringSoon")}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {channel.lastError && (
+                  <div className="sm:col-span-2">
+                    <dt className="text-em-text-secondary">{t("manageShop.channels.detail.lastErrorLabel")}</dt>
+                    <dd className="mt-0.5 text-em-danger-700">{channel.lastError}</dd>
+                  </div>
+                )}
+              </dl>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => void connection.handleTestPipeline(channel.id)}
