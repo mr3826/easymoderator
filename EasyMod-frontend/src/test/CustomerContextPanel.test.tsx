@@ -274,4 +274,29 @@ describe('CustomerContextPanel', () => {
     await waitFor(() => expect(crmApi.setCustomerTags).toHaveBeenCalledWith('cust-1', ['tag-2']));
     await waitFor(() => expect(screen.getByText('Needs size help')).toBeInTheDocument());
   });
+
+  it('Create order button navigates to /orders prefilled with customer, conversation, and Page channel context', async () => {
+    render(
+      <CustomerContextPanel
+        conversation={conversation({
+          customer: { id: 'cust-1', name: 'Rina Akter', phone: '01712345678', channel_user_id: 'psid-1' },
+          metaChannel: { id: 'mc-1', display_name: 'Azal Boutique', platform: 'facebook' },
+        } as never)}
+      />,
+    );
+
+    const createOrderBtn = await screen.findByTestId('context-create-order');
+    fireEvent.click(createOrderBtn);
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const dest = navigate.mock.calls[0][0] as string;
+    expect(dest.startsWith('/orders?')).toBe(true);
+    const params = new URLSearchParams(dest.split('?')[1]);
+    expect(params.get('create')).toBe('1');
+    expect(params.get('customerId')).toBe('cust-1');
+    expect(params.get('customerName')).toBe('Rina Akter');
+    expect(params.get('customerPhone')).toBe('01712345678');
+    expect(params.get('conversationId')).toBe('conv-1');
+    expect(params.get('channelId')).toBe('mc-1');
+  });
 });

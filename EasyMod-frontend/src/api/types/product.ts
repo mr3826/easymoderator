@@ -14,7 +14,8 @@ export interface Product {
   variants?: unknown[];
   aliases?: string[];
   aiGenerated?: boolean;
-  confidence?: number;
+  ai_generated?: boolean;
+  confidence?: number | null;
   stock?: boolean;
   images?: string[];
   /**

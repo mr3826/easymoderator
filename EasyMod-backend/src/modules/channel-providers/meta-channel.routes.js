@@ -148,6 +148,12 @@ router.post(
     validate(v.channelIdParam),
     channelController.testWebhook
 );
+
+router.post(
+    '/:channelId/probe-interaction-fields',
+    validate(v.channelIdParam),
+    channelController.probeInteractionFields
+);
 router.get(
     '/:channelId/settings',
     validate(v.channelIdParam),
