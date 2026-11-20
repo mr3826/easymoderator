@@ -487,21 +487,28 @@ describe('transient queue failure keeps the event replayable', () => {
         expect(r.payload_encrypted).toMatch(/^v1:/);
         expect(mockMessage.create).toHaveBeenCalledTimes(1);
 
-        // The message is already durable; recovery must find it by external_id
-        // instead of storing a second copy.
-        mockMessage.findOne.mockResolvedValue({
-            id: 'msg-1',
-            conversation_id: 'conv-1',
-            external_id: `postback:${r.id}`,
-            conversation: {
-                id: 'conv-1',
-                shop_id: SHOP_ID,
-                customer_id: 'cust-1',
-                channel: 'messenger',
-                meta_channel_id: CHANNEL_ID,
-                metadata: { within_allowance: true },
-            },
-        });
+        // The message is already durable; recovery must find it by the
+        // receipt-scoped external_id instead of storing a second copy. The
+        // lookup mock is where-aware: a regression to the old mid-first
+        // derivation (postback.mid) would miss this row and fail below.
+        const replayExternalId = `postback:${r.id}`;
+        mockMessage.findOne.mockImplementation(async ({ where }) => (
+            where?.external_id === replayExternalId
+                ? {
+                    id: 'msg-1',
+                    conversation_id: 'conv-1',
+                    external_id: replayExternalId,
+                    conversation: {
+                        id: 'conv-1',
+                        shop_id: SHOP_ID,
+                        customer_id: 'cust-1',
+                        channel: 'messenger',
+                        meta_channel_id: CHANNEL_ID,
+                        metadata: { within_allowance: true },
+                    },
+                }
+                : null
+        ));
 
         dueNow(r);
         const result = await new WebhookReceiptReconcilerJob().execute();
@@ -510,6 +517,10 @@ describe('transient queue failure keeps the event replayable', () => {
         expect(r.status).toBe('QUEUED');
         expect(r.last_error_code).toBeNull();
         expect(r.payload_encrypted).toMatch(/^v1:/);
+        // Pin the replay lookup key itself, not just the outcome.
+        expect(mockMessage.findOne).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ external_id: replayExternalId }),
+        }));
         expect(mockMessage.create).toHaveBeenCalledTimes(1); // no duplicate business action
         expect(mockScheduleBurstFlush).toHaveBeenCalledTimes(2);
     });
