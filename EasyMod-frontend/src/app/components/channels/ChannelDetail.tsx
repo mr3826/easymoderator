@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Plus, Trash2, Unplug } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Copy, Loader2, Plus, Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import {
   channelQueryKeys,
@@ -153,6 +153,10 @@ export default function ChannelDetail() {
 
   const connection = useMetaChannelConnection();
   useDialogFocus(disconnectDialogRef, Boolean(connection.confirmDisconnect));
+  const interactionChoicesEnabled = settings?.interaction_choices === true;
+  const [mmeRefTag, setMmeRefTag] = useState("");
+
+  const sanitizedMmeRef = mmeRefTag.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 64);
 
   // "Refresh permissions" starts an OAuth round-trip whose completion UI lives
   // in the Advanced tab; switch there so the picker is never invisible (defect 3).
@@ -987,6 +991,50 @@ export default function ChannelDetail() {
                   </div>
                 )}
               </dl>
+              {interactionChoicesEnabled && channel.platform === "facebook" && channel.metaAssetId && (
+                <div
+                  data-testid="channel-mme-link-helper"
+                  className="mt-3 rounded-lg border border-em-border bg-em-bg-muted p-3 space-y-2"
+                >
+                  <div className="text-xs font-semibold text-em-text-primary">
+                    {t("manageShop.channels.detail.mmeLinkTitle")}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <label className="flex-1 text-xs text-em-text-secondary">
+                      <span>{t("manageShop.channels.detail.mmeRefLabel")}</span>
+                      <input
+                        type="text"
+                        value={mmeRefTag}
+                        onChange={(e) => setMmeRefTag(e.target.value)}
+                        placeholder={t("manageShop.channels.detail.mmeRefPlaceholder")}
+                        className="mt-1 w-full min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-xs text-em-text-primary focus-visible:outline-2 focus-visible:outline-em-violet-600 focus-visible:outline-offset-2"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `https://m.me/${channel.metaAssetId}${
+                          sanitizedMmeRef ? `?ref=${encodeURIComponent(sanitizedMmeRef)}` : ""
+                        }`;
+                        void navigator.clipboard?.writeText(url);
+                        toast.success(t("manageShop.channels.detail.mmeCopied"));
+                      }}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-xs font-medium text-em-text-primary hover:bg-em-bg-muted focus-visible:outline-2 focus-visible:outline-em-violet-600 focus-visible:outline-offset-2"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("manageShop.channels.detail.mmeCopyLink")}
+                    </button>
+                  </div>
+                  <p className="font-mono text-[11px] text-em-text-secondary break-all">
+                    {`https://m.me/${channel.metaAssetId}${
+                      sanitizedMmeRef ? `?ref=${encodeURIComponent(sanitizedMmeRef)}` : ""
+                    }`}
+                  </p>
+                  <p className="text-[11px] text-em-text-secondary">
+                    {t("manageShop.channels.detail.mmeRefHint")}
+                  </p>
+                </div>
+              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"

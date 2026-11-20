@@ -103,4 +103,11 @@ router.post(
     conversationController.createMessage
 );
 
+router.post(
+    '/:conversationId/product-card',
+    idempotencyMiddleware,
+    validate(conversationValidator.sendProductCard),
+    conversationController.sendProductCard
+);
+
 module.exports = router;

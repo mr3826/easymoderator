@@ -443,5 +443,20 @@ describe('ChannelDetail', () => {
     expect(diag).toHaveTextContent('pages_show_list, pages_manage_metadata, pages_messaging');
     expect(diag).toHaveTextContent('messages');
     expect(diag).not.toHaveTextContent('EAAG');
+    expect(screen.queryByTestId('channel-mme-link-helper')).not.toBeInTheDocument();
+  });
+
+  it('shows sanitized m.me referral helper on Advanced tab only when interaction_choices is true', async () => {
+    metaApi.getMetaChannelSettings.mockResolvedValue(
+      makeSettings({ interaction_choices: true }),
+    );
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+
+    const helper = await screen.findByTestId('channel-mme-link-helper');
+    const input = helper.querySelector('input')!;
+    fireEvent.change(input, { target: { value: 'eid campaign 2026!' } });
+    expect(helper).toHaveTextContent('https://m.me/page-1?ref=eidcampaign2026');
   });
 });

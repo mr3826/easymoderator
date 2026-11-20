@@ -850,9 +850,21 @@ class ConversationService {
             const assigneeNames = await this.loadAssigneeNames(mappedConversations.map((m) => m.assignee_id));
             for (const m of mappedConversations) m.assignee = assigneeNames.get(String(m.assignee_id)) || null;
 
+            let interactionChoicesEnabled = false;
+            try {
+                const { isInteractionChoicesEnabled } = require('../pilot-features/pilot-features.service');
+                if (typeof isInteractionChoicesEnabled === 'function') {
+                    interactionChoicesEnabled = (await isInteractionChoicesEnabled(shopId)) === true;
+                }
+            } catch (_) {
+                interactionChoicesEnabled = false;
+            }
+
             return {
                 conversations: mappedConversations,
-                ai_reply_mode: aiReplyMode,                pagination: {
+                ai_reply_mode: aiReplyMode,
+                interaction_choices: interactionChoicesEnabled,
+                pagination: {
                     total: conversations.count,
                     page,
                     limit,
