@@ -171,6 +171,24 @@ export default function Products() {
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
   const products = filteredProducts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
+  // WP-04: reset to the first page whenever an applied filter value changes.
+  // A stale page index beyond the filtered window slices to an empty table,
+  // and Pagination unmounts when totalPages <= 1 — leaving matching products
+  // unreachable. This matches the reset contract already used by clearFilters
+  // and the lowStockOnly toggle. Keyed on the primitive applied values (not the
+  // appliedFilters object) so re-applying identical filters keeps the page.
+  useEffect(() => {
+    setPage(1);
+  }, [
+    appliedSearchQuery,
+    appliedFilters.category_id,
+    appliedFilters.is_active,
+    appliedFilters.source,
+    appliedFilters.minPrice,
+    appliedFilters.maxPrice,
+    lowStockOnly,
+  ]);
+
   // Pagination component
   const Pagination = () => {
     if (totalPages <= 1) return null;
