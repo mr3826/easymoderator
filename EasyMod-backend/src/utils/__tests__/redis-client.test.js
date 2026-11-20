@@ -106,6 +106,37 @@ describe('validateRedisUrl (production)', () => {
         expect(publicWarnings()).toHaveLength(1);
     });
 
+    // Dotless IPv4 forms: getaddrinfo resolves these to 203.0.113.5 (public),
+    // so they must NOT be treated as internal single-label aliases.
+    it.each([
+        ['3405803781', 'integer IPv4'],
+        ['0xcb007105', 'hex IPv4'],
+        ['0XCB007105', 'hex IPv4 (uppercase prefix)'],
+    ])('warns for dotless IPv4 form %s (%s)', (host) => {
+        validateRedisUrl(`redis://${host}:6379`);
+        expect(publicWarnings()).toHaveLength(1);
+    });
+
+    it('warns for a trailing-dot public FQDN (cache.example.com.)', () => {
+        validateRedisUrl('redis://cache.example.com.:6379');
+        expect(publicWarnings()).toHaveLength(1);
+    });
+
+    it('warns for a public host behind userinfo (redis://user@host)', () => {
+        validateRedisUrl('redis://user@cache.example.com:6379');
+        expect(publicWarnings()).toHaveLength(1);
+    });
+
+    it('warns for an empty host (redis://)', () => {
+        validateRedisUrl('redis://');
+        expect(publicWarnings()).toHaveLength(1);
+    });
+
+    it('does not warn for an uppercase single-label alias without a port', () => {
+        validateRedisUrl('redis://REDIS');
+        expect(publicWarnings()).toHaveLength(0);
+    });
+
     it('does not warn outside production', () => {
         mockConfig.env = 'development';
         validateRedisUrl('redis://cache.example.com:6379');
