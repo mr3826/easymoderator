@@ -68,6 +68,48 @@ test('projects the live message before publishing and writing the SSE frame', as
     sseManager.unregister('shop-fixture', res);
 });
 
+// P0 sendProductCard contract — FLAGGED-FOR-PRIVACY-REVIEWER: product_card and
+// quick_replies are allowlisted merchant data and must survive SSE projection
+// for the owning shop, while private metadata stays stripped.
+test('preserves allowlisted product-card metadata through publish and frame projection', async () => {
+    const res = response();
+    sseManager.register('shop-fixture', res, 'user-fixture');
+    const productCard = {
+        product_id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+        title: 'Fixture Product',
+        subtitle: '৳1200 · Available',
+        image_url: 'https://assets.example.test/product.jpg',
+    };
+    const quickReplies = [{
+        content_type: 'text',
+        title: 'Order now',
+        payload: 'product:3f2504e0-4f89-41d3-9a0c-0305e82c3301:q:0',
+    }];
+    sseManager.emit('shop-fixture', 'new_message', {
+        conversation_id: 'conversation-fixture',
+        message: {
+            id: 'message-fixture',
+            shop_id: 'private-shop-fixture',
+            metadata: {
+                ...privateMetadata,
+                product_card: { ...productCard, internal_note: { fixture: 'private' } },
+                quick_replies: quickReplies.map((reply) => ({ ...reply, customer_phone: '+8801000000000' })),
+            },
+        },
+    });
+
+    const published = mockBus.publish.mock.calls[0][2];
+    expect(published.message.metadata).toEqual({
+        ...publicMetadata,
+        product_card: productCard,
+        quick_replies: quickReplies,
+    });
+    expect(published.message).not.toHaveProperty('shop_id');
+    expect(frameData(res)).toEqual(published);
+
+    sseManager.unregister('shop-fixture', res);
+});
+
 test('projects replayed message-delivery metadata before writing the SSE frame', async () => {
     const res = response();
     mockBus.getReplay.mockResolvedValue([{

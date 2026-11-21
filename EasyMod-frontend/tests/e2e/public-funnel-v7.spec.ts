@@ -284,10 +284,9 @@ test.describe('EasyModerator public funnel V7 — single delivered-order offer (
     await expect(offer.getByRole('radio')).toHaveCount(0);
     await expect(offer.getByRole('combobox')).toHaveCount(0);
 
-    await expect(page.getByRole('heading', { name: 'Choose only the pilot tools your shop needs', exact: true })).toBeVisible();
-    await expect(page.locator('section[aria-labelledby="optional-addons-title"] article')).toHaveCount(2);
-    await expect(page.getByRole('heading', { name: 'EasyModerator Ads Studio', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'EasyModerator Storefront', exact: true })).toBeVisible();
+    await expect(page.locator('section[aria-labelledby="optional-addons-title"]')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'EasyModerator Ads Studio', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'EasyModerator Storefront', exact: true })).toHaveCount(0);
 
     const cta = page.getByRole('link', { name: /create an easymoderator account/i });
     await expect(cta).toHaveAttribute('href', /\/signup\?lang=en$/);

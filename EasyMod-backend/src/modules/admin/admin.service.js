@@ -10,6 +10,7 @@ const subscriptionService = require('../subscription/subscription.service');
 const metaChannelService = require('../channel-providers/meta-channel.service');
 const shopService = require('../shop/shop.service');
 const { AI_REPLY_MODES } = require('../shop/ai-reply-mode');
+const { readEmergencyStopState } = require('../channel-providers/channel-automation.resolver');
 const { AppError } = require('../../utils/AppError');
 const { effectiveConversationLimit } = require('../subscription/subscription.access');
 const { countRecentDeliveredOrders } = require('../subscription/partner.service');
@@ -506,10 +507,190 @@ async function resumeAiEmergencyStop(shopId, adminUserId, { transaction = null }
   });
 }
 
+const DIAGNOSTIC_WINDOWS_HOURS = Object.freeze({
+  '24h': 24,
+  '7d': 24 * 7,
+});
+
+function aggregateGroupedCounts(rows, keyField) {
+  const byKey = {};
+  let total = 0;
+  for (const row of (rows || [])) {
+    const rawKey = row?.[keyField];
+    const key = rawKey === null || rawKey === undefined || rawKey === '' ? 'unknown' : String(rawKey);
+    const count = Number(row?.count ?? 0) || 0;
+    byKey[key] = (byKey[key] || 0) + count;
+    total += count;
+  }
+  return { total, byKey };
+}
+
+/**
+ * Read-only, aggregate-only operational diagnostics for one shop.
+ * Deliberately returns ZERO PII, PSIDs, tokens, customer identifiers, or raw messages.
+ */
+async function getShopDiagnostics(shopId, windowParam = '24h') {
+  const rawWindow = windowParam === undefined || windowParam === null || windowParam === ''
+    ? '24h'
+    : String(windowParam).trim().toLowerCase();
+  const windowHours = DIAGNOSTIC_WINDOWS_HOURS[rawWindow];
+  if (!windowHours) {
+    throw new AppError('Invalid diagnostics window. Use 24h or 7d.', 400, 'INVALID_DIAGNOSTICS_WINDOW');
+  }
+
+  const shop = await Shop.findByPk(shopId, {
+    // ai_emergency_stop is the authoritative bypass-proof stop flag (dedicated
+    // shops column, ADR-0013 §6) — NOT the legacy settings-JSON blob. Omitting
+    // it here made readEmergencyStopState() see undefined and report
+    // emergencyStopActive=false even while the stop was engaged (WP-05).
+    attributes: ['id', 'is_active', 'settings', 'ai_emergency_stop'],
+  });
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+
+  const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+  const entities = require('../entities');
+  const ConversationModel = entities.Conversation;
+  const CourierDispatchModel = entities.CourierDispatch;
+  let MetaWebhookReceiptModel = null;
+  try {
+    MetaWebhookReceiptModel = require('../integration/meta-webhook-receipt.entity');
+  } catch (_) {
+    MetaWebhookReceiptModel = null;
+  }
+
+  let settings = shop.settings;
+  if (typeof settings === 'string') {
+    try { settings = JSON.parse(settings); } catch (_) { settings = {}; }
+  }
+  const emergencyStop = readEmergencyStopState(shop);
+  const aiModeRaw = settings?.ai?.automation_mode;
+
+  const [
+    channelRows,
+    webhookStatusRows,
+    webhookTypeRows,
+    aiMessageRows,
+    orderRows,
+    dispatchRows,
+  ] = await Promise.all([
+    typeof MetaChannel?.findAll === 'function'
+      ? MetaChannel.findAll({
+        where: { shop_id: shopId },
+        attributes: ['id', 'status', 'token_expires_at'],
+        raw: true,
+      })
+      : Promise.resolve([]),
+    typeof MetaWebhookReceiptModel?.findAll === 'function'
+      ? MetaWebhookReceiptModel.findAll({
+        where: { shop_id: shopId, received_at: { [Op.gte]: since } },
+        attributes: ['status', [fn('COUNT', col('id')), 'count']],
+        group: ['status'],
+        raw: true,
+      })
+      : Promise.resolve([]),
+    typeof MetaWebhookReceiptModel?.findAll === 'function'
+      ? MetaWebhookReceiptModel.findAll({
+        where: { shop_id: shopId, received_at: { [Op.gte]: since } },
+        attributes: ['event_type', [fn('COUNT', col('id')), 'count']],
+        group: ['event_type'],
+        raw: true,
+      })
+      : Promise.resolve([]),
+    typeof Message?.findAll === 'function' && ConversationModel
+      ? Message.findAll({
+        where: { sender: 'ai', created_at: { [Op.gte]: since } },
+        attributes: ['delivery_state', [fn('COUNT', col('Message.id')), 'count']],
+        include: [{
+          model: ConversationModel,
+          as: 'conversation',
+          attributes: [],
+          required: true,
+          where: { shop_id: shopId },
+        }],
+        group: ['delivery_state'],
+        raw: true,
+      })
+      : Promise.resolve([]),
+    typeof Order?.findAll === 'function'
+      ? Order.findAll({
+        where: { shop_id: shopId, created_at: { [Op.gte]: since } },
+        attributes: ['order_status', [fn('COUNT', col('id')), 'count']],
+        group: ['order_status'],
+        raw: true,
+      })
+      : Promise.resolve([]),
+    typeof CourierDispatchModel?.findAll === 'function'
+      ? CourierDispatchModel.findAll({
+        where: { shop_id: shopId, created_at: { [Op.gte]: since } },
+        attributes: ['status', [fn('COUNT', col('id')), 'count']],
+        group: ['status'],
+        raw: true,
+      })
+      : Promise.resolve([]),
+  ]);
+
+  const nowMs = Date.now();
+  const channelByStatus = {};
+  let connectedChannels = 0;
+  let needsReconnectChannels = 0;
+  let expiredTokenChannels = 0;
+  for (const ch of (channelRows || [])) {
+    const st = String(ch.status || 'UNKNOWN');
+    channelByStatus[st] = (channelByStatus[st] || 0) + 1;
+    if (st === 'CONNECTED') connectedChannels += 1;
+    if (st !== 'CONNECTED' && st !== 'DISCONNECTED') needsReconnectChannels += 1;
+    if (ch.token_expires_at && new Date(ch.token_expires_at).getTime() <= nowMs) {
+      expiredTokenChannels += 1;
+    }
+  }
+
+  const webhookByStatus = aggregateGroupedCounts(webhookStatusRows, 'status');
+  const webhookByEventType = aggregateGroupedCounts(webhookTypeRows, 'event_type');
+  const outboundAi = aggregateGroupedCounts(aiMessageRows, 'delivery_state');
+  const ordersAgg = aggregateGroupedCounts(orderRows, 'order_status');
+  const dispatchesAgg = aggregateGroupedCounts(dispatchRows, 'status');
+
+  return {
+    shopId: shop.id,
+    isActive: shop.is_active !== false,
+    window: rawWindow,
+    since: since.toISOString(),
+    generatedAt: new Date().toISOString(),
+    ai: {
+      automationMode: aiModeRaw || AI_REPLY_MODES.MANUAL,
+      emergencyStopActive: Boolean(emergencyStop?.active),
+    },
+    channels: {
+      total: (channelRows || []).length,
+      connected: connectedChannels,
+      needsReconnect: needsReconnectChannels,
+      tokenExpired: expiredTokenChannels,
+      byStatus: channelByStatus,
+    },
+    webhooks: {
+      total: webhookByStatus.total,
+      byStatus: webhookByStatus.byKey,
+      byEventType: webhookByEventType.byKey,
+    },
+    outboundAiMessages: {
+      total: outboundAi.total,
+      byDeliveryState: outboundAi.byKey,
+    },
+    orders: {
+      total: ordersAgg.total,
+      byStatus: ordersAgg.byKey,
+    },
+    courierDispatches: {
+      total: dispatchesAgg.total,
+      byStatus: dispatchesAgg.byKey,
+    },
+  };
+}
+
 module.exports = {
   // reads
   getDashboard, getMetaIdentityReadiness, listShops, getShopOverview,
-  getShopChannels, getShopBilling, getAuditLogs,
+  getShopChannels, getShopBilling, getAuditLogs, getShopDiagnostics,
   // mutations
   setShopStatus, addCredits, changePlan, markChannelReconnect,
   emergencyDisableAi, resumeAiEmergencyStop,

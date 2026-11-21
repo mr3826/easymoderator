@@ -148,6 +148,126 @@ test('projects message metadata for live, replay, and other message-shaped SSE e
     });
 });
 
+// P0 sendProductCard contract — FLAGGED-FOR-PRIVACY-REVIEWER: these fields are
+// allowlisted so the owning shop's readers keep receiving the deployed
+// product-card payload. The independent privacy reviewer must approve or veto.
+const productCardMetadata = {
+    product_card: {
+        product_id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+        title: 'Fixture Product',
+        subtitle: '৳1200 · In stock (4)',
+        image_url: 'https://assets.example.test/product.jpg',
+        internal_note: { fixture: 'private' },
+        cost_price: 900,
+    },
+    quick_replies: [
+        {
+            content_type: 'text',
+            title: 'Order now',
+            payload: 'product:3f2504e0-4f89-41d3-9a0c-0305e82c3301:q:0',
+            customer_phone: '+8801000000000',
+        },
+        {
+            title: 'Confirm order',
+            content_type: 'text',
+            payload: 'p1:3f2504e0-4f89-41d3-9a0c-0305e82c3301:checkout.confirm',
+        },
+    ],
+    confidence_score: 0.91,
+    grounding_knowledge_ids: ['knowledge-fixture'],
+};
+
+const expectedProductCardMetadata = {
+    product_card: {
+        product_id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+        title: 'Fixture Product',
+        subtitle: '৳1200 · In stock (4)',
+        image_url: 'https://assets.example.test/product.jpg',
+    },
+    quick_replies: [
+        {
+            content_type: 'text',
+            title: 'Order now',
+            payload: 'product:3f2504e0-4f89-41d3-9a0c-0305e82c3301:q:0',
+        },
+        {
+            title: 'Confirm order',
+            content_type: 'text',
+            payload: 'p1:3f2504e0-4f89-41d3-9a0c-0305e82c3301:checkout.confirm',
+        },
+    ],
+};
+
+test('preserves the P0 product_card and quick_replies metadata for public readers', () => {
+    expect(projectPublicMessageMetadata(productCardMetadata)).toEqual(expectedProductCardMetadata);
+});
+
+test('product-card allowlisting does not open a passthrough for unknown or private fields', () => {
+    const projected = projectPublicMessageMetadata({
+        ...productCardMetadata,
+        shop_id: 'other-shop-fixture',
+        external_id: 'private-external-fixture',
+        other_shop_diagnostics: { fixture: 'private' },
+    });
+    expect(projected).toEqual(expectedProductCardMetadata);
+    expect(projected).not.toHaveProperty('shop_id');
+    expect(projected).not.toHaveProperty('external_id');
+    expect(projected).not.toHaveProperty('other_shop_diagnostics');
+    expect(projected).not.toHaveProperty('confidence_score');
+    expect(projected).not.toHaveProperty('grounding_knowledge_ids');
+});
+
+test('strips malformed product-card values and PII-requesting quick-reply types', () => {
+    expect(projectPublicMessageMetadata({
+        product_card: 'not-a-record',
+        quick_replies: 'not-an-array',
+    })).toEqual({ product_card: null });
+    expect(projectPublicMessageMetadata({
+        product_card: { title: { fixture: 'private' }, subtitle: 42 },
+        quick_replies: [
+            { title: 'Share phone', content_type: 'user_phone_number', payload: 'ask-phone' },
+            { content_type: 'text', payload: 'titleless-fixture' },
+            { title: 'Keep', content_type: 'text', payload: 'p1:fixture:opt', extra: 'private' },
+            'not-a-record',
+        ],
+    })).toEqual({
+        product_card: null,
+        quick_replies: [
+            { title: 'Share phone', payload: 'ask-phone' },
+            { title: 'Keep', content_type: 'text', payload: 'p1:fixture:opt' },
+        ],
+    });
+});
+
+test('projects product-card metadata through live SSE message events', () => {
+    const projected = projectPublicMessageEvent('new_message', {
+        conversation_id: 'conversation-fixture',
+        message: {
+            id: 'message-fixture',
+            content: 'Fixture Product (৳1200 · In stock (4))',
+            sender: 'agent',
+            shop_id: 'private-shop-fixture',
+            send_idempotency_key: 'private-idempotency-fixture',
+            metadata: productCardMetadata,
+        },
+    });
+    expect(projected.message.metadata).toEqual(expectedProductCardMetadata);
+    expect(projected.message).not.toHaveProperty('shop_id');
+    expect(projected.message).not.toHaveProperty('send_idempotency_key');
+
+    expect(projectPublicMessageEvent('message_delivery_updated', {
+        message_id: 'message-fixture',
+        metadata: productCardMetadata,
+    })).toEqual({ message_id: 'message-fixture', metadata: expectedProductCardMetadata });
+});
+
+test('keeps the PUBLIC_MESSAGE_FIELDS loop literal required by verify_reader_projection_source', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'internal-message-metadata.js'), 'utf8');
+    expect(source).toContain('for (const field of PUBLIC_MESSAGE_FIELDS)');
+});
+
 test('normalizes persisted decimal confidence strings in SSE messages', () => {
     const projected = projectPublicMessageEvent('new_message', {
         message: { id: 'message-fixture', ai_confidence: '0.93' },

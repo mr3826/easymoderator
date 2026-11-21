@@ -146,30 +146,18 @@ describe('AISettingsForm', () => {
     expect(screen.getByText('80%')).toBeInTheDocument();
   });
 
-  it('updates max auto order value on input change', async () => {
-    render(<AISettingsForm {...defaultProps} />);
-    
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
-    
-    expect(maxOrderInput).toHaveValue(10000);
+  it('omits unconsumed max_auto_order_value and required_fields controls', async () => {
+    render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
+
+    expect(screen.queryByLabelText(/Maximum automatic order value/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/customer name/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/email address/i)).not.toBeInTheDocument();
   });
 
   it('does not render a redundant auto-reply toggle', async () => {
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
 
     expect(screen.queryByText('Automatic replies enabled')).not.toBeInTheDocument();
-  });
-
-  it('toggles required fields checkboxes', async () => {
-    render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
-    
-    const customerNameCheckbox = screen.getByLabelText(/customer name/i);
-    expect(customerNameCheckbox).toBeChecked();
-    
-    fireEvent.click(customerNameCheckbox);
-    expect(customerNameCheckbox).not.toBeChecked();
   });
 
   it('expands handoff settings section on click', async () => {
@@ -227,9 +215,8 @@ describe('AISettingsForm', () => {
   it('enables save button when settings change', async () => {
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
     
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '80' } });
     
     const saveButton = screen.getByRole('button', { name: /Save Reply Settings/i });
     expect(saveButton).not.toBeDisabled();
@@ -240,16 +227,15 @@ describe('AISettingsForm', () => {
     
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
     
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '80' } });
     
     const saveButton = screen.getByRole('button', { name: /Save Reply Settings/i });
     fireEvent.click(saveButton);
     
     await waitFor(() => {
       expect(mockOnSave).toHaveBeenCalledWith(expect.objectContaining({
-        max_auto_order_value: 10000,
+        confidence_threshold: 80,
         automation_mode: 'DRAFT',
         auto_reply_enabled: false,
       }));
@@ -297,9 +283,7 @@ describe('AISettingsForm', () => {
     
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
     
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '80' } });
     
     const saveButton = screen.getByRole('button', { name: /Save Reply Settings/i });
     fireEvent.click(saveButton);
@@ -321,9 +305,7 @@ describe('AISettingsForm', () => {
     
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
     
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '80' } });
     
     const saveButton = screen.getByRole('button', { name: /Save Reply Settings/i });
     fireEvent.click(saveButton);
@@ -343,10 +325,6 @@ describe('AISettingsForm', () => {
     
     // Check that provided values are used
     expect(screen.getByText('80%')).toBeInTheDocument();
-    
-    // Check that defaults are merged for missing values
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    expect(maxOrderInput).toHaveValue(5000);
 
     expect(screen.getByTestId('ai-reply-mode-auto')).toHaveAttribute('aria-checked', 'true');
   });
@@ -369,9 +347,7 @@ describe('AISettingsForm', () => {
 
     render(<AISettingsForm {...defaultProps} initialData={defaultSettings} />);
 
-    const maxOrderInput = screen.getByLabelText(/Maximum automatic order value/i);
-    await userEvent.clear(maxOrderInput);
-    await userEvent.type(maxOrderInput, '10000');
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '80' } });
     fireEvent.click(screen.getByRole('button', { name: /Save Reply Settings/i }));
 
     await waitFor(() => {
@@ -379,8 +355,10 @@ describe('AISettingsForm', () => {
     });
   });
 
-  it('deep merges required_fields correctly', async () => {
+  it('preserves stored required_fields and legacy ask_email untouched on save', async () => {
+    mockOnSave.mockResolvedValue({});
     const partialData: Partial<ShopAISettings> = {
+      ask_email: true,
       required_fields: {
         customer_name: false,
         mobile_number: true,
@@ -392,12 +370,15 @@ describe('AISettingsForm', () => {
     };
 
     render(<AISettingsForm {...defaultProps} initialData={partialData} />);
-    
-    const customerNameCheckbox = screen.getByLabelText(/customer name/i);
-    expect(customerNameCheckbox).not.toBeChecked();
-    
-    const emailCheckbox = screen.getByLabelText(/email address/i);
-    expect(emailCheckbox).toBeChecked();
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '85' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Reply Settings/i }));
+
+    await waitFor(() => {
+      expect(mockOnSave).toHaveBeenCalledWith(expect.objectContaining({
+        ask_email: true,
+        required_fields: partialData.required_fields,
+      }));
+    });
   });
 
   it('updates cooldown minutes in handoff settings', async () => {

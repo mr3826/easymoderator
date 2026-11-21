@@ -19,6 +19,7 @@ import type { AxiosResponse } from 'axios';
 interface ConversationListBody {
   conversations?: Conversation[];
   ai_reply_mode?: unknown;
+  interaction_choices?: boolean;
   pagination?: {
     total?: number;
     page?: number;
@@ -29,20 +30,27 @@ interface ConversationListBody {
 }
 
 type ConversationListResponse =
-  | (PaginatedResponse<Conversation> & { ai_reply_mode?: unknown })
+  | (PaginatedResponse<Conversation> & { ai_reply_mode?: unknown; interaction_choices?: boolean })
   | ConversationListBody;
 
 export interface ConversationsResponse extends PaginatedResponse<Conversation> {
   ai_reply_mode: AiReplyMode;
+  interaction_choices?: boolean;
 }
 
 function normalizeConversationList(
   body: ConversationListResponse | undefined
 ): ConversationsResponse {
+  const interactionChoices =
+    body && 'interaction_choices' in body && typeof body.interaction_choices === 'boolean'
+      ? { interaction_choices: body.interaction_choices }
+      : {};
+
   if (body && 'data' in body && Array.isArray(body.data)) {
     return {
       ...body,
       ai_reply_mode: normalizeAiReplyMode(body.ai_reply_mode),
+      ...interactionChoices,
     };
   }
 
@@ -57,6 +65,7 @@ function normalizeConversationList(
     page: pagination?.page ?? 1,
     pageSize: pagination?.pageSize ?? pagination?.limit ?? conversations.length,
     ai_reply_mode: normalizeAiReplyMode(body && 'ai_reply_mode' in body ? body.ai_reply_mode : undefined),
+    ...interactionChoices,
   };
 }
 
@@ -118,6 +127,21 @@ export async function createMessage(
       { headers: { 'Idempotency-Key': options.idempotencyKey }, __skipGlobalErrorToast: true },
     )
     : await httpClient.post(`/api/conversation/${conversationId}/messages`, message, { __skipGlobalErrorToast: true });
+  return response.data.data;
+}
+
+export async function sendProductCard(
+  conversationId: string,
+  payload: { product_id: string; quick_replies?: string[] },
+  options?: { idempotencyKey?: string },
+): Promise<Message> {
+  const response: AxiosResponse<ApiResponse<Message>> = options?.idempotencyKey
+    ? await httpClient.post(
+      `/api/conversation/${conversationId}/product-card`,
+      payload,
+      { headers: { 'Idempotency-Key': options.idempotencyKey }, __skipGlobalErrorToast: true },
+    )
+    : await httpClient.post(`/api/conversation/${conversationId}/product-card`, payload, { __skipGlobalErrorToast: true });
   return response.data.data;
 }
 

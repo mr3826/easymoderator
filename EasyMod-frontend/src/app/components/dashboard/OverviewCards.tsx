@@ -1,6 +1,6 @@
 /**
  * Business overview (guardrails §21.1): every metric links to a workflow.
- * Orders today → /reports; cash-position cards → /orders. Cash cards stay
+ * Orders today and cash-position cards → /orders. Cash cards stay
  * <section> elements with label + value together (pinned by unit tests) and
  * keep the derivation note — these are order-status derived, not settled cash.
  * The optional 30-day sparkline uses chartData already present in the metrics
@@ -115,7 +115,7 @@ export function OverviewCards({ ordersToday, cashPosition, chartData, formatCurr
       </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Link
-          to="/reports"
+          to="/orders"
           className="block min-h-[112px] rounded-xl border border-em-border bg-em-bg-app p-4 hover:border-em-violet-300 hover:bg-em-violet-50"
         >
           <p className="text-sm font-semibold text-em-text-secondary">{t("dashboard.pulse.overview.ordersToday")}</p>
@@ -123,7 +123,7 @@ export function OverviewCards({ ordersToday, cashPosition, chartData, formatCurr
             {ordersToday === null ? t("dashboard.pulse.cashPosition.unavailable") : formatCount(ordersToday)}
           </p>
           <OrdersSparkline chartData={chartData} />
-          <p className="mt-2 text-xs font-semibold text-em-violet-700">{t("dashboard.pulse.overview.openReports")}</p>
+          <p className="mt-2 text-xs font-semibold text-em-violet-700">{t("dashboard.pulse.attention.openOrders")}</p>
         </Link>
         <CashPositionCard
           label={t("dashboard.pulse.cashPosition.inTransit")}
