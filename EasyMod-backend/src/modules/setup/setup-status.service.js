@@ -213,10 +213,20 @@ function messageEvidenceScope(shopId) {
     };
 }
 
+/**
+ * A provider-accepted reply that counts toward OPERATIONAL truth must be a
+ * real merchant-approved send on the SAME row (A5-1): delivery_source
+ * 'DRAFT_APPROVAL' (only the approval flow writes it), SENT/DELIVERED, and a
+ * non-empty provider_message_id. AUTO and HITL_ESCALATION sends are excluded —
+ * verified_operational can never light up from a reply nobody approved. The
+ * P05 launch contract runs DRAFT + approval (AUTO is not enabled), so this
+ * matches the intended contract and the FE copy.
+ */
 function providerAcceptedWhere(shopId, extra = {}) {
     return {
         where: {
             sender: 'ai',
+            delivery_source: 'DRAFT_APPROVAL',
             delivery_state: { [Op.in]: PROVIDER_ACCEPTED_STATES },
             provider_message_id: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] },
             ...extra,
@@ -310,14 +320,21 @@ async function getSetupStatus({ shopId, userId }) {
             attributes: ['created_at'],
             order: [['created_at', 'DESC']],
         }),
+        // Failures are windowed like positive evidence (A5-3): a single
+        // historical FAILED approved send must not pin action_required
+        // forever — a fresh verified test re-earns verified_operational.
         Message.count({
             where: {
                 sender: 'ai',
                 delivery_source: 'DRAFT_APPROVAL',
                 delivery_state: MESSAGE_DELIVERY_STATES.FAILED,
+                created_at: { [Op.gte]: evidenceWindowStart },
             },
             ...messageEvidenceScope(shopId),
         }),
+        // NEEDS_RECONCILIATION is a CURRENT unresolved state (settled rows
+        // leave it), so it stays unwindowed: an unresolved stuck delivery is
+        // action_required no matter when it started. Fail-closed direction.
         InboxDeliveryOutbox.count({
             where: { shop_id: shopId, status: 'NEEDS_RECONCILIATION' },
         }),
@@ -372,13 +389,18 @@ async function getSetupStatus({ shopId, userId }) {
     ];
 
     const webhookLastVerifiedAt = isoOrNull(mostRecentWebhookVerification?.webhook_last_verified_at);
-    const lastProviderAcceptedAt = isoOrNull(latestAcceptedAiMessage?.created_at);
+    // The model exposes no acceptance timestamp (updatedAt is off; the
+    // trigger-maintained DB column is not surfaced), so this is honestly the
+    // CREATION time of the newest accepted reply, not the moment of
+    // acceptance (A5-4) — name it as such rather than mislabelling it.
+    const lastAcceptedReplyCreatedAt = isoOrNull(latestAcceptedAiMessage?.created_at);
 
     // The operational ladder reads EXISTING records only:
     //   webhook  — MetaChannel.webhook_last_verified_at (confirmWebhookActive)
     //   draft    — Message.delivery_state DRAFT_READY+ (message-lifecycle)
     //   approval — Message.delivery_source DRAFT_APPROVAL (approval flow)
-    //   provider — SENT/DELIVERED + provider_message_id (isProviderConfirmed)
+    //   provider — APPROVED (delivery_source='DRAFT_APPROVAL') + SENT/DELIVERED
+    //              + provider_message_id (isProviderConfirmed on an approved send)
     //   failure  — FAILED approved sends / stuck outbox reconciliations
     // Missing evidence keeps the shop below verified_operational; it is never
     // back-filled from configuration.
@@ -438,7 +460,7 @@ async function getSetupStatus({ shopId, userId }) {
                 draftsApproved,
                 providerAcceptedEver: aiMessagesAcceptedEver,
                 providerAcceptedWithinWindow: aiMessagesAcceptedRecently,
-                lastProviderAcceptedAt,
+                lastAcceptedReplyCreatedAt,
                 approvedSendFailures: failedApprovedSends,
                 outboxNeedsReconciliation: stuckOutboxDeliveries,
             },
@@ -472,7 +494,7 @@ async function getSetupStatus({ shopId, userId }) {
  * Legacy onboarding contract. Field names are kept for API compatibility, but
  * the values are no longer fabricated:
  *   - knowledge_added          ← active FAQ answers (was: product count)
- *   - assistant_test_completed ← a REAL merchant-approved, provider-accepted
+ *   - assistant_test_completed ← one REAL same-row approved + provider-accepted
  *                                reply (was: "AI settings exist")
  *   - ai_messages              ← real provider-accepted AI sends (was: 0)
  * `completed`/`can_complete` still gate on configuration (unchanged meaning);
@@ -489,8 +511,11 @@ function toLegacyOnboardingStatus(setupStatus) {
     const counts = normalizeObject(setupStatus.counts);
     const operational = normalizeObject(setupStatus.operational);
     const assistant = normalizeObject(operational.evidence?.assistant);
+    // providerAcceptedEver is already the SAME-ROW joined condition
+    // (delivery_source='DRAFT_APPROVAL' AND SENT/DELIVERED AND a real
+    // provider_message_id), so this check can no longer be true while the
+    // ladder reports action_required from an approved-but-failed send (A5-2).
     const providerAccepted = Number(assistant.providerAcceptedEver || 0);
-    const draftsApproved = Number(assistant.draftsApproved || 0);
     const activeFaqs = Number(counts.activeFaqs || 0);
 
     return {
@@ -500,7 +525,7 @@ function toLegacyOnboardingStatus(setupStatus) {
             facebook_connected: Boolean(taskStatus[TASK_KEYS.CONNECT_CHANNEL]),
             business_info_added: Boolean(taskStatus[TASK_KEYS.SHOP_PROFILE]),
             knowledge_added: activeFaqs > 0,
-            assistant_test_completed: draftsApproved > 0 && providerAccepted > 0,
+            assistant_test_completed: providerAccepted > 0,
         },
         missing,
         counts: {

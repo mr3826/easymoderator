@@ -44,7 +44,7 @@ function mockEvidence({
     draftsApproved = 0,
     aiMessagesAcceptedEver = 0,
     aiMessagesAcceptedRecently = 0,
-    lastProviderAcceptedAt = null,
+    lastAcceptedReplyCreatedAt = null,
     failedApprovedSends = 0,
     outboxNeedsReconciliation = 0,
 } = {}) {
@@ -63,7 +63,7 @@ function mockEvidence({
         .mockResolvedValueOnce(aiMessagesAcceptedEver)
         .mockResolvedValueOnce(aiMessagesAcceptedRecently);
     Message.findOne.mockResolvedValueOnce(
-        lastProviderAcceptedAt ? { created_at: lastProviderAcceptedAt } : null,
+        lastAcceptedReplyCreatedAt ? { created_at: lastAcceptedReplyCreatedAt } : null,
     );
     Message.count.mockResolvedValueOnce(failedApprovedSends);
     InboxDeliveryOutbox.count.mockResolvedValueOnce(outboxNeedsReconciliation);
@@ -311,7 +311,7 @@ describe('setup-status.service', () => {
             .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'OPERATIONAL_TEST_FAILED' })]));
     });
 
-    it('only counts provider acceptance from SENT/DELIVERED rows that carry a provider_message_id', async () => {
+    it('only counts provider acceptance from APPROVED SENT/DELIVERED rows that carry a provider_message_id (A5-1)', async () => {
         mockShop({ businessInfo: readyBusinessInfo });
         mockEvidence();
 
@@ -322,10 +322,13 @@ describe('setup-status.service', () => {
             .filter((options) => options?.where?.provider_message_id !== undefined);
 
         // Exactly the all-time and within-window acceptance counts filter on
-        // provider_message_id, and every acceptance query requires a real id.
+        // provider_message_id, and every acceptance query requires a real id
+        // AND delivery_source='DRAFT_APPROVAL' on the SAME row — an AUTO or
+        // HITL_ESCALATION send never verifies operationally.
         expect(providerQueries).toHaveLength(2);
         for (const options of providerQueries) {
             expect(options.where.sender).toBe('ai');
+            expect(options.where.delivery_source).toBe('DRAFT_APPROVAL');
             expect(options.where.delivery_state[Op.in]).toEqual(
                 expect.arrayContaining(['SENT', 'DELIVERED']),
             );
@@ -390,6 +393,39 @@ describe('setup-status.service', () => {
         expect(completed.completed).toBe(true);
         expect(completed.can_complete).toBe(true);
         expect(completed.missing).toEqual([]);
+    });
+
+    it('keeps assistant_test_completed consistent with an action_required ladder (A5-2 contradiction pin)', () => {
+        // Shape after A5-1 for "an approved send FAILED while an unrelated
+        // AUTO send got accepted": the approved+accepted SAME-ROW count is 0,
+        // so the legacy check must be false while the ladder is action_required
+        // — the old two-independent-counts version could call this completed.
+        const contradicted = setupStatusService.toLegacyOnboardingStatus({
+            isComplete: true,
+            counts: { connectedFacebookPages: 1, activeProducts: 3, activeFaqs: 1 },
+            tasks: [
+                { key: 'connect_channel', status: 'complete' },
+                { key: 'shop_profile', status: 'complete' },
+                { key: 'first_product', status: 'complete' },
+                { key: 'ai_settings', status: 'complete' },
+            ],
+            operational: {
+                state: OPERATIONAL_STATES.ACTION_REQUIRED,
+                operationalVerified: false,
+                evidence: {
+                    assistant: {
+                        draftsApproved: 1,
+                        providerAcceptedEver: 0,
+                        providerAcceptedWithinWindow: 0,
+                        approvedSendFailures: 1,
+                    },
+                },
+            },
+        });
+
+        expect(contradicted.checks.assistant_test_completed).toBe(false);
+        expect(contradicted.counts.ai_messages).toBe(0);
+        expect(contradicted.operational_verified).toBe(false);
     });
 
     it('fails closed when an old-shape status carries no operational evidence at all', () => {

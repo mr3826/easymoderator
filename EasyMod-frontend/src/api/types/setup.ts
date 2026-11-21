@@ -47,7 +47,9 @@ export interface SetupOperationalEvidence {
     draftsApproved: number;
     providerAcceptedEver: number;
     providerAcceptedWithinWindow: number;
-    lastProviderAcceptedAt: string | null;
+    /** Creation time of the newest approved+accepted reply — the message
+     *  model carries no acceptance timestamp, so the name says what it is. */
+    lastAcceptedReplyCreatedAt: string | null;
     approvedSendFailures: number;
     outboxNeedsReconciliation: number;
   };

@@ -237,7 +237,7 @@ describe('setup-status operational truth (P04, real Postgres)', () => {
         expect(status.operational.state).toBe(OPERATIONAL_STATES.VERIFIED_OPERATIONAL);
         expect(status.operational.operationalVerified).toBe(true);
         expect(status.operational.evidence.assistant.providerAcceptedWithinWindow).toBe(1);
-        expect(status.operational.evidence.assistant.lastProviderAcceptedAt).toBeTruthy();
+        expect(status.operational.evidence.assistant.lastAcceptedReplyCreatedAt).toBeTruthy();
 
         const legacy = setupStatusService.toLegacyOnboardingStatus(status);
         expect(legacy.checks.assistant_test_completed).toBe(true);
@@ -277,6 +277,80 @@ describe('setup-status operational truth (P04, real Postgres)', () => {
         expect(status.operational.evidence.assistant.providerAcceptedWithinWindow).toBe(0);
         expect(status.operational.operationalVerified).toBe(false);
         expect(status.operational.state).toBe(OPERATIONAL_STATES.WAITING_FOR_TEST);
+    });
+
+    it('(e4) AUTO and HITL_ESCALATION provider accepts never verify operationally (A5-1)', async () => {
+        await stampWebhookVerified();
+        const conversation = await seedConversation(IDS.shopA, IDS.channelA);
+        await seedAiMessage(conversation, {
+            deliveryState: 'SENT',
+            deliverySource: 'AUTO',
+            providerMessageId: `pmid-auto-${uuid().slice(0, 8)}`,
+        });
+        await seedAiMessage(conversation, {
+            deliveryState: 'SENT',
+            deliverySource: 'HITL_ESCALATION',
+            providerMessageId: `pmid-hitl-${uuid().slice(0, 8)}`,
+        });
+
+        const status = await freshSetupStatus();
+
+        expect(status.isComplete).toBe(true);
+        expect(status.operational.state).toBe(OPERATIONAL_STATES.WAITING_FOR_TEST);
+        expect(status.operational.operationalVerified).toBe(false);
+        expect(status.operational.evidence.assistant.providerAcceptedEver).toBe(0);
+        expect(status.operational.evidence.assistant.providerAcceptedWithinWindow).toBe(0);
+
+        const legacy = setupStatusService.toLegacyOnboardingStatus(status);
+        expect(legacy.checks.assistant_test_completed).toBe(false);
+        expect(legacy.counts.ai_messages).toBe(0);
+    });
+
+    it('(e5) approved-FAILED plus unrelated AUTO accept: action_required AND no assistant_test_completed (A5-2)', async () => {
+        // Exactly the contradiction A5 flagged under the old two-independent-
+        // counts legacy mapping: the ladder says action_required while some
+        // non-approved reply was accepted. Now both read the same-row join.
+        await stampWebhookVerified();
+        const conversation = await seedConversation(IDS.shopA, IDS.channelA);
+        await seedAiMessage(conversation, {
+            deliveryState: 'FAILED',
+            deliverySource: 'DRAFT_APPROVAL',
+        });
+        await seedAiMessage(conversation, {
+            deliveryState: 'SENT',
+            deliverySource: 'AUTO',
+            providerMessageId: `pmid-auto-${uuid().slice(0, 8)}`,
+        });
+
+        const status = await freshSetupStatus();
+        const legacy = setupStatusService.toLegacyOnboardingStatus(status);
+
+        expect(status.operational.state).toBe(OPERATIONAL_STATES.ACTION_REQUIRED);
+        expect(status.operational.operationalVerified).toBe(false);
+        expect(legacy.checks.assistant_test_completed).toBe(false);
+        expect(legacy.counts.ai_messages).toBe(0);
+        expect(legacy.operational_verified).toBe(false);
+    });
+
+    it('(e6) a stale approved failure does not pin action_required once a fresh approved reply verifies (A5-3)', async () => {
+        await stampWebhookVerified();
+        const conversation = await seedConversation(IDS.shopA, IDS.channelA);
+        await seedAiMessage(conversation, {
+            deliveryState: 'FAILED',
+            deliverySource: 'DRAFT_APPROVAL',
+            createdAt: new Date(Date.now() - 60 * DAY),
+        });
+        await seedAiMessage(conversation, {
+            deliveryState: 'SENT',
+            deliverySource: 'DRAFT_APPROVAL',
+            providerMessageId: `pmid-${uuid().slice(0, 8)}`,
+        });
+
+        const status = await freshSetupStatus();
+
+        expect(status.operational.state).toBe(OPERATIONAL_STATES.VERIFIED_OPERATIONAL);
+        expect(status.operational.evidence.assistant.approvedSendFailures).toBe(0);
+        expect(status.operational.operationalVerified).toBe(true);
     });
 
     it('(f) returning after a partial test re-reads live evidence and promotes on completion', async () => {
