@@ -256,11 +256,20 @@ const listFaqs = async (userId, shopId) => {
     return faqs.map(formatFaq);
 };
 
+// Phase 1 P03/D3: `category` is the single column that stores the merchant's
+// QUESTION TEXT (see formatFaq — it serves both `question` and `category` off
+// this one column, and there is no separate question column in faq_responses).
+// The validator makes `question` REQUIRED and `category` optional, so when a
+// client supplies both with different values the question is authoritative.
+// The old `faq.category || faq.question` order silently overwrote the question
+// with whatever rode along in `category`.
+const faqQuestionText = (input) => input.question || input.category || 'General';
+
 const createFaq = async (userId, shopId, faq) => {
     await verifyShopAccess(userId, shopId);
     const newFaq = await FaqResponse.create({
         shop_id: shopId,
-        category: faq.category || faq.question || 'General',
+        category: faqQuestionText(faq),
         template_bn: faq.template_bn || null,
         template_en: faq.template_en || faq.answer || null,
         variables: faq.variables || [],
@@ -280,7 +289,9 @@ const updateFaq = async (userId, shopId, faqId, updates) => {
     if (!faq) throw new AppError('FAQ not found', 404);
 
     const nextValues = {
-        category: updates.category || updates.question || faq.category,
+        // P03/D3: same precedence as createFaq — an incoming question wins over
+        // a stale category tag; PATCH with neither keeps the stored text.
+        category: updates.question || updates.category || faq.category,
         template_bn: updates.template_bn !== undefined ? updates.template_bn : faq.template_bn,
         template_en: updates.template_en !== undefined
             ? updates.template_en
