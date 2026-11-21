@@ -113,11 +113,27 @@ The placeholder above is an operator input, not a credential.
 
 ## Automatic rollback
 
-The deploy script has an exit trap. If validation, migration, service startup,
-or the `/health/ready` gate fails, it restores the captured image references
-with `docker compose up -d` and leaves `PRODUCTION_DEPLOY_ENABLED` unchanged.
-This is an application rollback only; a schema rollback requires a reviewed
-forward fix or a database restore after confirming data-loss impact.
+The workflow stages config in a private per-attempt directory. Under the host
+deploy lock, it verifies the captured checksums and image digests and installs
+the rollback trap before activating any staged config. On ordinary failure,
+the trap restores and verifies the prior config and images. The candidate still
+fails; exit 70 means recovery itself needs operator attention. The workflow does
+not change `PRODUCTION_DEPLOY_ENABLED`.
+
+An `active` record under `/opt/easymod/.cutover-rollback` blocks a new cutover
+after an interrupted or failed recovery. An authorized operator must reconcile
+the recorded snapshot, checksums, image refs, running release and health checks
+under the deploy lock before clearing it. Do not remove the marker to retry an
+unverified cutover. Keep snapshot contents on the host; the environment file can
+contain credentials. This is an application rollback only; a schema rollback
+requires a reviewed forward fix or a database restore after confirming data-loss
+impact.
+
+Keep the current rollback set until the release observation window closes and
+the release owner confirms recovery is no longer required. Do not prune its
+images or purge snapshots while an active marker or unresolved incident exists.
+After that point, retire completed snapshots using the host's approved secrets
+and backup retention policy; do not upload credential-bearing files as evidence.
 
 Manual recovery, if the workflow runner is unavailable:
 
@@ -138,12 +154,13 @@ bash scripts/rollback-rehearsal.sh
 ```
 
 It resolves real `node:20-alpine` and `node:22-alpine` RepoDigests at runtime,
-extracts `resolve_container_digest`, `assert_immutable_ref`, `verify_rollback`,
-and `rollback` directly from the shipped `ci-cd.yml`, and stages synthetic
+extracts the digest, checksum and restore functions directly from the shipped
+`ci-cd.yml`, and stages synthetic
 previous/candidate files under an owned `/opt/easymod` layout. The rehearsal proves the candidate state is
 rejected, then proves the actual rollback restores both captured image
 references, the environment hash, Compose, the Caddyfile, and both health checks;
-it also proves missing previous images fail closed. Its
+it also proves missing previous images fail closed. This does not prove that a
+specific previous application image is compatible with a candidate schema. Its
 `rollback-rehearsal-evidence` artifact is a machine-readable receipt. It must not run `migrate:down`:
 application rollback can restore images, while a schema change requires a reviewed
 forward migration or an isolated database restore.

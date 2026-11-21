@@ -52,6 +52,21 @@ on:
         required: false
         default: ''
         type: string
+      existing_frontend_digest:
+        description: 'Exact frontend digest: retained rollback frontend for target=backend, or candidate frontend for target=all'
+        required: false
+        default: ''
+        type: string
+      expected_rollback_backend_digest:
+        description: 'Rehearsed incumbent backend/worker digest required for paired promotion'
+        required: false
+        default: ''
+        type: string
+      expected_rollback_frontend_digest:
+        description: 'Rehearsed incumbent frontend digest required for paired promotion'
+        required: false
+        default: ''
+        type: string
       growth_image_override:
         description: 'Published Growth image digest for this commit'
         required: false
@@ -96,6 +111,9 @@ jobs:
       deploy_confirmation: ${{ inputs.deploy_confirmation }}
       existing_backend_digest: ${{ inputs.existing_backend_digest }}
       existing_candidate_sha: ${{ inputs.existing_candidate_sha }}
+      existing_frontend_digest: ${{ inputs.existing_frontend_digest }}
+      expected_rollback_backend_digest: ${{ inputs.expected_rollback_backend_digest }}
+      expected_rollback_frontend_digest: ${{ inputs.expected_rollback_frontend_digest }}
       growth_image_override: ${{ inputs.growth_image_override }}
       expect_schema_drift: ${{ inputs.expect_schema_drift }}
       trace_from: ${{ inputs.trace_from }}

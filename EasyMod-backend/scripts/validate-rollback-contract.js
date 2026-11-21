@@ -32,19 +32,18 @@ const required = [
     ['rollback function', 'rollback() {'],
     ['rollback image verification', 'verify_rollback() {'],
     ['rollback state directory', 'ROLLBACK_STATE_DIR'],
-    ['rollback environment snapshot', 'cp -p /opt/easymod/.env.prod \'$ROLLBACK_STATE_DIR/.env.prod\''],
+    ['rollback environment snapshot', 'cp -p /opt/easymod/.env.prod "$ROLLBACK_STATE_DIR/.env.prod"'],
     ['rollback environment restore', 'cp -p "$ROLLBACK_STATE_DIR/.env.prod" /opt/easymod/.env.prod'],
     ['rollback configuration restore', 'cp -p "$ROLLBACK_STATE_DIR/docker-compose.prod.yml" /opt/easymod/docker-compose.prod.yml'],
     ['previous backend restore', 'export GHCR_IMAGE_BACKEND="$previous_backend_image"'],
     ['previous frontend restore', 'export GHCR_IMAGE_FRONTEND="$previous_frontend_image"'],
     ['no-build restore', 'up --detach --no-build --remove-orphans'],
-    ['rollback failure status', 'rollback || rc=70'],
-    ['failure trap', 'trap \'rc=$?; if [ "$rc" -ne 0 ]'],
+    ['rollback failure status', 'rollback || exit 70'],
     ['success marker', 'deploy_succeeded=true'],
     ['executable rollback rehearsal', 'scripts/rollback-rehearsal.sh'],
     ['backend immutable interpolation', 'image: ${GHCR_IMAGE_BACKEND:?'],
     ['frontend immutable interpolation', 'image: ${GHCR_IMAGE_FRONTEND:?'],
-    ['growth running capture', 'candidate_growth_image=$(resolve_container_digest easymod-growth-frontend-1'],
+    ['growth running capture', 'previous_growth_image=$(resolve_container_digest easymod-growth-frontend-1'],
     ['growth bootstrap pin', 'candidate_growth_image="${GHCR_GROWTH}@${GROWTH_BOOTSTRAP_DIGEST}"'],
     ['growth immutable assertion', 'assert_immutable_ref "$candidate_growth_image"'],
     ['growth immutable interpolation', 'image: ${GHCR_IMAGE_GROWTH:?'],
@@ -62,6 +61,31 @@ const missing = required
 
 if (missing.length) {
     throw new Error(`Rollback contract missing: ${missing.join(', ')}`);
+}
+
+const commands = workflow.split(/\r?\n/).map(line => line.trim()).filter(line => !line.startsWith('#'));
+const ordered = [
+    'verify_config "$candidate_dir" "$candidate_dir/candidate.sha256"',
+    'verify_config /opt/easymod "$ROLLBACK_STATE_DIR/manifest.sha256"',
+    'trap finish_deploy EXIT',
+    'ln -- "$ROLLBACK_STATE_DIR/transaction" "$active_transaction"',
+    'activation_started=true',
+    'cp -p "$candidate_dir/.env.prod" /opt/easymod/.env.prod',
+    'cp -p "$candidate_dir/docker-compose.prod.yml" /opt/easymod/docker-compose.prod.yml',
+    'cp -p "$candidate_dir/Caddyfile" /opt/easymod/Caddyfile',
+];
+// The first incumbent verification may appear in the rollback function too;
+// search in sequence and require exactly one copy of each activation command.
+let previous = -1;
+for (const expected of ordered) {
+    const index = commands.indexOf(expected, previous + 1);
+    if (index < 0 || (expected.startsWith('cp -p "$candidate_dir') && commands.indexOf(expected) !== index)) {
+        throw new Error(`Unsafe rollback activation order: ${expected}`);
+    }
+    previous = index;
+}
+if (commands.some(line => /^scp\b.*:\/opt\/easymod\/(?:\.env\.prod|docker-compose\.prod\.yml|Caddyfile)\b/.test(line))) {
+    throw new Error('Candidate upload cannot target live configuration paths.');
 }
 
 if (/^\s*[^#\n]*:(latest|dev)\b/m.test(workflow)
