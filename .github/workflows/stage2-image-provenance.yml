@@ -69,17 +69,32 @@ jobs:
           else
             platform_digest="$DIGEST"
           fi
+          # config.digest is informational only. Pulling an OCI manifest into
+          # the classic docker store can re-serialize the config (OCI -> docker
+          # media-type normalization), so the pulled image .Id may legitimately
+          # differ from the registry manifest's config.digest. Run 44876328333
+          # proved this: platform and revision matched, but .Id
+          # sha256:76f11b2d... != config.digest sha256:11d2d2ab... The binding
+          # assertion below uses RepoDigests instead, which records the exact
+          # registry manifest digest the image was pulled by.
           config_digest=$(jq -er '.config.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<< "$manifest")
 
           platform_ref="$package@$platform_digest"
           docker pull --quiet --platform "$PLATFORM" "$platform_ref" >/dev/null
-          identity=$(docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}}' "$platform_ref")
-          if [[ "$identity" != "$PLATFORM $config_digest $SOURCE_SHA" ]]; then
-            echo '::error::Pulled image platform, config digest or OCI revision did not match.'
-            # Diagnostics only — the assertion above is unchanged. Runs
+          identity=$(docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}}' "$platform_ref")
+          repo_digests=$(docker image inspect --format '{{json .RepoDigests}}' "$platform_ref")
+          # Bind the pulled image to the exact platform manifest resolved from
+          # the requested index digest: RepoDigests must contain
+          # package@platform_digest as an exact array element. A missing, null
+          # or non-array RepoDigests list fails closed.
+          if [[ "$identity" != "$PLATFORM $SOURCE_SHA" ]] \
+            || ! jq -e --arg ref "$platform_ref" 'type == "array" and any(.[]; . == $ref)' <<< "$repo_digests" >/dev/null; then
+            echo '::error::Pulled image platform, OCI revision or registry RepoDigests binding did not match.'
+            # Diagnostics only — the assertions above are unchanged. Runs
             # 44874186785 and 44874189551 failed here with no actual-vs-expected
             # evidence, leaving the mismatched component unattributable without
-            # registry read access. Print every component before exiting.
+            # registry read access. Print every component before exiting;
+            # .Id and config.digest are informational, not assertions.
             actual_platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$platform_ref")
             actual_id=$(docker image inspect --format '{{.Id}}' "$platform_ref")
             actual_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$platform_ref")
@@ -88,10 +103,13 @@ jobs:
               printf 'Identity mismatch diagnostics for %s\n' "$platform_ref"
               printf -- '- requested digest: %s\n' "$DIGEST"
               printf -- '- actual identity:   %s\n' "$identity"
-              printf -- '- expected identity: %s\n' "$PLATFORM $config_digest $SOURCE_SHA"
+              printf -- '- expected identity: %s\n' "$PLATFORM $SOURCE_SHA"
               printf -- '- platform: actual=%s expected=%s\n' "$actual_platform" "$PLATFORM"
-              printf -- '- image .Id: actual=%s expected=%s (manifest config.digest)\n' "$actual_id" "$config_digest"
+              printf -- '- RepoDigests: actual=%s\n' "$repo_digests"
+              printf -- '- RepoDigests binding: expected exact element %s\n' "$platform_ref"
               printf -- '- revision label: actual=%s expected=%s\n' "${actual_revision:-<empty>}" "$SOURCE_SHA"
+              printf -- '- image .Id (informational): %s\n' "$actual_id"
+              printf -- '- manifest config.digest (informational): %s\n' "$config_digest"
               printf -- '- all config labels: %s\n' "$actual_labels"
             } >&2
             exit 1
@@ -100,7 +118,7 @@ jobs:
           {
             printf '%s\n\n' '## GHCR image identity verified'
             printf -- '- Package: %s\n- Source revision: %s\n- Requested digest: %s\n' "$package" "$SOURCE_SHA" "$DIGEST"
-            printf -- '- Platform: %s\n- Platform manifest: %s\n- Image config: %s\n' "$PLATFORM" "$platform_digest" "$config_digest"
+            printf -- '- Platform: %s\n- Platform manifest: %s\n- RepoDigests binding: %s\n- Image config (informational): %s\n' "$PLATFORM" "$platform_digest" "$platform_ref" "$config_digest"
             printf -- '- Verifier: %s, run %s, attempt %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
             printf '\nRegistry identity only. This does not verify what is running in production or authorize deployment.\n'
           } >> "$GITHUB_STEP_SUMMARY"
