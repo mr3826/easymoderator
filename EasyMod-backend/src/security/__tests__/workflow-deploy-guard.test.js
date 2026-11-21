@@ -59,6 +59,11 @@ const growthImporterWorkflowPath = path.resolve(
     '../../../../.github/workflows/run-growth-importer.yml',
 );
 const growthImporterWorkflow = fs.readFileSync(growthImporterWorkflowPath, 'utf8');
+const floorPublishWorkflowPath = path.resolve(
+    __dirname,
+    '../../../../.github/workflows/floor-publish.yml',
+);
+const floorPublishWorkflow = fs.readFileSync(floorPublishWorkflowPath, 'utf8');
 
 describe('production workflow branch safety', () => {
     test('keeps the production backend non-root with targeted writable ownership', () => {
@@ -1510,5 +1515,55 @@ describe('protected growth importer execution', () => {
         const quotedBody = remoteProgram.slice(remoteProgram.indexOf("'") + 1, remoteProgram.lastIndexOf("'"));
         expect(quotedBody.length).toBeGreaterThan(500);
         expect((quotedBody.match(/'/g) || []).length).toBe(0);
+    });
+});
+
+describe('floor-publish workflow (WP-05 reader-floor publication)', () => {
+    test('is dispatch-only on main in this repository, never an automatic trigger', () => {
+        expect(floorPublishWorkflow).toContain('workflow_dispatch:');
+        expect(floorPublishWorkflow).not.toMatch(/^  push:/m);
+        expect(floorPublishWorkflow).not.toMatch(/^  pull_request:/m);
+        expect(floorPublishWorkflow).not.toMatch(/^  schedule:/m);
+        expect(floorPublishWorkflow).toContain("github.repository == 'mr3826/easymoderator' && github.ref == 'refs/heads/main'");
+    });
+
+    test('takes a floor revision and package, checking out that revision with full history', () => {
+        expect(floorPublishWorkflow).toContain('floor_revision:');
+        expect(floorPublishWorkflow).toContain('package:');
+        expect(floorPublishWorkflow).toContain('ref: ${{ inputs.floor_revision }}');
+        expect(floorPublishWorkflow).toContain('fetch-depth: 0');
+    });
+
+    test('qualifies the floor as a 40-hex ancestor of main and reader-only before any build', () => {
+        expect(floorPublishWorkflow).toContain("grep -Eq '^[0-9a-f]{40}$'");
+        expect(floorPublishWorkflow).toContain('git merge-base --is-ancestor "$FLOOR_REVISION" "$MAIN_SHA"');
+        expect(floorPublishWorkflow).toContain('git cat-file -e "$FLOOR_REVISION:EasyMod-backend/src/modules/ai/reply-confidence.service.js"');
+        expect(floorPublishWorkflow).toContain('git cat-file -e "$FLOOR_REVISION:EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js"');
+        expect(floorPublishWorkflow).toContain('is not reader-only');
+        expect(floorPublishWorkflow).toContain("git grep -Fq -e 'for (const field of PUBLIC_MESSAGE_FIELDS)'");
+        expect(floorPublishWorkflow).toContain("git grep -Fq -e 'projectPublicMessageMetadata('");
+        expect(floorPublishWorkflow).toContain("git grep -Fq -e 'projectPublicMessageEvent('");
+        expect(floorPublishWorkflow.indexOf('Qualify floor revision before build'))
+            .toBeLessThan(floorPublishWorkflow.indexOf('Build & push floor backend image'));
+    });
+
+    test('labels and builds the image with the floor revision, multi-arch, pushed', () => {
+        expect(floorPublishWorkflow).toContain('labels: org.opencontainers.image.revision=${{ inputs.floor_revision }}');
+        expect(floorPublishWorkflow).toContain('GIT_SHA=${{ inputs.floor_revision }}');
+        expect(floorPublishWorkflow).toContain('platforms: linux/amd64,linux/arm64');
+        expect(floorPublishWorkflow).toContain('push: true');
+    });
+
+    test('is publication only: no SSH, no production environment, job-scoped packages write', () => {
+        expect(floorPublishWorkflow).not.toContain('appleboy/ssh-action');
+        expect(floorPublishWorkflow).not.toContain('environment: production');
+        expect(floorPublishWorkflow).toContain('packages: write');
+        expect(floorPublishWorkflow).toContain('contents: read');
+        expect(floorPublishWorkflow).not.toContain('permissions:\n  contents: read\n  packages: write');
+    });
+
+    test('fails closed on a missing or malformed published digest', () => {
+        expect(floorPublishWorkflow).toContain("grep -Eq '^sha256:[0-9a-f]{64}$'");
+        expect(floorPublishWorkflow).toContain('published floor digest is missing or malformed');
     });
 });

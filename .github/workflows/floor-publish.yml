@@ -1,0 +1,187 @@
+name: Floor image publish
+
+# WP-05 — guarded publication of a qualified reader-only rollback floor image.
+#
+# The ordinary release build (ci-cd.yml) only ever publishes images labelled
+# with the dispatch main SHA, so it cannot publish a reader-only floor whose
+# revision is a pre-writer ancestor of main. This workflow fills that single
+# gap: it builds a multi-arch image FROM a qualified floor revision and labels
+# it with THAT revision, so the paired-promotion guard can resolve the floor's
+# arm64 revision label and verify `git merge-base --is-ancestor floor main` plus
+# the reader-only source projection.
+#
+# Safety contract (pinned by workflow-deploy-guard.test.js):
+#   - dispatch-only, main-ref-only, this repository only;
+#   - the floor revision MUST already be an ancestor of main (its lineage merge
+#     landed first) — you cannot publish an arbitrary unmerged revision;
+#   - backend floors MUST be reader-only (writer files absent + hardened public
+#     projection literals present), verified before any build;
+#   - the image is labelled org.opencontainers.image.revision=<floor_revision>
+#     and built with GIT_SHA=<floor_revision> so the restore commit binding
+#     (GIT_SHA == FLOOR_REVISION) holds;
+#   - publication is NOT a deployment: no environment approval, no SSH, no
+#     production mutation. The image only reaches production through the
+#     guarded restore-floor / paired-promotion dispatches, which re-qualify it.
+#   - packages: write is scoped to this job only; no mutable production tag is
+#     consumed (the <floor_revision> tag is a publication label; production
+#     resolves by digest).
+
+on:
+  workflow_dispatch:
+    inputs:
+      floor_revision:
+        description: 'Full 40-hex lowercase SHA of the qualified reader-only floor revision (must already be an ancestor of main).'
+        required: true
+        type: string
+      package:
+        description: 'Image to publish from the floor revision.'
+        required: true
+        type: choice
+        options: [backend, frontend]
+        default: backend
+
+permissions:
+  contents: read
+
+concurrency:
+  group: floor-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GHCR_BACKEND: ghcr.io/${{ github.repository_owner }}/easymoderator-backend
+  GHCR_FRONTEND: ghcr.io/${{ github.repository_owner }}/easymoderator-frontend
+
+jobs:
+  publish:
+    name: Qualify + publish floor image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.repository == 'mr3826/easymoderator' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.floor_revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Qualify floor revision before build
+        env:
+          FLOOR_REVISION: ${{ inputs.floor_revision }}
+          MAIN_SHA: ${{ github.sha }}
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$FLOOR_REVISION" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo 'ERROR: floor_revision must be a full 40-hex lowercase commit SHA' >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$FLOOR_REVISION" "$MAIN_SHA"; then
+            echo 'ERROR: floor revision is not an ancestor of main; merge its reader lineage into main first' >&2
+            exit 1
+          fi
+          if [ "$PACKAGE" = backend ]; then
+            # Reader-only source projection — same semantics as the ci-cd.yml
+            # verify_reader_projection_source reader branch. A writer-enabled
+            # revision must never be published as a rollback floor.
+            sanitizer_path=EasyMod-backend/src/modules/conversation/internal-message-metadata.js
+            conversation_path=EasyMod-backend/src/modules/conversation/conversation.service.js
+            sse_path=EasyMod-backend/src/utils/sse-manager.js
+            if ! git grep -Fq -e 'for (const field of PUBLIC_MESSAGE_FIELDS)' "$FLOOR_REVISION" -- "$sanitizer_path"; then
+              echo 'ERROR: floor lacks the hardened public message projection' >&2
+              exit 1
+            fi
+            if git cat-file -e "$FLOOR_REVISION:EasyMod-backend/src/modules/ai/reply-confidence.service.js" 2>/dev/null \
+              || git cat-file -e "$FLOOR_REVISION:EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js" 2>/dev/null; then
+              echo 'ERROR: floor revision is not reader-only (Stage 2 writer files present)' >&2
+              exit 1
+            fi
+            if ! git grep -Fq -e 'projectPublicMessageMetadata(' "$FLOOR_REVISION" -- "$conversation_path" \
+              || ! git grep -Fq -e 'projectPublicMessageEvent(' "$FLOOR_REVISION" -- "$sse_path"; then
+              echo 'ERROR: floor lacks the reader public projection literals' >&2
+              exit 1
+            fi
+          fi
+          echo "floor revision qualified: $FLOOR_REVISION (package=$PACKAGE)"
+
+      - name: Stamp build time
+        id: build_time
+        run: echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push floor backend image
+        id: floor_backend
+        if: inputs.package == 'backend'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./EasyMod-backend
+          file: ./EasyMod-backend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.GHCR_BACKEND }}:${{ inputs.floor_revision }}
+          labels: org.opencontainers.image.revision=${{ inputs.floor_revision }}
+          build-args: |
+            GIT_SHA=${{ inputs.floor_revision }}
+            BUILD_TIME=${{ steps.build_time.outputs.build_time }}
+          cache-from: type=registry,ref=${{ env.GHCR_BACKEND }}:buildcache
+          cache-to: type=registry,ref=${{ env.GHCR_BACKEND }}:buildcache,mode=max
+
+      - name: Build & push floor frontend image
+        id: floor_frontend
+        if: inputs.package == 'frontend'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./EasyMod-frontend
+          file: ./EasyMod-frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.GHCR_FRONTEND }}:${{ inputs.floor_revision }}
+          labels: org.opencontainers.image.revision=${{ inputs.floor_revision }}
+          build-args: |
+            VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL || 'https://api.easymod.tech' }}
+            VITE_APP_URL=${{ vars.VITE_APP_URL || 'https://app.easymod.tech' }}
+            VITE_MARKETING_URL=${{ vars.VITE_MARKETING_URL || 'https://easymod.tech' }}
+            VITE_META_APP_ID=${{ vars.VITE_META_APP_ID || '2040799330176198' }}
+            VITE_SENTRY_DSN=${{ vars.VITE_SENTRY_DSN }}
+            VITE_ENV=production
+            VITE_BKASH_ENABLED=${{ vars.BKASH_ENABLED || 'false' }}
+          cache-from: type=registry,ref=${{ env.GHCR_FRONTEND }}:buildcache
+          cache-to: type=registry,ref=${{ env.GHCR_FRONTEND }}:buildcache,mode=max
+
+      - name: Publish floor digest receipt
+        env:
+          FLOOR_REVISION: ${{ inputs.floor_revision }}
+          PACKAGE: ${{ inputs.package }}
+          BACKEND_DIGEST: ${{ steps.floor_backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.floor_frontend.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ "$PACKAGE" = backend ]; then digest="$BACKEND_DIGEST"; repo="$GHCR_BACKEND"; else digest="$FRONTEND_DIGEST"; repo="$GHCR_FRONTEND"; fi
+          if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo 'ERROR: published floor digest is missing or malformed' >&2
+            exit 1
+          fi
+          {
+            echo "## Floor image published"
+            echo ""
+            echo "- package: \`$PACKAGE\`"
+            echo "- floor revision: \`$FLOOR_REVISION\`"
+            echo "- image: \`$repo@$digest\`"
+            echo ""
+            echo "Qualify this digest with stage2-image-provenance.yml (image=$PACKAGE, source_sha=$FLOOR_REVISION, platform=linux/arm64) before using it as a rollback floor."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "floor image: $repo@$digest"
