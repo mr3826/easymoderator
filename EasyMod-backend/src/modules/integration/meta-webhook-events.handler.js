@@ -1544,6 +1544,11 @@ async function processMessagingEvent({ messaging, channel, receipt, pageId, meta
                             customer_id: customer.id,
                             channel: 'messenger',
                             meta_channel_id: channel.id,
+                            // conversations.role is NOT NULL with no model default;
+                            // the message-ingress create (above) passes it the same
+                            // way. Omitting it made every first-touch pure-referral
+                            // open fail the insert (P0-02 acceptance found this).
+                            role: 'user',
                             status: 'active',
                             hitl: false,
                             message: `Referral: ${sanitizedReferralRef}`,
