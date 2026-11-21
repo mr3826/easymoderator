@@ -329,6 +329,9 @@ describe('P0-02 — m.me referral capture and sanitization', () => {
         });
         expect(conversation).not.toBeNull();
         expect(String(conversation.meta_channel_id)).toBe(IDS.channelA);
+        // Pin the demonstrated defect fix: first-touch pure-referral create must
+        // set the NOT NULL customer role exactly as message ingress does.
+        expect(conversation.role).toBe('user');
         expect(conversation.metadata).toMatchObject({
             referral_source: 'eid_campaign-2026.a',
             referral_source_type: 'm_me',
