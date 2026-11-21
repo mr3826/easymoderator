@@ -91,7 +91,7 @@ describe('production workflow branch safety', () => {
         expect(workflow).toContain('test "$EXISTING_CANDIDATE_SHA" = "$SHA"');
         expect(workflow).toContain('for digest in "$EXISTING_BACKEND_DIGEST" "$EXISTING_FRONTEND_DIGEST" "$EXPECTED_ROLLBACK_BACKEND_DIGEST" "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"');
         expect(workflow).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST"');
-        expect(workflow).toContain('docker pull --platform linux/arm64 "$image"');
+        expect(workflow).toContain('docker pull --quiet --platform linux/arm64 "$platform_ref" >/dev/null');
         expect(workflow).toContain('test "$revision" = "$SHA"');
         expect(workflow).toContain("needs.changes.outputs.frontend == 'true' && env.EXISTING_FRONTEND_DIGEST == ''");
         expect(workflow.match(/labels: org\.opencontainers\.image\.revision=/g)).toHaveLength(2);
@@ -109,7 +109,7 @@ describe('production workflow branch safety', () => {
         expect(workflow).toContain('if [ -n "$EXISTING_BACKEND_DIGEST$EXISTING_FRONTEND_DIGEST$EXPECTED_ROLLBACK_BACKEND_DIGEST$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]; then');
         expect(workflow).toContain('[ -z "$digest" ] && continue');
 
-        const backendRevisionCheck = workflow.indexOf('candidate_revision=$(docker image inspect');
+        const backendRevisionCheck = workflow.indexOf('candidate_revision=$(arm64_image_revision');
         const productionMigration = workflow.indexOf('Running database migrations before service replacement');
         expect(backendRevisionCheck).toBeGreaterThan(-1);
         expect(productionMigration).toBeGreaterThan(backendRevisionCheck);
@@ -119,11 +119,109 @@ describe('production workflow branch safety', () => {
     test('reader-only exact promotion retains the incumbent frontend digest', () => {
         expect(workflow).toContain('if [ "$RELEASE_TARGET" = backend ]; then');
         expect(workflow).toContain('test "$EXISTING_FRONTEND_DIGEST" = "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"');
-        expect(workflow).toContain('candidate_revision=$(docker image inspect');
-        expect(workflow).toContain('docker pull --platform linux/arm64 "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"');
+        expect(workflow).toContain('candidate_revision=$(arm64_image_revision "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST")');
+        expect(workflow).toContain('pull_arm64_image "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST" >/dev/null');
         expect(releaseWorkflow).toContain('Exact frontend digest: retained rollback frontend for target=backend');
         expect(releaseWorkflow).toContain('expected_rollback_backend_digest: ${{ inputs.expected_rollback_backend_digest }}');
         expect(releaseWorkflow).toContain('expected_rollback_frontend_digest: ${{ inputs.expected_rollback_frontend_digest }}');
+    });
+
+    test('meta revision guards resolve the single arm64 platform image before inspecting labels', () => {
+        // Regression guard for reader-rollout dispatches 44871253024 and
+        // 44872606364, which died silently at 'Set image tags': docker image
+        // inspect on a multi-arch manifest-list digest returns the index object
+        // (no .Config), so the revision label came back empty and the equality
+        // test exited 1 under bash -e. The fix ports the provenance workflow's
+        // resolution: imagetools inspect --raw -> jq-select the single
+        // linux/arm64 runtime platform digest -> pull/inspect THAT image.
+        const metaStep = workflow.match(
+            /- name: Set image tags\n([\s\S]*?)\n      - name: Build & push backend image/,
+        )?.[1];
+        expect(metaStep).toBeDefined();
+
+        // Both helpers exist, are defined before first use, and the revision
+        // helper inspects only the platform ref the pull helper resolved.
+        const pullHelper = metaStep.indexOf('pull_arm64_image() {');
+        const revisionHelper = metaStep.indexOf('arm64_image_revision() {');
+        expect(pullHelper).toBeGreaterThan(-1);
+        expect(revisionHelper).toBeGreaterThan(pullHelper);
+        expect(metaStep.indexOf('$(arm64_image_revision')).toBeGreaterThan(revisionHelper);
+        expect(metaStep).toContain('platform_ref=$(pull_arm64_image "$1") || return 1');
+
+        // Platform resolution mirrors stage2-image-provenance.yml: raw index
+        // read, single-runtime-platform selection (attestation descriptors are
+        // excluded by the os/arch match), digest-format validation, then the
+        // pull of the resolved platform ref — never of the raw index digest.
+        expect(metaStep).toContain('manifest=$(docker buildx imagetools inspect --raw "$image_ref") || return 1');
+        expect(metaStep).toContain('if jq -e \'has("manifests")\' <<< "$manifest" >/dev/null; then');
+        expect(metaStep).toContain('platform_digest=$(jq -er --arg os linux --arg arch arm64 \'');
+        expect(metaStep).toContain('[.manifests[] | select(.platform.os == $os and .platform.architecture == $arch)]');
+        expect(metaStep).toContain('| if length == 1 then .[0].digest else error("Expected a single linux/arm64 runtime platform") end');
+        expect(metaStep).toContain('[[ "$platform_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1');
+        expect(metaStep).toContain('platform_digest="${image_ref#*@}"');
+        expect(metaStep).toContain('platform_ref="$package@$platform_digest"');
+
+        // Exactly one pull and one revision inspect remain in the meta step's
+        // code (comments stripped), and both target the resolved platform ref.
+        // A future edit that pulls or inspects an unresolved (possibly
+        // multi-arch) digest reference reintroduces the manifest-list failure
+        // mode and must fail here.
+        const metaCode = metaStep
+            .split('\n')
+            .filter((line) => !line.trim().startsWith('#'))
+            .join('\n');
+        const pullSites = metaCode.match(/docker pull[^\n]*/g) || [];
+        expect(pullSites).toHaveLength(1);
+        expect(pullSites[0]).toBe('docker pull --quiet --platform linux/arm64 "$platform_ref" >/dev/null || return 1');
+        const inspectSites = metaCode.match(/docker image inspect[^\n]*/g) || [];
+        expect(inspectSites).toHaveLength(1);
+        expect(inspectSites[0]).toBe('docker image inspect --format \'{{ index .Config.Labels "org.opencontainers.image.revision" }}\' "$platform_ref"');
+
+        // The supplied-digest format validation still runs before any branch.
+        const formatValidation = metaStep.indexOf('[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]');
+        expect(formatValidation).toBeGreaterThan(-1);
+        expect(formatValidation).toBeLessThan(metaStep.indexOf('candidate_revision=$(arm64_image_revision'));
+
+        // Site 1 (target=backend): candidate SHA and frontend==rollback-floor
+        // equality first, then the resolved backend revision assertion, then
+        // the retained-frontend platform pull — original order intact.
+        const backendBranch = metaStep.slice(
+            metaStep.indexOf('if [ "$RELEASE_TARGET" = backend ]; then'),
+            metaStep.indexOf('elif [ "$RELEASE_TARGET" = all ]; then'),
+        );
+        const backendCandidateSha = backendBranch.indexOf('test "$EXISTING_CANDIDATE_SHA" = "$SHA"');
+        const frontendEquality = backendBranch.indexOf('test "$EXISTING_FRONTEND_DIGEST" = "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"');
+        const backendFetch = backendBranch.indexOf('candidate_revision=$(arm64_image_revision "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST")');
+        const backendAssert = backendBranch.indexOf('test "$candidate_revision" = "$SHA"');
+        const frontendPull = backendBranch.indexOf('pull_arm64_image "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST" >/dev/null');
+        expect(backendCandidateSha).toBeGreaterThan(-1);
+        expect(frontendEquality).toBeGreaterThan(backendCandidateSha);
+        expect(backendFetch).toBeGreaterThan(frontendEquality);
+        expect(backendAssert).toBeGreaterThan(backendFetch);
+        expect(frontendPull).toBeGreaterThan(backendAssert);
+
+        // Site 2 (target=all): both images go through the resolver inside the
+        // loop, each revision asserted against SHA before the next image.
+        const allBranch = metaStep.slice(
+            metaStep.indexOf('elif [ "$RELEASE_TARGET" = all ]; then'),
+            metaStep.indexOf("echo 'ERROR: exact paired promotion requires target=backend"),
+        );
+        const allLoop = allBranch.indexOf('for image in "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST" "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"; do');
+        const allFetch = allBranch.indexOf('revision=$(arm64_image_revision "$image")');
+        const allAssert = allBranch.indexOf('test "$revision" = "$SHA"');
+        expect(allLoop).toBeGreaterThan(-1);
+        expect(allFetch).toBeGreaterThan(allLoop);
+        expect(allAssert).toBeGreaterThan(allFetch);
+
+        // Site 3 (stage2 rollback floor): the resolved rollback revision feeds
+        // the unchanged format + ancestor tests and the reader-source check.
+        const stage2Block = metaStep.slice(metaStep.indexOf('if [ "$stage2_promotion" = true ]; then'));
+        const rollbackFetch = stage2Block.indexOf('rollback_revision=$(arm64_image_revision "$rollback_backend_image")');
+        const ancestorTest = stage2Block.indexOf('git merge-base --is-ancestor "$rollback_revision" "$SHA"');
+        const readerCheck = stage2Block.indexOf('verify_reader_projection_source "$rollback_revision" \'Stage 2 rollback floor\' reader');
+        expect(rollbackFetch).toBeGreaterThan(-1);
+        expect(ancestorTest).toBeGreaterThan(rollbackFetch);
+        expect(readerCheck).toBeGreaterThan(ancestorTest);
     });
 
     test('always-run cleanup removes only the run-scoped staged candidate environment', () => {

@@ -1002,6 +1002,38 @@ jobs:
             test -f EasyMod-backend/src/modules/ai/reply-confidence.service.js
             test -f EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js
           fi
+          # Revision labels must be read from the resolved linux/arm64 platform
+          # image, never from a manifest-list digest: docker image inspect on a
+          # multi-arch index returns the list object (no .Config), so the label
+          # came back empty and the revision equality test exited 1 under
+          # bash -e, silently killing reader-rollout dispatches 44871253024 and
+          # 44872606364 at this step. Ported from stage2-image-provenance.yml:
+          # imagetools inspect --raw, jq-select the single runtime platform
+          # digest, then pull and inspect THAT image. jq ships on ubuntu-latest.
+          pull_arm64_image() {
+            local image_ref="$1"
+            local package="${image_ref%@*}"
+            local manifest platform_digest platform_ref
+            manifest=$(docker buildx imagetools inspect --raw "$image_ref") || return 1
+            if jq -e 'has("manifests")' <<< "$manifest" >/dev/null; then
+              # Reject ambiguous indexes and exclude the non-runtime attestation descriptors.
+              platform_digest=$(jq -er --arg os linux --arg arch arm64 '
+                [.manifests[] | select(.platform.os == $os and .platform.architecture == $arch)]
+                | if length == 1 then .[0].digest else error("Expected a single linux/arm64 runtime platform") end
+              ' <<< "$manifest") || return 1
+              [[ "$platform_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+            else
+              platform_digest="${image_ref#*@}"
+            fi
+            platform_ref="$package@$platform_digest"
+            docker pull --quiet --platform linux/arm64 "$platform_ref" >/dev/null || return 1
+            printf '%s\n' "$platform_ref"
+          }
+          arm64_image_revision() {
+            local platform_ref
+            platform_ref=$(pull_arm64_image "$1") || return 1
+            docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_ref"
+          }
           if [ -n "$EXISTING_BACKEND_DIGEST$EXISTING_FRONTEND_DIGEST$EXPECTED_ROLLBACK_BACKEND_DIGEST$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]; then
             test -z "$WIPE_REQUEST$SEED_REQUEST"
             for digest in "$EXISTING_BACKEND_DIGEST" "$EXISTING_FRONTEND_DIGEST" "$EXPECTED_ROLLBACK_BACKEND_DIGEST" "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"; do
@@ -1011,15 +1043,13 @@ jobs:
             if [ "$RELEASE_TARGET" = backend ]; then
               test "$EXISTING_CANDIDATE_SHA" = "$SHA"
               test "$EXISTING_FRONTEND_DIGEST" = "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"
-              docker pull --platform linux/arm64 "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST"
-              candidate_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST")
+              candidate_revision=$(arm64_image_revision "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST")
               test "$candidate_revision" = "$SHA"
-              docker pull --platform linux/arm64 "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"
+              pull_arm64_image "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST" >/dev/null
             elif [ "$RELEASE_TARGET" = all ]; then
               test "$EXISTING_CANDIDATE_SHA" = "$SHA"
               for image in "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST" "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"; do
-                docker pull --platform linux/arm64 "$image"
-                revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")
+                revision=$(arm64_image_revision "$image")
                 test "$revision" = "$SHA"
               done
             else
@@ -1060,8 +1090,7 @@ jobs:
           if [ "$stage2_promotion" = true ]; then
             verify_reader_projection_source "$SHA" 'Stage 2 candidate' writer
             rollback_backend_image="$GHCR_BACKEND@$EXPECTED_ROLLBACK_BACKEND_DIGEST"
-            docker pull --platform linux/arm64 "$rollback_backend_image"
-            rollback_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$rollback_backend_image")
+            rollback_revision=$(arm64_image_revision "$rollback_backend_image")
             if ! [[ "$rollback_revision" =~ ^[0-9a-f]{40}$ ]] \
               || ! git merge-base --is-ancestor "$rollback_revision" "$SHA"; then
               echo 'ERROR: Stage 2 rollback backend revision is not a verified ancestor of the candidate' >&2
