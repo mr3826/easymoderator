@@ -141,6 +141,54 @@ test('subscriber-mode command refusal falls back to connection state, not false-
     expect(result.status).toBe('connected');
 });
 
+test('subscriber-mode Redis 7 multi-bulk ["pong",""] counts as ready — an open SSE stream must not fail readiness', async () => {
+    // Regression (production incident 2026-11-21, Phase 0 G00): with an active
+    // SSE subscription, Redis 7.4.9 answers PING with the multi-bulk
+    // ["pong", ""] and ioredis 5.10.1 resolves that array verbatim. Verified
+    // in-container on the production host (db 0 and db 3 identical). Strict
+    // 'PONG' equality — and string-only normalization (String(array) joins
+    // with commas) — reported the healthy subscriber 'down' → 503.
+    const sub = mockInstances[5]; // sseRedisSub
+    sub.status = 'ready';
+    sub.ping = jest.fn(() => Promise.resolve(['pong', '']));
+    const result = await redisMod.probeRedisReadiness({ force: true });
+    expect(result.details.sseSub).toBe('ready');
+    expect(result.status).toBe('connected');
+});
+
+test('subscriber-mode bulk string "pong" (older Redis framing) also counts as ready', async () => {
+    const sub = mockInstances[5]; // sseRedisSub
+    sub.status = 'ready';
+    sub.ping = jest.fn(() => Promise.resolve('pong'));
+    const result = await redisMod.probeRedisReadiness({ force: true });
+    expect(result.details.sseSub).toBe('ready');
+    expect(result.status).toBe('connected');
+});
+
+test('PING echo argument framing ["pong","probe"] counts as ready', async () => {
+    mockInstances[5].ping = jest.fn(() => Promise.resolve(['pong', 'probe']));
+    const result = await redisMod.probeRedisReadiness({ force: true });
+    expect(result.details.sseSub).toBe('ready');
+    expect(result.status).toBe('connected');
+});
+
+test('a non-PONG reply stays down in every framing — normalization must not loosen the check', async () => {
+    mockInstances[5].ping = jest.fn(() => Promise.resolve('not_pong'));
+    const stringResult = await redisMod.probeRedisReadiness({ force: true });
+    expect(stringResult.details.sseSub).toBe('down');
+    expect(stringResult.status).toBe('degraded');
+
+    mockInstances[5].ping = jest.fn(() => Promise.resolve(['not_pong', '']));
+    const arrayResult = await redisMod.probeRedisReadiness({ force: true });
+    expect(arrayResult.details.sseSub).toBe('down');
+    expect(arrayResult.status).toBe('degraded');
+
+    mockInstances[5].ping = jest.fn(() => Promise.resolve([]));
+    const emptyResult = await redisMod.probeRedisReadiness({ force: true });
+    expect(emptyResult.details.sseSub).toBe('down');
+    expect(emptyResult.status).toBe('degraded');
+});
+
 test('in-memory fallback (no real Redis configured) reports not_configured, never connected', async () => {
     jest.resetModules();
     delete process.env.REDIS_URL;
