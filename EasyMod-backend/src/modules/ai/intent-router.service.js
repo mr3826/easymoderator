@@ -536,6 +536,7 @@ const route = async ({
                     confidence: 1.0,
                     source: 'cache',
                     grounding: cachedEvidence,
+                    knowledgeObservation: { knowledgeFailed: false, knowledgeOutcome: 'NOT_REQUESTED' },
                 };
             }
         }
@@ -658,6 +659,7 @@ const route = async ({
                         source: 'faq',
                         provider,
                         grounding: faqEvidence,
+                        knowledgeObservation: { knowledgeFailed: false, knowledgeOutcome: 'NOT_REQUESTED' },
                         sourceReferences: [{
                             kind: 'faq',
                             id: String(best.faq.id),
@@ -704,7 +706,8 @@ const _retrieveKnowledge = async (shopId, message) => {
     try {
         const { queryData } = require('../rag/rag.service');
         const ragResult = await queryData({ query: message, limit: 4, shopId });
-        if (!ragResult.success || !ragResult.results.length) return empty;
+        if (!ragResult.success) return { ...empty, outcome: 'FAILED' };
+        if (!ragResult.results.length) return { ...empty, outcome: 'EMPTY_RESULT' };
 
         const usedResults = ragResult.results.filter(r => r.score > 0.5);
 
@@ -733,6 +736,7 @@ const _retrieveKnowledge = async (shopId, message) => {
         };
         const faqIds = [...new Set(usedResults.map(faqIdForResult).filter(Boolean))];
         let activeFaqsById = null;
+        let faqLookupFailed = false;
         if (faqIds.length > 0) {
             try {
                 const { FaqResponse } = require('../entities');
@@ -747,6 +751,7 @@ const _retrieveKnowledge = async (shopId, message) => {
                 activeFaqsById = new Map(activeFaqs.map(faq => [String(faq.id), faq]));
             } catch (_) {
                 activeFaqsById = new Map();
+                faqLookupFailed = true;
             }
         }
 
@@ -783,8 +788,13 @@ const _retrieveKnowledge = async (shopId, message) => {
             }
         }
 
+        const snippets = knowledgeResults.map(r => r.content.trim()).join('\n---\n');
+        const outcome = snippets ? 'FOUND' : faqLookupFailed ? 'FAILED'
+            : !usedResults.length ? 'NO_MATCHES'
+                : usedResults.some(isFaqResult) ? 'NO_VALID_RESULTS' : 'NO_KNOWLEDGE_EVIDENCE';
         return {
-            snippets: knowledgeResults.map(r => r.content.trim()).join('\n---\n'),
+            snippets,
+            outcome,
             references: knowledgeResults.map(r => {
                 const md = r.metadata || {};
                 const sourceId = md.documentId || md.faq_id || md.id || null;
@@ -810,8 +820,8 @@ const _retrieveKnowledge = async (shopId, message) => {
     } catch (err) {
         // Knowledge is additive context. Its absence weakens the answer but does
         // not license a merchant claim — product truth is decided independently.
-        console.warn(`[intent-router] knowledge retrieval unavailable: ${err.message}`);
-        return empty;
+        console.warn('[intent-router] knowledge retrieval unavailable', err?.name || 'Error');
+        return { ...empty, outcome: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'TIMEOUT' : 'FAILED' };
     }
 };
 
@@ -1092,6 +1102,10 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
     evidence.knowledgeSnapshots = knowledge.knowledgeSnapshots || [];
     evidence.knowledgeFound = Boolean(knowledge.snippets);
     evidence.conversationId = conversationId || null;
+    const knowledgeObservation = {
+        knowledgeFailed: knowledge.outcome === 'FAILED' || knowledge.outcome === 'TIMEOUT',
+        knowledgeOutcome: knowledge.outcome || 'NOT_REQUESTED',
+    };
     Object.assign(evidence, withEvidenceSnapshot(evidence));
 
     if (productReadAttempted) {
@@ -1149,6 +1163,7 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
                 confidence: 0,
                 source: 'product_read_audit_handoff',
                 grounding: safeEvidence,
+                knowledgeObservation,
             };
         }
     }
@@ -1241,6 +1256,7 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
             confidence: 1.0,
             source: 'grounding_image_no_match',
             grounding: evidence,
+            knowledgeObservation,
             sourceReferences: sourceReferences.length ? sourceReferences : null,
         };
     }
@@ -1250,6 +1266,7 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
             confidence: deterministic.confidence,
             source: deterministic.source,
             grounding: evidence,
+            knowledgeObservation,
             sourceReferences: sourceReferences.length ? sourceReferences : null,
         };
     }
@@ -1329,12 +1346,13 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
         }
     }
 
-    const { text: response, provider } = await (evaluationClient?.chat || llmService.chat)({
+    const { text: response, provider, fallbackUsed } = await (evaluationClient?.chat || llmService.chat)({
         systemPrompt:      finalSystemPrompt,
         messages:          finalMessages,
         preferredProvider: effectiveProvider,
         cachedContentName,
-        maxTokens:         768
+        maxTokens:         768,
+        observeFallback:   true,
     });
 
     if (cacheKey && isCacheable(evidence)) {
@@ -1348,7 +1366,9 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
         confidence: 0.9,
         source: 'llm',
         provider,
+        fallbackUsed,
         grounding: evidence,
+        knowledgeObservation,
         sourceReferences: sourceReferences.length ? sourceReferences : null,
     };
 };

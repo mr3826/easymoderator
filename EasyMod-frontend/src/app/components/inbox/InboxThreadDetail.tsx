@@ -337,6 +337,15 @@ const MessageItem = memo(function MessageItem({
           {deliveryPending && <span className="ml-2">{t("inbox.deliveryStatus.pending")}</span>}
           {deliveryConfirmed && <span className="ml-2">{t("inbox.deliveryStatus.sent")}</span>}
         </p>
+        {message.sender === "ai" && deliveryConfirmed && (
+          <p
+            className="mt-1 text-xs text-em-text-secondary"
+            data-testid="ai-confidence-evidence"
+            aria-label={t("inbox.confidenceSignal.evidenceSignalLabel")}
+          >
+            {t(deriveConfidenceSignal(message.metadata).key)}
+          </p>
+        )}
         {deliveryFailed && (
           <div className={`mt-2 flex items-center gap-2 text-xs ${providerOutcomeUnknown ? "text-em-sunlight-300" : "text-em-danger-100"}`}>
             {providerOutcomeUnknown ? (
@@ -361,6 +370,83 @@ const MessageItem = memo(function MessageItem({
 });
 
 // ─── InboxThreadDetail ────────────────────────────────────────────────────────
+
+/**
+ * Evidence signal for an AI draft. Server codes are SCREAMING_SNAKE; the display
+ * keys are camelCase literals so the translation-coverage test can verify both
+ * locales. Never build a `t()` key by interpolation (same rule as
+ * REPLY_REASON_LABEL_KEYS).
+ *
+ * The score itself is deliberately not shown: it is an evidence score, not a
+ * calibrated probability, and displaying it as a percentage was the defect this
+ * replaced.
+ */
+const CONFIDENCE_SIGNAL_KEYS = {
+  verified: "inbox.confidenceSignal.verified",
+  grounded: "inbox.confidenceSignal.grounded",
+  knowledgeUnavailable: "inbox.confidenceSignal.knowledgeUnavailable",
+  noEvidence: "inbox.confidenceSignal.noEvidence",
+  retrievalFailed: "inbox.confidenceSignal.retrievalFailed",
+  review: "inbox.confidenceSignal.review",
+  safeFallback: "inbox.confidenceSignal.safeFallback",
+  notRecorded: "inbox.confidenceSignal.notRecorded",
+} as const;
+
+type ConfidenceSignalTier = "success" | "warning" | "danger" | "neutral";
+
+const CONFIDENCE_SIGNAL_DOT: Record<ConfidenceSignalTier, string> = {
+  success: "bg-em-success-700",
+  warning: "bg-em-sunlight-500",
+  danger: "bg-em-danger-700",
+  neutral: "bg-em-text-secondary",
+};
+
+const CONFIDENCE_SIGNAL_PANEL: Record<ConfidenceSignalTier, string> = {
+  success: "bg-em-success-100 border-em-success-700/20",
+  warning: "bg-em-sunlight-100 border-em-sunlight-600/30",
+  danger: "bg-em-danger-100 border-em-danger-700/20",
+  neutral: "bg-em-bg-surface border-em-border",
+};
+
+function deriveConfidenceSignal(
+  meta: MessageMetadata | undefined
+): { key: string; tier: ConfidenceSignalTier } {
+  const raw = meta?.reply_evidence?.reasons;
+  const codes = Array.isArray(raw) ? raw : [];
+  const has = (code: string) => codes.includes(code);
+
+  if (meta?.delivery_source === "DRAFT_APPROVAL") {
+    return { key: CONFIDENCE_SIGNAL_KEYS.notRecorded, tier: "neutral" };
+  }
+  if (has("RETRIEVAL_FAILED")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.retrievalFailed, tier: "danger" };
+  }
+  if (has("RAG_UNAVAILABLE") || has("RAG_TIMEOUT")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.knowledgeUnavailable, tier: "danger" };
+  }
+  if (has("SAFE_COPY_DELIVERED")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.safeFallback, tier: "warning" };
+  }
+  if (has("NO_EVIDENCE") || has("KNOWLEDGE_NOT_FOUND")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.noEvidence, tier: "warning" };
+  }
+  if (has("GROUNDING_VIOLATIONS") || has("PRODUCT_NOT_FOUND") || has("INVALID_FAQ_SCORE")
+    || has("EVIDENCE_MISSING") || has("EVIDENCE_INVALID") || has("COMPUTATION_FAILED")
+    || has("FAQ_PARTIAL_MATCH") || has("EMPTY_COMPLETION") || has("SUPPRESSED")
+    || has("GROUNDING_DECISION_MISSING") || has("GROUNDING_DECISION_INVALID")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.review, tier: "warning" };
+  }
+  // A deterministic order-flow reply is authored from system-owned state.
+  if (meta?.reply_evidence?.provenance === "deterministic" && has("ORDER_FLOW")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.verified, tier: "neutral" };
+  }
+  if (has("GROUNDED")) {
+    return { key: CONFIDENCE_SIGNAL_KEYS.grounded, tier: "neutral" };
+  }
+  // Messages written before the evidence score existed carry no signal. Saying
+  // so is more honest than inventing a number.
+  return { key: CONFIDENCE_SIGNAL_KEYS.notRecorded, tier: "neutral" };
+}
 
 interface InboxThreadDetailProps {
   selectedConversation: Conversation;
@@ -456,7 +542,6 @@ export function InboxThreadDetail({
     ) ?? null;
   const heldMeta = heldAiMsg?.metadata as MessageMetadata | undefined;
   const aiSuggestion = heldAiMsg?.ai_suggestion || heldAiMsg?.content || "";
-  const aiConfidence = heldAiMsg?.ai_confidence ?? 0;
   const lastCustomerMsg = [...messages].reverse().find((m) => m.sender === "customer") ?? null;
   const lastAgentMsg = [...messages].reverse().find((m) => m.sender === "agent") ?? null;
   const customerSentAfterAgent =
@@ -514,13 +599,13 @@ export function InboxThreadDetail({
     ? "failed"
     : "pending";
 
-  // Traffic-light dot plus a visible percentage — never color alone (§8).
-  const confidencePercent = Math.round((aiConfidence ?? 0) * 100);
-  const confidenceTier = (() => {
-    if (confidencePercent >= 85) return { dot: "bg-em-success-700" };
-    if (confidencePercent >= 60) return { dot: "bg-em-sunlight-500" };
-    return { dot: "bg-em-danger-700" };
-  })();
+  // Evidence signal, never colour alone (§8). The numeric confidence badge was
+  // retired: it reported a fixed 0.9 that no evidence supported, so it told the
+  // merchant nothing about whether THIS draft could be trusted. The score is
+  // still recorded (for calibration) but is not shown as a probability.
+  const confidenceSignal = deriveConfidenceSignal(heldMeta);
+  const confidenceDot = CONFIDENCE_SIGNAL_DOT[confidenceSignal.tier];
+  const confidencePanelClass = CONFIDENCE_SIGNAL_PANEL[confidenceSignal.tier];
 
   const handleUseAiSuggestion = async (edit: boolean) => {
     if (!aiSuggestion || !heldAiMsg) return;
@@ -791,13 +876,7 @@ export function InboxThreadDetail({
       {/* AI Suggestion Panel */}
       {planFeaturesAdvancedAI && hasAiSuggestion && (
         <div
-          className={`mx-4 rounded-t-lg border px-4 py-3 ${
-            (() => {
-              if (confidencePercent >= 85) return "bg-em-success-100 border-em-success-700/20";
-              if (confidencePercent >= 60) return "bg-em-sunlight-100 border-em-sunlight-600/30";
-              return "bg-em-danger-100 border-em-danger-700/20";
-            })()
-          }`}
+          className={`mx-4 rounded-t-lg border px-4 py-3 ${confidencePanelClass}`}
         >
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -805,13 +884,13 @@ export function InboxThreadDetail({
               <span className="text-sm font-semibold text-em-text-primary">{suggestionHeading}</span>
             </div>
             <span className="flex items-center gap-1.5">
-              <span className="em-tabular text-xs font-medium text-em-text-secondary">
-                {t("inbox.confidence", { percent: confidencePercent })}
-              </span>
               <span
-                className={`inline-block w-2.5 h-2.5 rounded-full ${confidenceTier.dot}`}
+                className={`inline-block w-2.5 h-2.5 rounded-full ${confidenceDot}`}
                 aria-hidden="true"
               />
+              <span className="text-xs font-medium text-em-text-secondary">
+                {t(confidenceSignal.key)}
+              </span>
             </span>
           </div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-em-text-secondary">

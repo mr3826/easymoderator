@@ -37,10 +37,8 @@ const {
     candidateStartedAtStateFor,
     isBeforeResumeBoundary,
 } = require('./message-lifecycle');
-const {
-    projectPublicMessageMetadata,
-    projectPublicSourceReferences,
-} = require('./internal-message-metadata');
+const { projectMessageEvidence } = require('./message-evidence-projection');
+const { projectPublicSourceReferences } = require('./internal-message-metadata');
 const {
     ATTACHMENT_URL_TTL_SECONDS,
     PREPARED_ATTACHMENT_METADATA,
@@ -585,7 +583,7 @@ const projectedAttachmentMetadata = (message, metadata, shopId) => {
 
 const mapMessage = (message, shopId) => {
     const metadata = normalizeObject(message?.metadata);
-    const responseMetadata = projectPublicMessageMetadata(projectedAttachmentMetadata(message, metadata, shopId));
+    const responseMetadata = projectMessageEvidence(projectedAttachmentMetadata(message, metadata, shopId), message);
     const deliveryState = normalizeDeliveryState(message);
     const sender = message?.sender === 'business' ? 'agent' : message?.sender;
     const deliverySource = typeof message?.delivery_source === 'string' && message.delivery_source

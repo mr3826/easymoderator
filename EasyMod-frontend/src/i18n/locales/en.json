@@ -887,6 +887,17 @@
     "aiSuggestionNotSent": "AI suggestion — NOT SENT",
     "editedSuggestionLabel": "Edit AI suggestion",
     "confidence": "Confidence: {{percent}}%",
+    "confidenceSignal": {
+      "verified": "Checkout workflow reply",
+      "grounded": "Evidence found — not a fact check",
+      "knowledgeUnavailable": "Knowledge base unavailable — check this reply",
+      "noEvidence": "No catalog or FAQ evidence found",
+      "retrievalFailed": "Product data unavailable — check this reply",
+      "review": "Evidence signal requires review",
+      "safeFallback": "Fallback reply — original claim withdrawn",
+      "notRecorded": "Evidence not recorded",
+      "evidenceSignalLabel": "AI reply evidence signal"
+    },
     "lowConfidence": "Low confidence — verify before sending",
     "useThis": "Send this",
     "editAndUse": "Edit & send",
@@ -2948,7 +2959,7 @@
         "en": "English"
       },
       "confidenceLabel": "How confident must EasyModerator be before replying on its own?",
-      "confidenceHint": "More cautious ◀━━━●━━━▶ More independent",
+      "confidenceHint": "This existing threshold still governs legacy reply checks. Evidence scoring is shadow-only and does not change sending.",
       "confidenceCautious": "Cautious",
       "confidenceBalanced": "Balanced",
       "confidenceIndependent": "Independent",

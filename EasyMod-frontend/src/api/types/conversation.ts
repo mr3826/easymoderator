@@ -129,6 +129,10 @@ export type HeldReason =
   | 'executed_mutation_without_outbound_send';
 
 export interface MessageMetadata {
+  reply_evidence?: {
+    reasons: string[];
+    provenance: 'model' | 'deterministic' | 'fallback' | null;
+  } | null;
   message_type?: MessageType;
   attachments?: MessageAttachment[];
   image_url?: string;

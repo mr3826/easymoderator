@@ -17,6 +17,8 @@ delete process.env.QDRANT_PER_TENANT;
 jest.mock('src/config/config', () => ({ env: 'test' }));
 
 const { validate: uuidValidate } = require('uuid');
+const { createServer } = require('node:http');
+const { once, getEventListeners } = require('node:events');
 const {
     EMBEDDING_SPACE_MANIFEST_POINT_ID,
     createEmbeddingSpaceIdentity,
@@ -58,6 +60,7 @@ const defaultFetch = async (url, init) => {
     // All remaining Qdrant calls "succeed": upsert, search, count, delete.
     return { ok: true, status: 200, text: async () => '', json: async () => ({ result: [] }) };
 };
+const transportFetch = global.fetch;
 global.fetch = jest.fn(defaultFetch);
 
 const rag = require('src/modules/rag/rag.service');
@@ -69,7 +72,7 @@ const upsertBody = () => {
 
 beforeEach(() => {
     calls.length = 0;
-    global.fetch.mockImplementation(defaultFetch);
+    global.fetch.mockClear().mockImplementation(defaultFetch);
 });
 
 describe('Qdrant point-id normalization', () => {
@@ -177,5 +180,167 @@ describe('Qdrant point-id normalization', () => {
         expect(searchBody.filter.must_not).toEqual(expect.arrayContaining([
             expect.objectContaining({ key: 'embedding_space_manifest' }),
         ]));
+    });
+});
+
+describe('RAG query deadline', () => {
+    const query = { query: 'delivery', shopId: 's1' };
+    let server;
+
+    afterEach(async () => {
+        jest.useRealTimers();
+        if (server) {
+            const closed = once(server, 'close');
+            server.close();
+            server.closeAllConnections();
+            await closed;
+            server = undefined;
+        }
+    });
+
+    const useLocalTransport = async (stallAt) => {
+        const socketsClosed = [];
+        server = createServer(async (req, res) => {
+            if (req.url.endsWith(stallAt)) {
+                res.once('close', () => socketsClosed.push(req.url));
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.write('{');
+                return;
+            }
+            const response = await defaultFetch(req.url);
+            res.end(JSON.stringify(await response.json()));
+        });
+        server.listen(0, '127.0.0.1');
+        await once(server, 'listening');
+        global.fetch.mockImplementation((url, init) => transportFetch(
+            `http://127.0.0.1:${server.address().port}${new URL(url).pathname}`, init,
+        ));
+        return socketsClosed;
+    };
+
+    test.each(['/knowledge_documents', '/points/scroll', '/points/search'])('deadline closes the response stream for %s', async (phase) => {
+        const socketsClosed = await useLocalTransport(phase);
+        await expect(rag.queryData(query, { timeoutMs: 600 })).rejects.toMatchObject({ name: 'TimeoutError' });
+        const closeDeadline = Date.now() + 1500;
+        while (!socketsClosed.length && Date.now() < closeDeadline) {
+            await new Promise((resolve) => setTimeout(resolve, 15));
+        }
+        expect(socketsClosed).toEqual([expect.stringMatching(new RegExp(`${phase}$`))]);
+        const signals = global.fetch.mock.calls.map(([, init]) => init.signal);
+        expect(new Set(signals).size).toBe(1);
+    });
+
+    test('cancellation does not mutate the caller reason or affect another query', async () => {
+        const parent = new AbortController();
+        const reason = Object.freeze(new Error('caller stopped'));
+        let fetchEntered;
+        const entered = new Promise((resolve) => { fetchEntered = resolve; });
+        global.fetch.mockImplementationOnce((_, { signal }) => {
+            fetchEntered();
+            return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        });
+        const pending = rag.queryData(query, { signal: parent.signal });
+        await entered;
+        const concurrent = rag.queryData(query);
+        parent.abort(reason);
+        await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+        await expect(concurrent).resolves.toMatchObject({ success: true });
+        expect(parent.signal.reason).toBe(reason);
+        expect(getEventListeners(parent.signal, 'abort')).toHaveLength(0);
+    });
+
+    test('successful completion detaches later cancellation', async () => {
+        const parent = new AbortController();
+        await expect(rag.queryData(query, { signal: parent.signal })).resolves.toMatchObject({ success: true });
+        const [, { signal }] = global.fetch.mock.calls[0];
+        expect(getEventListeners(parent.signal, 'abort')).toHaveLength(0);
+        parent.abort();
+        expect(signal.aborted).toBe(false);
+        const priorCalls = global.fetch.mock.calls.length;
+        await expect(rag.queryData(query, { signal: parent.signal })).rejects.toMatchObject({ name: 'AbortError' });
+        expect(global.fetch).toHaveBeenCalledTimes(priorCalls);
+    });
+
+    test('a non-cooperative adapter cannot extend caller wait or start another phase after timeout', async () => {
+        jest.useFakeTimers();
+        global.fetch.mockClear();
+        let finish;
+        global.fetch.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+        const assertion = expect(rag.queryData(query, { timeoutMs: 25 })).rejects.toMatchObject({ name: 'TimeoutError' });
+        await jest.advanceTimersByTimeAsync(25);
+        await assertion;
+        finish(await defaultFetch('/collections/knowledge_documents'));
+        await jest.advanceTimersByTimeAsync(0);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(jest.getTimerCount()).toBe(0);
+    });
+
+    test('an embedding timeout aborts the provider request and prevents a later search', async () => {
+        jest.useFakeTimers();
+        const previousProvider = process.env.EMBEDDING_PROVIDER;
+        const previousOpenAiKey = process.env.OPENAI_API_KEY;
+        process.env.EMBEDDING_PROVIDER = 'openai';
+        process.env.OPENAI_API_KEY = 'mock-only-embedding-key';
+
+        let finishEmbedding;
+        let embeddingSignal;
+        let enterEmbedding;
+        const embeddingEntered = new Promise((resolve) => { enterEmbedding = resolve; });
+        let searchCalls = 0;
+        const openAiIdentity = require('../embedding.service').getEmbeddingSpaceIdentity();
+        const openAiManifest = createManifestPayload({
+            collection: 'knowledge_documents',
+            identity: openAiIdentity,
+            state: 'ACTIVE',
+        });
+
+        global.fetch.mockImplementation((url, init = {}) => {
+            const endpoint = String(url);
+            calls.push({ url: endpoint, init });
+            if (endpoint.includes('api.openai.com/v1/embeddings')) {
+                embeddingSignal = init.signal;
+                enterEmbedding();
+                return new Promise((resolve) => {
+                    finishEmbedding = () => resolve({
+                        ok: true,
+                        json: async () => ({ data: [{ embedding: new Array(openAiIdentity.dimensions).fill(0.1) }] }),
+                    });
+                });
+            }
+            if (endpoint.includes('/points/scroll')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ result: { points: [{ id: EMBEDDING_SPACE_MANIFEST_POINT_ID, payload: openAiManifest }] } }),
+                });
+            }
+            if (/\/collections\/[^/]+$/.test(endpoint)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ result: { config: { params: { vectors: { size: openAiIdentity.dimensions } } } } }),
+                });
+            }
+            if (endpoint.includes('/points/search')) searchCalls++;
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({ result: [] }) });
+        });
+
+        try {
+            const pending = rag.queryData(query, { timeoutMs: 25 });
+            await embeddingEntered;
+            const timeout = expect(pending).rejects.toMatchObject({ name: 'TimeoutError' });
+            await jest.advanceTimersByTimeAsync(25);
+            await timeout;
+
+            expect(embeddingSignal.aborted).toBe(true);
+            finishEmbedding();
+            await jest.advanceTimersByTimeAsync(0);
+            expect(searchCalls).toBe(0);
+        } finally {
+            if (previousProvider === undefined) delete process.env.EMBEDDING_PROVIDER;
+            else process.env.EMBEDDING_PROVIDER = previousProvider;
+            if (previousOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+            else process.env.OPENAI_API_KEY = previousOpenAiKey;
+        }
     });
 });

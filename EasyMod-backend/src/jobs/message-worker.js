@@ -1637,6 +1637,7 @@ async function finalizeAiMessage(
         deliveryState = null,
         deliverySource = 'AUTO',
         suggestionVisibility = null,
+        observeAcknowledgedReply = null,
     },
 ) {
     const acknowledgedProviderIds = [
@@ -1760,6 +1761,10 @@ async function finalizeAiMessage(
                 ].filter((id, index, ids) => id && ids.indexOf(id) === index);
                 const mergedMetadata = {
                     ...lockedMetadata,
+                    ...(observeAcknowledgedReply && isProviderConfirmed(locked)
+                        && lockedMetadata.confidence_scope !== 'delivered'
+                        && (locked.delivery_source || lockedMetadata.delivery_source) !== 'DRAFT_APPROVAL'
+                        ? observeAcknowledgedReply(locked.content) : {}),
                     provider_message_ids: mergedProviderIds,
                     ...(delivered ? {
                         provider_accepted_at: lockedMetadata.provider_accepted_at || new Date().toISOString(),
@@ -1812,6 +1817,10 @@ async function finalizeAiMessage(
             : SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW);
     const resolvedMetadata = {
         ...messageMetadata(currentMessage),
+        // This branch already has a provider acknowledgement and uses the existing
+        // conditional delivery update. An echo that wins the race keeps its state.
+        ...(delivered && primaryProviderMessageId && observeAcknowledgedReply
+            ? observeAcknowledgedReply(currentMessage?.content) : {}),
         delivered: Boolean(delivered),
         delivery_status: delivered ? 'sent' : resolvedState === MESSAGE_DELIVERY_STATES.DRAFT_READY ? 'pending' : 'held',
         delivery_state: resolvedState,
@@ -1900,6 +1909,7 @@ async function finalizeAiMessage(
                             delivered: true,
                             providerMessageId: latestProviderMessageId,
                             providerMessageIds: latestProviderMessageIds,
+                            observeAcknowledgedReply,
                         });
                     }
                     const error = new Error('AI message lifecycle changed before provider outcome was persisted');
@@ -2551,6 +2561,8 @@ async function processMessageJob(job) {
     let groundingEvidence = grounding.emptyEvidence(shopId);
     let replySource = null;
     let replyProvider = null;
+    let knowledgeObservation;
+    let fallbackUsed;
     let proposedAttachments = [];
     let humanRequired = false;
     let orderFlow = { handled: false };
@@ -2778,6 +2790,8 @@ async function processMessageJob(job) {
             groundingEvidence = intentResult.grounding || groundingEvidence;
             replySource = intentResult.source || null;
             replyProvider = intentResult.provider || null;
+            knowledgeObservation = intentResult.knowledgeObservation;
+            fallbackUsed = intentResult.fallbackUsed;
             proposedAttachments = intentResult.attachments || [];
             if (humanRequired) {
                 await requireHumanRecovery({
@@ -2813,6 +2827,7 @@ async function processMessageJob(job) {
                 : 'Thank you for your message! We will respond shortly.';
             confidence = 0;
             sourceReferences = null;
+            knowledgeObservation = { knowledgeFailed: false, knowledgeOutcome: 'UNKNOWN' };
             fallbackKnowledgeGapSource = 'ai_pipeline_error';
         }
     }
@@ -2863,6 +2878,68 @@ async function processMessageJob(job) {
 
     let outboundAttachments = groundingVerdict.attachments || [];
 
+    const observeConfidence = (text, scope) => {
+        const start = process.hrtime.bigint();
+        let observation;
+        let wouldHold = null;
+        let wouldHoldPolicyVersion = null;
+        let wouldHoldSettingsScope = null;
+        try {
+            const { deriveReplyConfidence } = require('../modules/ai/reply-confidence.service');
+            const {
+                shouldHoldForLowConfidence,
+                WOULD_HOLD_POLICY_VERSION,
+                WOULD_HOLD_SETTINGS_SCOPE,
+            } = require('../modules/ai/confidence-gate.service');
+            wouldHoldPolicyVersion = WOULD_HOLD_POLICY_VERSION;
+            wouldHoldSettingsScope = WOULD_HOLD_SETTINGS_SCOPE;
+            observation = deriveReplyConfidence({
+                groundingDecision: groundingVerdict.decision,
+                groundingReason: groundingVerdict.reasonCode,
+                violations: groundingVerdict.violations,
+                evidence: { ...groundingEvidence, ...knowledgeObservation },
+                replySource,
+                provider: replyProvider,
+                fallbackUsed,
+                orderFlowHandled: orderFlow.handled,
+                faqScore: replySource === 'faq' ? confidence : null,
+                deliveredText: text,
+                replyMode: aiSettings.automation_mode,
+            });
+            if (observation.score !== null) {
+                if (!Number.isFinite(observation.score) || observation.score < 0 || observation.score > 1) {
+                    throw new Error('Invalid shadow score');
+                }
+                // This is deliberately the generation-time prediction. The live
+                // send gate re-resolves settings later and remains authoritative.
+                wouldHold = !committedOrder && shouldHoldForLowConfidence({
+                    confidence: observation.score,
+                    automationMode: aiSettings.automation_mode,
+                    confidenceThreshold: aiSettings.confidence_threshold,
+                    orderFlowHandled: orderFlow.handled,
+                });
+            }
+            // Force JSON validation at the observer boundary, not at the lifecycle write.
+            observation = JSON.parse(JSON.stringify(observation));
+        } catch {
+            observation = { score: null, components: {}, reasonCodes: ['COMPUTATION_FAILED'], provenance: 'fallback' };
+            wouldHold = null;
+        }
+        return {
+            confidence_score: observation.score,
+            confidence_components: observation.components,
+            confidence_reason_codes: observation.reasonCodes,
+            confidence_provenance: observation.provenance,
+            confidence_would_hold: wouldHold,
+            confidence_would_hold_policy_version: wouldHoldPolicyVersion,
+            confidence_would_hold_settings_scope: wouldHoldSettingsScope,
+            confidence_mode: 'shadow',
+            confidence_scope: scope,
+            confidence_turn_id: turnId,
+            confidence_compute_ms: Number((process.hrtime.bigint() - start) / 1_000_000n),
+        };
+    };
+
     // Store the candidate before any branch that may need the deterministic
     // post-mutation response. The closure reads the final grounding verdict.
     const storeAiResponse = (content, aiDisclosureApplied, lifecycle = {}) => {
@@ -2912,6 +2989,7 @@ async function processMessageJob(job) {
             grounding_violations: groundingVerdict?.violations || [],
             grounding_provider: replyProvider,
             grounding_attachment_urls: outboundAttachments.map(a => a.url),
+            ...observeConfidence(contentWithResume, 'suggestion'),
             human_required: humanRequired,
             logical_turn_id: logicalTurnId,
             turn_started_at: turnStartedAt,
@@ -3836,6 +3914,9 @@ async function processMessageJob(job) {
         deliveryState: MESSAGE_DELIVERY_STATES.SENT,
         deliverySource: 'AUTO',
         suggestionVisibility: SUGGESTION_VISIBILITY.HIDDEN_SENT,
+        // Do not label the transcript if policy changed the text actually sent.
+        observeAcknowledgedReply: (storedText) => storedText === finalText
+            ? observeConfidence(finalText, 'delivered') : {},
     });
 
     // Activation tracking: the first successful AI reply activates the shop.
