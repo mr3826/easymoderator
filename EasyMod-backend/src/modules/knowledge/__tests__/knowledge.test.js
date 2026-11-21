@@ -486,6 +486,40 @@ describe('Knowledge API', () => {
 
             expect(res.status).toBe(400);
         });
+
+        // ── Phase 1 P03/D3 regression ──────────────────────────────────────
+        // faq_responses stores the merchant's QUESTION TEXT in its single
+        // `category` column (formatFaq serves both `question` and `category`
+        // off that one column; there is no separate question column). The
+        // validator makes `question` required and `category` optional, so a
+        // client that sends BOTH with different values must not lose the
+        // question. The old `category || question` order let a stray category
+        // tag overwrite it.
+
+        it('P03/D3: createFaq preserves the merchant question when category is also supplied', async () => {
+            const stored = {
+                id: 7, category: 'How do I track my order?', template_en: 'Use the link we send',
+                template_bn: null, is_active: true, use_count: 0, priority: 0,
+                created_at: new Date(), updated_at: null,
+            };
+            FaqResponse.create.mockResolvedValueOnce(stored);
+
+            const res = await request(app)
+                .post('/api/knowledge/faqs')
+                .send({
+                    question: 'How do I track my order?',
+                    answer: 'Use the link we send',
+                    category: 'Shipping', // stale tag that previously won
+                });
+
+            expect(res.status).toBe(201);
+            // The persisted row's single text column must hold the QUESTION.
+            expect(FaqResponse.create).toHaveBeenCalledWith(expect.objectContaining({
+                category: 'How do I track my order?',
+            }));
+            // And the API must hand the question back as the question.
+            expect(res.body.data.question).toBe('How do I track my order?');
+        });
     });
 
     describe('GET /knowledge/faqs', () => {
@@ -530,6 +564,31 @@ describe('Knowledge API', () => {
                 .send({ answer: 'Updated' });
 
             expect(res.status).toBe(404);
+        });
+
+        // ── Phase 1 P03/D3 regression (PATCH path) ─────────────────────────
+        // Same precedence as createFaq: an incoming question wins over a
+        // category sent alongside it; a PATCH with neither keeps the stored
+        // text untouched.
+
+        it('P03/D3: updateFaq preserves the new question when category is also supplied', async () => {
+            const existing = {
+                id: 1, category: 'Old question?', template_en: 'Old answer', template_bn: null,
+                is_active: true, use_count: 0, priority: 0,
+                created_at: new Date(), updated_at: new Date(),
+                update: jest.fn(() => Promise.resolve()),
+            };
+            FaqResponse.findOne.mockResolvedValueOnce(existing);
+
+            const res = await request(app)
+                .patch('/api/knowledge/faqs/1')
+                .send({ question: 'What is the new question?', category: 'Billing' });
+
+            expect(res.status).toBe(200);
+            expect(existing.update).toHaveBeenCalledWith(expect.objectContaining({
+                category: 'What is the new question?',
+            }));
+            expect(res.body.data.question).toBe('What is the new question?');
         });
     });
 

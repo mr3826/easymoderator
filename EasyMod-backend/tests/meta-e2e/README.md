@@ -77,6 +77,25 @@ proposed attachment vector, and retrieval-outage cases spy on product lookup to
 simulate a catalog read failure. These narrow tests are labeled in
 `meta-e2e.test.js`; they do not claim webhook-to-worker coverage.
 
+## Merchant-API entry points
+
+`harness.api()` mounts the REAL `knowledge`, `shop` and `conversation` routers
+behind the production auth chain; `harness.asMerchant(shopId)` seeds an active
+owner membership and mints a real Bearer token. On top of that:
+
+- [`cross-system-config.test.js`](./cross-system-config.test.js) — P03: one
+  value travels save (merchant API) → retrieve (webhook → worker) → reply
+  (grounding gate → Graph send) in a single chain, with the LLM capture proving
+  the NEW value entered the model's context, cross-shop markers proving the
+  other shop's data never does, and an unsourced figure proving absent data is
+  not fabricated.
+- [`draft-approval-pipeline.test.js`](./draft-approval-pipeline.test.js) — P05:
+  the DRAFT → approve → send → evidence pipeline THROUGH the real
+  `POST /api/conversation/:cid/messages/:mid/approve` route (service CAS +
+  `InboxDeliveryOutbox` + settle + provider-error/no-ack/outside-window
+  states). `harness.sendAgentReply` remains a plain agent-send shortcut and is
+  NOT approval coverage — do not use it to claim the approval contract.
+
 ## Assertions
 
 Every scenario asserts on two things, never on model phrasing alone:

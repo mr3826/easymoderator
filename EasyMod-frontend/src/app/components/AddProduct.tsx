@@ -80,10 +80,6 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
   const [newTag, setNewTag] = useState("");
   
   // Business Rules
-  const [minOrderQty, setMinOrderQty] = useState("1");
-  const [maxOrderQty, setMaxOrderQty] = useState("");
-  const [returnable, setReturnable] = useState(true);
-  const [returnWindow, setReturnWindow] = useState("7");
   const [warranty, setWarranty] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   
@@ -1186,81 +1182,16 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
             
             {showBusinessRules && (
               <div className="px-6 pb-6 space-y-4 border-t border-em-border pt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-em-text-primary mb-2">
-                      {t('products.form.minOrderQty')}
-                    </label>
-                    <input
-                      type="number"
-                      value={minOrderQty}
-                      onChange={(e) => setMinOrderQty(e.target.value)}
-                      placeholder="1"
-                      min="1"
-                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-em-text-primary mb-2">
-                      {t('products.form.maxOrderQty')}
-                    </label>
-                    <input
-                      type="number"
-                      value={maxOrderQty}
-                      onChange={(e) => setMaxOrderQty(e.target.value)}
-                      placeholder="No limit"
-                      min="1"
-                      className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-em-text-primary mb-3">
-                    {t('products.form.returnPolicy')}
-                  </label>
-                  <div className="space-y-3">
-                    <div className="flex gap-4">
-                      <label className="flex min-h-11 items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="returnable"
-                          checked={returnable === true}
-                          onChange={() => setReturnable(true)}
-                          className="w-4 h-4 text-em-info-700"
-                        />
-                        <span className="text-sm text-em-text-primary">{t('products.form.returnable')}</span>
-                      </label>
-                      <label className="flex min-h-11 items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="returnable"
-                          checked={returnable === false}
-                          onChange={() => setReturnable(false)}
-                          className="w-4 h-4 text-em-info-700"
-                        />
-                        <span className="text-sm text-em-text-primary">{t('products.form.nonReturnable')}</span>
-                      </label>
-                    </div>
-
-                    {returnable && (
-                      <div>
-                        <label className="block text-sm font-medium text-em-text-primary mb-2">
-                          {t('products.form.returnWindow')}
-                        </label>
-                        <input
-                          type="number"
-                          value={returnWindow}
-                          onChange={(e) => setReturnWindow(e.target.value)}
-                          placeholder="30"
-                          min="1"
-                          className="min-h-11 w-full px-4 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
+                {/*
+                  Phase 1 P03/D1: the min/max order-quantity and return-policy
+                  controls that used to live here were removed, not renamed.
+                  The save payload (handleSubmit above) never carried them and
+                  the product API has no columns for them, so a merchant who
+                  picked "Non-returnable" and clicked Publish saw a success
+                  toast while the selection was silently discarded. Do not
+                  re-add a control here unless the value is actually persisted
+                  end-to-end (payload, validator, column, read path).
+                */}
                 <div>
                   <label className="block text-sm font-medium text-em-text-primary mb-2">
                     {t('products.form.warrantyInfo')}

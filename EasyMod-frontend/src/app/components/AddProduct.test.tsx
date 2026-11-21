@@ -780,4 +780,38 @@ describe('AddProduct', () => {
       });
     });
   });
+
+  // ── Dead controls removed (Phase 1 P03/D1) ─────────────────────────────
+  //
+  // minOrderQty / maxOrderQty / returnable / returnWindow had state and inputs
+  // but were never part of the productData payload sent to createProduct /
+  // updateProduct, and the product API has no columns for them. A merchant who
+  // picked "Non-returnable" and clicked Publish saw a success toast while the
+  // selection was silently discarded. The controls were removed rather than
+  // wired to a new backend feature; this test pins that dead inputs do not
+  // reappear without persistence.
+  it('does not render order-quantity or return-policy controls that are never persisted', async () => {
+    await renderCreate();
+
+    // Business Rules is a collapsed accordion — expand it first, or the
+    // assertion would pass simply because the section is hidden.
+    const businessRulesToggle = Array.from(document.querySelectorAll('button')).find(
+      (btn) => btn.textContent?.includes('products.form.businessRules')
+    );
+    expect(businessRulesToggle).toBeTruthy();
+    await act(async () => { fireEvent.click(businessRulesToggle!); });
+
+    // Distinctive DOM markers (not only i18n labels, which another agent owns):
+    // the removed return-policy radios carried name="returnable" and the
+    // max-quantity input carried the unique "No limit" placeholder.
+    expect(document.querySelector('input[name="returnable"]')).toBeNull();
+    const numberInputs = Array.from(document.querySelectorAll('input[type="number"]'));
+    expect(numberInputs.some((el) => el.getAttribute('placeholder') === 'No limit')).toBe(false);
+
+    // Labels render as raw i18n keys (react-i18next mocked to identity above).
+    const labelTexts = Array.from(document.querySelectorAll('label')).map((el) => el.textContent ?? '');
+    expect(labelTexts.some((text) =>
+      /products\.form\.(minOrderQty|maxOrderQty|returnPolicy|returnWindow|returnable|nonReturnable)/.test(text)
+    )).toBe(false);
+  });
 });

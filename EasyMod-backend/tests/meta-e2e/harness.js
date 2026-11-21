@@ -58,6 +58,67 @@ const buildWebhookApp = () => {
 let app = null;
 const webhookApp = () => (app || (app = buildWebhookApp()));
 
+/**
+ * The merchant-facing routers, at their real mount paths, behind the REAL
+ * auth middleware — P03's save-leg (FAQ / business rule) and P05's approval
+ * leg (POST .../messages/:id/approve) must enter through the same production
+ * contract the merchant app uses: authenticate (blacklist + token_version +
+ * live membership) → verifyShopAccess → validator → controller → service.
+ * A real HS256 JWT is signed with the suite's own JWT_ACCESS_SECRET by
+ * `asMerchant` below; nothing in this app is mocked.
+ */
+let apiApp = null;
+const buildApiApp = () => {
+    const { AppError, globalErrorHandler } = require('../../src/utils/AppError');
+    const merchantApp = express();
+    merchantApp.use(express.json());
+    merchantApp.use('/api/knowledge', require('../../src/modules/knowledge/knowledge.routes'));
+    merchantApp.use('/api/product', require('../../src/modules/product/product.routes'));
+    merchantApp.use('/api/shop', require('../../src/modules/shop/shop.routes'));
+    merchantApp.use('/api/conversation', require('../../src/modules/conversation/conversation.routes'));
+    merchantApp.use((req, _res, next) => next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404)));
+    merchantApp.use(globalErrorHandler);
+    return merchantApp;
+};
+const api = () => (apiApp || (apiApp = buildApiApp()));
+
+/**
+ * Seed an active owner for one shop and mint the Bearer session that owner
+ * would hold. Mirrors auth.service.js:233 web login claims (no `sid`, so the
+ * native read-only branch is not taken — the same shape a merchant browser
+ * sends). Rows are wiped by the per-test truncate.
+ */
+const asMerchant = async (shopId) => {
+    const { User, UserShop } = require('../../src/modules/entities');
+    const { generateAccessToken } = require('../../src/utils/jwt.util');
+    const email = `e2e-merchant-${crypto.randomUUID().slice(0, 8)}@e2e.invalid`;
+    const user = await User.create({
+        email,
+        password: 'e2e-not-a-real-password-hash',
+        full_name: 'EM E2E Merchant',
+        token_version: 1,
+        is_active: true,
+        is_verified: true,
+    });
+    await UserShop.create({ user_id: user.id, shop_id: shopId, role: 'owner', is_active: true });
+    const token = generateAccessToken({
+        userId: user.id,
+        email,
+        shopId,
+        tokenVersion: 1,
+        mfaVerified: false,
+    });
+    return { userId: user.id, email, authorization: `Bearer ${token}` };
+};
+
+/** Merchant-authenticated HTTP verbs against the real routers. */
+const merchantGet = async (merchant, path) =>
+    request(api()).get(path).set('Authorization', merchant.authorization);
+const merchantPost = async (merchant, path, body) =>
+    request(api()).post(path).set('Authorization', merchant.authorization).send(body || {});
+const merchantPut = async (merchant, path, body) =>
+    request(api()).put(path).set('Authorization', merchant.authorization).send(body || {});
+
 // ── Meta payload construction ────────────────────────────────────────────────
 
 let midSeq = 0;
@@ -400,8 +461,64 @@ const resolveConversation = async ({ shopId, lastSeenMessageId } = {}) => {
 };
 
 /**
+ * The newest stored DRAFT_READY AI suggestion for the shop's conversation —
+ * the row a merchant approves. Null when the turn was sent automatically or
+ * never produced a suggestion.
+ */
+const draftMessageFor = async (shopId) => {
+    const { normalizeDeliveryState, MESSAGE_DELIVERY_STATES } = require('../../src/modules/conversation/message-lifecycle');
+    const conversation = await conversationFor(shopId);
+    if (!conversation) return null;
+    const rows = await messagesFor(conversation.id);
+    return [...rows].reverse().find((message) => message.sender === 'ai'
+        && normalizeDeliveryState(message) === MESSAGE_DELIVERY_STATES.DRAFT_READY) || null;
+};
+
+/**
+ * Approve one stored draft THROUGH THE REAL ROUTE (P05): POST
+ * /api/conversation/:conversationId/messages/:messageId/approve behind a real
+ * merchant session. This is the whole production contract — auth, validator,
+ * the approveAiDraft service CAS (DRAFT_READY → SEND_PENDING) and its
+ * InboxDeliveryOutbox insert, the controller's provider delivery, the
+ * settleInboxDeliveryOutbox step, and the 409 whenever the provider did not
+ * confirm. The older `sendAgentReply` helper below deliberately remains a
+ * plain agent-send shortcut; it is NOT an approval path and must never be
+ * used to claim approval coverage.
+ */
+const approveDraft = async ({ shopId, messageId, content }) => {
+    const conversation = await conversationFor(shopId);
+    if (!conversation) throw new Error(`meta-e2e: no conversation for shop ${shopId}`);
+    const merchant = await asMerchant(shopId);
+    const response = await merchantPost(
+        merchant,
+        `/api/conversation/${conversation.id}/messages/${messageId}/approve`,
+        content === undefined ? {} : { content },
+    );
+    return { status: response.status, body: response.body, conversationId: conversation.id, merchant };
+};
+
+/**
+ * A merchant's own follow-up reply THROUGH THE REAL ROUTE (POST /messages,
+ * sender agent) — proves the inbox is still usable after an approval turn.
+ */
+const merchantAgentReply = async ({ shopId, content, merchant }) => {
+    const conversation = await conversationFor(shopId);
+    if (!conversation) throw new Error(`meta-e2e: no conversation for shop ${shopId}`);
+    const actor = merchant || await asMerchant(shopId);
+    const response = await merchantPost(actor, `/api/conversation/${conversation.id}/messages`, {
+        content,
+        sender: 'agent',
+    });
+    return { status: response.status, body: response.body, conversationId: conversation.id };
+};
+
+/**
  * Send one explicit merchant reply through the real Shared Inbox delivery
  * helper. The provider transport remains captured by transport.js.
+ *
+ * NOTE: this BYPASSES the draft-approval contract (it creates a fresh
+ * business row and calls the delivery helper directly). P05 pipeline
+ * assertions must use `approveDraft` / `merchantAgentReply` instead.
  */
 const sendAgentReply = async ({ shopId, content }) => {
     const { Message } = require('../../src/modules/conversation/conversation.entity');
@@ -625,6 +742,17 @@ const resetRun = async () => {
     await fixtures.truncateAll();
     await fixtures.seed();
 
+    // Merchant save scenarios (P03) warm the per-shop knowledge caches
+    // (knowledge:summary / knowledge:ai-summary, TTL 300s, key family
+    // t:{shopId}:*). truncateAll removes the DB rows a summary was built
+    // from; without this sweep the NEXT scenario could be served a summary
+    // of rows that no longer exist. Test-owned shops only — never a
+    // general flush (see the note above).
+    const cacheService = require('../../src/utils/cache.service');
+    for (const shopId of [fixtures.IDS.shopA, fixtures.IDS.shopB]) {
+        await cacheService.clearForShop(shopId).catch(() => { /* best effort */ });
+    }
+
     transport.resetTransports();
     groundingDecisions = [];
 };
@@ -677,6 +805,15 @@ module.exports = {
     setBusinessReplyMode,
     resolveConversation,
     sendAgentReply,
+    // merchant API (real routers + real auth) — P03 save-leg, P05 approval-leg
+    api,
+    asMerchant,
+    merchantGet,
+    merchantPost,
+    merchantPut,
+    draftMessageFor,
+    approveDraft,
+    merchantAgentReply,
     // captured outbound
     sentTexts,
     sentAttachments,

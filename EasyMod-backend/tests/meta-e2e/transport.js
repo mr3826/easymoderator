@@ -38,6 +38,7 @@ const GEMINI_PRO_MODEL = process.env.LLM_GEMINI_PRO_MODEL || 'gemini-3.1-pro-pre
 let sends = [];
 let graphGets = [];
 let sendFailure = null;
+let sendAckOverride = false;
 let messageSeq = 0;
 
 const hostOf = (url) => {
@@ -63,6 +64,13 @@ const installMetaTransport = () => {
         }
         sends.push({ url: String(url), body });
         if (sendFailure) throw sendFailure;
+        if (sendAckOverride) {
+            sendAckOverride = false;
+            // HTTP 200 but NO message_id: a request Meta accepted cannot be
+            // proven delivered without its acknowledgement. This is the wire
+            // shape that must end in PROVIDER_NO_ACK, never in `sent`.
+            return { data: { recipient_id: body?.recipient?.id } };
+        }
         messageSeq += 1;
         return { data: { message_id: `mid.e2e.${messageSeq}`, recipient_id: body?.recipient?.id } };
     };
@@ -88,6 +96,13 @@ const capturedGraphGets = () => [...graphGets];
 
 /** Make the next Graph send fail, e.g. to exercise retry / DLQ behaviour. */
 const failNextSend = (error) => { sendFailure = error; };
+
+/**
+ * Make the next Graph POST be accepted by the transport but answered WITHOUT
+ * a message_id — the shape that must end in PROVIDER_NO_ACK (held), never
+ * in a `sent` claim. One-shot, like failNextSend.
+ */
+const succeedNextSendWithoutAck = () => { sendAckOverride = true; };
 
 // ── LLM transport ────────────────────────────────────────────────────────────
 
@@ -189,6 +204,7 @@ const resetTransports = () => {
     graphGets = [];
     llmCalls = [];
     sendFailure = null;
+    sendAckOverride = false;
     script = {};
 };
 
@@ -199,6 +215,7 @@ module.exports = {
     capturedSends,
     capturedGraphGets,
     failNextSend,
+    succeedNextSendWithoutAck,
     setCandidate,
     llmProvidersCalled,
     capturedLlmCalls,
