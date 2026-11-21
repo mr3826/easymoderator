@@ -42,9 +42,9 @@ on:
       target:
         # Trusted-caller targets: all, backend, frontend, probe, restore-floor.
         # A string (not a choice) is required here; release.yml's dispatch choice
-        # list constrains what an operator can send. target=restore-floor through
-        # this path only exercises the rehearsal + validator gate — the restore
-        # job itself is gated to a direct ci-cd.yml workflow_dispatch.
+        # list constrains what an operator can send. target=restore-floor runs the
+        # rehearsal + validator gate and then the guarded restore job, which
+        # accepts both workflow_dispatch and this workflow_call path.
         required: false
         type: string
         default: ''

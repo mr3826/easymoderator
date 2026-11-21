@@ -26,9 +26,9 @@ on:
         required: false
         default: all
         type: choice
-        # restore-floor is accepted here so the paired rehearsal/validator
-        # graph can be exercised through the trusted caller; the restore job
-        # itself executes only from a direct ci-cd.yml workflow_dispatch.
+        # restore-floor drives the rehearsal/validator graph and then the guarded
+        # restore job through the trusted caller (the restore job accepts both
+        # workflow_call and a direct ci-cd.yml workflow_dispatch).
         options: [all, backend, frontend, probe, restore-floor]
       wipe_db_first:
         description: 'Destructive database reset confirmation (must be WIPE; currently refused by deploy guard)'
