@@ -1,9 +1,17 @@
 'use strict';
 
 const { Op } = require('sequelize');
-const { MetaChannel, Product } = require('../entities');
+const {
+    MetaChannel,
+    Product,
+    FaqResponse,
+    Message,
+    Conversation,
+    InboxDeliveryOutbox,
+} = require('../entities');
 const shopService = require('../shop/shop.service');
 const { AI_REPLY_MODES, normalizeAiReplyMode } = require('../shop/ai-reply-mode');
+const { MESSAGE_DELIVERY_STATES } = require('../conversation/message-lifecycle');
 
 const TASK_KEYS = Object.freeze({
     CONNECT_CHANNEL: 'connect_channel',
@@ -11,6 +19,57 @@ const TASK_KEYS = Object.freeze({
     FIRST_PRODUCT: 'first_product',
     AI_SETTINGS: 'ai_settings',
 });
+
+/**
+ * P04 — configuration is not operation. A shop becomes CONFIGURED when every
+ * setup task is filled in; it only becomes VERIFIED_OPERATIONAL when existing
+ * operational records (webhook verification, an approved draft, a provider
+ * acceptance) prove a real reply actually reached Messenger. The states below
+ * are merchant-facing; none of them is ever inferred from settings defaults.
+ */
+const OPERATIONAL_STATES = Object.freeze({
+    CONFIGURED: 'configured',
+    WAITING_FOR_TEST: 'waiting_for_test',
+    ACTION_REQUIRED: 'action_required',
+    VERIFIED_OPERATIONAL: 'verified_operational',
+});
+
+// Operational proof is only valid while it is fresh. A webhook verification or
+// a provider-accepted reply older than this window is real history, not current
+// proof — the shop drops back to waiting_for_test until a new test lands.
+const OPERATIONAL_EVIDENCE_WINDOW_DAYS = 30;
+
+// A draft counts as generated once generation finished. SEND_PENDING/SENT/
+// DELIVERED rows imply an earlier DRAFT_READY, so "generated" counts everything
+// that got past generation. GENERATING is deliberately excluded: it is not a
+// draft yet.
+const DRAFT_GENERATED_STATES = Object.freeze([
+    MESSAGE_DELIVERY_STATES.DRAFT_READY,
+    MESSAGE_DELIVERY_STATES.SEND_PENDING,
+    MESSAGE_DELIVERY_STATES.SENT,
+    MESSAGE_DELIVERY_STATES.DELIVERED,
+]);
+
+// delivery_source='DRAFT_APPROVAL' is only written by the merchant approval
+// flow (conversation.service), so these rows are real approvals. FAILED is
+// kept here as an approval whose delivery broke; the operational ladder below
+// classifies it under action_required.
+const APPROVED_DELIVERY_STATES = Object.freeze([
+    MESSAGE_DELIVERY_STATES.SEND_PENDING,
+    MESSAGE_DELIVERY_STATES.SENT,
+    MESSAGE_DELIVERY_STATES.DELIVERED,
+    MESSAGE_DELIVERY_STATES.FAILED,
+]);
+
+// Messenger never receives a DELIVERED transition (the subscription is
+// ["messages"] only), so the strongest provider evidence is SENT + a stored
+// provider_message_id — exactly what isProviderConfirmed() in
+// message-lifecycle.js requires. Rows without provider_message_id are never
+// counted as accepted, mirroring normalizeDeliveryState()'s HELD downgrade.
+const PROVIDER_ACCEPTED_STATES = Object.freeze([
+    MESSAGE_DELIVERY_STATES.SENT,
+    MESSAGE_DELIVERY_STATES.DELIVERED,
+]);
 
 const TASK_DEFINITIONS = Object.freeze({
     [TASK_KEYS.CONNECT_CHANNEL]: {
@@ -53,6 +112,12 @@ function hasText(value) {
 
 function hasAnyText(values) {
     return values.some(hasText);
+}
+
+function isoOrNull(value) {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function buildTask(key, complete, details = {}) {
@@ -131,16 +196,71 @@ function assessAiSettings(aiSettings) {
     };
 }
 
+/**
+ * Operational messages live under conversations, so every evidence query joins
+ * messages → conversations and pins the tenant. A missing/foreign conversation
+ * can therefore never contribute evidence to this shop (fail-closed).
+ */
+function messageEvidenceScope(shopId) {
+    return {
+        include: [{
+            model: Conversation,
+            as: 'conversation',
+            required: true,
+            attributes: [],
+            where: { shop_id: shopId },
+        }],
+    };
+}
+
+/**
+ * A provider-accepted reply that counts toward OPERATIONAL truth must be a
+ * real merchant-approved send on the SAME row (A5-1): delivery_source
+ * 'DRAFT_APPROVAL' (only the approval flow writes it), SENT/DELIVERED, and a
+ * non-empty provider_message_id. AUTO and HITL_ESCALATION sends are excluded —
+ * verified_operational can never light up from a reply nobody approved. The
+ * P05 launch contract runs DRAFT + approval (AUTO is not enabled), so this
+ * matches the intended contract and the FE copy.
+ */
+function providerAcceptedWhere(shopId, extra = {}) {
+    return {
+        where: {
+            sender: 'ai',
+            delivery_source: 'DRAFT_APPROVAL',
+            delivery_state: { [Op.in]: PROVIDER_ACCEPTED_STATES },
+            provider_message_id: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] },
+            ...extra,
+        },
+        ...messageEvidenceScope(shopId),
+    };
+}
+
 async function getSetupStatus({ shopId, userId }) {
     const shop = await shopService.getShopById(shopId, userId);
     const settings = normalizeObject(shop.settings);
     const businessInfo = normalizeObject(settings.businessInfo);
+    const evidenceWindowStart = new Date(
+        Date.now() - OPERATIONAL_EVIDENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
 
+    // Deliberately no `.catch(() => 0)` on any evidence query: a database or
+    // schema failure must surface as a status error the UI retries, never as a
+    // silent zero that fabricates (or erases) a verification claim.
     const [
         aiSettings,
         connectedFacebookPages,
         webhookVerifiedFacebookPages,
+        webhookRecentlyVerifiedFacebookPages,
+        mostRecentWebhookVerification,
         activeProducts,
+        activeFaqs,
+        draftsGenerated,
+        draftsApproved,
+        aiMessagesAcceptedEver,
+        aiMessagesAcceptedRecently,
+        latestAcceptedAiMessage,
+        failedApprovedSends,
+        stuckOutboxDeliveries,
     ] = await Promise.all([
         shopService.getShopAiSettings(shopId),
         MetaChannel.count({
@@ -153,21 +273,89 @@ async function getSetupStatus({ shopId, userId }) {
                 status: 'CONNECTED',
                 webhook_last_verified_at: { [Op.ne]: null },
             },
-        }).catch(() => 0),
+        }),
+        MetaChannel.count({
+            where: {
+                shop_id: shopId,
+                platform: 'facebook',
+                status: 'CONNECTED',
+                webhook_last_verified_at: { [Op.gte]: evidenceWindowStart },
+            },
+        }),
+        MetaChannel.findOne({
+            where: {
+                shop_id: shopId,
+                platform: 'facebook',
+                status: 'CONNECTED',
+                webhook_last_verified_at: { [Op.ne]: null },
+            },
+            attributes: ['webhook_last_verified_at'],
+            order: [['webhook_last_verified_at', 'DESC']],
+        }),
         Product.count({
             where: { shop_id: shopId, is_active: true },
+        }),
+        FaqResponse.count({
+            where: { shop_id: shopId, is_active: true },
+        }),
+        Message.count({
+            where: {
+                sender: 'ai',
+                delivery_state: { [Op.in]: DRAFT_GENERATED_STATES },
+            },
+            ...messageEvidenceScope(shopId),
+        }),
+        Message.count({
+            where: {
+                sender: 'ai',
+                delivery_source: 'DRAFT_APPROVAL',
+                delivery_state: { [Op.in]: APPROVED_DELIVERY_STATES },
+            },
+            ...messageEvidenceScope(shopId),
+        }),
+        Message.count(providerAcceptedWhere(shopId)),
+        Message.count(providerAcceptedWhere(shopId, { created_at: { [Op.gte]: evidenceWindowStart } })),
+        Message.findOne({
+            ...providerAcceptedWhere(shopId),
+            attributes: ['created_at'],
+            order: [['created_at', 'DESC']],
+        }),
+        // Failures are windowed like positive evidence (A5-3): a single
+        // historical FAILED approved send must not pin action_required
+        // forever — a fresh verified test re-earns verified_operational.
+        Message.count({
+            where: {
+                sender: 'ai',
+                delivery_source: 'DRAFT_APPROVAL',
+                delivery_state: MESSAGE_DELIVERY_STATES.FAILED,
+                created_at: { [Op.gte]: evidenceWindowStart },
+            },
+            ...messageEvidenceScope(shopId),
+        }),
+        // NEEDS_RECONCILIATION is a CURRENT unresolved state (settled rows
+        // leave it), so it stays unwindowed: an unresolved stuck delivery is
+        // action_required no matter when it started. Fail-closed direction.
+        InboxDeliveryOutbox.count({
+            where: { shop_id: shopId, status: 'NEEDS_RECONCILIATION' },
         }),
     ]);
 
     const normalizedAiSettings = normalizeObject(aiSettings);
     const shopProfile = assessShopProfile(shop, businessInfo, normalizedAiSettings);
     const aiSettingsStatus = assessAiSettings(normalizedAiSettings);
-    const connectedChannelWarnings = connectedFacebookPages > 0 && webhookVerifiedFacebookPages === 0
-        ? [{
+
+    const connectedChannelWarnings = [];
+    if (connectedFacebookPages > 0 && webhookVerifiedFacebookPages === 0) {
+        connectedChannelWarnings.push({
             code: 'WEBHOOK_NOT_VERIFIED',
-            message: 'No recent webhook verification was found. The connected page still counts, but send a test message before launch.',
-        }]
-        : [];
+            message: 'No webhook verification was found for the connected page. Send a test message before launch.',
+        });
+    } else if (connectedFacebookPages > 0 && webhookRecentlyVerifiedFacebookPages === 0) {
+        connectedChannelWarnings.push({
+            code: 'WEBHOOK_VERIFICATION_STALE',
+            message: `The most recent webhook verification is older than ${OPERATIONAL_EVIDENCE_WINDOW_DAYS} days. Re-run the channel webhook check before launch.`,
+        });
+    }
 
     const tasks = [
         buildTask(TASK_KEYS.CONNECT_CHANNEL, connectedFacebookPages > 0, {
@@ -175,6 +363,7 @@ async function getSetupStatus({ shopId, userId }) {
             meta: {
                 connectedFacebookPages,
                 webhookVerifiedFacebookPages,
+                webhookRecentlyVerifiedFacebookPages,
             },
         }),
         buildTask(TASK_KEYS.SHOP_PROFILE, shopProfile.complete, {
@@ -199,10 +388,91 @@ async function getSetupStatus({ shopId, userId }) {
         }),
     ];
 
+    const webhookLastVerifiedAt = isoOrNull(mostRecentWebhookVerification?.webhook_last_verified_at);
+    // The model exposes no acceptance timestamp (updatedAt is off; the
+    // trigger-maintained DB column is not surfaced), so this is honestly the
+    // CREATION time of the newest accepted reply, not the moment of
+    // acceptance (A5-4) — name it as such rather than mislabelling it.
+    const lastAcceptedReplyCreatedAt = isoOrNull(latestAcceptedAiMessage?.created_at);
+
+    // The operational ladder reads EXISTING records only:
+    //   webhook  — MetaChannel.webhook_last_verified_at (confirmWebhookActive)
+    //   draft    — Message.delivery_state DRAFT_READY+ (message-lifecycle)
+    //   approval — Message.delivery_source DRAFT_APPROVAL (approval flow)
+    //   provider — APPROVED (delivery_source='DRAFT_APPROVAL') + SENT/DELIVERED
+    //              + provider_message_id (isProviderConfirmed on an approved send)
+    //   failure  — FAILED approved sends / stuck outbox reconciliations
+    // Missing evidence keeps the shop below verified_operational; it is never
+    // back-filled from configuration.
+    const operationalWarnings = [];
+    let operationalState;
+    if (failedApprovedSends > 0 || stuckOutboxDeliveries > 0) {
+        operationalState = OPERATIONAL_STATES.ACTION_REQUIRED;
+        operationalWarnings.push({
+            code: 'OPERATIONAL_TEST_FAILED',
+            message: 'An approved AI reply failed to reach Messenger or could not be reconciled. Check the channel connection, then approve a fresh test reply.',
+        });
+    } else if (webhookRecentlyVerifiedFacebookPages > 0 && aiMessagesAcceptedRecently > 0) {
+        operationalState = OPERATIONAL_STATES.VERIFIED_OPERATIONAL;
+    } else if (
+        webhookRecentlyVerifiedFacebookPages > 0
+        || draftsGenerated > 0
+        || draftsApproved > 0
+        || aiMessagesAcceptedEver > 0
+    ) {
+        // A channel is listening or a test is in flight (or was attempted):
+        // the remaining proof is an accepted reply. This is not a failure, so
+        // it is never reported as success either.
+        operationalState = OPERATIONAL_STATES.WAITING_FOR_TEST;
+    } else {
+        // Nothing operational has happened yet — only configuration exists.
+        operationalState = OPERATIONAL_STATES.CONFIGURED;
+    }
+
+    if (operationalState !== OPERATIONAL_STATES.VERIFIED_OPERATIONAL) {
+        if (connectedFacebookPages > 0 && webhookVerifiedFacebookPages === 0) {
+            operationalWarnings.push({
+                code: 'WEBHOOK_NOT_VERIFIED',
+                message: 'No webhook verification was found for the connected page. Send a test message before launch.',
+            });
+        } else if (connectedFacebookPages > 0 && webhookRecentlyVerifiedFacebookPages === 0) {
+            operationalWarnings.push({
+                code: 'WEBHOOK_VERIFICATION_STALE',
+                message: `The most recent webhook verification is older than ${OPERATIONAL_EVIDENCE_WINDOW_DAYS} days. Re-run the channel webhook check before launch.`,
+            });
+        }
+    }
+
+    const operational = {
+        state: operationalState,
+        operationalVerified: operationalState === OPERATIONAL_STATES.VERIFIED_OPERATIONAL,
+        evidenceWindowDays: OPERATIONAL_EVIDENCE_WINDOW_DAYS,
+        warnings: operationalWarnings,
+        evidence: {
+            webhook: {
+                connectedFacebookPages,
+                verifiedEver: webhookVerifiedFacebookPages,
+                verifiedWithinWindow: webhookRecentlyVerifiedFacebookPages,
+                lastVerifiedAt: webhookLastVerifiedAt,
+            },
+            assistant: {
+                draftsGenerated,
+                draftsApproved,
+                providerAcceptedEver: aiMessagesAcceptedEver,
+                providerAcceptedWithinWindow: aiMessagesAcceptedRecently,
+                lastAcceptedReplyCreatedAt,
+                approvedSendFailures: failedApprovedSends,
+                outboxNeedsReconciliation: stuckOutboxDeliveries,
+            },
+        },
+    };
+
     const completedCount = tasks.filter((task) => task.status === 'complete').length;
     const totalCount = tasks.length;
 
     return {
+        // isComplete has always meant "configuration complete"; it does NOT
+        // claim the shop is operational. Use `operational` for that.
         isComplete: completedCount === totalCount,
         completedCount,
         totalCount,
@@ -212,11 +482,24 @@ async function getSetupStatus({ shopId, userId }) {
             connectedFacebookPages,
             webhookVerifiedFacebookPages,
             activeProducts,
+            activeFaqs,
+            aiMessagesSent: aiMessagesAcceptedEver,
         },
+        operational,
         generatedAt: new Date().toISOString(),
     };
 }
 
+/**
+ * Legacy onboarding contract. Field names are kept for API compatibility, but
+ * the values are no longer fabricated:
+ *   - knowledge_added          ← active FAQ answers (was: product count)
+ *   - assistant_test_completed ← one REAL same-row approved + provider-accepted
+ *                                reply (was: "AI settings exist")
+ *   - ai_messages              ← real provider-accepted AI sends (was: 0)
+ * `completed`/`can_complete` still gate on configuration (unchanged meaning);
+ * operational truth is exposed separately as `operational_verified`.
+ */
 function toLegacyOnboardingStatus(setupStatus) {
     const taskStatus = Object.fromEntries(
         setupStatus.tasks.map((task) => [task.key, task.status === 'complete'])
@@ -225,28 +508,41 @@ function toLegacyOnboardingStatus(setupStatus) {
         .filter((task) => task.status !== 'complete')
         .map((task) => task.key);
 
+    const counts = normalizeObject(setupStatus.counts);
+    const operational = normalizeObject(setupStatus.operational);
+    const assistant = normalizeObject(operational.evidence?.assistant);
+    // providerAcceptedEver is already the SAME-ROW joined condition
+    // (delivery_source='DRAFT_APPROVAL' AND SENT/DELIVERED AND a real
+    // provider_message_id), so this check can no longer be true while the
+    // ladder reports action_required from an approved-but-failed send (A5-2).
+    const providerAccepted = Number(assistant.providerAcceptedEver || 0);
+    const activeFaqs = Number(counts.activeFaqs || 0);
+
     return {
         completed: setupStatus.isComplete,
         can_complete: setupStatus.isComplete,
         checks: {
             facebook_connected: Boolean(taskStatus[TASK_KEYS.CONNECT_CHANNEL]),
             business_info_added: Boolean(taskStatus[TASK_KEYS.SHOP_PROFILE]),
-            knowledge_added: Boolean(taskStatus[TASK_KEYS.FIRST_PRODUCT]),
-            assistant_test_completed: Boolean(taskStatus[TASK_KEYS.AI_SETTINGS]),
+            knowledge_added: activeFaqs > 0,
+            assistant_test_completed: providerAccepted > 0,
         },
         missing,
         counts: {
-            connected_facebook_pages: setupStatus.counts.connectedFacebookPages,
-            active_products: setupStatus.counts.activeProducts,
-            active_faqs: setupStatus.counts.activeFaqs || 0,
-            ai_messages: 0,
+            connected_facebook_pages: Number(counts.connectedFacebookPages || 0),
+            active_products: Number(counts.activeProducts || 0),
+            active_faqs: activeFaqs,
+            ai_messages: providerAccepted,
         },
+        operational_verified: Boolean(operational.operationalVerified),
         setup_status: setupStatus,
     };
 }
 
 module.exports = {
     TASK_KEYS,
+    OPERATIONAL_STATES,
+    OPERATIONAL_EVIDENCE_WINDOW_DAYS,
     getSetupStatus,
     toLegacyOnboardingStatus,
 };

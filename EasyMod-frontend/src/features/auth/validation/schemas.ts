@@ -46,7 +46,6 @@ export function createSigninSchema(messages: SigninValidationMessages = DEFAULT_
       .min(1, messages.emailRequired)
       .email(messages.emailInvalid),
     password: z.string().min(1, messages.passwordRequired),
-    rememberMe: z.boolean().default(false),
   });
 }
 

@@ -3,7 +3,14 @@
  * same localStorage gating, same three sub-variants (welcome / in-progress /
  * complete). One primary action per screen: welcome → Start, in-progress →
  * the NEXT incomplete task's CTA (other tasks secondary, completed tasks a
- * resolved badge with no CTA), complete → Go to dashboard.
+ * resolved badge with no CTA).
+ *
+ * P04 truthfulness: the complete branch reports CONFIGURATION complete, and a
+ * separate operational ladder from the backend (configured / waiting_for_test /
+ * action_required / verified_operational) tells the merchant whether a real
+ * approved reply has actually reached Messenger. Warnings render on every
+ * branch — completing the checklist does not silence them. Capability claims
+ * appear only in the verified_operational state.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -12,13 +19,14 @@ import {
   ArrowRight,
   CheckCircle2,
   Facebook,
+  Info,
   MessageCircle,
   Package,
   Store,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
-import type { SetupStatus, SetupTaskKey } from '@/api/types';
+import type { SetupOperationalState, SetupStatus, SetupTaskKey, SetupTaskWarning } from '@/api/types';
 import { EmButton } from './dashboard/EmButton';
 import { PageHeader } from './dashboard/PageHeader';
 import { ResultBanner } from './dashboard/ResultBanner';
@@ -41,8 +49,25 @@ const iconByTask: Record<SetupTaskKey, LucideIcon> = {
   ai_settings: MessageCircle,
 };
 
+/** Design-system banner tone per operational state — never inferred from isComplete. */
+const bannerByState: Record<SetupOperationalState, 'success' | 'error' | 'pending'> = {
+  configured: 'pending',
+  waiting_for_test: 'pending',
+  action_required: 'error',
+  verified_operational: 'success',
+};
+
 function stringList(value: unknown, fallback: string[]) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : fallback;
+}
+
+function dedupeWarnings(warnings: SetupTaskWarning[]): SetupTaskWarning[] {
+  const seen = new Set<string>();
+  return warnings.filter((warning) => {
+    if (seen.has(warning.code)) return false;
+    seen.add(warning.code);
+    return true;
+  });
 }
 
 export default function FirstTimeSetupDashboard({
@@ -104,31 +129,40 @@ export default function FirstTimeSetupDashboard({
     'Reduce manual work',
   ]);
 
-  const verifiedAtLabel = useMemo(() => {
-    if (!setupStatus.generatedAt) return '';
-    const date = new Date(setupStatus.generatedAt);
+  const formatStamp = useMemo(() => (value: string | null | undefined) => {
+    if (!value) return '';
+    const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return '';
     return new Intl.DateTimeFormat(locale, {
       dateStyle: 'medium',
       timeStyle: 'short',
       timeZone: 'Asia/Dhaka',
     }).format(date);
-  }, [setupStatus.generatedAt, locale]);
+  }, [locale]);
+
+  // generatedAt is the moment the BACKEND COMPUTED this status — it is not a
+  // verification time. The label says "Status checked", and real operational
+  // evidence is listed separately below.
+  const statusCheckedLabel = useMemo(() => {
+    const stamp = formatStamp(setupStatus.generatedAt);
+    return stamp ? t('dashboard.setup.statusCheckedAt', { time: stamp }) : '';
+  }, [formatStamp, setupStatus.generatedAt, t]);
 
   const shell = 'em-dashboard min-h-full p-4 md:p-6';
   const inner = 'mx-auto w-full max-w-[1440px]';
   const breadcrumb = [{ label: t('dashboard.pulse.context.workspace') }, { label: t('dashboard.setup.eyebrow') }];
   const attentionSignal: Signal = { kind: 'attention', label: t('dashboard.pulse.signal.attention') };
   const resolvedSignal: Signal = { kind: 'resolved', label: t('dashboard.pulse.signal.resolved') };
+  const pendingSignal: Signal = { kind: 'pending', label: t('dashboard.pulse.signal.pending') };
   const setupNarrative = (provenResultOverride?: string) =>
     deriveNarrative(
       { phase: setupStatus.isComplete ? 'setup-complete' : 'setup', pulse: null, workItems: [], caughtUp: false, hasAllWorkSources: false },
       t,
       { provenResultOverride },
     );
-  const setupEvidence = verifiedAtLabel
-    ? `${progressLabel} · ${t('dashboard.setup.verifiedAt', { time: verifiedAtLabel })}`
-    : progressLabel;
+  const setupEvidence = [progressLabel, statusCheckedLabel]
+    .filter(Boolean)
+    .join(' · ');
 
   if (!setupStatus.isComplete && !hasStarted) {
     const narrative = setupNarrative(setupEvidence);
@@ -170,7 +204,21 @@ export default function FirstTimeSetupDashboard({
   }
 
   if (setupStatus.isComplete) {
+    const operational = setupStatus.operational;
+    // An older payload without the operational block is NOT evidence of a
+    // working pipeline — it stays at the most conservative claim.
+    const state: SetupOperationalState = operational?.state ?? 'configured';
+    const verified = state === 'verified_operational';
+    const windowDays = operational?.evidenceWindowDays ?? 30;
+    const webhook = operational?.evidence.webhook;
+    const assistant = operational?.evidence.assistant;
+
     const narrative = setupNarrative(setupEvidence);
+    const headerSignal: Signal = verified
+      ? resolvedSignal
+      : state === 'action_required'
+        ? attentionSignal
+        : pendingSignal;
     const primary: Action = { label: t('dashboard.setup.goToDashboard'), onClick: onDismissCompletion };
     const secondary: Action = {
       label: t('dashboard.setup.reviewReplySettings'),
@@ -179,42 +227,114 @@ export default function FirstTimeSetupDashboard({
         navigate('/manage-shop/business-info');
       },
     };
+
+    const warnings = dedupeWarnings([
+      ...setupStatus.tasks.flatMap((task) => task.warnings),
+      ...(operational?.warnings ?? []),
+    ]);
+
+    const evidenceItems: string[] = [];
+    if (webhook) {
+      if (webhook.lastVerifiedAt && webhook.verifiedWithinWindow > 0) {
+        evidenceItems.push(t('dashboard.setup.evidence.webhookVerifiedAt', { time: formatStamp(webhook.lastVerifiedAt) }));
+      } else if (webhook.lastVerifiedAt) {
+        evidenceItems.push(t('dashboard.setup.evidence.webhookStale', { days: windowDays }));
+      } else {
+        evidenceItems.push(t('dashboard.setup.evidence.webhookNever'));
+      }
+    }
+    if (assistant) {
+      if (assistant.providerAcceptedEver > 0) {
+        evidenceItems.push(t('dashboard.setup.evidence.providerAccepted', { count: assistant.providerAcceptedEver }));
+      } else {
+        evidenceItems.push(t('dashboard.setup.evidence.providerNone'));
+      }
+      if (assistant.approvedSendFailures > 0 || assistant.outboxNeedsReconciliation > 0) {
+        evidenceItems.push(t('dashboard.setup.evidence.deliveryFailures', {
+          count: assistant.approvedSendFailures + assistant.outboxNeedsReconciliation,
+        }));
+      }
+    }
+
     return (
       <div className={shell}>
         <div className={inner}>
           <PageHeader
             title={t('dashboard.setup.completeTitle')}
             breadcrumb={breadcrumb}
-            signal={resolvedSignal}
+            signal={headerSignal}
             whyHere={t('dashboard.setup.completeSubtitle')}
             primaryAction={primary}
             secondaryActions={[secondary]}
           />
           <ResultBanner
-            status="success"
-            title={t('dashboard.setup.completeEyebrow')}
-            description={readinessLabel}
+            status={bannerByState[state]}
+            title={t(`dashboard.setup.states.${state}.title`)}
+            description={t(`dashboard.setup.states.${state}.description`, { windowDays })}
             evidenceId={setupEvidence}
             className="mb-4"
           />
-          <section className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4" aria-labelledby="setup-complete-list">
-            <h2 id="setup-complete-list" className="text-sm font-semibold text-em-text-primary">
-              {t('dashboard.setup.eyebrow')}
+          {warnings.length > 0 && (
+            <section
+              role="status"
+              className="mb-4 rounded-xl border border-em-warning-700/20 bg-em-warning-100 p-4"
+              aria-labelledby="setup-complete-warnings"
+            >
+              <h2 id="setup-complete-warnings" className="text-sm font-semibold text-em-warning-700">
+                {t('dashboard.setup.warningsTitle')}
+              </h2>
+              <ul className="mt-2 space-y-1">
+                {warnings.map((warning) => (
+                  <li key={warning.code} className="flex gap-2 text-sm font-medium text-em-warning-700">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>
+                      {t(`dashboard.setup.warnings.${warning.code}`, { defaultValue: warning.message })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          <section
+            className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4"
+            aria-labelledby="setup-operational-evidence"
+          >
+            <h2 id="setup-operational-evidence" className="text-sm font-semibold text-em-text-primary">
+              {t('dashboard.setup.evidence.title')}
             </h2>
-            <ul className="mt-3 grid gap-2 md:grid-cols-2">
-              {completeBullets.map((item) => (
-                <li key={item} className="flex items-start gap-2 rounded-lg bg-em-success-100 p-3">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-em-success-700" aria-hidden="true" />
-                  <span className="text-sm font-medium text-em-success-700">{item}</span>
-                </li>
-              ))}
-            </ul>
+            {evidenceItems.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {evidenceItems.map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-em-text-secondary">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-em-text-secondary" aria-hidden="true" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-em-text-secondary">{t('dashboard.setup.evidence.none')}</p>
+            )}
           </section>
+          {verified && (
+            <section className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4" aria-labelledby="setup-complete-list">
+              <h2 id="setup-complete-list" className="text-sm font-semibold text-em-text-primary">
+                {t('dashboard.setup.eyebrow')}
+              </h2>
+              <ul className="mt-3 grid gap-2 md:grid-cols-2">
+                {completeBullets.map((item) => (
+                  <li key={item} className="flex items-start gap-2 rounded-lg bg-em-success-100 p-3">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-em-success-700" aria-hidden="true" />
+                    <span className="text-sm font-medium text-em-success-700">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <EvidenceFooter
             provenResult={narrative.provenResult}
             whereNext={narrative.whereNext}
             isStale={false}
-            coverageComplete
+            coverageComplete={verified}
             onRefresh={() => void onRefresh?.()}
           />
         </div>

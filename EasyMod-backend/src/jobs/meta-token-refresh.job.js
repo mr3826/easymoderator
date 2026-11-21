@@ -162,6 +162,13 @@ class MetaTokenRefreshJob extends BaseJob {
         channel.status = 'TOKEN_EXPIRED';
         channel.last_error = `Refresh failed: ${errorMessage}`;
         channel.token_refresh_attempts = attempts;
+        // D2 rule applies here too: this bypass path is the scheduled 6h
+        // sweep's TOKEN_EXPIRED writer, and an expired token no longer backs
+        // any webhook verification. Without the clear, the health grid shows
+        // "Active" and setup-status keeps counting the webhook verified —
+        // exactly the stale-stamp symptom D2 exists to remove.
+        channel.webhook_last_verified_at = null;
+        channel.webhook_subscribed_fields = [];
         await channel.save();
 
         try {

@@ -64,6 +64,15 @@ async function disableChannel(channel, {
         && !channel.page_access_token_ct
         && channel.last_error === reason;
     if (alreadyDisabled) {
+        // D2 self-heal: a channel disabled before webhook verification was
+        // cleared may still carry a stale stamp. Clearing it here is idempotent
+        // and does not re-run notifications, drains, or token mutations.
+        if (channel.webhook_last_verified_at || (channel.webhook_subscribed_fields ?? []).length > 0) {
+            await channel.update({
+                webhook_last_verified_at: null,
+                webhook_subscribed_fields: [],
+            });
+        }
         // A previous attempt may have disabled the channel and then failed its
         // strict compliance audit. Retry the audit without repeating external
         // notifications, queue drains, or token mutations.
@@ -100,6 +109,12 @@ async function disableChannel(channel, {
         token_expires_at: null,
         last_error: reason,
         disconnected_at: new Date(),
+        // D2: revoked/expired channels must not keep a webhook verification
+        // stamp — the health grid shows "Active" purely from it. The token and
+        // (best-effort) Meta subscription are gone, so the stamp is no longer
+        // ours to assert; a successful reconnect re-stamps it.
+        webhook_last_verified_at: null,
+        webhook_subscribed_fields: [],
     });
 
     try {

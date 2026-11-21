@@ -221,6 +221,10 @@ class MetaChannelService {
                 existing.page_access_token_ct = null;
                 existing.disconnected_at = now;
                 existing.last_error = REASSIGNED_LAST_ERROR;
+                // D2: a released cross-shop claim is disconnected — its webhook
+                // verification belongs to the new owner's flow, not this row.
+                existing.webhook_last_verified_at = null;
+                existing.webhook_subscribed_fields = [];
                 await existing.save({ transaction });
                 releasedConflictingChannels.push({
                     id: existing.id,
@@ -531,6 +535,12 @@ class MetaChannelService {
         if (status === 'DISCONNECTED') {
             channel.disconnected_at = new Date();
         }
+        if (status !== 'CONNECTED') {
+            // D2: a degraded channel must not keep a webhook verification stamp
+            // it can no longer back up — the health grid reads the stamp.
+            channel.webhook_last_verified_at = null;
+            channel.webhook_subscribed_fields = [];
+        }
         if (transaction) await channel.save({ transaction });
         else await channel.save();
         logger.info('MetaChannelService.updateStatus', { channelId, status });
@@ -611,6 +621,10 @@ class MetaChannelService {
         channel.token_expires_at = null;
         channel.disconnected_at = new Date();
         channel.last_error = lastError;
+        // D2: the token is gone, so any prior webhook verification is no longer
+        // ours to assert. Clearing the stamp keeps the health grid truthful.
+        channel.webhook_last_verified_at = null;
+        channel.webhook_subscribed_fields = [];
         await channel.save();
 
         // Best-effort: drain queued jobs for this channel. Non-fatal — if Redis

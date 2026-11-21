@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff } from "lucide-react";
 import { Input } from "@/app/components/ui/input";
 import { Button } from "@/app/components/ui/button";
-import { Checkbox } from "@/app/components/ui/checkbox";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { createSigninSchema, type SigninFormData, type SigninFormInput } from "@/features/auth/validation/schemas";
 import { getErrorMessage } from "@shared/lib/http/errors";
@@ -28,7 +27,6 @@ export default function SignIn() {
 
   const {
     register,
-    control,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
@@ -37,12 +35,10 @@ export default function SignIn() {
     defaultValues: {
       email: "",
       password: "",
-      rememberMe: typeof window !== "undefined" ? sessionStorage.getItem("rememberMe") === "true" : false,
     },
   });
 
   const onSubmit = async (data: SigninFormData) => {
-    sessionStorage.setItem("rememberMe", data.rememberMe ? "true" : "false");
     try {
       await signin({ email: data.email.trim().toLowerCase(), password: data.password });
       navigate("/dashboard");
@@ -124,24 +120,6 @@ export default function SignIn() {
                 </button>
               </div>
               {errors.password && <p id="signin-password-error" role="alert" className="mt-1.5 text-xs text-red-700">{errors.password.message}</p>}
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <Controller
-                name="rememberMe"
-                control={control}
-                render={({ field }) => (
-                  <Checkbox
-                    id="rememberMe"
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                    disabled={isSubmitting}
-                  />
-                )}
-              />
-              <label htmlFor="rememberMe" className="cursor-pointer select-none text-sm text-[#39445F]">
-                {t("publicFunnel.auth.rememberMe")}
-              </label>
             </div>
 
             <Button type="submit" disabled={isSubmitting} className="funnel-button funnel-button-primary h-12 w-full justify-center text-base">

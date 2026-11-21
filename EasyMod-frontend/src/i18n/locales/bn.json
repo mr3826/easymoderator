@@ -322,7 +322,6 @@
       "passwordLabel": "পাসওয়ার্ড",
       "forgotPassword": "পাসওয়ার্ড ভুলে গেছেন?",
       "passwordPlaceholder": "আপনার পাসওয়ার্ড লিখুন",
-      "rememberMe": "আমাকে মনে রাখুন",
       "signingIn": "লগইন হচ্ছে...",
       "signInButton": "লগইন করুন →",
       "noAccount": "অ্যাকাউন্ট নেই?",
@@ -560,7 +559,7 @@
         "loading": "আজকের যাচাই করা কাজ ও ব্যবসার সংকেত দেখা হচ্ছে।",
         "error": "ড্যাশবোর্ড লোড করা যায়নি, তাই সংখ্যা ও কাজ পুরোনো হতে পারে।",
         "setup": "কথোপকথন থেকে নিশ্চিত অর্ডার করতে আপনার শপের কয়েকটি সেটআপ ধাপ বাকি।",
-        "setupComplete": "সব সেটআপ ধাপ যাচাই হয়ে সম্পন্ন হয়েছে।",
+        "setupComplete": "সব সেটআপ ধাপ কনফিগার করা হয়েছে; লাইভ যাচাইের অবস্থা এই স্ক্রিনে দেখানো হচ্ছে।",
         "work": "যাচাই করা কাজ অপেক্ষায় — উত্তর: {{replies}} · Draft অর্ডার: {{drafts}} · ডেলিভারি ব্যতিক্রম: {{exceptions}}।",
         "caughtUp": "যাচাই করা কোনো কাজ বাকি নেই।",
         "partial": "কিছু কাজের উৎস যাচাই করা যায়নি, তাই শুধু নিশ্চিত তথ্য দেখানো হচ্ছে।"
@@ -592,63 +591,91 @@
     },
     "setup": {
       "loading": "শপ সেটআপ যাচাই হচ্ছে...",
-      "welcomeEyebrow": "Business Setup",
+      "welcomeEyebrow": "ব্যবসার সেটআপ",
       "welcomeTitle": "EasyModerator-এ স্বাগতম!",
-      "welcomeSubtitle": "প্রায় ৫ মিনিটে আপনার business প্রস্তুত করি। Facebook connect, product add, reply review, এবং order receive করার প্রস্তুতিতে আমরা সাহায্য করব।",
+      "welcomeSubtitle": "প্রায় ৫ মিনিটে আপনার ব্যবসা প্রস্তুত করি। Facebook পেজ যুক্ত করা, পণ্য যোগ, উত্তর পর্যালোচনা এবং অর্ডার গ্রহণের প্রস্তুতিতে আমরা সাহায্য করব।",
       "welcomeBullets": [
-        "Facebook connect করুন",
-        "Product add করুন",
-        "Reply settings review করুন",
-        "Order receive করার প্রস্তুতি নিন"
+        "Facebook পেজ যুক্ত করুন",
+        "পণ্য যোগ করুন",
+        "উত্তরের সেটিংস দেখুন",
+        "অর্ডার গ্রহণের প্রস্তুতি নিন"
       ],
       "estimatedTime": "সময় লাগবে: প্রায় ৫ মিনিট",
-      "startCta": "Business Setup শুরু করুন",
-      "completeEyebrow": "আপনার শপ প্রস্তুত",
-      "completeTitle": "আপনার shop ready.",
-      "completeSubtitle": "EasyModerator এখন customer reply, product recommend, order capture এবং manual work কমাতে সাহায্য করতে পারে।",
+      "startCta": "সেটআপ শুরু করুন",
+      "completeTitle": "আপনার শপের সেটআপ সম্পূর্ণ হয়েছে।",
+      "completeSubtitle": "প্রয়োজনীয় সব সেটিংস পূরণ আছে। নিচের লাইভ যাচাই সম্পন্ন হলেই কেবল প্রকৃত ডেলিভারি নিশ্চিত হবে — শুধু কনফিগারেশন কখনোই লাইভ কাজের দাবি করে না।",
       "completeBullets": [
-        "Customer reply",
-        "Product recommend",
-        "Order capture",
-        "Manual work কমানো"
+        "কাস্টমারের উত্তর দেওয়া",
+        "পণ্য সুপারিশ করা",
+        "অর্ডার গ্রহণ করা",
+        "ম্যানুয়াল কাজ কমানো"
       ],
-      "goToDashboard": "Dashboard দেখুন",
-      "reviewReplySettings": "Reply Settings দেখুন",
-      "eyebrow": "Business Setup Progress",
-      "title": "Complete Your Shop Setup",
-      "subtitle": "এই জরুরি কাজগুলো শেষ করুন যাতে EasyModerator Messenger conversation থেকে confirmed order করতে সাহায্য করতে পারে।",
-      "refresh": "স্ট্যাটাস রিফ্রেশ",
-      "progressTitle": "Business Setup Progress",
+      "states": {
+        "configured": {
+          "title": "সেটআপ কনফিগার হয়েছে — লাইভ যাচাই বাকি",
+          "description": "প্রয়োজনীয় সব সেটিংস পূরণ, কিন্তু এখনো কোনো অনুমোদিত AI উত্তর Messenger-এ পৌঁছায়নি। কাস্টমারের মতো আপনার পেজে মেসেজ পাঠান, Inbox-এ ড্রাফট অনুমোদন করুন, তারপর এই পেজ আবার লোড করুন।"
+        },
+        "waiting_for_test": {
+          "title": "যাচাইযোগ্য টেস্ট উত্তরের অপেক্ষায়",
+          "description": "চ্যানেলের কিছু তথ্য মিলেছে, কিন্তু গত {{windowDays}} দিনে কোনো অনুমোদিত AI উত্তর Messenger-এ পৌঁছেছে কিনা এখনো নিশ্চিত করা যাচ্ছে না। একটি টেস্ট মেসেজ পাঠিয়ে Inbox-এ উত্তরটি অনুমোদন করুন।"
+        },
+        "action_required": {
+          "title": "একটি টেস্ট উত্তর ডেলিভারিতে ব্যর্থ",
+          "description": "অনুমোদিত একটি AI উত্তর Messenger-এ পৌঁছায়নি বা ডেলিভারি আটকে আছে। চ্যানেল সেটিংসে গিয়ে সংযোগ আবার দেখে নতুন করে টেস্ট উত্তর পাঠান।"
+        },
+        "verified_operational": {
+          "title": "শুরু থেকে শেষ যাচাই সম্পন্ন",
+          "description": "পেজের ওয়েবহুক সাম্প্রতিকভাবে ভেরিফাই করা এবং একটি অনুমোদিত AI উত্তর Messenger-এ পৌঁছেছে। EasyModerator এখন আসল কাস্টমার কথোপকথনের জন্য প্রস্তুত।"
+        }
+      },
+      "warningsTitle": "লঞ্চের আগে যা ঠিক করা দরকার",
+      "evidence": {
+        "title": "লাইভ প্রমাণ",
+        "webhookVerifiedAt": "পেজের ওয়েবহুক ভেরিফাই হয়েছে {{time}}",
+        "webhookStale": "ওয়েবহুক ভেরিফিকেশন {{days}} দিনের বেশি পুরোনো",
+        "webhookNever": "কোনো ওয়েবহুক ভেরিফিকেশন রেকর্ড নেই",
+        "providerAccepted": "Messenger-এ গৃহীত অনুমোদিত AI উত্তর: {{count}}",
+        "providerNone": "কোনো অনুমোদিত AI উত্তর এখনো Messenger-এ পৌঁছায়নি",
+        "deliveryFailures": "{{count}}টি অনুমোদিত উত্তর ডেলিভারিতে ব্যর্থ",
+        "none": "এখনো কোনো লাইভ প্রমাণের রেকর্ড নেই।"
+      },
+      "goToDashboard": "ড্যাশবোর্ডে যান",
+      "reviewReplySettings": "উত্তরের সেটিংস দেখুন",
+      "eyebrow": "ব্যবসার সেটআপ অগ্রগতি",
+      "title": "আপনার শপের সেটআপ সম্পূর্ণ করুন",
+      "subtitle": "এই জরুরি কাজগুলো শেষ করুন যাতে EasyModerator Messenger-এর কথোপকথন থেকে নিশ্চিত অর্ডার পেতে সাহায্য করতে পারে।",
+      "refresh": "স্ট্যাটাস আবার দেখুন",
+      "progressTitle": "ব্যবসার সেটআপ অগ্রগতি",
       "progress": "{{total}}টির মধ্যে {{completed}}টি সম্পন্ন",
-      "progressPercent": "আপনার shop {{percent}}% ready.",
-      "progressOneLeft": "আর মাত্র একটি step বাকি।",
-      "progressAlmostReady": "আপনার business প্রায় ready.",
-      "progressReady": "আপনার shop ready.",
+      "progressPercent": "আপনার শপ {{percent}}% প্রস্তুত।",
+      "progressOneLeft": "আর মাত্র একটি ধাপ বাকি।",
+      "progressAlmostReady": "আপনার ব্যবসা প্রায় প্রস্তুত।",
+      "progressReady": "সেটআপ পূর্ণ — লাইভ যাচাই বাকি।",
       "complete": "সম্পন্ন",
       "incomplete": "কাজ বাকি",
       "missingPrefix": "বাকি:",
-      "noteTitle": "Manual mode দিয়ে শুরু করা নিরাপদ",
-      "noteBody": "নতুন ব্যবসায় EasyModerator Manual mode দিয়ে শুরু হয়। Real customer question review করার পর Business Settings থেকে Draft বা Auto বেছে নিন।",
+      "noteTitle": "ম্যানুয়াল মোডে শুরু করা নিরাপদ",
+      "noteBody": "নতুন ব্যবসায় EasyModerator ম্যানুয়াল মোডে শুরু হয়। আসল কাস্টমার প্রশ্ন পর্যালোচনা করার পর Business Settings থেকে Draft বা Auto বেছে নিন।",
       "tasks": {
         "connect_channel": {
-          "title": "Facebook Page যুক্ত করুন",
-          "description": "Customer message automaticভাবে receive করুন এবং সব conversation এক inbox-এ রাখুন।",
-          "cta": "Facebook connect"
+          "title": "Facebook পেজ যুক্ত করুন",
+          "description": "কাস্টমারের মেসেজ স্বয়ংক্রিয়ভাবে পান এবং সব কথোপকথন একই ইনবক্সে রাখুন।",
+          "cta": "Facebook সংযোগ"
         },
         "shop_profile": {
-          "title": "Complete Business Information",
-          "description": "Clear contact, delivery ও payment details দিয়ে customer trust বাড়ান।",
-          "cta": "Info complete করুন"
+          "title": "ব্যবসার তথ্য সম্পূর্ণ করুন",
+          "description": "স্পষ্ট যোগাযোগ, ডেলিভারি ও পেমেন্ট তথ্য দিয়ে কাস্টমারের আস্থা বাড়ান।",
+          "cta": "তথ্য পূরণ করুন"
         },
         "first_product": {
-          "title": "Add Your First Product",
-          "description": "ঠিক price, stock ও details দিয়ে EasyModerator-কে product recommend করতে দিন।",
-          "cta": "Product add করুন"
+          "title": "প্রথম পণ্য যোগ করুন",
+          "description": "সঠিক দাম, স্টক ও তথ্য দিয়ে EasyModerator-কে পণ্য সুপারিশ করতে দিন।",
+          "cta": "পণ্য যোগ করুন"
         },
         "ai_settings": {
-          "title": "Review Reply Settings",
-          "description": "Customer conversation-এ EasyModerator কখন draft, send বা pause করবে তা choose করুন।",
-          "cta": "Replies review"
+          "title": "উত্তরের সেটিংস দেখুন",
+          "description": "কাস্টমার কথোপকথনে EasyModerator কখন ড্রাফট করবে, পাঠাবে বা থামাবে তা ঠিক করুন।",
+          "cta": "উত্তর পর্যালোচনা"
         }
       },
       "missing": {
@@ -656,17 +683,19 @@
         "support_contact": "সাপোর্ট কন্ট্যাক্ট",
         "delivery_info": "ডেলিভারি তথ্য",
         "payment_methods": "পেমেন্ট পদ্ধতি",
-        "automation_mode": "reply mode",
+        "automation_mode": "উত্তরের মোড",
         "confidence_threshold": "কনফিডেন্স থ্রেশহোল্ড"
       },
       "warnings": {
-        "WEBHOOK_NOT_VERIFIED": "সাম্প্রতিক webhook verification পাওয়া যায়নি। লঞ্চের আগে একটি টেস্ট মেসেজ পাঠান।",
+        "WEBHOOK_NOT_VERIFIED": "সংযুক্ত পেজের কোনো ওয়েবহুক ভেরিফিকেশন পাওয়া যায়নি। লঞ্চের আগে একটি টেস্ট মেসেজ পাঠান।",
+        "WEBHOOK_VERIFICATION_STALE": "সর্বশেষ ওয়েবহুক ভেরিফিকেশন অনেক পুরোনো। লঞ্চের আগে চ্যানেলের ভেরিফিকেশন আবার চালান।",
+        "OPERATIONAL_TEST_FAILED": "অনুমোদিত একটি AI উত্তর Messenger-এ পৌঁছায়নি বা মিলিয়ে দেখা যায়নি। চ্যানেলের সংযোগ দেখে নতুন করে টেস্ট উত্তর অনুমোদন করুন।",
         "LOW_PRODUCT_COUNT": "লঞ্চের আগে তিনটি বা তার বেশি সক্রিয় পণ্য রাখা ভালো।",
-        "AI_NOT_DRAFT": "First launch verification-এর জন্য Review first recommended."
+        "AI_AUTO_ENABLED": "স্বয়ংক্রিয় উত্তর চালু আছে; লঞ্চের আগে শপের সেটআপ ও সেফটি গেট যাচাই করুন।"
       },
       "stateUnavailable": "শপ সেটআপের অবস্থা লোড করা যায়নি।",
       "nextStep": "এখান থেকে শুরু করুন",
-      "verifiedAt": "যাচাই হয়েছে {{time}}"
+      "statusCheckedAt": "স্ট্যাটাস দেখা হয়েছে {{time}}"
     },
     "nav": {
       "dashboard": "ড্যাশবোর্ড",

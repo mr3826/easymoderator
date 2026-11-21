@@ -1743,7 +1743,7 @@ describe('MetaMessengerProvider', () => {
 
         test('returns ok:true when the page has all required subscriptions', async () => {
             axios.get.mockResolvedValueOnce({
-                data: { data: [{ subscribed_fields: ['messages'] }] }
+                data: { data: [{ id: 'test-app-id', subscribed_fields: ['messages'] }] }
             });
             const res = await provider.verifyWebhookSubscription({ channel });
             expect(res.ok).toBe(true);
@@ -1765,9 +1765,76 @@ describe('MetaMessengerProvider', () => {
         });
 
         test('returns ok:false when messages field is missing', async () => {
-            axios.get.mockResolvedValueOnce({ data: { data: [{ subscribed_fields: ['feed'] }] } });
+            axios.get.mockResolvedValueOnce({ data: { data: [{ id: 'test-app-id', subscribed_fields: ['feed'] }] } });
             const res = await provider.verifyWebhookSubscription({ channel });
             expect(res.ok).toBe(false);
+        });
+
+        // D3 regression: a Page commonly carries subscriptions from OTHER apps.
+        // Only OUR app's entry (META_APP_ID) proves EasyModerator receives the
+        // webhooks — foreign fields must never satisfy verification.
+        test('D3: a third-party app subscribing `messages` does NOT verify our webhook', async () => {
+            axios.get.mockResolvedValueOnce({
+                data: { data: [{ id: 'third-party-app-999', subscribed_fields: ['messages', 'feed'] }] },
+            });
+            const res = await provider.verifyWebhookSubscription({ channel });
+            expect(res.ok).toBe(false);
+            expect(res.fields).toEqual([]);
+        });
+
+        test('D3: multi-app response verifies from OUR entry only', async () => {
+            axios.get.mockResolvedValueOnce({
+                data: {
+                    data: [
+                        { id: 'third-party-app-999', subscribed_fields: ['feed'] },
+                        { id: 'test-app-id', subscribed_fields: ['messages'] },
+                    ],
+                },
+            });
+            const res = await provider.verifyWebhookSubscription({ channel });
+            expect(res.ok).toBe(true);
+            expect(res.fields).toEqual(['messages']);
+        });
+
+        test('D3: our app present but missing `messages` while another app has it is not ok', async () => {
+            axios.get.mockResolvedValueOnce({
+                data: {
+                    data: [
+                        { id: 'third-party-app-999', subscribed_fields: ['messages'] },
+                        { id: 'test-app-id', subscribed_fields: ['feed'] },
+                    ],
+                },
+            });
+            const res = await provider.verifyWebhookSubscription({ channel });
+            expect(res.ok).toBe(false);
+        });
+
+        test('D3: numeric app ids compare equal to the configured id as strings', async () => {
+            axios.get.mockResolvedValueOnce({
+                data: { data: [{ id: 2040799330176198, subscribed_fields: ['messages'] }] },
+            });
+            config.metaAppId = 2040799330176198;
+            try {
+                const res = await provider.verifyWebhookSubscription({ channel });
+                expect(res.ok).toBe(true);
+            } finally {
+                config.metaAppId = 'test-app-id';
+            }
+        });
+
+        test('D3: fails closed when META_APP_ID is not configured', async () => {
+            axios.get.mockResolvedValueOnce({
+                data: { data: [{ id: 'test-app-id', subscribed_fields: ['messages'] }] },
+            });
+            const saved = config.metaAppId;
+            config.metaAppId = '';
+            try {
+                const res = await provider.verifyWebhookSubscription({ channel });
+                expect(res.ok).toBe(false);
+                expect(res.fields).toEqual([]);
+            } finally {
+                config.metaAppId = saved;
+            }
         });
     });
 
@@ -1777,7 +1844,7 @@ describe('MetaMessengerProvider', () => {
 
         const channel = { id: 'chan-1', meta_asset_id: 'PAGE_1', page_access_token_ct: 'tok_page' };
         const TARGETS = ['messaging_postbacks', 'messaging_referrals'];
-        const subscribed = (...fields) => ({ data: { data: [{ subscribed_fields: fields }] } });
+        const subscribed = (...fields) => ({ data: { data: [{ id: 'test-app-id', subscribed_fields: fields }] } });
 
         test('default target fields are exactly postbacks + referrals', async () => {
             axios.get.mockResolvedValue(subscribed('messages', ...TARGETS));
