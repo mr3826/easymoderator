@@ -1173,7 +1173,10 @@ describe('production workflow branch safety', () => {
         expect(restoreBlock).toContain('timeout-minutes: 45');
         expect(restoreBlock).toContain('environment: production');
         expect(restoreBlock).toContain('permissions:\n      contents: read\n      packages: read');
-        expect(restoreBlock).toContain("github.event_name == 'workflow_dispatch' &&");
+        expect(restoreBlock).toContain('always() &&');
+        expect(restoreBlock).toContain("needs.changes.result == 'success' &&");
+        expect(restoreBlock).toContain("needs.deployment-config.result == 'success' &&");
+        expect(restoreBlock).toContain("(github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&");
         expect(restoreBlock).toContain("github.ref == 'refs/heads/main' &&");
         expect(restoreBlock).toContain("inputs.target == 'restore-floor' &&");
         expect(restoreBlock).toContain("vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&");

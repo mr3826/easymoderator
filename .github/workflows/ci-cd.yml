@@ -42,9 +42,9 @@ on:
       target:
         # Trusted-caller targets: all, backend, frontend, probe, restore-floor.
         # A string (not a choice) is required here; release.yml's dispatch choice
-        # list constrains what an operator can send. target=restore-floor through
-        # this path only exercises the rehearsal + validator gate — the restore
-        # job itself is gated to a direct ci-cd.yml workflow_dispatch.
+        # list constrains what an operator can send. target=restore-floor runs the
+        # rehearsal + validator gate and then the guarded restore job, which
+        # accepts both workflow_dispatch and this workflow_call path.
         required: false
         type: string
         default: ''
@@ -2664,8 +2664,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: [changes, deployment-config]
-    if: |
-      github.event_name == 'workflow_dispatch' &&
+    # Mirror the deploy job's robust gate: always() + explicit needs results
+    # (the implicit success() form skipped the job even when its needs succeeded),
+    # and accept workflow_call so the trusted release.yml entrypoint can drive a
+    # restore exactly as it drives a promotion.
+    if: >-
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.deployment-config.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
       github.ref == 'refs/heads/main' &&
       inputs.target == 'restore-floor' &&
       vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
