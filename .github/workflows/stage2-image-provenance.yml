@@ -76,6 +76,24 @@ jobs:
           identity=$(docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}}' "$platform_ref")
           if [[ "$identity" != "$PLATFORM $config_digest $SOURCE_SHA" ]]; then
             echo '::error::Pulled image platform, config digest or OCI revision did not match.'
+            # Diagnostics only — the assertion above is unchanged. Runs
+            # 44874186785 and 44874189551 failed here with no actual-vs-expected
+            # evidence, leaving the mismatched component unattributable without
+            # registry read access. Print every component before exiting.
+            actual_platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$platform_ref")
+            actual_id=$(docker image inspect --format '{{.Id}}' "$platform_ref")
+            actual_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$platform_ref")
+            actual_labels=$(docker image inspect --format '{{json .Config.Labels}}' "$platform_ref")
+            {
+              printf 'Identity mismatch diagnostics for %s\n' "$platform_ref"
+              printf -- '- requested digest: %s\n' "$DIGEST"
+              printf -- '- actual identity:   %s\n' "$identity"
+              printf -- '- expected identity: %s\n' "$PLATFORM $config_digest $SOURCE_SHA"
+              printf -- '- platform: actual=%s expected=%s\n' "$actual_platform" "$PLATFORM"
+              printf -- '- image .Id: actual=%s expected=%s (manifest config.digest)\n' "$actual_id" "$config_digest"
+              printf -- '- revision label: actual=%s expected=%s\n' "${actual_revision:-<empty>}" "$SOURCE_SHA"
+              printf -- '- all config labels: %s\n' "$actual_labels"
+            } >&2
             exit 1
           fi
 
