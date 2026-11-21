@@ -141,6 +141,27 @@ test('subscriber-mode command refusal falls back to connection state, not false-
     expect(result.status).toBe('connected');
 });
 
+test('subscriber-mode bulk "pong" reply counts as ready — an open SSE stream must not fail readiness', async () => {
+    // Regression (production incident 2026-11-21, Phase 0 G00): with an active
+    // SSE subscription Redis frames the PING reply as a bulk string "pong"
+    // (lowercase) instead of the status reply "PONG". ioredis 5.10.1 resolves
+    // it verbatim, so strict 'PONG' equality reported the healthy subscriber
+    // 'down' and /health/ready returned 503 while a merchant inbox was open.
+    const sub = mockInstances[5]; // sseRedisSub
+    sub.status = 'ready';
+    sub.ping = jest.fn(() => Promise.resolve('pong'));
+    const result = await redisMod.probeRedisReadiness({ force: true });
+    expect(result.details.sseSub).toBe('ready');
+    expect(result.status).toBe('connected');
+});
+
+test('a non-PONG reply stays down — case normalization must not loosen the check', async () => {
+    mockInstances[5].ping = jest.fn(() => Promise.resolve('not_pong'));
+    const result = await redisMod.probeRedisReadiness({ force: true });
+    expect(result.details.sseSub).toBe('down');
+    expect(result.status).toBe('degraded');
+});
+
 test('in-memory fallback (no real Redis configured) reports not_configured, never connected', async () => {
     jest.resetModules();
     delete process.env.REDIS_URL;

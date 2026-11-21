@@ -235,7 +235,12 @@ async function probeClient(name, client) {
     if (client._isMemoryFallback === true) return 'fallback';
     try {
         const reply = await pingWithTimeout(client, PROBE_TIMEOUT_MS);
-        return reply === 'PONG' ? 'ready' : 'down';
+        // Accept PONG in either reply framing: in subscriber mode Redis answers
+        // PING with a bulk string ("pong"), not the usual status reply ("PONG").
+        // Strict equality here reported a healthy SSE subscriber as 'down' and
+        // flipped /health/ready to 503 whenever a merchant inbox stream was open
+        // (production incident 2026-11-21, Phase 0 G00 assessment).
+        return String(reply).toUpperCase() === 'PONG' ? 'ready' : 'down';
     } catch (err) {
         // ioredis rejects non-subscription commands on the SSE subscriber
         // connection. PING is protocol-legal in subscribe mode, but if this
