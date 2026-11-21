@@ -22,6 +22,8 @@ const InboxDeliveryReconcilerJob = require('./inbox-delivery-reconciler.job');
 const OpportunityDetectorJob = require('./opportunity-detector.job');
 // Pilot+ P+05 — knowledge-gap suggestion sweep (deterministic)
 const GapSuggesterJob = require('./gap-suggester.job');
+// WP-03 — daily aggregate-only confidence-observation qualification snapshot
+const ConfidenceQualificationSnapshotJob = require('./confidence-qualification-snapshot.job');
 
 module.exports = {
     MonthlyUsageReset,
@@ -36,4 +38,5 @@ module.exports = {
     InboxDeliveryReconcilerJob,
     OpportunityDetectorJob,
     GapSuggesterJob,
+    ConfidenceQualificationSnapshotJob,
 };

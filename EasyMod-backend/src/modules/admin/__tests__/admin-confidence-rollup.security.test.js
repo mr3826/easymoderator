@@ -81,7 +81,9 @@ function buildApp() {
     return app;
 }
 
-// Exactly what the operator-only rollup service returns: counts and histograms.
+// Exactly what the operator-only rollup service returns: counts, histograms,
+// and (since WP-03) the additive observation aggregates — identity/denominator
+// fields only, still zero PII.
 const rollupFixture = () => ({
     hours: 24, turns: 4, truncated: false,
     missing: 1, suggestion: 1, delivered: 2, unscored: 1,
@@ -90,6 +92,8 @@ const rollupFixture = () => ({
     reasons: { RAG_TIMEOUT: 1 },
     retrieval: { TIMEOUT: 1, UNKNOWN: 1, NOT_REQUESTED: 1 },
     retrievalCovered: 2, retrievalUnknown: 2, computeP95Ms: 7,
+    conversations: 2, firstEligibleObservedAt: '2026-11-19T08:00:00.000Z',
+    scored: 2, eligible: 2, ineligible: 2,
 });
 
 beforeEach(() => {
@@ -202,6 +206,8 @@ describe('admin confidence rollup — aggregate-only, zero PII, read-only wiring
             'reasons', 'retrieval', 'retrievalCovered', 'retrievalUnknown',
             'scoreBuckets', 'shopId', 'suggestion', 'truncated', 'turns',
             'unscored', 'wouldHold', 'wouldHoldCovered', 'wouldHoldUnknown',
+            // WP-03 additive observation aggregates (counts/ISO only, zero PII):
+            'conversations', 'firstEligibleObservedAt', 'scored', 'eligible', 'ineligible',
         ].sort());
         expect(res.body.data).toMatchObject({
             shopId: SHOP_A, turns: 4, wouldHold: 1, wouldHoldCovered: 2,
