@@ -224,29 +224,60 @@ describe('production workflow branch safety', () => {
         expect(readerCheck).toBeGreaterThan(ancestorTest);
     });
 
-    test('provenance identity mismatch prints every component before failing', () => {
-        // Runs 44874186785 (backend floor) and 44874189551 (frontend floor)
-        // failed with only the generic error, so the mismatched component
-        // (platform, .Id vs manifest config.digest, revision label) was
-        // unattributable without registry read access. The failure branch must
-        // stay diagnosable, and the comparison itself must not be weakened.
+    test('provenance verification binds the pulled image to the resolved platform RepoDigests', () => {
+        // Run 44876328333 (backend floor d3694867..., linux/arm64): platform
+        // and revision label matched, but the pulled image .Id
+        // (sha256:76f11b2d...) != the registry platform manifest's
+        // config.digest (sha256:11d2d2ab...) — docker-daemon OCI -> docker
+        // media-type normalization re-serializes the config on pull, so
+        // .Id == config.digest is not a sound binding for OCI images in the
+        // classic docker store. The binding is RepoDigests instead: the
+        // pulled image must list the exact resolved package@platform_digest.
+        // Platform equality, revision-label equality, the single-runtime-
+        // platform selection and the digest format checks all stay strict.
         const provenance = fs.readFileSync(
             path.resolve(__dirname, '../../../../.github/workflows/stage2-image-provenance.yml'),
             'utf8',
         );
-        const mismatchStart = provenance.indexOf('if [[ "$identity" != "$PLATFORM $config_digest $SOURCE_SHA" ]]; then');
+        expect(provenance).toContain('identity=$(docker image inspect --format \'{{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}}\' "$platform_ref")');
+        expect(provenance).toContain('repo_digests=$(docker image inspect --format \'{{json .RepoDigests}}\' "$platform_ref")');
+        expect(provenance).toContain('if [[ "$identity" != "$PLATFORM $SOURCE_SHA" ]] \\');
+        expect(provenance).toContain('|| ! jq -e --arg ref "$platform_ref" \'type == "array" and any(.[]; . == $ref)\' <<< "$repo_digests" >/dev/null; then');
+        // The pull still targets the resolved platform ref, never the raw
+        // index digest, and config.digest survives only as an informational
+        // field — no .Id/config.digest equality assertion may come back.
+        expect(provenance).toContain('docker pull --quiet --platform "$PLATFORM" "$platform_ref" >/dev/null');
+        expect(provenance).not.toContain('"$PLATFORM $config_digest $SOURCE_SHA"');
+        expect(provenance).not.toContain('{{.Os}}/{{.Architecture}} {{.Id}}');
+        expect(provenance).toContain('- RepoDigests binding: %s\\n- Image config (informational): %s\\n\' "$PLATFORM" "$platform_digest" "$platform_ref" "$config_digest"');
+    });
+
+    test('provenance identity mismatch prints every component before failing', () => {
+        // Runs 44874186785 (backend floor) and 44874189551 (frontend floor)
+        // failed with only the generic error, so the mismatched component
+        // (platform, RepoDigests binding, revision label) was unattributable
+        // without registry read access. The failure branch must stay
+        // diagnosable, and the comparison itself must not be weakened.
+        const provenance = fs.readFileSync(
+            path.resolve(__dirname, '../../../../.github/workflows/stage2-image-provenance.yml'),
+            'utf8',
+        );
+        const mismatchStart = provenance.indexOf('if [[ "$identity" != "$PLATFORM $SOURCE_SHA" ]] \\');
         expect(mismatchStart).toBeGreaterThan(-1);
         const mismatchBranch = provenance.slice(mismatchStart, provenance.indexOf('exit 1', mismatchStart));
-        expect(mismatchBranch).toContain('::error::Pulled image platform, config digest or OCI revision did not match.');
+        expect(mismatchBranch).toContain('::error::Pulled image platform, OCI revision or registry RepoDigests binding did not match.');
         expect(mismatchBranch).toContain('actual_platform=$(docker image inspect --format \'{{.Os}}/{{.Architecture}}\' "$platform_ref")');
         expect(mismatchBranch).toContain('actual_id=$(docker image inspect --format \'{{.Id}}\' "$platform_ref")');
         expect(mismatchBranch).toContain('actual_revision=$(docker image inspect --format \'{{index .Config.Labels "org.opencontainers.image.revision"}}\' "$platform_ref")');
         expect(mismatchBranch).toContain('actual_labels=$(docker image inspect --format \'{{json .Config.Labels}}\' "$platform_ref")');
         expect(mismatchBranch).toContain('printf -- \'- actual identity:   %s\\n\' "$identity"');
-        expect(mismatchBranch).toContain('printf -- \'- expected identity: %s\\n\' "$PLATFORM $config_digest $SOURCE_SHA"');
+        expect(mismatchBranch).toContain('printf -- \'- expected identity: %s\\n\' "$PLATFORM $SOURCE_SHA"');
         expect(mismatchBranch).toContain('printf -- \'- platform: actual=%s expected=%s\\n\' "$actual_platform" "$PLATFORM"');
-        expect(mismatchBranch).toContain('printf -- \'- image .Id: actual=%s expected=%s (manifest config.digest)\\n\' "$actual_id" "$config_digest"');
+        expect(mismatchBranch).toContain('printf -- \'- RepoDigests: actual=%s\\n\' "$repo_digests"');
+        expect(mismatchBranch).toContain('printf -- \'- RepoDigests binding: expected exact element %s\\n\' "$platform_ref"');
         expect(mismatchBranch).toContain('printf -- \'- revision label: actual=%s expected=%s\\n\' "${actual_revision:-<empty>}" "$SOURCE_SHA"');
+        expect(mismatchBranch).toContain('printf -- \'- image .Id (informational): %s\\n\' "$actual_id"');
+        expect(mismatchBranch).toContain('printf -- \'- manifest config.digest (informational): %s\\n\' "$config_digest"');
         expect(mismatchBranch).toContain('printf -- \'- all config labels: %s\\n\' "$actual_labels"');
     });
 
