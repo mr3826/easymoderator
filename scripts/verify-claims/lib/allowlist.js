@@ -92,6 +92,16 @@ const TOKEN_PATH_EXCLUSIONS = Object.freeze([
         reason: 'Growth OS staff seed script (internal identities, not plan copy)',
     },
     {
+        tokenId: 'name.growth',
+        pattern: /^scripts\/rollback-rehearsal\.sh$/,
+        reason: 'internal release rehearsal: growth service image/reference identifiers and the rollback verification message; never merchant-rendered',
+    },
+    {
+        tokenId: 'name.growth',
+        pattern: /^EasyMod-backend\/scripts\/validate-rollback-contract\.js$/,
+        reason: 'internal rollback contract validator: growth service bootstrap/recovery references; never merchant-rendered',
+    },
+    {
         tokenId: 'price.yearly9990',
         pattern: /^EasyMod-backend\/scripts\/ai-cost\/ai-cost-report\.js$/,
         reason: 'historical cost fixture: pre-contract plan input retained to reproduce the archived AI cost model; never merchant-rendered',
