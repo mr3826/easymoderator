@@ -687,10 +687,41 @@ async function getShopDiagnostics(shopId, windowParam = '24h') {
   };
 }
 
+/**
+ * Shadow-confidence aggregate rollup for one shop (WP-09 wiring).
+ * Read-only, aggregate-only: delegates to the operator-only rollup service,
+ * which runs a READ ONLY transaction with a 2s statement timeout and a
+ * 5000-turn cap. Returns ZERO PII, PSIDs, tokens, or raw messages, and is
+ * never consulted by the live send/hold gate (confidence_would_hold stays a
+ * stored counterfactual).
+ */
+async function getShopConfidenceRollup(shopId, hoursParam) {
+  const rawHours = hoursParam === undefined || hoursParam === null || hoursParam === ''
+    ? '24'
+    : String(hoursParam).trim();
+  if (!/^\d{1,3}$/.test(rawHours)) {
+    throw new AppError('Invalid confidence window. Use hours between 1 and 168.', 400, 'INVALID_CONFIDENCE_WINDOW');
+  }
+  const hours = Number(rawHours);
+  if (!Number.isSafeInteger(hours) || hours < 1 || hours > 168) {
+    throw new AppError('Invalid confidence window. Use hours between 1 and 168.', 400, 'INVALID_CONFIDENCE_WINDOW');
+  }
+
+  const shop = await Shop.findByPk(shopId, { attributes: ['id'] });
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+
+  // Lazy require keeps the rollup's sequelize import out of module load for
+  // callers that never touch this endpoint (mirrors reconciliation reads).
+  const { getReplyConfidenceRollup } = require('../ai/reply-confidence-rollup.service');
+  const report = await getReplyConfidenceRollup(shop.id, hours);
+  return { shopId: shop.id, generatedAt: new Date().toISOString(), ...report };
+}
+
 module.exports = {
   // reads
   getDashboard, getMetaIdentityReadiness, listShops, getShopOverview,
   getShopChannels, getShopBilling, getAuditLogs, getShopDiagnostics,
+  getShopConfidenceRollup,
   // mutations
   setShopStatus, addCredits, changePlan, markChannelReconnect,
   emergencyDisableAi, resumeAiEmergencyStop,

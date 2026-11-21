@@ -19,6 +19,9 @@ router.get('/payment-processing-reconciliation', ctrl.getStalePaymentProcessing)
 router.get('/shops', ctrl.listShops);
 router.get('/shops/:shopId', ctrl.getShopOverview);
 router.get('/shops/:shopId/diagnostics', ctrl.getShopDiagnostics);
+// Shadow-confidence aggregate rollup (WP-09 wiring). Read-only, zero PII;
+// same SUPPORT_ADMIN+ guard as diagnostics. Never consulted by send/hold.
+router.get('/shops/:shopId/confidence-rollup', ctrl.getShopConfidenceRollup);
 router.get('/shops/:shopId/channels', ctrl.getShopChannels);
 router.get('/shops/:shopId/billing', ctrl.getShopBilling);
 router.get('/audit-logs', superOnly, ctrl.getAuditLogs);

@@ -35,6 +35,11 @@ exports.getShopOverview = async (req, res, next) => {
 exports.getShopDiagnostics = async (req, res, next) => {
   try { ok(res, await adminService.getShopDiagnostics(req.params.shopId, req.query.window)); } catch (e) { next(e); }
 };
+exports.getShopConfidenceRollup = async (req, res, next) => {
+  try {
+    ok(res, await adminService.getShopConfidenceRollup(validShopId(req.params.shopId), req.query.hours));
+  } catch (e) { next(e); }
+};
 exports.getShopChannels = async (req, res, next) => {
   try { ok(res, await adminService.getShopChannels(req.params.shopId)); } catch (e) { next(e); }
 };
