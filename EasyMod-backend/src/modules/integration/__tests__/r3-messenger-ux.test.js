@@ -651,7 +651,7 @@ describe('R3 Messenger UX — safety, grounding, policy, webhook & probe verific
         expect(mockState.providerInstance.webhookFields()).toEqual(['messages']);
 
         mockState.features.interactionChoices = true;
-        mockState.axiosGet.mockResolvedValue({ data: { data: [{ subscribed_fields: ['messages'] }] } });
+        mockState.axiosGet.mockResolvedValue({ data: { data: [{ id: 'meta-app-test', subscribed_fields: ['messages'] }] } });
         mockState.axiosPost.mockRejectedValueOnce({
             response: {
                 status: 403,
@@ -695,7 +695,7 @@ describe('R3 Messenger UX — safety, grounding, policy, webhook & probe verific
 
         // ── ALREADY_SUBSCRIBED: zero Graph writes for a no-op probe.
         mockState.axiosGet.mockResolvedValue({
-            data: { data: [{ subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'] }] },
+            data: { data: [{ id: 'meta-app-test', subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'] }] },
         });
         const already = await request(app)
             .post(`/api/channels/meta/${CHAN_ID}/probe-interaction-fields`).send({});
@@ -708,9 +708,9 @@ describe('R3 Messenger UX — safety, grounding, policy, webhook & probe verific
         // ── SUBSCRIBED + addedFields: core `messages` unions in, never replaced.
         jest.clearAllMocks();
         mockState.axiosGet
-            .mockResolvedValueOnce({ data: { data: [{ subscribed_fields: ['messages'] }] } })
+            .mockResolvedValueOnce({ data: { data: [{ id: 'meta-app-test', subscribed_fields: ['messages'] }] } })
             .mockResolvedValueOnce({
-                data: { data: [{ subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'] }] },
+                data: { data: [{ id: 'meta-app-test', subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'] }] },
             });
         mockState.axiosPost.mockResolvedValueOnce({ data: { success: true } });
         const subscribed = await request(app)

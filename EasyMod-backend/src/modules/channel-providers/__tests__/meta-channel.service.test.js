@@ -186,6 +186,8 @@ describe('MetaChannelService cross-shop Meta asset claims', () => {
             status: 'DISCONNECTED',
             connected_by_user_id: 'other-user',
             page_access_token_ct: null,
+            webhook_last_verified_at: new Date('2026-01-01T00:00:00Z'),
+            webhook_subscribed_fields: ['messages'],
         });
         mockMetaChannel.findAll.mockResolvedValue([disconnectedClaim]);
 
@@ -193,6 +195,9 @@ describe('MetaChannelService cross-shop Meta asset claims', () => {
 
         expect(disconnectedClaim.status).toBe('DISCONNECTED');
         expect(disconnectedClaim.page_access_token_ct).toBeNull();
+        // D2: a released claim must not keep advertising a verified webhook.
+        expect(disconnectedClaim.webhook_last_verified_at).toBeNull();
+        expect(disconnectedClaim.webhook_subscribed_fields).toEqual([]);
         expect(mockMetaChannel.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 shop_id: 'new-shop',
@@ -319,6 +324,68 @@ describe('MetaChannelService cross-shop Meta asset claims', () => {
             expect.stringContaining('multiple connected channels'),
             expect.objectContaining({ metaAssetId: 'PAGE_1', connectedCount: 2 }),
         );
+    });
+});
+
+describe('MetaChannelService webhook verification hygiene (D2)', () => {
+    function verifiedRow(overrides = {}) {
+        return {
+            id: 'channel-1',
+            shop_id: 'shop-1',
+            platform: 'facebook',
+            meta_asset_id: 'PAGE_1',
+            status: 'CONNECTED',
+            page_access_token_ct: 'tok',
+            token_expires_at: null,
+            last_error: null,
+            webhook_last_verified_at: new Date('2026-01-01T00:00:00Z'),
+            webhook_subscribed_fields: ['messages'],
+            save: jest.fn().mockResolvedValue(undefined),
+            ...overrides,
+        };
+    }
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockDrainChannelJobs.mockResolvedValue({ removed: 0 });
+    });
+
+    test('disconnect clears the webhook stamp and fields along with the token', async () => {
+        const row = verifiedRow();
+        mockMetaChannel.findByPk.mockResolvedValue(row);
+
+        const updated = await metaChannelService.disconnect('channel-1');
+
+        expect(updated.status).toBe('DISCONNECTED');
+        expect(updated.page_access_token_ct).toBeNull();
+        expect(updated.disconnected_at).toBeInstanceOf(Date);
+        expect(updated.webhook_last_verified_at).toBeNull();
+        expect(updated.webhook_subscribed_fields).toEqual([]);
+        expect(row.save).toHaveBeenCalledTimes(1);
+    });
+
+    test.each(['DISCONNECTED', 'TOKEN_EXPIRED', 'REVOKED', 'ERROR'])(
+        'updateStatus to %s clears the stale webhook verification state',
+        async (status) => {
+            const row = verifiedRow();
+            mockMetaChannel.findByPk.mockResolvedValue(row);
+
+            await metaChannelService.updateStatus('channel-1', status, 'degraded');
+
+            expect(row.webhook_last_verified_at).toBeNull();
+            expect(row.webhook_subscribed_fields).toEqual([]);
+            expect(row.status).toBe(status);
+        },
+    );
+
+    test('updateStatus back to CONNECTED does not erase fresh verification state', async () => {
+        const stamp = new Date('2026-01-01T00:00:00Z');
+        const row = verifiedRow({ status: 'ERROR', webhook_last_verified_at: stamp });
+        mockMetaChannel.findByPk.mockResolvedValue(row);
+
+        await metaChannelService.updateStatus('channel-1', 'CONNECTED');
+
+        expect(row.webhook_last_verified_at).toBe(stamp);
     });
 });
 

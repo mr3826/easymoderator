@@ -352,6 +352,10 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
     setIsConnectingPage(true);
     try {
       let webhookWarning: string | null = null;
+      // D6: a connect whose webhook verification failed returns the channel as
+      // ERROR + webhookWarning. The returned status is the only success signal —
+      // a warning toast must never be preceded by a false success toast.
+      let actionRequired = false;
       for (const page of pagesToConnect) {
         const result = await connectMetaAsset({
           assetId: page.id,
@@ -359,6 +363,7 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
           tempToken,
           platform: "facebook",
         });
+        if (result.status !== "CONNECTED") actionRequired = true;
         if (result.webhookWarning) webhookWarning = result.webhookWarning;
       }
       const refreshed = await fetchChannels();
@@ -380,9 +385,20 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
       setAvailablePages([]);
       setSelectedPageIds(new Set());
       setTempToken("");
-      toast.success(t("channels.connectSuccess"));
-      if (webhookWarning) {
-        setTimeout(() => toast.warning(webhookWarning!, { duration: 12000 }), 500);
+      if (actionRequired) {
+        toast.warning(
+          webhookWarning
+          || t(
+            "channels.actionRequired",
+            "The Page was saved, but its Messenger connection could not be verified. Open the channel and run a webhook test.",
+          ),
+          { duration: 12000 },
+        );
+      } else {
+        toast.success(t("channels.connectSuccess"));
+        if (webhookWarning) {
+          setTimeout(() => toast.warning(webhookWarning!, { duration: 12000 }), 500);
+        }
       }
     } catch (err) {
       reportConnectError("connect-asset", err);

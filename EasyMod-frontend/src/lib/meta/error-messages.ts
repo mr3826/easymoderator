@@ -14,6 +14,13 @@ interface MetaErrorMapping {
   match: number | string;
   /** i18n key (under the `errors.meta.*` namespace) resolved at call time */
   key: string;
+  /**
+   * Inline merchant copy used ONLY while the i18n key above has no locale
+   * entry (locale files are owned by a separate stream). `i18n.t` prefers the
+   * real translation as soon as the key lands, so adding the key later needs
+   * no change here.
+   */
+  fallback?: { en: string; bn: string };
 }
 
 const META_ERROR_MAPPINGS: MetaErrorMapping[] = [
@@ -36,6 +43,23 @@ const META_ERROR_MAPPINGS: MetaErrorMapping[] = [
   { match: "webhook", key: "errors.meta.webhookFailed" },
   { match: "META_PAGE_TASKS_REQUIRED", key: "errors.meta.pageTasksRequired" },
   { match: "META_PAGE_DISCOVERY_FAILED", key: "errors.meta.pageDiscoveryFailed" },
+  // D7: stable backend codes whose raw sentence was shown untranslated.
+  {
+    match: "META_ASSET_ALREADY_CONNECTED",
+    key: "errors.meta.assetAlreadyConnected",
+    fallback: {
+      en: "This Facebook Page is already connected to another EasyModerator shop. Disconnect it there first, or contact support to release the old connection.",
+      bn: "এই Facebook Page টি ইতিমধ্যে অন্য EasyModerator shop-এর সাথে সংযুক্ত আছে। আগে সেখান থেকে disconnect করুন, অথবা পুরনো সংযোগ মুক্ত করতে সাপোর্টে যোগাযোগ করুন।",
+    },
+  },
+  {
+    match: "META_RECONNECT_TARGET_MISMATCH",
+    key: "errors.meta.reconnectTargetMismatch",
+    fallback: {
+      en: "This reconnect no longer matches the Page it was started from. Close the popup and start the reconnect again from that Page's channel card.",
+      bn: "এই reconnect আগের Page-এর সাথে আর মেলছে না। পপআপ বন্ধ করে ওই Page-এর channel কার্ড থেকে আবার reconnect শুরু করুন।",
+    },
+  },
 ];
 
 /** Normalised error extracted from an Axios error, regardless of backend shape. */
@@ -115,6 +139,17 @@ export function extractMetaApiError(err: unknown): ExtractedApiError {
   return { code, message };
 }
 
+/** Resolve a mapping to merchant copy; inline fallback only while the locale key is absent. */
+function resolveMappingText(mapping: MetaErrorMapping, lang: "bn" | "en"): string {
+  if (mapping.fallback) {
+    return i18n.t(mapping.key, {
+      lng: lang,
+      defaultValue: mapping.fallback[lang === "bn" ? "bn" : "en"],
+    });
+  }
+  return i18n.t(mapping.key, { lng: lang });
+}
+
 /**
  * Returns a merchant-friendly error message for a Meta API error.
  * @param code - Numeric Meta error code or stable backend code (optional)
@@ -132,12 +167,12 @@ export function getMetaErrorMessage(
     const byCode = META_ERROR_MAPPINGS.find(
       (m) => typeof m.match === "number" && m.match === numericCode
     );
-    if (byCode) return i18n.t(byCode.key, { lng: lang });
+    if (byCode) return resolveMappingText(byCode, lang);
 
     const byStableCode = META_ERROR_MAPPINGS.find(
       (m) => typeof m.match === "string" && m.match.toUpperCase() === String(code).toUpperCase(),
     );
-    if (byStableCode) return i18n.t(byStableCode.key, { lng: lang });
+    if (byStableCode) return resolveMappingText(byStableCode, lang);
   }
 
   // Try string pattern match against raw message
@@ -146,7 +181,7 @@ export function getMetaErrorMessage(
     const byString = META_ERROR_MAPPINGS.find(
       (m) => typeof m.match === "string" && lower.includes(m.match.toLowerCase())
     );
-    if (byString) return i18n.t(byString.key, { lng: lang });
+    if (byString) return resolveMappingText(byString, lang);
   }
 
   // Default fallback
