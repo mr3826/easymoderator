@@ -47,6 +47,10 @@ const required = [
     ['growth bootstrap pin', 'candidate_growth_image="${GHCR_GROWTH}@${GROWTH_BOOTSTRAP_DIGEST}"'],
     ['growth immutable assertion', 'assert_immutable_ref "$candidate_growth_image"'],
     ['growth immutable interpolation', 'image: ${GHCR_IMAGE_GROWTH:?'],
+    // The manual recovery procedure must shell-export the Growth reference too:
+    // Compose renders the growth-frontend service from ${GHCR_IMAGE_GROWTH:?},
+    // and the runbook must never direct operators to a two-variable stack.
+    ['manual recovery growth export', "export GHCR_IMAGE_GROWTH='REPLACE_WITH_CAPTURED_GROWTH_REPODIGEST'"],
     ['rollback health contract', 'both health checks'],
     ['independent DB host probe', 'DB_HOST_RESOLUTION=PASS'],
     ['independent DB auth probe', 'DB_AUTH=PASS'],
