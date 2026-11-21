@@ -958,10 +958,19 @@ class MetaMessengerProvider extends ChannelProvider {
                 params: { access_token: token, appsecret_proof: appsecretProof(token) }
             });
             const apps = resp.data?.data || [];
-            const fields = apps.flatMap(a => a.subscribed_fields || []);
+            // D3: a Page can carry webhook subscriptions from OTHER apps. Only
+            // OUR app's subscription (META_APP_ID — the app subscribeWebhook
+            // binds) proves EasyModerator will actually receive events. A
+            // third-party app that subscribed `messages` must never satisfy
+            // verification: if our app is absent this fails closed.
+            const ourAppId = String(config.metaAppId ?? '').trim();
+            const ours = ourAppId
+                ? apps.find((a) => a && String(a.id ?? '') === ourAppId)
+                : null;
+            const fields = ours?.subscribed_fields || [];
             const requiredFields = this.webhookFields();
             return {
-                ok: apps.length > 0 && requiredFields.every(field => fields.includes(field)),
+                ok: Boolean(ours) && requiredFields.every(field => fields.includes(field)),
                 fields
             };
         } catch (err) {

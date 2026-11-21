@@ -86,7 +86,9 @@ async function setFlag(shopId, value) {
     else await ShopPilotFeatures.create({ shop_id: shopId, interaction_choices: value });
 }
 
-const subscribedGet = (...fields) => ({ data: { data: [{ subscribed_fields: fields }] } });
+// Real subscribed_apps entries carry the subscribing app's `id`; verification
+// matches our app (META_APP_ID below) and ignores foreign apps' fields.
+const subscribedGet = (...fields) => ({ data: { data: [{ id: 'probe-app-id', subscribed_fields: fields }] } });
 
 let ownerA;
 let staffA;

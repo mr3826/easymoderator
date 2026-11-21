@@ -87,6 +87,10 @@ describe('Meta deauthorization and invalid-token recovery', () => {
                 status: 'REVOKED',
                 page_access_token_ct: null,
                 last_error: 'meta_deauthorized_reconnect_required',
+                // D2: revoke must wipe the webhook verification stamp — the
+                // health grid shows "Active" purely from that field.
+                webhook_last_verified_at: null,
+                webhook_subscribed_fields: [],
             });
         }
         expect(mockModels.MetaChannelSettings.update).not.toHaveBeenCalled();
@@ -124,6 +128,28 @@ describe('Meta deauthorization and invalid-token recovery', () => {
         expect(active.page_access_token_ct).toBeNull();
     });
 
+    test('repeated deauthorization still heals a stale webhook stamp left by older code (D2)', async () => {
+        const stale = channel('1', {
+            status: 'REVOKED',
+            page_access_token_ct: null,
+            last_error: 'meta_deauthorized_reconnect_required',
+            webhook_last_verified_at: new Date('2026-01-01T00:00:00Z'),
+            webhook_subscribed_fields: ['messages'],
+        });
+        mockModels.MetaUserIdentity.findAll.mockResolvedValue([mapping(stale)]);
+
+        const result = await service.processDeauthorization('app-user-1');
+
+        expect(result).toMatchObject({ channelsDisabled: 0, repeated: true });
+        // Idempotent self-heal: the stamp is cleared, but no second round of
+        // notifications, drains, or consent writes fires.
+        expect(stale.webhook_last_verified_at).toBeNull();
+        expect(stale.webhook_subscribed_fields).toEqual([]);
+        expect(mockModels.OwnerNotification.create).not.toHaveBeenCalled();
+        expect(mockConsent.recordDeauthorize).not.toHaveBeenCalled();
+        expect(mockDrain).not.toHaveBeenCalled();
+    });
+
     test('invalid token disables the channel and prevents futile queued retries', async () => {
         const active = channel('1');
         await service.recoverInvalidToken(active, { metaCode: 190 });
@@ -131,6 +157,9 @@ describe('Meta deauthorization and invalid-token recovery', () => {
             status: 'TOKEN_EXPIRED',
             page_access_token_ct: null,
             last_error: 'meta_token_invalid_reconnect_required',
+            // D2: expired tokens clear the webhook stamp too.
+            webhook_last_verified_at: null,
+            webhook_subscribed_fields: [],
         });
         expect(mockModels.MetaChannelSettings.update).not.toHaveBeenCalled();
         expect(mockDrain).toHaveBeenCalledWith(expect.objectContaining({

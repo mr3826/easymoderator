@@ -104,6 +104,51 @@ describe('testWebhook canonical health contract', () => {
         expect(mockConfirmWebhookActive).not.toHaveBeenCalled();
     });
 
+    test('repairSubscription:true re-subscribes, re-verifies, and confirms the healed webhook', async () => {
+        provider.verifyWebhookSubscription
+            .mockResolvedValueOnce({ ok: false, fields: [] })
+            .mockResolvedValueOnce({ ok: true, fields: ['messages'] });
+        const res = response();
+
+        await controller.testWebhook({
+            params: { channelId: 'channel-1' },
+            user: { shopId: 'shop-1' },
+            body: { repairSubscription: true },
+        }, res, jest.fn());
+
+        expect(provider.subscribeWebhook).toHaveBeenCalledTimes(1);
+        expect(provider.subscribeWebhook).toHaveBeenCalledWith({ channel: expect.objectContaining({ id: 'channel-1' }) });
+        expect(mockConfirmWebhookActive).toHaveBeenCalledWith('channel-1', ['messages']);
+        expect(res.json.mock.calls[0][0].data.subscription).toMatchObject({
+            ok: true, fields: ['messages'], repaired: true,
+        });
+        expect(res.json.mock.calls[0][0].data.ping.ok).toBe(true);
+    });
+
+    test('repairSubscription:true never writes to a channel that failed the connection gate', async () => {
+        // Fail-closed: an ERROR-status row (or any channel without a live Page
+        // token) is not repairable through this endpoint — a token-holding,
+        // CONNECTED-but-broken subscription is. The gate must not be widened
+        // without a separate product decision.
+        mockFindByPk.mockResolvedValueOnce({ ...connectedChannel(), status: 'ERROR' });
+        const res = response();
+
+        await controller.testWebhook({
+            params: { channelId: 'channel-1' },
+            user: { shopId: 'shop-1' },
+            body: { repairSubscription: true },
+        }, res, jest.fn());
+
+        expect(provider.verifyWebhookSubscription).not.toHaveBeenCalled();
+        expect(provider.subscribeWebhook).not.toHaveBeenCalled();
+        expect(mockConfirmWebhookActive).not.toHaveBeenCalled();
+        expect(res.json.mock.calls[0][0].data).toMatchObject({
+            ping: { ok: false, error: 'channel_not_connected' },
+            connection: { ok: false, status: 'ERROR' },
+            subscription: { ok: false, fields: [] },
+        });
+    });
+
     test('rejects a channel from another shop before any Meta request', async () => {
         mockFindByPk.mockResolvedValueOnce({ ...connectedChannel(), shop_id: 'shop-other' });
         const next = jest.fn();
