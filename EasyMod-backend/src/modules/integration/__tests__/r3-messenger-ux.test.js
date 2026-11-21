@@ -671,4 +671,86 @@ describe('R3 Messenger UX — safety, grounding, policy, webhook & probe verific
         expect(res.body.data.metaCode).toBe(200);
         expect(JSON.stringify(res.body)).not.toContain('test-page-token');
     });
+
+    it('8) probe contract branches: CHANNEL_NOT_CONNECTED, ALREADY_SUBSCRIBED, SUBSCRIBED+addedFields, UNSUPPORTED_PLATFORM, cross-shop 404', async () => {
+        mockState.features.interactionChoices = true;
+
+        // ── CHANNEL_NOT_CONNECTED: a row stamped CONNECTED without its token.
+        const deadChan = '55555555-0000-4000-8000-00000000deaf';
+        mockState.metaChannels.set(deadChan, {
+            id: deadChan, shop_id: SHOP_ID, platform: 'facebook',
+            meta_asset_id: 'page-dead', page_access_token_ct: null, status: 'CONNECTED',
+        });
+        const notConnected = await request(app)
+            .post(`/api/channels/meta/${deadChan}/probe-interaction-fields`).send({});
+        expect(notConnected.status).toBe(200);
+        expect(notConnected.body.success).toBe(true);
+        expect(notConnected.body.data).toMatchObject({
+            channelId: deadChan, platform: 'facebook',
+            ok: false, code: 'CHANNEL_NOT_CONNECTED', coreMessagesIntact: false,
+            blockedFields: ['messaging_postbacks', 'messaging_referrals'],
+        });
+        expect(mockState.axiosGet).not.toHaveBeenCalled();
+        expect(mockState.axiosPost).not.toHaveBeenCalled();
+
+        // ── ALREADY_SUBSCRIBED: zero Graph writes for a no-op probe.
+        mockState.axiosGet.mockResolvedValue({
+            data: { data: [{ subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'] }] },
+        });
+        const already = await request(app)
+            .post(`/api/channels/meta/${CHAN_ID}/probe-interaction-fields`).send({});
+        expect(already.status).toBe(200);
+        expect(already.body.data).toMatchObject({
+            ok: true, code: 'ALREADY_SUBSCRIBED', coreMessagesIntact: true, addedFields: [],
+        });
+        expect(mockState.axiosPost).not.toHaveBeenCalled();
+
+        // ── SUBSCRIBED + addedFields: core `messages` unions in, never replaced.
+        jest.clearAllMocks();
+        mockState.axiosGet
+            .mockResolvedValueOnce({ data: { data: [{ subscribed_fields: ['messages'] }] } })
+            .mockResolvedValueOnce({
+                data: { data: [{ subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'] }] },
+            });
+        mockState.axiosPost.mockResolvedValueOnce({ data: { success: true } });
+        const subscribed = await request(app)
+            .post(`/api/channels/meta/${CHAN_ID}/probe-interaction-fields`).send({});
+        expect(subscribed.status).toBe(200);
+        expect(subscribed.body.data).toMatchObject({
+            ok: true, code: 'SUBSCRIBED', coreMessagesIntact: true,
+        });
+        expect(subscribed.body.data.addedFields).toEqual(['messaging_postbacks', 'messaging_referrals']);
+        expect(mockState.axiosPost).toHaveBeenCalledTimes(1);
+        expect(mockState.axiosPost.mock.calls[0][2].params.subscribed_fields)
+            .toBe('messages,messaging_postbacks,messaging_referrals');
+        expect(JSON.stringify(subscribed.body)).not.toContain('test-page-token');
+        expect(mockState.providerInstance.webhookFields()).toEqual(['messages']);
+
+        // ── UNSUPPORTED_PLATFORM fails before any provider lookup.
+        const igChan = '55555555-0000-4000-8000-000000000192';
+        mockState.metaChannels.set(igChan, {
+            id: igChan, shop_id: SHOP_ID, platform: 'instagram',
+            meta_asset_id: 'ig-1', page_access_token_ct: 'tok-ig', status: 'CONNECTED',
+        });
+        const graphCallsBefore = mockState.axiosGet.mock.calls.length
+            + mockState.axiosPost.mock.calls.length;
+        const unsupported = await request(app)
+            .post(`/api/channels/meta/${igChan}/probe-interaction-fields`).send({});
+        expect(unsupported.status).toBe(400);
+        expect(unsupported.body.code || unsupported.body.error?.code).toBe('UNSUPPORTED_PLATFORM');
+        expect(mockState.axiosGet.mock.calls.length + mockState.axiosPost.mock.calls.length)
+            .toBe(graphCallsBefore);
+
+        // ── Cross-shop channel id is a plain 404 with no existence/token leak.
+        const foreignChan = '55555555-0000-4000-8000-000000000b0b';
+        mockState.metaChannels.set(foreignChan, {
+            id: foreignChan, shop_id: 'other-shop', platform: 'facebook',
+            meta_asset_id: 'page-foreign', page_access_token_ct: 'tok-foreign', status: 'CONNECTED',
+        });
+        const foreign = await request(app)
+            .post(`/api/channels/meta/${foreignChan}/probe-interaction-fields`).send({});
+        expect(foreign.status).toBe(404);
+        expect(JSON.stringify(foreign.body)).not.toContain('tok-foreign');
+        expect(JSON.stringify(foreign.body)).not.toContain('page-foreign');
+    });
 });

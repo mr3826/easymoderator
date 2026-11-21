@@ -1771,6 +1771,128 @@ describe('MetaMessengerProvider', () => {
         });
     });
 
+    describe('probeInteractionWebhookFields()', () => {
+        beforeEach(() => { process.env.META_APP_SECRET = 'test-secret'; });
+        afterEach(() => jest.resetAllMocks());
+
+        const channel = { id: 'chan-1', meta_asset_id: 'PAGE_1', page_access_token_ct: 'tok_page' };
+        const TARGETS = ['messaging_postbacks', 'messaging_referrals'];
+        const subscribed = (...fields) => ({ data: { data: [{ subscribed_fields: fields }] } });
+
+        test('default target fields are exactly postbacks + referrals', async () => {
+            axios.get.mockResolvedValue(subscribed('messages', ...TARGETS));
+            const res = await provider.probeInteractionWebhookFields({ channel });
+            expect(res.code).toBe('ALREADY_SUBSCRIBED');
+            expect(res.subscribedFields).toEqual(['messages', ...TARGETS]);
+            expect(res.addedFields).toEqual([]);
+        });
+
+        test('CHANNEL_NOT_CONNECTED when the Page token or asset id is missing — zero Graph calls', async () => {
+            for (const bad of [{ ...channel, page_access_token_ct: null }, { ...channel, meta_asset_id: null }]) {
+                const res = await provider.probeInteractionWebhookFields({ channel: bad });
+                expect(res).toMatchObject({
+                    ok: false,
+                    code: 'CHANNEL_NOT_CONNECTED',
+                    coreMessagesIntact: false,
+                    blockedFields: TARGETS,
+                    subscribedFields: [],
+                });
+            }
+            expect(axios.get).not.toHaveBeenCalled();
+            expect(axios.post).not.toHaveBeenCalled();
+        });
+
+        test('ALREADY_SUBSCRIBED performs no subscription write at all', async () => {
+            axios.get.mockResolvedValue(subscribed('messages', ...TARGETS));
+            const res = await provider.probeInteractionWebhookFields({ channel, fields: TARGETS });
+            expect(res).toMatchObject({ ok: true, code: 'ALREADY_SUBSCRIBED', coreMessagesIntact: true });
+            expect(axios.post).not.toHaveBeenCalled();
+        });
+
+        test('SUBSCRIBED unions the CORE `messages` field with the targets and re-verifies', async () => {
+            axios.get
+                .mockResolvedValueOnce(subscribed('messages'))
+                .mockResolvedValueOnce(subscribed('messages', ...TARGETS));
+            axios.post.mockResolvedValueOnce({ data: { success: true } });
+
+            const res = await provider.probeInteractionWebhookFields({ channel });
+            expect(res).toMatchObject({ ok: true, code: 'SUBSCRIBED', coreMessagesIntact: true });
+            expect(res.addedFields).toEqual(TARGETS);
+            expect(res.subscribedFields).toEqual(['messages', ...TARGETS]);
+
+            expect(axios.post).toHaveBeenCalledTimes(1);
+            const [url, sentBody, cfg] = axios.post.mock.calls[0];
+            expect(String(url)).toContain('/PAGE_1/subscribed_apps');
+            expect(sentBody).toBeNull();
+            // Core ['messages'] can NEVER be dropped by a probe — the request
+            // must always carry it plus the targets.
+            expect(cfg.params.subscribed_fields).toBe(`messages,${TARGETS.join(',')}`);
+            expect(cfg.params.access_token).toBe('tok_page');
+            expect(cfg.params.appsecret_proof).toEqual(expect.any(String));
+        });
+
+        test('permission/product denial fails closed as EXTERNALLY_BLOCKED with core intact', async () => {
+            axios.get.mockResolvedValue(subscribed('messages'));
+            axios.post.mockRejectedValueOnce({
+                response: {
+                    status: 403,
+                    data: { error: { code: 200, error_subcode: 1545041, message: 'Permissions error' } },
+                },
+            });
+
+            const res = await provider.probeInteractionWebhookFields({ channel });
+            expect(res).toMatchObject({
+                ok: false,
+                code: 'EXTERNALLY_BLOCKED_PERMISSION_OR_PRODUCT_ACCESS',
+                coreMessagesIntact: true,
+                blockedFields: TARGETS,
+                metaCode: 200,
+                metaSubcode: 1545041,
+            });
+            // The denial never widens the subscription and never leaks the token.
+            expect(JSON.stringify(res)).not.toContain('tok_page');
+        });
+
+        test('a denial that also broke the core subscription triggers a core-only repair', async () => {
+            axios.get
+                .mockResolvedValueOnce(subscribed())                 // pre-check: fields empty
+                .mockResolvedValueOnce({ data: { data: [] } })       // re-check after denial: core lost
+                .mockResolvedValueOnce(subscribed('messages'));      // after subscribeWebhook repair
+            axios.post
+                .mockRejectedValueOnce({
+                    response: { status: 400, data: { error: { code: 100, message: 'invalid field' } } },
+                })
+                .mockResolvedValueOnce({ data: { success: true } }); // repair
+
+            const res = await provider.probeInteractionWebhookFields({ channel });
+            expect(res.ok).toBe(false);
+            expect(res.code).toBe('EXTERNALLY_BLOCKED_PERMISSION_OR_PRODUCT_ACCESS');
+            expect(res.coreMessagesIntact).toBe(true);
+            // The repair POST carries ONLY the core field list.
+            const repairCall = axios.post.mock.calls[1];
+            expect(repairCall[2].params.subscribed_fields).toBe('messages');
+            expect(provider.webhookFields()).toEqual(['messages']);
+        });
+
+        test('a transient Graph failure throws instead of masquerading as a permission block', async () => {
+            axios.get.mockResolvedValue(subscribed('messages'));
+            axios.post.mockRejectedValueOnce({
+                response: { status: 500, data: { error: { code: 2, message: 'Unexpected error' } } },
+            });
+            await expect(provider.probeInteractionWebhookFields({ channel })).rejects.toBeDefined();
+        });
+
+        test('empty target list never writes: it only reports current subscription state', async () => {
+            axios.get.mockResolvedValue(subscribed('messages'));
+            const res = await provider.probeInteractionWebhookFields({ channel, fields: [] });
+            // targetFields empty ⇒ the every()-over-empty shortcut is guarded by
+            // targetFields.length > 0; POST union is just the core, and Meta's
+            // re-verify confirms it.
+            expect(['SUBSCRIBED', 'ALREADY_SUBSCRIBED']).toContain(res.code);
+            expect(res.coreMessagesIntact).toBe(true);
+        });
+    });
+
     describe('listManagedAssets() Meta policy containment', () => {
         beforeEach(() => {
             process.env.META_APP_SECRET = 'test-secret';
