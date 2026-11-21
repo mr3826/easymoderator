@@ -40,6 +40,11 @@ on:
   workflow_call:
     inputs:
       target:
+        # Trusted-caller targets: all, backend, frontend, probe, restore-floor.
+        # A string (not a choice) is required here; release.yml's dispatch choice
+        # list constrains what an operator can send. target=restore-floor through
+        # this path only exercises the rehearsal + validator gate — the restore
+        # job itself is gated to a direct ci-cd.yml workflow_dispatch.
         required: false
         type: string
         default: ''
@@ -106,7 +111,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, backend, frontend, probe]
+        options: [all, backend, frontend, probe, restore-floor]
       wipe_db_first:
         description: 'DESTRUCTIVE — wipe easymod DB before deploy. Type WIPE to confirm (anything else = no-op).'
         required: false
@@ -231,6 +236,9 @@ jobs:
           growth=false
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" || ( "$EVENT_NAME" == "workflow_call" && -n "$TARGET" ) ]]; then
+            # target=restore-floor deliberately maps to neither service: it
+            # builds nothing. The deployment-config probe branch still runs the
+            # rehearsal + rollback-contract validator that gates the restore.
             [[ "$TARGET" == "all" || "$TARGET" == "backend" ]] && backend=true
             [[ "$TARGET" == "all" || "$TARGET" == "frontend" ]] && frontend=true
           else
@@ -486,7 +494,7 @@ jobs:
     if: |
       always() &&
       (
-        ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.target == 'probe') ||
+        ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && (inputs.target == 'probe' || inputs.target == 'restore-floor')) ||
         (
           needs.changes.result == 'success' &&
           needs.test.result == 'success' &&
@@ -940,6 +948,7 @@ jobs:
     if: |
       github.event_name != 'pull_request' &&
       github.ref == 'refs/heads/main' &&
+      inputs.target != 'restore-floor' &&
       (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
     outputs:
       backend_tag: ${{ steps.meta.outputs.backend_tag }}
@@ -998,7 +1007,14 @@ jobs:
             test -n "$EXISTING_FRONTEND_DIGEST"
             test -n "$EXPECTED_ROLLBACK_BACKEND_DIGEST"
             test -n "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"
-            test -z "$WIPE_REQUEST$SEED_REQUEST$GROWTH_OVERRIDE$SCHEMA_DRIFT_REQUEST"
+            # WP-06 amendment: a growth_image_override is permitted on a paired
+            # promotion because the override still traverses the complete
+            # downstream chain — fail-closed resolution + assert_immutable_ref
+            # ('candidate_growth_image'), deploy-time commit binding
+            # (build-info.json .commit == DEPLOYED_COMMIT), public identity via
+            # verify_public_stack, and growth carry-restore inside
+            # verify_rollback. WIPE/SEED/DRIFT stay forbidden here.
+            test -z "$WIPE_REQUEST$SEED_REQUEST$SCHEMA_DRIFT_REQUEST"
             test -f EasyMod-backend/src/modules/ai/reply-confidence.service.js
             test -f EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js
           fi
@@ -1184,6 +1200,7 @@ jobs:
       (needs.frontend-e2e.result == 'success' || needs.frontend-e2e.result == 'skipped') &&
       (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
       github.ref == 'refs/heads/main' &&
+      inputs.target != 'restore-floor' &&
       vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
       inputs.deploy_confirmation == format('DEPLOY-{0}', github.sha) &&
       (inputs.target != 'frontend' || inputs.existing_candidate_sha == github.sha)
@@ -2620,3 +2637,975 @@ jobs:
             exit 1
           fi
           echo "PR Merge Gate: PASS"
+
+  # ── 6. Restore-floor recovery ──────────────────────────────────────────────
+  # Restoring the qualified reader-safe floor under a Stage 2 promotion was an
+  # undocumented manual SSH interlude. target=restore-floor makes it a
+  # first-class guarded production path: structurally a deploy whose CANDIDATE
+  # is the already-published immutable floor image pair supplied through
+  # existing_backend_digest/existing_frontend_digest, whose ROLLBACK INCUMBENT
+  # is the currently running writer pair asserted through the rehearsed
+  # expected_rollback_backend_digest and expected_rollback_frontend_digest, and
+  # whose on-host configuration is left byte-for-byte untouched. No candidate
+  # config is staged, no images are built, and no migrations run: the restore
+  # swaps container references only. Growth is carried forward from the running
+  # writer; WIPE, SEED, schema-drift, and growth overrides are rejected
+  # runner-side before any SSH. Floor qualification (exact digest format, the
+  # linux/arm64 OCI revision label, ancestry of the dispatch main SHA, the
+  # reader-only projection source, and main still being the writer) runs on the
+  # runner before the droplet is contacted, mirroring the build job's
+  # paired-promotion gates. The workflow never mutates PRODUCTION_DEPLOY_ENABLED;
+  # it is operator-owned, and the operator must set the gate back to false after
+  # every restore attempt, exactly as for a forward deploy. The existing 13
+  # dispatch inputs are reused deliberately: GitHub caps workflow_dispatch input
+  # definitions, and the restore consumes no new ones.
+  restore-floor:
+    name: Restore qualified floor images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [changes, deployment-config]
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.target == 'restore-floor' &&
+      vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
+      inputs.deploy_confirmation == format('DEPLOY-{0}', github.sha)
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      RELEASE_TARGET: ${{ inputs.target }}
+      APP_URL: ${{ vars.APP_URL || 'https://app.easymod.tech' }}
+      API_URL: ${{ vars.API_URL || 'https://api.easymod.tech' }}
+      GROWTH_URL: ${{ vars.GROWTH_URL || 'https://growth.easymod.tech' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Qualify floor images
+        id: floor
+        env:
+          WIPE_REQUEST: ${{ inputs.wipe_db_first }}
+          SEED_REQUEST: ${{ inputs.seed_admin }}
+          SCHEMA_DRIFT_REQUEST: ${{ inputs.expect_schema_drift }}
+          GROWTH_REQUEST: ${{ inputs.growth_image_override }}
+          EXISTING_BACKEND_DIGEST: ${{ inputs.existing_backend_digest }}
+          EXISTING_FRONTEND_DIGEST: ${{ inputs.existing_frontend_digest }}
+          EXPECTED_ROLLBACK_BACKEND_DIGEST: ${{ inputs.expected_rollback_backend_digest }}
+          EXPECTED_ROLLBACK_FRONTEND_DIGEST: ${{ inputs.expected_rollback_frontend_digest }}
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          test "$RELEASE_TARGET" = restore-floor
+          # A floor restore consumes none of the destructive or swap inputs.
+          test -z "$WIPE_REQUEST$SEED_REQUEST$GROWTH_REQUEST$SCHEMA_DRIFT_REQUEST"
+          # All four digest references are required and exact: the floor pair to
+          # restore and the running-writer pair that becomes the incumbent and
+          # rollback target under the rehearsed-identity contract.
+          for digest in "$EXISTING_BACKEND_DIGEST" "$EXISTING_FRONTEND_DIGEST" "$EXPECTED_ROLLBACK_BACKEND_DIGEST" "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"; do
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          done
+          pull_arm64_image() {
+            local image_ref="$1"
+            local package="${image_ref%@*}"
+            local manifest platform_digest platform_ref
+            manifest=$(docker buildx imagetools inspect --raw "$image_ref") || return 1
+            if jq -e 'has("manifests")' <<< "$manifest" >/dev/null; then
+              # Reject ambiguous indexes and exclude the non-runtime attestation descriptors.
+              platform_digest=$(jq -er --arg os linux --arg arch arm64 '
+                [.manifests[] | select(.platform.os == $os and .platform.architecture == $arch)]
+                | if length == 1 then .[0].digest else error("Expected a single linux/arm64 runtime platform") end
+              ' <<< "$manifest") || return 1
+              [[ "$platform_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+            else
+              platform_digest="${image_ref#*@}"
+            fi
+            platform_ref="$package@$platform_digest"
+            docker pull --quiet --platform linux/arm64 "$platform_ref" >/dev/null || return 1
+            printf '%s\n' "$platform_ref"
+          }
+          arm64_image_revision() {
+            local platform_ref
+            platform_ref=$(pull_arm64_image "$1") || return 1
+            docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_ref"
+          }
+          floor_revision=$(arm64_image_revision "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST")
+          if ! [[ "$floor_revision" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ERROR: floor backend image has no valid 40-hex linux/arm64 revision label" >&2
+            exit 1
+          fi
+          # The floor must be reachable history: a restore reactivates an
+          # ancestor of the dispatch main SHA, never a dangling build.
+          if ! git merge-base --is-ancestor "$floor_revision" "$SHA"; then
+            echo 'ERROR: floor backend revision is not an ancestor of the dispatch main SHA' >&2
+            exit 1
+          fi
+          verify_reader_projection_source() {
+            local revision="$1"
+            local label="$2"
+            local reader_kind="$3"
+            local sanitizer_path=EasyMod-backend/src/modules/conversation/internal-message-metadata.js
+            local projection_path=EasyMod-backend/src/modules/conversation/message-evidence-projection.js
+            local conversation_path=EasyMod-backend/src/modules/conversation/conversation.service.js
+            local sse_path=EasyMod-backend/src/utils/sse-manager.js
+            if ! git grep -Fq -e 'for (const field of PUBLIC_MESSAGE_FIELDS)' "$revision" -- "$sanitizer_path"; then
+              echo "ERROR: $label lacks the hardened public message projection" >&2
+              return 1
+            fi
+            if [ "$reader_kind" = writer ]; then
+              git grep -Fq -e 'projectPublicMessageMetadata(source)' "$revision" -- "$projection_path" \
+                && git grep -Fq -e 'projectPublicMessageEvent(event, data)' "$revision" -- "$projection_path" \
+                && git grep -Fq -e 'projectMessageEvidence(' "$revision" -- "$conversation_path" \
+                && git grep -Fq -e 'projectMessageEvent(' "$revision" -- "$sse_path" || return 1
+            else
+              if git cat-file -e "$revision:EasyMod-backend/src/modules/ai/reply-confidence.service.js" 2>/dev/null \
+                || git cat-file -e "$revision:EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js" 2>/dev/null; then
+                echo "ERROR: $label is not a reader-only recovery revision" >&2
+                return 1
+              fi
+              git grep -Fq -e 'projectPublicMessageMetadata(' "$revision" -- "$conversation_path" \
+                && git grep -Fq -e 'projectPublicMessageEvent(' "$revision" -- "$sse_path" || return 1
+            fi
+            echo "$label reader source verified: $revision"
+          }
+          # The floor is reader-only recovery software and the dispatch main
+          # SHA must still be the writer, re-checked on every restore dispatch.
+          verify_reader_projection_source "$floor_revision" 'Restore floor' reader
+          verify_reader_projection_source "$SHA" 'Current main' writer
+          # The frontend floor carries no revision-label/ancestry/reader
+          # contract (matching the existing target=backend asymmetry): resolve
+          # and pull its single linux/arm64 platform image so a broken or
+          # ambiguous digest reference fails here, before any SSH.
+          pull_arm64_image "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST" >/dev/null
+          printf 'floor_revision=%s\n' "$floor_revision" >> "$GITHUB_OUTPUT"
+      - name: Derive pinned SSH host fingerprint
+        id: ssh_host
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DO_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          host_entry=$(ssh-keygen -F "$DEPLOY_HOST" -f "$HOME/.ssh/known_hosts" | awk '!/^#/ { print; exit }')
+          key_type=$(printf '%s\n' "$host_entry" | awk '{ print $2 }')
+          key_blob=$(printf '%s\n' "$host_entry" | awk '{ print $3 }')
+          if [ -z "$key_type" ] || [ -z "$key_blob" ]; then
+            echo '::error::pinned host key is missing for DEPLOY_HOST'
+            exit 1
+          fi
+          fingerprint=$(printf '%s %s\n' "$key_type" "$key_blob" | ssh-keygen -lf - -E sha256 | awk '{ print $2 }')
+          if [ -z "$fingerprint" ]; then
+            echo '::error::could not derive the pinned host fingerprint'
+            exit 1
+          fi
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore floor via SSH
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: root
+          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          fingerprint: ${{ steps.ssh_host.outputs.fingerprint }}
+          timeout: 600s
+          # `timeout` is the SSH connection budget. The restore script (pull,
+          # up, health gates, rollback trap) must not be cut off by appleboy's
+          # 10-minute command default; 30m is explicit headroom.
+          command_timeout: 30m
+          envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,EXISTING_BACKEND_DIGEST,EXISTING_FRONTEND_DIGEST,FLOOR_REVISION,WORKFLOW_RUN_ID,WORKFLOW_RUN_ATTEMPT,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,ROLLBACK_STATE_DIR,APP_URL,API_URL,GROWTH_URL,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST
+          script: |
+            set -e
+            umask 077
+            cd /opt/easymod
+            : "${ROLLBACK_STATE_DIR:?missing rollback state directory}"
+             candidate_dir="$ROLLBACK_STATE_DIR/candidate"
+             active_transaction=/opt/easymod/.cutover-rollback/active
+            # Unlike a forward deploy, the restore stages no candidate config;
+            # the state directory and its candidate subdirectory are created
+            # here so the shared finish_deploy trap's rm of a staged candidate
+            # environment is safe even though no such file is ever written.
+            mkdir -p /opt/easymod/.cutover-rollback
+            mkdir -m 700 "$ROLLBACK_STATE_DIR" "$candidate_dir"
+             exec 9>/opt/easymod/.cutover-rollback/deploy.lock
+            flock -n 9
+            if [ -e "$active_transaction" ]; then
+              echo "ERROR: unfinished cutover; reconcile $active_transaction before deploying" >&2
+              exit 70
+            fi
+
+            resolve_container_digest() {
+              local container="$1"
+              local image_ref
+              local digest
+              image_ref=$(docker inspect -f '{{.Image}}' "$container" 2>/dev/null) || return 1
+              digest=$(docker image inspect -f '{{index .RepoDigests 0}}' "$image_ref" 2>/dev/null) || return 1
+              case "$digest" in
+                *@sha256:*) printf '%s' "$digest" ;;
+                *) return 1 ;;
+              esac
+            }
+
+            previous_backend_image=$(resolve_container_digest easymod-backend-1 2>/dev/null || true)
+            previous_frontend_image=$(resolve_container_digest easymod-frontend-1 2>/dev/null || true)
+            previous_worker_image=$(resolve_container_digest easymod-worker-1 2>/dev/null || true)
+            previous_growth_image=''
+            growth_container=$(docker ps -a --filter 'name=^/easymod-growth-frontend-1$' --format '{{.Names}}')
+            if [ -n "$growth_container" ]; then
+              previous_growth_image=$(resolve_container_digest easymod-growth-frontend-1)
+            fi
+
+            if [ -z "$previous_backend_image" ] || [ -z "$previous_frontend_image" ] \
+              || [ "$previous_worker_image" != "$previous_backend_image" ]; then
+              echo "ERROR: running services are not backed by content-addressed images; manual digest pinning is required before cutover"
+              exit 1
+            fi
+
+            assert_immutable_ref() {
+              if printf '%s' "$1" | grep -Eq '@sha256:[0-9a-fA-F]{64}$'; then
+                return 0
+              fi
+              echo "ERROR: production image reference is not digest-pinned: $1" >&2
+              return 1
+            }
+            assert_immutable_ref "$previous_backend_image"
+            assert_immutable_ref "$previous_frontend_image"
+            if [ -n "${EXPECTED_ROLLBACK_BACKEND_DIGEST:-}" ] \
+              && [ "$previous_backend_image" != "$GHCR_BACKEND@$EXPECTED_ROLLBACK_BACKEND_DIGEST" ]; then
+              echo "ERROR: the running backend/worker does not match the rehearsed rollback digest" >&2
+              exit 1
+            fi
+            if [ -n "${EXPECTED_ROLLBACK_FRONTEND_DIGEST:-}" ] \
+              && [ "$previous_frontend_image" != "$GHCR_FRONTEND@$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]; then
+              echo "ERROR: the running frontend does not match the rehearsed rollback digest" >&2
+              exit 1
+            fi
+            if [ -n "$previous_growth_image" ]; then
+              assert_immutable_ref "$previous_growth_image"
+            fi
+
+            previous_backend_commit=$(docker run --rm --entrypoint node "$previous_backend_image" -e 'process.stdout.write(process.env.GIT_SHA || "")')
+            if ! printf '%s' "$previous_backend_commit" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              echo "ERROR: incumbent backend image does not contain a valid build commit"
+              exit 1
+            fi
+
+            extract_growth_commit() {
+              local image_ref="$1"
+              local build_info
+              build_info=$(docker run --rm "$image_ref" cat /usr/share/nginx/html/build-info.json 2>/dev/null || true)
+              if [ -z "$build_info" ]; then
+                return 1
+              fi
+              printf '%s' "$build_info" | docker exec -i easymod-backend-1 node -e '
+                let body = "";
+                process.stdin.on("data", (chunk) => { body += chunk; });
+                process.stdin.on("end", () => {
+                  try {
+                    const payload = JSON.parse(body);
+                    if (typeof payload.commit !== "string" || payload.commit.length === 0) {
+                      process.exit(1);
+                    }
+                    process.stdout.write(payload.commit);
+                  } catch (error) {
+                    console.error("Growth build identity is malformed");
+                    process.exit(1);
+                  }
+                });
+              '
+            }
+
+            verify_worker_health() {
+              local worker_status
+              for i in $(seq 1 30); do
+                worker_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-worker-1 2>/dev/null || echo missing)
+                if [ "$worker_status" = "healthy" ]; then
+                  echo "Worker health check passed on attempt $i"
+                  return 0
+                fi
+                sleep 5
+              done
+              echo "ERROR: worker health check failed after 150s: status=$worker_status"
+              docker inspect easymod-worker-1 \
+                --format 'Worker state: status={{.State.Status}} exit={{.State.ExitCode}} restart={{.RestartCount}} oom={{.State.OOMKilled}} error={{.State.Error}}' 2>/dev/null || true
+              docker inspect easymod-worker-1 \
+                --format 'Worker health details: {{json .State.Health}}' 2>/dev/null || true
+              docker logs --tail 100 easymod-worker-1 2>/dev/null || true
+              return 1
+            }
+
+            verify_public_stack() {
+              local expected_backend_commit="$1"
+              local expected_growth_commit="$2"
+              local app_code ready_code version_code growth_code app_body ready_body version_body growth_body
+              local deadline attempt growth_valid remaining
+
+              # One request, one budget: every call re-derives the time left in
+              # the shared deadline, so a batch of sequential requests can never
+              # run past it.
+              smoke_get() {
+                local smoke_remaining smoke_timeout
+                smoke_remaining=$(( deadline - $(date +%s) ))
+                if [ "$smoke_remaining" -le 0 ]; then
+                  return 124
+                fi
+                smoke_timeout=$(( smoke_remaining < 5 ? smoke_remaining : 5 ))
+                curl -m "$smoke_timeout" "$@"
+              }
+
+              if ! command -v curl >/dev/null 2>&1; then
+                echo "ERROR: curl is required on the deployment host for public smoke verification"
+                return 1
+              fi
+              if ! printf '%s' "$expected_backend_commit" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+                echo "ERROR: public smoke requires the expected backend commit"
+                return 1
+              fi
+              deadline=$(( $(date +%s) + 120 ))
+              attempt=0
+              while [ "$(date +%s)" -lt "$deadline" ]; do
+                attempt=$((attempt + 1))
+                app_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${APP_URL%/}/" 2>/dev/null || true)
+                ready_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${API_URL%/}/health/ready" 2>/dev/null || true)
+                version_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${API_URL%/}/api/version" 2>/dev/null || true)
+                if [ -n "$expected_growth_commit" ]; then
+                  growth_code=$(smoke_get -sS -o /dev/null -w '%{http_code}' "${GROWTH_URL%/}/build-info.json" 2>/dev/null || true)
+                else
+                  growth_code=""
+                fi
+                if [ "$app_code" = "200" ] && [ "$ready_code" = "200" ] && [ "$version_code" = "200" ] \
+                  && { [ -z "$expected_growth_commit" ] || [ "$growth_code" = "200" ]; }; then
+                  app_body=$(smoke_get -fsS "${APP_URL%/}/" 2>/dev/null || true)
+                  ready_body=$(smoke_get -fsS "${API_URL%/}/health/ready" 2>/dev/null || true)
+                  version_body=$(smoke_get -fsS "${API_URL%/}/api/version" 2>/dev/null || true)
+                  if [ -n "$expected_growth_commit" ]; then
+                    growth_body=$(smoke_get -fsS "${GROWTH_URL%/}/build-info.json" 2>/dev/null || true)
+                  else
+                    growth_body=""
+                  fi
+                  if [[ "$app_body" == *'id="root"'* ]] \
+                    && printf '%s' "$ready_body" | timeout --signal=TERM --kill-after=5s 20s docker exec -i easymod-backend-1 node -e '
+                      let body = "";
+                      process.stdin.on("data", (chunk) => { body += chunk; });
+                      process.stdin.on("end", () => {
+                        const payload = JSON.parse(body);
+                        const ok = payload.service === "easymod-backend"
+                          && payload.status === "ready"
+                          && payload.database === "connected"
+                          && payload.redis === "connected";
+                        if (!ok) {
+                          console.error("Public readiness contract failed");
+                          process.exit(1);
+                        }
+                      });
+                    ' \
+                    && printf '%s' "$version_body" | timeout --signal=TERM --kill-after=5s 20s docker exec -i -e EXPECTED_BACKEND_COMMIT="$expected_backend_commit" easymod-backend-1 node -e '
+                      let body = "";
+                      process.stdin.on("data", (chunk) => { body += chunk; });
+                      process.stdin.on("end", () => {
+                        const payload = JSON.parse(body);
+                        if (payload.gitSha !== process.env.EXPECTED_BACKEND_COMMIT) {
+                          console.error(`Public API identity mismatch: expected ${process.env.EXPECTED_BACKEND_COMMIT}, got ${payload.gitSha || "(missing)"}`);
+                          process.exit(1);
+                        }
+                      });
+                    '; then
+                    growth_valid=true
+                    if [ -n "$expected_growth_commit" ]; then
+                      if printf '%s' "$growth_body" | timeout --signal=TERM --kill-after=5s 20s docker exec -i -e EXPECTED_GROWTH_COMMIT="$expected_growth_commit" easymod-backend-1 node -e '
+                        let body = "";
+                        process.stdin.on("data", (chunk) => { body += chunk; });
+                        process.stdin.on("end", () => {
+                          const payload = JSON.parse(body);
+                          if (payload.commit !== process.env.EXPECTED_GROWTH_COMMIT) {
+                            console.error(`Public Growth identity mismatch: expected ${process.env.EXPECTED_GROWTH_COMMIT}, got ${payload.commit || "(missing)"}`);
+                            process.exit(1);
+                          }
+                        });
+                      '; then
+                        growth_valid=true
+                      else
+                        growth_valid=false
+                      fi
+                    fi
+                    if [ "$growth_valid" = "true" ]; then
+                      if [ "$(date +%s)" -gt "$deadline" ]; then
+                        echo "ERROR: public app/API/Growth smoke exceeded the 120s deadline"
+                        return 1
+                      fi
+                      echo "Public app/API/Growth smoke passed on attempt $attempt"
+                      return 0
+                    fi
+                  fi
+                fi
+                remaining=$(( deadline - $(date +%s) ))
+                if [ "$remaining" -gt 0 ]; then
+                  sleep $(( remaining < 5 ? remaining : 5 ))
+                fi
+              done
+              echo "ERROR: public app/API/Growth smoke failed after the 120s deadline"
+              return 1
+            }
+
+            previous_growth_commit=
+            if [ -n "$previous_growth_image" ]; then
+              if ! previous_growth_commit=$(extract_growth_commit "$previous_growth_image"); then
+                echo "ERROR: incumbent Growth image does not contain a valid build commit"
+                exit 1
+              fi
+            fi
+
+            config_hashes() {
+              (cd "$1" && sha256sum -- .env.prod docker-compose.prod.yml Caddyfile)
+            }
+
+            verify_config() {
+              local hashes
+              # Compare an exact, fixed file list; never read paths from the manifest.
+              if ! hashes=$(config_hashes "$1") || ! printf '%s\n' "$hashes" | cmp -s - "$2"; then
+                echo "ERROR: configuration does not match manifest: $2" >&2
+                return 1
+              fi
+            }
+
+            verify_rollback() {
+              local restored_backend restored_frontend restored_worker restored_growth
+              restored_backend=$(resolve_container_digest easymod-backend-1 || true)
+              restored_frontend=$(resolve_container_digest easymod-frontend-1 || true)
+              restored_worker=$(resolve_container_digest easymod-worker-1 || true)
+              if [ "$restored_backend" != "$previous_backend_image" ] || [ "$restored_frontend" != "$previous_frontend_image" ] \
+                || [ "$restored_worker" != "$previous_backend_image" ]; then
+                echo "ERROR: rollback image references were not restored"
+                return 1
+              fi
+              if [ -n "$previous_growth_image" ]; then
+                restored_growth=$(resolve_container_digest easymod-growth-frontend-1 || true)
+                if [ "$restored_growth" != "$previous_growth_image" ]; then
+                  echo "ERROR: rollback Growth image reference was not restored"
+                  return 1
+                fi
+              elif docker inspect easymod-growth-frontend-1 >/dev/null 2>&1; then
+                echo "ERROR: rollback recreated a Growth container that was absent before cutover"
+                return 1
+              fi
+              verify_config /opt/easymod "$ROLLBACK_STATE_DIR/manifest.sha256" || return 1
+              local application_healthy=false
+              for i in $(seq 1 20); do
+                local status
+                status=$(docker exec easymod-backend-1 node -e "require('http').get('http://127.0.0.1:3000/health/ready', r => { process.stdout.write(String(r.statusCode)); process.exit(0); }).on('error', () => { process.stdout.write('000'); process.exit(0); })" 2>/dev/null || echo "000")
+                 if [ "$status" = "200" ] && [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' easymod-worker-1)" = "healthy" ] \
+                   && [ "$(curl --silent --max-time 5 --noproxy '*' --resolve 'easymod.tech:443:127.0.0.1' --output /dev/null --write-out '%{http_code}' https://easymod.tech/)" = "200" ] \
+                   && [ "$(curl --silent --max-time 5 --noproxy '*' --resolve 'api.easymod.tech:443:127.0.0.1' --output /dev/null --write-out '%{http_code}' https://api.easymod.tech/health/ready)" = "200" ]; then
+                   echo "Rollback backend, worker and routed health checks passed on attempt $i"
+                  application_healthy=true
+                  break
+                fi
+                sleep 5
+              done
+              if [ "$application_healthy" != "true" ]; then
+                 echo "ERROR: rollback health check failed within the probe limit (backend, worker, or edge)"
+                return 1
+              fi
+              verify_worker_health || return 1
+              if [ -n "$previous_growth_image" ]; then
+                local growth_status=starting
+                for i in $(seq 1 20); do
+                  growth_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-growth-frontend-1 2>/dev/null || echo missing)
+                  [ "$growth_status" = "healthy" ] && break
+                  sleep 5
+                done
+                if [ "$growth_status" != "healthy" ]; then
+                  echo "ERROR: rollback Growth health check failed after 100s"
+                  docker inspect easymod-growth-frontend-1 \
+                    --format 'Rollback Growth health details: {{json .State.Health}}' 2>/dev/null || true
+                  docker logs --tail 50 easymod-growth-frontend-1 2>/dev/null || true
+                  return 1
+                fi
+              fi
+              if ! docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T caddy \
+                caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile; then
+                echo "ERROR: restored Caddy configuration failed validation"
+                return 1
+              fi
+              verify_public_stack "$previous_backend_commit" "$previous_growth_commit" || return 1
+              echo "Rollback backend, worker, Growth, Caddy, public stack, and configuration checks passed"
+              return 0
+            }
+
+            rollback() {
+              echo "ERROR: candidate deployment failed; restoring previous images and production configuration"
+              if [ -z "$previous_backend_image" ] || [ -z "$previous_frontend_image" ]; then
+                echo "ERROR: previous image references were unavailable; manual recovery is required"
+                return 1
+              fi
+              verify_config "$ROLLBACK_STATE_DIR" "$ROLLBACK_STATE_DIR/manifest.sha256" || return 1
+              if ! cp -p "$ROLLBACK_STATE_DIR/.env.prod" /opt/easymod/.env.prod \
+                || ! cp -p "$ROLLBACK_STATE_DIR/docker-compose.prod.yml" /opt/easymod/docker-compose.prod.yml \
+                || ! cp -p "$ROLLBACK_STATE_DIR/Caddyfile" /opt/easymod/Caddyfile; then
+                echo "ERROR: rollback environment/configuration restore failed"
+                return 1
+              fi
+              chmod 600 /opt/easymod/.env.prod || return 1
+              verify_config /opt/easymod "$ROLLBACK_STATE_DIR/manifest.sha256" || return 1
+              export GHCR_IMAGE_BACKEND="$previous_backend_image"
+              export GHCR_IMAGE_FRONTEND="$previous_frontend_image"
+              # Compose still requires an immutable Growth value to render its
+              # service. On a first rollout there is no previous Growth
+              # container, so use the candidate only to render the stack and
+              # remove that service immediately after restoring the incumbents.
+              export GHCR_IMAGE_GROWTH="${previous_growth_image:-$candidate_growth_image}"
+              if ! docker compose --env-file .env.prod -f docker-compose.prod.yml up --detach --no-build --remove-orphans; then
+                echo "ERROR: rollback compose restore failed"
+                return 1
+              fi
+              if [ -z "$previous_growth_image" ]; then
+                local remaining_growth
+                remaining_growth=$(docker ps -a --filter 'name=^/easymod-growth-frontend-1$' --format '{{.Names}}') || return 1
+                if [ -n "$remaining_growth" ] && ! docker rm -f easymod-growth-frontend-1; then
+                  echo "ERROR: rollback could not remove the first-rollout Growth container"
+                  return 1
+                fi
+              fi
+              if ! docker compose --env-file .env.prod -f docker-compose.prod.yml restart caddy; then
+                echo "ERROR: rollback Caddy restart failed"
+                return 1
+              fi
+              verify_rollback
+            }
+
+            # In a restore the candidate IS the qualified floor pair, resolved
+            # runner-side above; the previous_* writer images captured under
+            # the lock are the rollback target. A floor restore copies no
+            # candidate configuration, so the deploy job's staged-config cp
+            # lines deliberately never appear here.
+            candidate_backend_image="$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST"
+            candidate_frontend_image="$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"
+            assert_immutable_ref "$candidate_backend_image"
+            assert_immutable_ref "$candidate_frontend_image"
+            export GHCR_IMAGE_BACKEND="$candidate_backend_image"
+            export GHCR_IMAGE_FRONTEND="$candidate_frontend_image"
+
+            # Growth is carried forward from the running writer container; the
+            # runner rejected any growth_image_override. The bootstrap digest
+            # only applies when no Growth container is running at all, exactly
+            # like the forward deploy path.
+            candidate_growth_image="$previous_growth_image"
+            if [ -z "$candidate_growth_image" ] && [ -n "${GROWTH_BOOTSTRAP_DIGEST:-}" ]; then
+              echo "growth-frontend is not running; bootstrapping from pinned GROWTH_BOOTSTRAP_DIGEST"
+              candidate_growth_image="${GHCR_GROWTH}@${GROWTH_BOOTSTRAP_DIGEST}"
+            fi
+            if [ -z "$candidate_growth_image" ]; then
+              echo "ERROR: growth-frontend is not running from a content-addressed image and"
+              echo "       no GROWTH_BOOTSTRAP_DIGEST is set. Set the repository variable"
+              echo "       GROWTH_BOOTSTRAP_DIGEST to the sha256:... digest of the Growth"
+              echo "       image published by growth-os.yml for this commit, then re-run."
+              exit 1
+            fi
+            assert_immutable_ref "$candidate_growth_image"
+            export GHCR_IMAGE_GROWTH="$candidate_growth_image"
+
+            if ! candidate_growth_commit=$(extract_growth_commit "$candidate_growth_image"); then
+              echo "ERROR: growth image does not contain a valid build commit"
+              exit 1
+            fi
+
+            # Validate every image in the interpolated production stack before
+            # any pull or service restart. Unlike a forward deploy this renders
+            # the LIVE incumbent configuration, because a floor restore changes
+            # image references only; this is the same fail-closed guard against
+            # a mutable reference entering the deployed stack.
+            production_images=$(docker compose --env-file .env.prod -f docker-compose.prod.yml config --images)
+            test -n "$production_images"
+            while IFS= read -r production_image; do
+              [ -z "$production_image" ] && continue
+              assert_immutable_ref "$production_image"
+            done <<< "$production_images"
+            # Capture and verify the incumbent under the same lock as activation.
+            cp -p /opt/easymod/.env.prod "$ROLLBACK_STATE_DIR/.env.prod"
+            chmod 600 "$ROLLBACK_STATE_DIR/.env.prod"
+            cp -p /opt/easymod/docker-compose.prod.yml "$ROLLBACK_STATE_DIR/docker-compose.prod.yml"
+            cp -p /opt/easymod/Caddyfile "$ROLLBACK_STATE_DIR/Caddyfile"
+            config_hashes "$ROLLBACK_STATE_DIR" > "$ROLLBACK_STATE_DIR/manifest.sha256"
+            verify_config "$ROLLBACK_STATE_DIR" "$ROLLBACK_STATE_DIR/manifest.sha256"
+            verify_config /opt/easymod "$ROLLBACK_STATE_DIR/manifest.sha256"
+
+            # Publish a persistent recovery record atomically before touching live
+            # files. A hard kill or failed rollback leaves it for operator review.
+            printf '%s\n' "state=$ROLLBACK_STATE_DIR" "backend=$previous_backend_image" \
+              "frontend=$previous_frontend_image" "worker=$previous_worker_image" \
+              "growth=$previous_growth_image" > "$ROLLBACK_STATE_DIR/transaction"
+            deploy_succeeded=false
+            activation_started=false
+            finish_deploy() {
+              local rc=$?
+              trap '' HUP INT TERM
+              rm -f -- "$candidate_dir/.env.prod" || rc=70
+              if ! [ "$ROLLBACK_STATE_DIR/transaction" -ef "$active_transaction" ]; then
+                exit "$rc"
+              fi
+              if [ "$activation_started" != "true" ]; then
+                rm -- "$active_transaction" || exit 70
+                exit "$rc"
+              fi
+              if [ "$rc" -eq 0 ]; then
+                if [ "$deploy_succeeded" = "true" ]; then
+                  mv -f -- "$ROLLBACK_STATE_DIR/deployment-metadata.json" /opt/easymod/deployment-metadata.json || rc=$?
+                else
+                  rc=1
+                fi
+              fi
+              if [ "$rc" -ne 0 ]; then
+                rollback || exit 70
+              fi
+              rm -- "$active_transaction" || exit 70
+              exit "$rc"
+            }
+            trap finish_deploy EXIT
+            trap 'exit 129' HUP
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+            ln -- "$ROLLBACK_STATE_DIR/transaction" "$active_transaction"
+            activation_started=true
+            # No candidate configuration is activated: /opt/easymod already
+            # holds the incumbent configuration that was just snapshotted and
+            # double-verified above, and a floor restore must not touch it.
+            # ── Reclaim disk BEFORE pulling images ───────────────────────────────
+            # The droplet ran out of space (accumulated deploy images + local DB
+            # backups). That both failed `docker pull` and blocked Redis
+            # persistence (stop-writes-on-bgsave-error -> API 500s). Free space
+            # first so the pull and the running services can recover.
+            echo "==> Disk usage before reclaim:"
+            df -h / || true
+            docker image prune -af || true
+            docker builder prune -af || true
+            docker container prune -f || true
+            # Keep only the 3 newest local backups; the durable copy is off-site.
+            if [ -d /opt/easymod/backups ]; then
+              ls -1t /opt/easymod/backups/* 2>/dev/null | tail -n +4 | xargs -r rm -f || true
+            fi
+            echo "==> Disk usage after reclaim:"
+            df -h / || true
+            # A disk-full crash can corrupt Redis's append-only file, so the
+            # container crash-loops and never passes its `redis-cli ping`
+            # healthcheck. Because backend/worker/db:sync all wait on
+            # `redis: condition: service_healthy`, that silently aborts the whole
+            # deploy. Recover by resetting the persistence volume so Redis starts
+            # clean. On a WIPE run this is always correct (clean first-run state);
+            # otherwise only reset when Redis is genuinely unhealthy.
+            if [ "$WIPE_DB" = "WIPE" ]; then
+              echo "ERROR: Redis volume recovery is disabled in production; use a reviewed manual recovery procedure"
+              exit 1
+            else
+              docker compose --env-file .env.prod -f docker-compose.prod.yml restart redis 2>/dev/null || true
+              RSTATE=starting
+              for k in $(seq 1 8); do
+                RSTATE=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-redis-1 2>/dev/null || echo missing)
+                [ "$RSTATE" = "healthy" ] && break
+                [ "$RSTATE" = "unhealthy" ] && break
+                sleep 5
+              done
+              if [ "$RSTATE" != "healthy" ]; then
+                echo "ERROR: Redis is $RSTATE; refusing automatic volume deletion. Manual recovery is required"
+                exit 1
+              fi
+            fi
+
+            # Authenticate to ghcr.io on the droplet
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+
+            # Pull the exact floor digests qualified runner-side. Tags are
+            # never a restore reference.
+            echo "Pulling floor backend digest: $GHCR_IMAGE_BACKEND"
+            docker pull "$GHCR_IMAGE_BACKEND"
+            echo "Pulling floor frontend digest: $GHCR_IMAGE_FRONTEND"
+            docker pull "$GHCR_IMAGE_FRONTEND"
+
+            # Commit binding: the floor image must report the very revision
+            # label the runner resolved from its arm64 platform manifest.
+            candidate_backend_commit=$(docker run --rm --entrypoint node "$GHCR_IMAGE_BACKEND" -e 'process.stdout.write(process.env.GIT_SHA || "")')
+            if ! printf '%s' "$candidate_backend_commit" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              echo "ERROR: floor backend image does not contain a valid build commit"
+              exit 1
+            fi
+            if [ "$candidate_backend_commit" != "$FLOOR_REVISION" ]; then
+              echo "ERROR: floor backend commit '$candidate_backend_commit' does not match the qualified floor revision '$FLOOR_REVISION'"
+              exit 1
+            fi
+            echo "Floor image commit binding verified: $candidate_backend_commit"
+            # Start application services before the edge. Starting Caddy in the
+            # same Compose transaction makes its dependency wait abort before
+            # the candidate backend's 60-second health start period elapses.
+            echo "==> Starting candidate application services"
+            if ! docker compose --env-file .env.prod -f docker-compose.prod.yml \
+              up -d --no-build --remove-orphans backend worker frontend growth-frontend; then
+              echo "ERROR: candidate application services failed to start"
+              docker inspect easymod-backend-1 \
+                --format 'Candidate backend state: status={{.State.Status}} exit={{.State.ExitCode}} restart={{.RestartCount}} oom={{.State.OOMKilled}} error={{.State.Error}}' 2>/dev/null || true
+              docker inspect easymod-backend-1 \
+                --format 'Candidate backend health details: {{json .State.Health}}' 2>/dev/null || true
+              docker ps -a --filter name=easymod-backend-1 --no-trunc 2>/dev/null || true
+              docker logs --tail 100 easymod-backend-1 2>/dev/null || true
+              exit 1
+            fi
+
+            floor_backend_running=$(resolve_container_digest easymod-backend-1)
+            floor_worker_running=$(resolve_container_digest easymod-worker-1)
+            floor_frontend_running=$(resolve_container_digest easymod-frontend-1)
+            if [ "$floor_backend_running" != "$candidate_backend_image" ] \
+              || [ "$floor_worker_running" != "$candidate_backend_image" ] \
+              || [ "$floor_frontend_running" != "$candidate_frontend_image" ]; then
+              echo "ERROR: running backend, worker, or frontend does not match the exact floor pair"
+              echo "backend=$floor_backend_running worker=$floor_worker_running frontend=$floor_frontend_running"
+              exit 1
+            fi
+
+            candidate_backend_healthy=false
+            for i in $(seq 1 20); do
+              candidate_backend_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-backend-1 2>/dev/null || echo missing)
+              if [ "$candidate_backend_status" = "healthy" ]; then
+                echo "Candidate backend health check passed on attempt $i"
+                candidate_backend_healthy=true
+                break
+              fi
+              echo "Candidate backend health attempt $i: status=$candidate_backend_status — retrying in 5s..."
+              sleep 5
+            done
+            if [ "$candidate_backend_healthy" != "true" ]; then
+              echo "ERROR: candidate backend health check failed after 100s"
+              docker inspect easymod-backend-1 \
+                --format 'Candidate backend state: status={{.State.Status}} exit={{.State.ExitCode}} restart={{.RestartCount}} oom={{.State.OOMKilled}} error={{.State.Error}}' 2>/dev/null || true
+              docker inspect easymod-backend-1 \
+                --format 'Candidate backend health details: {{json .State.Health}}' 2>/dev/null || true
+              docker ps -a --filter name=easymod-backend-1 --no-trunc 2>/dev/null || true
+              docker logs --tail 100 easymod-backend-1 2>/dev/null || true
+              exit 1
+            fi
+
+            candidate_worker_healthy=false
+            for i in $(seq 1 20); do
+              candidate_worker_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-worker-1 2>/dev/null || echo missing)
+              if [ "$candidate_worker_status" = "healthy" ]; then
+                echo "Candidate worker readiness check passed on attempt $i"
+                candidate_worker_healthy=true
+                break
+              fi
+              echo "Candidate worker health attempt $i: status=$candidate_worker_status — retrying in 5s..."
+              sleep 5
+            done
+            if [ "$candidate_worker_healthy" != "true" ]; then
+              echo "ERROR: candidate worker health check failed after 100s"
+              docker inspect easymod-worker-1 \
+                --format 'Candidate worker state: status={{.State.Status}} exit={{.State.ExitCode}} restart={{.RestartCount}} oom={{.State.OOMKilled}} error={{.State.Error}}' 2>/dev/null || true
+              docker inspect easymod-worker-1 \
+                --format 'Candidate worker health details: {{json .State.Health}}' 2>/dev/null || true
+              docker logs --tail 100 easymod-worker-1 2>/dev/null || true
+              exit 1
+            fi
+
+            verify_worker_health || exit 1
+
+            echo "==> Starting Caddy after candidate backend and worker health passed"
+            if ! docker compose --env-file .env.prod -f docker-compose.prod.yml \
+              up -d --no-build --remove-orphans caddy; then
+              echo "ERROR: candidate Caddy failed to start"
+              docker logs --tail 100 easymod-caddy-1 2>/dev/null || true
+              exit 1
+            fi
+
+            # The Caddyfile is bind-mounted read-only, so `up -d` will NOT restart
+            # Caddy just because the file's contents changed. Reload it explicitly
+            # so the F-05 `/health* -> backend` routing actually takes effect.
+            echo "==> Reloading Caddy with synced config"
+            if ! docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T caddy \
+              caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null; then
+              docker compose --env-file .env.prod -f docker-compose.prod.yml restart caddy
+            fi
+
+            # A floor restore never seeds an admin account.
+            # Health check
+            for i in $(seq 1 20); do
+              backend_status=$(docker exec easymod-backend-1 node -e "require('http').get('http://127.0.0.1:3000/health/ready', r => { process.stdout.write(String(r.statusCode)); process.exit(0); }).on('error', () => { process.stdout.write('000'); process.exit(0); })" 2>/dev/null || echo "000")
+              worker_status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' easymod-worker-1 2>/dev/null || echo missing)
+              frontend_route_status=$(curl --silent --max-time 5 --noproxy '*' --resolve 'easymod.tech:443:127.0.0.1' --output /dev/null --write-out '%{http_code}' https://easymod.tech/ 2>/dev/null || true)
+              api_route_status=$(curl --silent --max-time 5 --noproxy '*' --resolve 'api.easymod.tech:443:127.0.0.1' --output /dev/null --write-out '%{http_code}' https://api.easymod.tech/health/ready 2>/dev/null || true)
+              if [ "$backend_status" = "200" ] && [ "$worker_status" = "healthy" ] \
+                && [ "$frontend_route_status" = "200" ] && [ "$api_route_status" = "200" ]; then
+                echo "Candidate backend, worker, and routed health checks passed on attempt $i"
+                break
+              fi
+              echo "Candidate health attempt $i: backend=$backend_status worker=$worker_status frontend_route=$frontend_route_status api_route=$api_route_status — retrying in 5s..."
+              sleep 5
+              if [ "$i" = "20" ]; then
+                echo "ERROR: candidate backend, worker, or routed health check failed after 100s"
+                exit 1
+              fi
+            done
+
+            # Read the commit baked into the running image. A healthy container
+            # is not sufficient evidence that the requested immutable image is
+            # serving traffic; the version endpoint must identify this SHA.
+            docker exec -i -e EXPECTED_BACKEND_COMMIT="$candidate_backend_commit" easymod-backend-1 node - <<'NODE'
+            const http = require('http');
+
+            const request = http.get('http://127.0.0.1:3000/api/version', (response) => {
+              let body = '';
+              response.setEncoding('utf8');
+              response.on('data', (chunk) => { body += chunk; });
+              response.on('end', () => {
+                if (response.statusCode !== 200) {
+                  console.error(`Version endpoint returned HTTP ${response.statusCode}`);
+                  process.exit(1);
+                }
+
+                let payload;
+                try {
+                  payload = JSON.parse(body);
+                } catch (error) {
+                  console.error(`Version endpoint returned invalid JSON: ${error.message}`);
+                  process.exit(1);
+                }
+
+                if (payload.gitSha !== process.env.EXPECTED_BACKEND_COMMIT) {
+                  console.error(`Version mismatch: expected ${process.env.EXPECTED_BACKEND_COMMIT}, got ${payload.gitSha || '(missing)'}`);
+                  process.exit(1);
+                }
+                console.log(`Version check passed: ${payload.gitSha}`);
+              });
+            });
+            request.on('error', (error) => {
+              console.error(`Version endpoint request failed: ${error.message}`);
+              process.exit(1);
+            });
+            NODE
+
+            verify_public_stack "$candidate_backend_commit" "$candidate_growth_commit" || exit 1
+
+            # Prove the candidate worker consumed a synthetic canary job. The
+            # worker short-circuits canaries before database, AI, or provider work.
+            docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T \
+              -e RELEASE_CANARY_ID="release_canary_${WORKFLOW_RUN_ID}_${WORKFLOW_RUN_ATTEMPT}" \
+              backend node - <<'NODE'
+            const { messageQueue } = require('./src/jobs/message-queue');
+
+            (async () => {
+              let probe;
+              try {
+                const probeId = process.env.RELEASE_CANARY_ID;
+                if (!probeId || await messageQueue.getJob(probeId)) {
+                  throw new Error('release canary id is missing or already exists');
+                }
+                probe = await messageQueue.add('canary', { canary: true, enqueuedAt: Date.now() }, {
+                  jobId: probeId,
+                  attempts: 1,
+                  removeOnComplete: false,
+                  removeOnFail: false,
+                });
+                const deadline = Date.now() + 60000;
+                while (Date.now() < deadline) {
+                  const state = await probe.getState();
+                  if (state === 'completed') {
+                    console.log('Candidate worker synthetic queue canary passed');
+                    return;
+                  }
+                  if (state === 'failed') throw new Error('candidate worker synthetic queue canary failed');
+                  await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+                throw new Error('candidate worker did not consume the synthetic queue canary within 60s');
+              } finally {
+                if (probe) await probe.remove().catch(() => {});
+                await messageQueue.close();
+              }
+            })().catch((error) => {
+              console.error(error.message);
+              process.exitCode = 1;
+            });
+            NODE
+
+            # Clean up dangling images
+            docker image prune -f
+
+             cat > "$ROLLBACK_STATE_DIR/deployment-metadata.json" <<EOF
+            {
+              "DEPLOYED_COMMIT": "${FLOOR_REVISION}",
+              "BACKEND_COMMIT": "${candidate_backend_commit}",
+              "BACKEND_IMAGE_DIGEST": "${GHCR_IMAGE_BACKEND}",
+              "FRONTEND_IMAGE_DIGEST": "${GHCR_IMAGE_FRONTEND}",
+              "GROWTH_IMAGE_DIGEST": "${GHCR_IMAGE_GROWTH}",
+              "PREVIOUS_BACKEND_IMAGE_DIGEST": "${previous_backend_image}",
+              "PREVIOUS_FRONTEND_IMAGE_DIGEST": "${previous_frontend_image}",
+              "PREVIOUS_GROWTH_IMAGE_DIGEST": "${previous_growth_image}",
+              "WORKFLOW_RUN_ID": "${WORKFLOW_RUN_ID}",
+              "DEPLOYED_AT": "${DEPLOYED_AT}"
+            }
+            EOF
+            chmod 600 "$ROLLBACK_STATE_DIR/deployment-metadata.json"
+            deploy_succeeded=true
+
+        env:
+          GHCR_BACKEND: ${{ env.GHCR_BACKEND }}
+          GHCR_FRONTEND: ${{ env.GHCR_FRONTEND }}
+          GHCR_GROWTH: ${{ env.GHCR_GROWTH }}
+          GROWTH_BOOTSTRAP_DIGEST: ${{ vars.GROWTH_BOOTSTRAP_DIGEST }}
+          EXISTING_BACKEND_DIGEST: ${{ inputs.existing_backend_digest }}
+          EXISTING_FRONTEND_DIGEST: ${{ inputs.existing_frontend_digest }}
+          FLOOR_REVISION: ${{ steps.floor.outputs.floor_revision }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEPLOYED_AT: ${{ github.run_started_at }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROLLBACK_STATE_DIR: /opt/easymod/.cutover-rollback/${{ github.run_id }}-${{ github.run_attempt }}
+          APP_URL: ${{ env.APP_URL }}
+          API_URL: ${{ env.API_URL }}
+          GROWTH_URL: ${{ env.GROWTH_URL }}
+          EXPECTED_ROLLBACK_BACKEND_DIGEST: ${{ inputs.expected_rollback_backend_digest }}
+          EXPECTED_ROLLBACK_FRONTEND_DIGEST: ${{ inputs.expected_rollback_frontend_digest }}
+
+      - name: Remove run-scoped restore state
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          DO_SSH_KNOWN_HOSTS: ${{ secrets.DO_SSH_KNOWN_HOSTS }}
+          ROLLBACK_STATE_DIR: /opt/easymod/.cutover-rollback/${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DO_SSH_PRIVATE_KEY" ] || [ -z "$DO_SSH_KNOWN_HOSTS" ]; then
+            echo '::warning::restore state cleanup could not authenticate; verify the run-scoped directory was removed'
+            exit 0
+          fi
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DO_SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$DO_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F "$DEPLOY_HOST" -f "$HOME/.ssh/known_hosts" >/dev/null
+          restore_candidate_env_path="$ROLLBACK_STATE_DIR/candidate/.env.prod"
+          expected_restore_candidate_env_path="/opt/easymod/.cutover-rollback/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/candidate/.env.prod"
+          if [ "$restore_candidate_env_path" != "$expected_restore_candidate_env_path" ]; then
+            echo '::error::refusing to clean a restore candidate environment outside this workflow attempt'
+            exit 1
+          fi
+          # A restore stages no candidate .env.prod; this removes only the
+          # run-scoped candidate directory placeholder. The rollback snapshot,
+          # transaction record, and deployment metadata stay on the host for
+          # operator reconciliation after every attempt, exactly like deploy.
+          if ssh -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@"$DEPLOY_HOST" \
+            "rm -f -- '$restore_candidate_env_path'; rmdir '$ROLLBACK_STATE_DIR/candidate' 2>/dev/null || true"; then
+            echo 'Run-scoped restore state cleanup completed'
+          else
+            echo '::warning::could not remove the run-scoped restore state directory; it remains restricted by its mode-700 parent directory'
+          fi
