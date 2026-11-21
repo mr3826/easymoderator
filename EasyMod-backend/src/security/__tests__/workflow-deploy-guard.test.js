@@ -84,6 +84,108 @@ describe('production workflow branch safety', () => {
         expect(releaseWorkflow).toContain('secrets: inherit');
     });
 
+    test('paired promotion validates both immutable images and the rollback floor', () => {
+        expect(releaseWorkflow).toContain('existing_frontend_digest: ${{ inputs.existing_frontend_digest }}');
+        expect(workflow).toContain('frontend_digest: ${{ steps.frontend_image.outputs.digest || inputs.existing_frontend_digest }}');
+        expect(workflow).toContain('test "$RELEASE_TARGET" = all');
+        expect(workflow).toContain('test "$EXISTING_CANDIDATE_SHA" = "$SHA"');
+        expect(workflow).toContain('for digest in "$EXISTING_BACKEND_DIGEST" "$EXISTING_FRONTEND_DIGEST" "$EXPECTED_ROLLBACK_BACKEND_DIGEST" "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"');
+        expect(workflow).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST"');
+        expect(workflow).toContain('docker pull --platform linux/arm64 "$image"');
+        expect(workflow).toContain('test "$revision" = "$SHA"');
+        expect(workflow).toContain("needs.changes.outputs.frontend == 'true' && env.EXISTING_FRONTEND_DIGEST == ''");
+        expect(workflow.match(/labels: org\.opencontainers\.image\.revision=/g)).toHaveLength(2);
+        const floor = workflow.indexOf('[ "$previous_backend_image" != "$GHCR_BACKEND@$EXPECTED_ROLLBACK_BACKEND_DIGEST" ]');
+        const activation = workflow.indexOf('activation_started=true');
+        expect(floor).toBeGreaterThan(-1);
+        expect(activation).toBeGreaterThan(floor);
+        const frontendFloor = workflow.indexOf('[ "$previous_frontend_image" != "$GHCR_FRONTEND@$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]');
+        expect(frontendFloor).toBeGreaterThan(-1);
+        expect(activation).toBeGreaterThan(frontendFloor);
+        expect(workflow).toContain('chmod 600 "$ROLLBACK_STATE_DIR/.env.prod"');
+    });
+
+    test('every supplied backend digest is source-verified before migration', () => {
+        expect(workflow).toContain('if [ -n "$EXISTING_BACKEND_DIGEST$EXISTING_FRONTEND_DIGEST$EXPECTED_ROLLBACK_BACKEND_DIGEST$EXPECTED_ROLLBACK_FRONTEND_DIGEST" ]; then');
+        expect(workflow).toContain('[ -z "$digest" ] && continue');
+
+        const backendRevisionCheck = workflow.indexOf('candidate_revision=$(docker image inspect');
+        const productionMigration = workflow.indexOf('Running database migrations before service replacement');
+        expect(backendRevisionCheck).toBeGreaterThan(-1);
+        expect(productionMigration).toBeGreaterThan(backendRevisionCheck);
+        expect(workflow).toContain('test "$candidate_revision" = "$SHA"');
+    });
+
+    test('reader-only exact promotion retains the incumbent frontend digest', () => {
+        expect(workflow).toContain('if [ "$RELEASE_TARGET" = backend ]; then');
+        expect(workflow).toContain('test "$EXISTING_FRONTEND_DIGEST" = "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"');
+        expect(workflow).toContain('candidate_revision=$(docker image inspect');
+        expect(workflow).toContain('docker pull --platform linux/arm64 "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"');
+        expect(releaseWorkflow).toContain('Exact frontend digest: retained rollback frontend for target=backend');
+        expect(releaseWorkflow).toContain('expected_rollback_backend_digest: ${{ inputs.expected_rollback_backend_digest }}');
+        expect(releaseWorkflow).toContain('expected_rollback_frontend_digest: ${{ inputs.expected_rollback_frontend_digest }}');
+    });
+
+    test('always-run cleanup removes only the run-scoped staged candidate environment', () => {
+        const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*?)\n  # ── 4\./)?.[1];
+        expect(deployBlock).toBeDefined();
+
+        const stageIndex = deployBlock.indexOf('name: Stage candidate config on droplet');
+        const deployIndex = deployBlock.indexOf('name: Deploy via SSH');
+        const cleanupIndex = deployBlock.indexOf('name: Remove staged candidate credentials');
+        expect(stageIndex).toBeGreaterThan(-1);
+        expect(deployIndex).toBeGreaterThan(stageIndex);
+        expect(cleanupIndex).toBeGreaterThan(deployIndex);
+        expect(deployBlock.slice(cleanupIndex)).toContain('if: always()');
+        expect(deployBlock.slice(cleanupIndex)).toContain('candidate/.env.prod');
+        expect(deployBlock.slice(cleanupIndex)).toContain('refusing to clean a candidate environment outside this workflow attempt');
+    });
+
+    test('Stage 2 promotion requires an exact pair and a patched reader rollback floor', () => {
+        expect(workflow).toContain('reply-confidence.service.js');
+        expect(workflow).toContain('reply-confidence-rollup.service.js');
+        expect(workflow).toContain('test -f EasyMod-backend/src/modules/ai/reply-confidence.service.js');
+        expect(workflow).toContain('test -f EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js');
+        expect(workflow).toContain('[ "$DEPLOY_CONFIRMATION" = "DEPLOY-$SHA" ]');
+        expect(workflow).toContain('test "$RELEASE_TARGET" = all');
+        expect(workflow).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST$GROWTH_OVERRIDE$SCHEMA_DRIFT_REQUEST"');
+        expect(workflow).toContain('git merge-base --is-ancestor "$rollback_revision" "$SHA"');
+        expect(workflow).toContain('message-evidence-projection.js');
+        expect(workflow).toContain("git grep -Fq -e 'projectMessageEvidence('");
+        expect(workflow).toContain("git grep -Fq -e 'projectMessageEvent('");
+        expect(workflow).toContain('fetch-depth: 0');
+
+        const readerVerifierStart = workflow.indexOf('verify_reader_projection_source()');
+        const readerVerifierEnd = workflow.indexOf("echo \"$label reader source verified: $revision\"", readerVerifierStart);
+        const readerVerifier = workflow.slice(readerVerifierStart, readerVerifierEnd);
+        expect(readerVerifier).toContain('for (const field of PUBLIC_MESSAGE_FIELDS)');
+        expect(readerVerifier).toContain('[ "$reader_kind" = writer ]');
+        expect(readerVerifier).toContain("git grep -Fq -e 'projectPublicMessageMetadata('");
+        expect(readerVerifier).toContain("git grep -Fq -e 'projectPublicMessageEvent('");
+        expect(readerVerifier).toContain('is not a reader-only recovery revision');
+        expect(workflow).toContain('verify_reader_projection_source "$SHA" \'Stage 2 candidate\' writer');
+        expect(workflow).toContain('verify_reader_projection_source "$rollback_revision" \'Stage 2 rollback floor\' reader');
+    });
+
+    test('forward cutover verifies backend, worker, routed health, and synthetic queue consumption', () => {
+        const exactImages = workflow.indexOf('candidate_worker_running=$(resolve_container_digest easymod-worker-1)');
+        const workerHealth = workflow.indexOf('candidate_worker_healthy=false');
+        const caddyStart = workflow.indexOf('Starting Caddy after candidate backend and worker health passed');
+        const routedHealth = workflow.indexOf('frontend_route_status=$(curl');
+        const versionCheck = workflow.indexOf('Version check passed: ${payload.gitSha}');
+        const workerCanary = workflow.indexOf("messageQueue.add('canary'");
+
+        expect(exactImages).toBeGreaterThan(-1);
+        expect(workerHealth).toBeGreaterThan(exactImages);
+        expect(caddyStart).toBeGreaterThan(workerHealth);
+        expect(routedHealth).toBeGreaterThan(caddyStart);
+        expect(workflow).toContain("api_route_status=$(curl --silent --max-time 5 --noproxy '*'");
+        expect(workflow).toContain('Candidate backend, worker, and routed health checks passed');
+        expect(workerCanary).toBeGreaterThan(versionCheck);
+        expect(workflow).toContain('Candidate worker synthetic queue canary passed');
+        expect(workflow).toContain('WORKFLOW_RUN_ATTEMPT,DEPLOYED_AT');
+    });
+
     test('build and deploy jobs are restricted to main', () => {
         const buildBlock = workflow.match(/\n  build:\n([\s\S]*?)\n  # ── 4\./)?.[1];
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
@@ -136,13 +238,15 @@ describe('production workflow branch safety', () => {
     test('validates selected Growth metadata without requiring Node.js on the SSH host', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
         const growthStart = deployBlock.indexOf('growth_image_source=running');
-        const backendValidationStart = deployBlock.indexOf('# Validate the rendered environment with the candidate backend image');
-        const growthBlock = deployBlock.slice(growthStart, backendValidationStart);
+        const growthValidationStart = deployBlock.indexOf('if [ "$growth_image_source" != "running" ]; then', growthStart);
+        const backendValidationStart = deployBlock.indexOf('# Validate the rendered environment with the candidate backend image', growthValidationStart);
+        const growthBlock = deployBlock.slice(growthValidationStart, backendValidationStart);
 
         expect(growthStart).toBeGreaterThan(-1);
-        expect(backendValidationStart).toBeGreaterThan(growthStart);
-        expect(growthBlock).toContain('growth_image_source=override');
-        expect(growthBlock).toContain('growth_image_source=bootstrap');
+        expect(growthValidationStart).toBeGreaterThan(growthStart);
+        expect(backendValidationStart).toBeGreaterThan(growthValidationStart);
+        expect(deployBlock.slice(growthStart, growthValidationStart)).toContain('growth_image_source=override');
+        expect(deployBlock.slice(growthStart, growthValidationStart)).toContain('growth_image_source=bootstrap');
         expect(growthBlock).toContain('if [ "$growth_image_source" != "running" ]; then');
         expect(growthBlock).toContain('command -v jq');
         expect(growthBlock).toContain('jq --version');
@@ -543,7 +647,10 @@ describe('production workflow branch safety', () => {
         expect(debtCheckIndex).toBeGreaterThan(gateIndex);
         expect(skippedIndex).toBeGreaterThan(-1);
         expect(deployBlock).toContain(
-            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,RELEASE_TARGET,APP_URL,API_URL,GROWTH_URL',
+            // Union of both deploy-hardening efforts: main's RELEASE_TARGET and
+            // public-smoke URLs plus Stage 2's run-attempt and rehearsed rollback
+            // digest pair. Every env from either side must stay wired through.
+            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,WORKFLOW_RUN_ATTEMPT,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,RELEASE_TARGET,APP_URL,API_URL,GROWTH_URL,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST',
         );
     });
 
@@ -680,18 +787,39 @@ describe('production workflow branch safety', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
 
         expect(deployBlock).toContain('verify_rollback() {');
-        expect(deployBlock).toContain('rollback health check failed after 100s');
+        // Stage 2's combined backend+worker+routed probe replaced main's
+        // backend-only 100s loop, so the failure literal is the probe-limit
+        // message; main's worker-health and identity-bound public-stack gates
+        // are unioned into the same verify_rollback below.
+        expect(deployBlock).toContain('rollback health check failed within the probe limit');
+        expect(deployBlock).toContain("--resolve 'easymod.tech:443:127.0.0.1'");
+        expect(deployBlock).toContain("--resolve 'api.easymod.tech:443:127.0.0.1'");
         expect(deployBlock).toContain('verify_worker_health || return 1');
         expect(deployBlock).toContain('previous_backend_commit=$(docker run');
         expect(deployBlock).toContain('previous_growth_commit=$(extract_growth_commit');
         expect(deployBlock).toContain('verify_public_stack "$previous_backend_commit" "$previous_growth_commit" || return 1');
-        expect(deployBlock).toContain('rollback || rc=70');
+        // finish_deploy supersedes main's inline EXIT trap: rollback failure
+        // still exits 70, and the transaction marker must survive a failed
+        // recovery for operator reconciliation.
+        expect(deployBlock).toContain('rollback || exit 70');
+        const marker = deployBlock.indexOf('ln -- "$ROLLBACK_STATE_DIR/transaction" "$active_transaction"');
+        const trap = deployBlock.indexOf('trap finish_deploy EXIT');
+        expect(trap).toBeGreaterThan(-1);
+        expect(marker).toBeGreaterThan(trap);
+        for (const file of ['.env.prod', 'docker-compose.prod.yml', 'Caddyfile']) {
+            expect(deployBlock.indexOf(`cp -p "$candidate_dir/${file}" /opt/easymod/${file}`)).toBeGreaterThan(marker);
+        }
+        expect(deployBlock).toMatch(/rollback \|\| exit 70\s+fi\s+rm -- "\$active_transaction" \|\| exit 70/);
     });
 
     test('successful cutover proves the running image reports its own bound commit', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
         const commitIndex = deployBlock.indexOf('candidate_backend_commit=$(docker run');
-        const healthIndex = deployBlock.indexOf("http://127.0.0.1:3000/health/ready");
+        // Stage 2 installs verify_rollback (which probes /health/ready itself)
+        // before activation, so the first /health/ready literal in the block is
+        // the rollback probe. Anchor the forward-gate search after the candidate
+        // commit binding: the forward health gate must still run after it.
+        const healthIndex = deployBlock.indexOf("http://127.0.0.1:3000/health/ready", commitIndex);
         const versionIndex = deployBlock.indexOf("http://127.0.0.1:3000/api/version");
 
         expect(commitIndex).toBeGreaterThan(-1);
@@ -710,8 +838,10 @@ describe('production workflow branch safety', () => {
         const guardIndex = deployBlock.indexOf(
             'Reject backend substitutions in frontend-only releases',
         );
-        const copyIndex = deployBlock.indexOf(
-            'Copy .env.prod and deploy config to droplet',
+        // Stage 2 renamed the copy step: config is staged into the private
+        // per-attempt candidate directory, never straight onto live paths.
+        const stageIndex = deployBlock.indexOf(
+            'Stage candidate config on droplet',
         );
 
         expect(deployBlock).toContain(
@@ -740,7 +870,7 @@ describe('production workflow branch safety', () => {
         expect(guardStep).toContain('BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}');
         expect(guardStep).toContain('if [ -n "${BACKEND_DIGEST:-}" ]; then');
         expect(guardIndex).toBeGreaterThan(-1);
-        expect(copyIndex).toBeGreaterThan(guardIndex);
+        expect(stageIndex).toBeGreaterThan(guardIndex);
     });
 
     test('rollback rehearsal exercises the real worker-health and public-stack gates', () => {
@@ -749,8 +879,10 @@ describe('production workflow branch safety', () => {
             'utf8',
         );
 
+        // Union of both extraction lists: Stage 2's config-hash/transaction
+        // functions plus main's worker-health and public-stack gates.
         expect(rehearsal).toContain(
-            "EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,verify_worker_health,verify_public_stack,verify_rollback,rollback'",
+            "EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,config_hashes,verify_config,verify_worker_health,verify_public_stack,verify_rollback,finish_deploy,rollback'",
         );
         expect(rehearsal).toContain('container_name: easymod-worker-1');
         expect(rehearsal).toContain('container_name: easymod-public-stub-1');
