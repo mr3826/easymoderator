@@ -229,15 +229,17 @@ test('390px: five mobile destinations, no horizontal overflow, sidebar hidden', 
     expect(overflow).toBeLessThanOrEqual(0);
 });
 
-test('Add-ons is hidden: no nav entry, and its retired paths redirect to the dashboard', async ({ page }) => {
+test('Add-ons and Reports are hidden: no nav entry, and retired paths redirect to the dashboard', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     const navs = page.locator('nav[aria-label="Workspace navigation"]');
     await expect(navs).toHaveCount(2);
-    // Neither the desktop rail nor the mobile bar may offer the feature.
+    // Neither the desktop rail nor the mobile bar may offer retired destinations.
     await expect(navs.nth(0).getByRole('link', { name: 'Add-ons' })).toHaveCount(0);
     await expect(navs.nth(1).getByRole('link', { name: 'Add-ons' })).toHaveCount(0);
-    for (const path of ['/addons', '/addons/ads-studio', '/addons/storefront']) {
+    await expect(navs.nth(0).getByRole('link', { name: 'Reports' })).toHaveCount(0);
+    await expect(navs.nth(1).getByRole('link', { name: 'Reports' })).toHaveCount(0);
+    for (const path of ['/reports', '/reports/summary', '/addons', '/addons/ads-studio', '/addons/storefront', '/addons/other']) {
         await page.goto(path);
         await expect(page).toHaveURL(/\/dashboard$/);
     }

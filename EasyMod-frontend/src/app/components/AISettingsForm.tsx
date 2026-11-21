@@ -173,11 +173,9 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
       const settingsForSave = {
         ...aiSettings,
         auto_reply_enabled: autoReplyForMode(aiSettings.automation_mode),
-        // The standalone ask-email toggle is gone; the "Email address" option in
-        // Required Order Fields is the single source. Derive the legacy scalar so
-        // a previously-stored `true` cannot survive as an invisible, un-flippable
-        // value that contradicts the only control the merchant can still see.
-        ask_email: aiSettings.required_fields.email_address,
+        // Preserve any previously-stored scalar untouched while the retired
+        // unconsumed field controls remain hidden from merchants.
+        ask_email: aiSettings.ask_email,
       };
       const persistedSettings = await onSave(settingsForSave);
       try {
@@ -303,43 +301,28 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <div>
-            <label htmlFor="confidence-threshold" className="mb-1 flex min-h-11 items-center gap-1 text-sm font-medium text-em-text-primary">
-              {t('manageShop.aiSettings.confidenceLabel')} <span className="font-semibold text-em-violet-700">{aiSettings.confidence_threshold}%</span>
-            </label>
-            <p className="mb-2 text-xs text-em-text-secondary">{t('manageShop.aiSettings.confidenceHint')}</p>
-            <input
-              id="confidence-threshold"
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={aiSettings.confidence_threshold}
-              aria-valuetext={`${aiSettings.confidence_threshold}%`}
-              onChange={(e) => setAISettings({ ...aiSettings, confidence_threshold: Number(e.target.value) })}
-              className={`w-full accent-em-violet-600 ${FOCUS_RING}`}
-            />
-            <div className="mt-1 flex justify-between text-xs text-em-text-secondary">
-              <span>{t('manageShop.aiSettings.confidenceCautious')}</span><span>{t('manageShop.aiSettings.confidenceBalanced')}</span><span>{t('manageShop.aiSettings.confidenceIndependent')}</span>
-            </div>
-            <p className="mt-2 rounded-lg border border-em-info-700/20 bg-em-info-100 px-3 py-2 text-xs text-em-info-700">
-              {t('manageShop.aiSettings.confidenceRealityNote')}
-            </p>
+        <div>
+          <label htmlFor="confidence-threshold" className="mb-1 flex min-h-11 items-center gap-1 text-sm font-medium text-em-text-primary">
+            {t('manageShop.aiSettings.confidenceLabel')} <span className="font-semibold text-em-violet-700">{aiSettings.confidence_threshold}%</span>
+          </label>
+          <p className="mb-2 text-xs text-em-text-secondary">{t('manageShop.aiSettings.confidenceHint')}</p>
+          <input
+            id="confidence-threshold"
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={aiSettings.confidence_threshold}
+            aria-valuetext={`${aiSettings.confidence_threshold}%`}
+            onChange={(e) => setAISettings({ ...aiSettings, confidence_threshold: Number(e.target.value) })}
+            className={`w-full accent-em-violet-600 ${FOCUS_RING}`}
+          />
+          <div className="mt-1 flex justify-between text-xs text-em-text-secondary">
+            <span>{t('manageShop.aiSettings.confidenceCautious')}</span><span>{t('manageShop.aiSettings.confidenceBalanced')}</span><span>{t('manageShop.aiSettings.confidenceIndependent')}</span>
           </div>
-          <div>
-            <label htmlFor="max-auto-order-value" className="mb-1 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.maxAutoOrderLabel')}</label>
-            <p className="mb-2 text-xs text-em-text-secondary">{t('manageShop.aiSettings.maxAutoOrderHint')}</p>
-            <input
-              id="max-auto-order-value"
-              type="number"
-              min={0}
-              step={100}
-              value={aiSettings.max_auto_order_value}
-              onChange={(e) => setAISettings({ ...aiSettings, max_auto_order_value: Number(e.target.value) })}
-              className={FIELD_CLASS}
-            />
-          </div>
+          <p className="mt-2 rounded-lg border border-em-info-700/20 bg-em-info-100 px-3 py-2 text-xs text-em-info-700">
+            {t('manageShop.aiSettings.confidenceRealityNote')}
+          </p>
         </div>
 
         {/* The standalone "Ask customer for email" toggle was removed (founder
@@ -392,27 +375,6 @@ export default function AISettingsForm({ initialData, onSave, telegramStatus = n
               className={FIELD_CLASS}
             />
             <p className="mt-1 text-xs text-em-text-secondary">{t('manageShop.aiSettings.closingSocialNote')}</p>
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm font-medium text-em-text-primary">{t('manageShop.aiSettings.requiredFieldsLabel')}</label>
-          <p className="mb-3 text-xs text-em-text-secondary">{t('manageShop.aiSettings.requiredFieldsHint')}</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {(Object.keys(aiSettings.required_fields) as Array<keyof ShopAISettings['required_fields']>).map((field) => (
-              <label key={field} className="flex min-h-11 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={aiSettings.required_fields[field]}
-                  onChange={(e) => setAISettings({
-                    ...aiSettings,
-                    required_fields: { ...aiSettings.required_fields, [field]: e.target.checked }
-                  })}
-                  className={`h-4 w-4 accent-em-violet-600 ${FOCUS_RING}`}
-                />
-                <span className="text-sm capitalize text-em-text-primary">{t(`manageShop.aiSettings.fields.${field}`)}</span>
-              </label>
-            ))}
           </div>
         </div>
 

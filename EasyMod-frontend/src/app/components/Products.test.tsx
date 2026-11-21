@@ -418,6 +418,33 @@ describe('Products', () => {
     });
   });
 
+  it('edits unsaved AI extracted draft inline inside the review modal without navigating to 404', async () => {
+    await renderComponent();
+
+    fireEvent.click(await screen.findByRole('button', { name: /upload/i }));
+    const fileInput = document.querySelector('#file-upload') as HTMLInputElement;
+    const file = new File(['name,price\nDraft,150'], 'products.csv', { type: 'text/csv' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(await screen.findByText('AI Product')).toBeInTheDocument();
+    const editBtn = screen.getByRole('button', { name: 'common.edit' });
+    fireEvent.click(editBtn);
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    const form = screen.getByTestId('draft-edit-form-ai-1');
+    const nameInput = form.querySelector('input[type="text"]') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Edited Draft Saree' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+    expect(await screen.findByText('Edited Draft Saree')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'common.approve' }));
+    await waitFor(() => {
+      expect(mockCreateProduct).toHaveBeenCalledWith(expect.objectContaining({
+        name: 'Edited Draft Saree',
+      }));
+    });
+  });
+
   // ── Empty state ───────────────────────────────────────────────────────
 
   it('renders empty state when there are no products', async () => {

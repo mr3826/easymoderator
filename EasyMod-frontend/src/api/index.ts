@@ -185,6 +185,7 @@ export const apiClient = {
   getConversation: conversationDomain.getConversation,
   getMessages: conversationDomain.getMessages,
   createMessage: conversationDomain.createMessage,
+  sendProductCard: conversationDomain.sendProductCard,
   approveAiDraft: conversationDomain.approveAiDraft,
   dismissAiDraft: conversationDomain.dismissAiDraft,
   markConversationRead: conversationDomain.markConversationRead,

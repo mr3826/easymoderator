@@ -468,6 +468,7 @@ interface InboxThreadDetailProps {
   messagesEndRef: React.RefObject<HTMLDivElement>;
   is24hExpired: boolean;
   is24hWarning: boolean;
+  interactionChoicesEnabled?: boolean;
   mobilePanelOpen: boolean;
   onMobileBack: () => void;
   onToggleHITL: () => void;
@@ -510,6 +511,7 @@ export function InboxThreadDetail({
   messagesEndRef,
   is24hExpired,
   is24hWarning,
+  interactionChoicesEnabled = false,
   mobilePanelOpen,
   onMobileBack,
   onToggleHITL,
@@ -954,6 +956,7 @@ export function InboxThreadDetail({
         selectedConversation={selectedConversation}
         is24hExpired={is24hExpired}
         is24hWarning={is24hWarning}
+        interactionChoicesEnabled={interactionChoicesEnabled}
         templates={templates}
         quickReplyTemplates={quickReplyTemplates}
         loadingTemplates={loadingTemplates}

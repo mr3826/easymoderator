@@ -47,6 +47,13 @@ function nullableNumberValue(value) {
     return value === null || (typeof value === 'number' && Number.isFinite(value)) ? value : undefined;
 }
 
+function nullableNumericStringValue(value) {
+    if (typeof value === 'string' && value.trim() !== '') {
+        value = Number(value);
+    }
+    return nullableNumberValue(value);
+}
+
 function enumValue(values, nullable = false) {
     return (value) => (nullable && value === null) || values.has(value) ? value : undefined;
 }
@@ -97,6 +104,44 @@ const projectAttachments = (value) => Array.isArray(value)
 const nullableMessageType = enumValue(MESSAGE_TYPES, true);
 const nullableDeliveryState = enumValue(DELIVERY_STATES, true);
 
+// --- P0 sendProductCard contract (post-launch baseline) ---
+// FLAGGED-FOR-PRIVACY-REVIEWER: `product_card` and `quick_replies` are added to
+// the typed public allowlist to preserve the deployed P0 sendProductCard
+// contract — the owning shop's inbox history and SSE readers must keep
+// receiving metadata.product_card and metadata.quick_replies. Both carry
+// shop-scoped merchant data only: product id/title, price + stock subtitle,
+// HTTPS image URL, and quick-reply titles with opaque server-generated payload
+// references (`product:<product-uuid>:q:<idx>` from sendProductCard,
+// `p1:<interaction-uuid>:<option>` from the interactions registry). No
+// customer PII is written by either producer. The independent privacy
+// reviewer must explicitly approve or veto this addition.
+const QUICK_REPLY_CONTENT_TYPES = new Set(['text']);
+
+const projectProductCard = (value) => {
+    const projected = projectObject(value, {
+        product_id: stringValue,
+        title: stringValue,
+        subtitle: stringValue,
+        image_url: stringValue,
+    });
+    return projected && Object.keys(projected).length > 0 ? projected : null;
+};
+
+const projectQuickReply = (value) => {
+    const projected = projectObject(value, {
+        title: stringValue,
+        // Only server-generated 'text' taps pass; PII-requesting content types
+        // (user_phone_number / user_email) must never reach public readers.
+        content_type: enumValue(QUICK_REPLY_CONTENT_TYPES),
+        payload: stringValue,
+    });
+    return projected?.title ? projected : null;
+};
+
+const projectQuickReplies = (value) => Array.isArray(value)
+    ? value.map(projectQuickReply).filter(Boolean)
+    : undefined;
+
 const MESSAGE_METADATA_FIELDS = Object.freeze({
     message_type: enumValue(MESSAGE_TYPES),
     attachments: projectAttachments,
@@ -123,6 +168,9 @@ const MESSAGE_METADATA_FIELDS = Object.freeze({
     reply_to_internal_message_id: nullableStringValue,
     reply_to_is_self_reply: booleanValue,
     reply_to: projectReplyContext,
+    // P0 sendProductCard contract — FLAGGED-FOR-PRIVACY-REVIEWER (see note above).
+    product_card: projectProductCard,
+    quick_replies: projectQuickReplies,
 });
 
 function projectPublicMessageMetadata(metadata) {
@@ -138,6 +186,26 @@ const SOURCE_REFERENCE_FIELDS = Object.freeze({
     contextEligible: booleanValue,
 });
 
+const PUBLIC_MESSAGE_FIELDS = Object.freeze([
+    'id',
+    'conversation_id',
+    'content',
+    'sender',
+    'message_type',
+    'metadata',
+    'ai_suggestion',
+    'ai_confidence',
+    'source_references',
+    'message_tag',
+    'delivery_state',
+    'provider_message_id',
+    'delivery_source',
+    'reply_to',
+    'is_transcript_message',
+    'created_at',
+    'updated_at',
+]);
+
 function projectPublicSourceReferences(references) {
     if (!Array.isArray(references)) return null;
     return references.map((reference) => {
@@ -150,7 +218,10 @@ function projectPublicMessage(message) {
     const plain = typeof message?.toJSON === 'function' ? message.toJSON() : message;
     if (!isRecord(plain)) return plain;
 
-    const projected = { ...plain };
+    const projected = {};
+    for (const field of PUBLIC_MESSAGE_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(plain, field)) projected[field] = plain[field];
+    }
     if (Object.prototype.hasOwnProperty.call(plain, 'metadata')) {
         projected.metadata = projectPublicMessageMetadata(plain.metadata);
     }
@@ -170,7 +241,7 @@ function projectPublicMessage(message) {
         projected.ai_suggestion = nullableStringValue(plain.ai_suggestion) ?? null;
     }
     if (Object.prototype.hasOwnProperty.call(plain, 'ai_confidence')) {
-        projected.ai_confidence = nullableNumberValue(plain.ai_confidence) ?? null;
+        projected.ai_confidence = nullableNumericStringValue(plain.ai_confidence) ?? null;
     }
     if (Object.prototype.hasOwnProperty.call(plain, 'reply_to')) {
         projected.reply_to = projectReplyContext(plain.reply_to);

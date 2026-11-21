@@ -543,7 +543,7 @@ describe('production workflow branch safety', () => {
         expect(debtCheckIndex).toBeGreaterThan(gateIndex);
         expect(skippedIndex).toBeGreaterThan(-1);
         expect(deployBlock).toContain(
-            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE',
+            'envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,GROWTH_IMAGE_OVERRIDE,BACKEND_TAG,FRONTEND_TAG,BACKEND_DIGEST,FRONTEND_DIGEST,DEPLOYED_COMMIT,WORKFLOW_RUN_ID,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,WIPE_DB,SEED_ADMIN,ROLLBACK_STATE_DIR,SCHEMA_DRIFT_MODE,RELEASE_TARGET,APP_URL,API_URL,GROWTH_URL',
         );
     });
 
@@ -676,34 +676,131 @@ describe('production workflow branch safety', () => {
         );
     });
 
-    test('rollback verifies restored images and health before returning', () => {
+    test('rollback verifies restored images, worker, public stack, and health before returning', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
 
         expect(deployBlock).toContain('verify_rollback() {');
         expect(deployBlock).toContain('rollback health check failed after 100s');
+        expect(deployBlock).toContain('verify_worker_health || return 1');
+        expect(deployBlock).toContain('previous_backend_commit=$(docker run');
+        expect(deployBlock).toContain('previous_growth_commit=$(extract_growth_commit');
+        expect(deployBlock).toContain('verify_public_stack "$previous_backend_commit" "$previous_growth_commit" || return 1');
         expect(deployBlock).toContain('rollback || rc=70');
     });
 
-    test('successful cutover proves the running image reports the requested commit', () => {
+    test('successful cutover proves the running image reports its own bound commit', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
+        const commitIndex = deployBlock.indexOf('candidate_backend_commit=$(docker run');
         const healthIndex = deployBlock.indexOf("http://127.0.0.1:3000/health/ready");
         const versionIndex = deployBlock.indexOf("http://127.0.0.1:3000/api/version");
 
-        expect(healthIndex).toBeGreaterThan(-1);
+        expect(commitIndex).toBeGreaterThan(-1);
+        expect(healthIndex).toBeGreaterThan(commitIndex);
         expect(versionIndex).toBeGreaterThan(healthIndex);
-        expect(deployBlock).toContain('docker exec -i -e EXPECTED_COMMIT="$DEPLOYED_COMMIT"');
-        expect(deployBlock).toContain('payload.gitSha !== process.env.EXPECTED_COMMIT');
+        expect(deployBlock).toContain('docker exec -i -e EXPECTED_BACKEND_COMMIT="$candidate_backend_commit"');
+        expect(deployBlock).toContain('payload.gitSha !== process.env.EXPECTED_BACKEND_COMMIT');
+        expect(deployBlock).toContain('"BACKEND_COMMIT": "${candidate_backend_commit}"');
     });
 
-    test('frontend-only cutovers require the SHA that produced the existing backend image', () => {
+    test('frontend-only cutovers bind the release SHA without replacing or relabeling the backend', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
+        const guardStep = deployBlock.match(
+            /- name: Reject backend substitutions in frontend-only releases\n([\s\S]*?)\n      - name: /,
+        )?.[1];
+        const guardIndex = deployBlock.indexOf(
+            'Reject backend substitutions in frontend-only releases',
+        );
+        const copyIndex = deployBlock.indexOf(
+            'Copy .env.prod and deploy config to droplet',
+        );
 
         expect(deployBlock).toContain(
-            "inputs.target != 'frontend' || inputs.existing_candidate_sha != ''",
+            "inputs.target != 'frontend' || inputs.existing_candidate_sha == github.sha",
         );
         expect(deployBlock).toContain(
             'DEPLOYED_COMMIT: ${{ inputs.existing_candidate_sha || github.sha }}',
         );
+        expect(workflow).toContain(
+            'if [ "$RELEASE_TARGET" = "frontend" ] && [ -n "$BACKEND_DIGEST" ]; then',
+        );
+        expect(workflow).toContain(
+            'if [ "$RELEASE_TARGET" = "frontend" ] && [ "$candidate_backend_commit" != "$previous_backend_commit" ]; then',
+        );
+        expect(deployBlock).toContain(
+            'if [ -n "$BACKEND_TAG" ] && [ "$candidate_backend_commit" != "$DEPLOYED_COMMIT" ]; then',
+        );
+        expect(deployBlock).toContain(
+            'docker exec -i -e EXPECTED_BACKEND_COMMIT="$candidate_backend_commit"',
+        );
+
+        // The preflight must observe the resolved build output (which falls back
+        // to inputs.existing_backend_digest) and must run before any droplet
+        // file is overwritten.
+        expect(guardStep).toContain("if: inputs.target == 'frontend'");
+        expect(guardStep).toContain('BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}');
+        expect(guardStep).toContain('if [ -n "${BACKEND_DIGEST:-}" ]; then');
+        expect(guardIndex).toBeGreaterThan(-1);
+        expect(copyIndex).toBeGreaterThan(guardIndex);
+    });
+
+    test('rollback rehearsal exercises the real worker-health and public-stack gates', () => {
+        const rehearsal = fs.readFileSync(
+            path.resolve(__dirname, '../../../../scripts/rollback-rehearsal.sh'),
+            'utf8',
+        );
+
+        expect(rehearsal).toContain(
+            "EXTRACTED_FUNCTIONS='resolve_container_digest,assert_immutable_ref,verify_worker_health,verify_public_stack,verify_rollback,rollback'",
+        );
+        expect(rehearsal).toContain('container_name: easymod-worker-1');
+        expect(rehearsal).toContain('container_name: easymod-public-stub-1');
+        expect(rehearsal).toContain('export APP_URL="http://127.0.0.1:18081"');
+        expect(rehearsal).toContain('export API_URL="http://127.0.0.1:18081"');
+        expect(rehearsal).toContain('export GROWTH_URL="http://127.0.0.1:18081"');
+        expect(rehearsal).toContain('Worker health check passed on attempt');
+        expect(rehearsal).toContain("grep -Fq 'smoke passed on attempt'");
+        expect(rehearsal).toContain('rollback did not run the worker-health gate');
+        expect(rehearsal).toContain('rollback did not run the identity-bound public-stack gate');
+        expect(rehearsal).not.toContain('STUBBED-BY-REHEARSAL');
+    });
+
+    test('successful cutover gates worker and identity-bound public app, API, and Growth health', () => {
+        const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*)$/)?.[1];
+        const workerIndex = deployBlock.indexOf('verify_worker_health || exit 1');
+        const versionIndex = deployBlock.indexOf('docker exec -i -e EXPECTED_BACKEND_COMMIT="$candidate_backend_commit"');
+        const publicSmokeIndex = deployBlock.indexOf(
+            'verify_public_stack "$candidate_backend_commit" "$candidate_growth_commit" || exit 1',
+        );
+        const successIndex = deployBlock.indexOf('deploy_succeeded=true');
+
+        expect(workerIndex).toBeGreaterThan(-1);
+        expect(versionIndex).toBeGreaterThan(workerIndex);
+        expect(publicSmokeIndex).toBeGreaterThan(versionIndex);
+        expect(successIndex).toBeGreaterThan(publicSmokeIndex);
+        expect(deployBlock).toContain('Public app/API/Growth smoke passed');
+        expect(deployBlock).toContain('payload.redis === "connected"');
+        expect(deployBlock).toContain('payload.gitSha !== process.env.EXPECTED_BACKEND_COMMIT');
+        expect(deployBlock).toContain('payload.commit !== process.env.EXPECTED_GROWTH_COMMIT');
+        expect(deployBlock).toContain('deadline=$(( $(date +%s) + 120 ))');
+        expect(deployBlock).toContain('smoke_get() {');
+        expect(deployBlock).toContain('smoke_remaining=$(( deadline - $(date +%s) ))');
+        expect(deployBlock).toContain('smoke_timeout=$(( smoke_remaining < 5 ? smoke_remaining : 5 ))');
+        expect(deployBlock).toContain('-m "$smoke_timeout"');
+        expect(deployBlock).toContain('failed after the 120s deadline');
+        expect(deployBlock).toContain('exceeded the 120s deadline');
+    });
+
+    test('production probe records exact image identity and current capacity as an artifact', () => {
+        expect(workflow).toContain('probe_output=$(ssh');
+        expect(workflow).toContain('printf \'%s\\n\' "$probe_output" > _tmp/production-probe.txt');
+        expect(workflow).toContain('name: production-probe-evidence');
+        expect(workflow).toContain('path: _tmp/production-probe.txt');
+        expect(workflow).toContain('echo PRODUCTION_CAPACITY');
+        expect(workflow).toContain('docker stats --no-stream');
+        expect(workflow).toContain('used_memory_peak:');
+        expect(workflow).toContain('evicted_keys:');
+        expect(workflow).toContain('$NF == "/" || $NF == "/var/lib/docker"');
+        expect(workflow).not.toContain('$1 == "/" || $1 == "/var/lib/docker"');
     });
 });
 

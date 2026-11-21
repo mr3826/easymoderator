@@ -22,6 +22,9 @@ interface Category {
   name: string;
 }
 
+const isAiProduct = (product: Product): boolean =>
+  Boolean(product.aiGenerated ?? product.ai_generated);
+
 const isLowStockProduct = (product: Product) => (
   product.track_quantity === true
   && typeof product.quantity === 'number'
@@ -39,6 +42,13 @@ export default function Products() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [aiGeneratedProducts, setAiGeneratedProducts] = useState<Product[]>([]);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [draftEditValues, setDraftEditValues] = useState<{ name: string; price: string; sku: string; category: string }>({
+    name: '',
+    price: '',
+    sku: '',
+    category: '',
+  });
   const [uploadProgress, setUploadProgress] = useState(0);
   const [approvingIds, setApprovingIds] = useState<string[]>([]);
   const [bulkApproving, setBulkApproving] = useState(false);
@@ -148,13 +158,36 @@ export default function Products() {
   // Get unique categories list
   const categoriesList = useMemo(() => categoriesData.map((c: Category) => c.name), [categoriesData]);
 
-  // Client-side pagination logic
-  const filteredProducts = useMemo(
-    () => lowStockOnly ? allProducts.filter(isLowStockProduct) : allProducts,
-    [allProducts, lowStockOnly],
-  );
+  // Client-side pagination and source filtering (backend queryParams covers category/status/price/search)
+  const filteredProducts = useMemo(() => {
+    let list = lowStockOnly ? allProducts.filter(isLowStockProduct) : allProducts;
+    if (appliedFilters.source === 'ai') {
+      list = list.filter(isAiProduct);
+    } else if (appliedFilters.source === 'manual') {
+      list = list.filter((product) => !isAiProduct(product));
+    }
+    return list;
+  }, [allProducts, lowStockOnly, appliedFilters.source]);
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
   const products = filteredProducts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
+  // WP-04: reset to the first page whenever an applied filter value changes.
+  // A stale page index beyond the filtered window slices to an empty table,
+  // and Pagination unmounts when totalPages <= 1 — leaving matching products
+  // unreachable. This matches the reset contract already used by clearFilters
+  // and the lowStockOnly toggle. Keyed on the primitive applied values (not the
+  // appliedFilters object) so re-applying identical filters keeps the page.
+  useEffect(() => {
+    setPage(1);
+  }, [
+    appliedSearchQuery,
+    appliedFilters.category_id,
+    appliedFilters.is_active,
+    appliedFilters.source,
+    appliedFilters.minPrice,
+    appliedFilters.maxPrice,
+    lowStockOnly,
+  ]);
 
   // Pagination component
   const Pagination = () => {
@@ -238,7 +271,12 @@ export default function Products() {
       });
       setUploadProgress(90);
 
-      const extracted = result.products.map(mapExtractedProduct);
+      const extractedSource = Array.isArray(result)
+        ? result
+        : Array.isArray(result?.products)
+          ? result.products
+          : [];
+      const extracted = extractedSource.map(mapExtractedProduct);
       if (extracted.length === 0) {
         throw new Error(t('products.errors.noProductsExtracted'));
       }
@@ -729,10 +767,14 @@ export default function Products() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      {product.aiGenerated ? (
+                      {isAiProduct(product) ? (
                         <div className="flex items-center gap-1 text-sm text-em-violet-700">
                           <Bot className="w-4 h-4" />
-                          <span>{t('products.aiSource', { confidence: Math.round((product.confidence || 0) * 100) })}</span>
+                          <span>
+                            {typeof product.confidence === 'number' && Number.isFinite(product.confidence)
+                              ? t('products.aiSource', { confidence: Math.round(product.confidence * 100) })
+                              : t('products.sourceAI')}
+                          </span>
                         </div>
                       ) : (
                         <span className="text-sm text-em-text-secondary">{t('products.sourceManual')}</span>
@@ -856,15 +898,98 @@ export default function Products() {
                 </div>
 
                 <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {aiGeneratedProducts.map((product) => (
+                  {aiGeneratedProducts.map((product) => {
+                    const isEditingDraft = editingDraftId === product.id;
+                    return (
                     <div key={product.id} className="border-2 border-em-violet-300 rounded-lg p-4 bg-em-violet-50">
+                      {isEditingDraft ? (
+                        <div className="space-y-3" data-testid={`draft-edit-form-${product.id}`}>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.product')}</label>
+                              <input
+                                type="text"
+                                aria-label={t('products.columns.product')}
+                                value={draftEditValues.name}
+                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, name: e.target.value }))}
+                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.price')}</label>
+                              <input
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                aria-label={t('products.columns.price')}
+                                value={draftEditValues.price}
+                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, price: e.target.value }))}
+                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.sku')}</label>
+                              <input
+                                type="text"
+                                aria-label={t('products.columns.sku')}
+                                value={draftEditValues.sku}
+                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, sku: e.target.value }))}
+                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.category')}</label>
+                              <input
+                                type="text"
+                                aria-label={t('products.columns.category')}
+                                value={draftEditValues.category}
+                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, category: e.target.value }))}
+                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const parsedPrice = Number(draftEditValues.price);
+                                setAiGeneratedProducts((prev) => prev.map((item) => (
+                                  item.id === product.id
+                                    ? {
+                                        ...item,
+                                        name: draftEditValues.name.trim() || item.name,
+                                        price: Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : item.price,
+                                        sku: draftEditValues.sku.trim(),
+                                        category: draftEditValues.category.trim() || undefined,
+                                      }
+                                    : item
+                                )));
+                                setEditingDraftId(null);
+                              }}
+                              className="min-h-11 rounded-lg bg-em-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-em-violet-700"
+                            >
+                              {t('common.save')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingDraftId(null)}
+                              className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm font-medium text-em-text-primary hover:bg-em-bg-muted"
+                            >
+                              {t('common.cancel')}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <h3 className="font-semibold text-em-text-primary">{product.name}</h3>
-                            <span className="px-2 py-1 bg-em-violet-100 text-em-violet-700 text-xs rounded">
-                              {t('products.reviewModal.confidence', { percent: Math.round((product.confidence || 0) * 100) })}
-                            </span>
+                            {typeof product.confidence === 'number' && Number.isFinite(product.confidence) && (
+                              <span className="px-2 py-1 bg-em-violet-100 text-em-violet-700 text-xs rounded">
+                                {t('products.reviewModal.confidence', { percent: Math.round(product.confidence * 100) })}
+                              </span>
+                            )}
                           </div>
                           <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
@@ -901,8 +1026,17 @@ export default function Products() {
 
                       <div className="flex gap-2">
                         <button
-                          onClick={() => handleEditProduct(product)}
-                          className="flex items-center gap-1 px-3 py-2 bg-em-bg-surface border border-em-violet-300 text-em-violet-700 rounded-lg hover:bg-em-violet-100 text-sm"
+                          type="button"
+                          onClick={() => {
+                            setEditingDraftId(product.id);
+                            setDraftEditValues({
+                              name: product.name || '',
+                              price: String(product.price ?? ''),
+                              sku: product.sku || '',
+                              category: product.category || '',
+                            });
+                          }}
+                          className="flex min-h-11 items-center gap-1 px-3 py-2 bg-em-bg-surface border border-em-violet-300 text-em-violet-700 rounded-lg hover:bg-em-violet-100 text-sm"
                         >
                           <Edit2 className="w-4 h-4" />
                           {t('common.edit')}
@@ -910,21 +1044,24 @@ export default function Products() {
                         <button
                           onClick={() => handleApproveProduct(product)}
                           disabled={approvingIds.includes(product.id)}
-                          className="flex items-center gap-1 px-3 py-2 bg-em-success-700 text-white rounded-lg hover:bg-em-success-700/90 text-sm"
+                          className="flex min-h-11 items-center gap-1 px-3 py-2 bg-em-success-700 text-white rounded-lg hover:bg-em-success-700/90 text-sm"
                         >
                           <CheckCircle className="w-4 h-4" />
                           {approvingIds.includes(product.id) ? t('common.approving') : t('common.approve')}
                         </button>
                         <button
                           onClick={() => handleRejectProduct(product.id)}
-                          className="flex items-center gap-1 px-3 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90 text-sm"
+                          className="flex min-h-11 items-center gap-1 px-3 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90 text-sm"
                         >
                           <AlertCircle className="w-4 h-4" />
                           {t('common.reject')}
                         </button>
                       </div>
+                        </>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="flex gap-3 mt-6">

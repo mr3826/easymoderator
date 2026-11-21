@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Plus, Trash2, Unplug } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Copy, Loader2, Plus, Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import {
   channelQueryKeys,
@@ -153,6 +153,10 @@ export default function ChannelDetail() {
 
   const connection = useMetaChannelConnection();
   useDialogFocus(disconnectDialogRef, Boolean(connection.confirmDisconnect));
+  const interactionChoicesEnabled = settings?.interaction_choices === true;
+  const [mmeRefTag, setMmeRefTag] = useState("");
+
+  const sanitizedMmeRef = mmeRefTag.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 64);
 
   // "Refresh permissions" starts an OAuth round-trip whose completion UI lives
   // in the Advanced tab; switch there so the picker is never invisible (defect 3).
@@ -930,7 +934,108 @@ export default function ChannelDetail() {
               <h3 className="text-sm font-semibold text-em-text-primary">
                 {t("manageShop.channels.detail.connection")}
               </h3>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <dl
+                data-testid="channel-connection-diagnostics"
+                className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-em-border bg-em-bg-muted p-3 text-xs sm:grid-cols-2"
+              >
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.statusLabel")}</dt>
+                  <dd className="mt-0.5 font-medium text-em-text-primary">
+                    {channel.status}
+                    {channel.needsReconnect && (
+                      <span className="ml-2 rounded bg-em-warning-100 px-1.5 py-0.5 text-[11px] font-medium text-em-warning-700">
+                        {t("manageShop.channels.detail.reconnectRequired")}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.permissionsLabel")}</dt>
+                  <dd className="mt-0.5 font-mono text-[11px] text-em-text-primary">
+                    {t("manageShop.channels.detail.permissionsScopes")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.webhookFieldsLabel")}</dt>
+                  <dd className="mt-0.5 font-medium text-em-text-primary">
+                    {channel.webhookSubscribedFields?.length
+                      ? channel.webhookSubscribedFields.join(", ")
+                      : t("channels.health.notVerified")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-em-text-secondary">{t("manageShop.channels.detail.webhookVerifiedLabel")}</dt>
+                  <dd className="mt-0.5 text-em-text-primary">
+                    {channel.webhookLastVerifiedAt
+                      ? new Date(channel.webhookLastVerifiedAt).toLocaleString()
+                      : t("channels.health.notVerified")}
+                  </dd>
+                </div>
+                {channel.tokenExpiresAt && (
+                  <div>
+                    <dt className="text-em-text-secondary">{t("manageShop.channels.detail.tokenExpiryLabel")}</dt>
+                    <dd className="mt-0.5 text-em-text-primary">
+                      {new Date(channel.tokenExpiresAt).toLocaleDateString()}
+                      {new Date(channel.tokenExpiresAt).getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000 && (
+                        <span className="ml-2 rounded bg-em-warning-100 px-1.5 py-0.5 text-[11px] font-medium text-em-warning-700">
+                          {t("manageShop.channels.detail.tokenExpiringSoon")}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {channel.lastError && (
+                  <div className="sm:col-span-2">
+                    <dt className="text-em-text-secondary">{t("manageShop.channels.detail.lastErrorLabel")}</dt>
+                    <dd className="mt-0.5 text-em-danger-700">{channel.lastError}</dd>
+                  </div>
+                )}
+              </dl>
+              {interactionChoicesEnabled && channel.platform === "facebook" && channel.metaAssetId && (
+                <div
+                  data-testid="channel-mme-link-helper"
+                  className="mt-3 rounded-lg border border-em-border bg-em-bg-muted p-3 space-y-2"
+                >
+                  <div className="text-xs font-semibold text-em-text-primary">
+                    {t("manageShop.channels.detail.mmeLinkTitle")}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <label className="flex-1 text-xs text-em-text-secondary">
+                      <span>{t("manageShop.channels.detail.mmeRefLabel")}</span>
+                      <input
+                        type="text"
+                        value={mmeRefTag}
+                        onChange={(e) => setMmeRefTag(e.target.value)}
+                        placeholder={t("manageShop.channels.detail.mmeRefPlaceholder")}
+                        className="mt-1 w-full min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-xs text-em-text-primary focus-visible:outline-2 focus-visible:outline-em-violet-600 focus-visible:outline-offset-2"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `https://m.me/${channel.metaAssetId}${
+                          sanitizedMmeRef ? `?ref=${encodeURIComponent(sanitizedMmeRef)}` : ""
+                        }`;
+                        void navigator.clipboard?.writeText(url);
+                        toast.success(t("manageShop.channels.detail.mmeCopied"));
+                      }}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-xs font-medium text-em-text-primary hover:bg-em-bg-muted focus-visible:outline-2 focus-visible:outline-em-violet-600 focus-visible:outline-offset-2"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("manageShop.channels.detail.mmeCopyLink")}
+                    </button>
+                  </div>
+                  <p className="font-mono text-[11px] text-em-text-secondary break-all">
+                    {`https://m.me/${channel.metaAssetId}${
+                      sanitizedMmeRef ? `?ref=${encodeURIComponent(sanitizedMmeRef)}` : ""
+                    }`}
+                  </p>
+                  <p className="text-[11px] text-em-text-secondary">
+                    {t("manageShop.channels.detail.mmeRefHint")}
+                  </p>
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => void connection.handleTestPipeline(channel.id)}

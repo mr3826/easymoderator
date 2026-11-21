@@ -348,7 +348,7 @@ export default function Subscription() {
             <h2 className="text-lg font-semibold text-em-text-primary">{t("subscription.capabilitiesTitle")}</h2>
             <p className="text-sm text-em-text-secondary">{t("subscription.capabilitiesSubtitle")}</p>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
+          <CardContent className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2 text-sm text-em-text-primary">
               <h3 className="font-semibold text-em-text-primary">{t("subscription.capabilityGroups.ai")}</h3>
               <Claim id="ai.draft_reply" surface="subscription" className="block" />
@@ -365,12 +365,6 @@ export default function Subscription() {
               <Claim id="courier.cod_settlement.pathao" surface="subscription" className="block" />
               <Claim id="courier.cod_settlement.steadfast" surface="subscription" className="block" />
               <Claim id="courier.cod_settlement.redx" surface="subscription" className="block" />
-            </div>
-            <div className="space-y-2 text-sm text-em-text-primary">
-              <h3 className="font-semibold text-em-text-primary">{t("subscription.capabilityGroups.voiceAndTools")}</h3>
-              <Claim id="voice.transcription" surface="subscription" className="block" />
-              <Claim id="addons.ads_studio.pilot" surface="subscription" className="block" />
-              <Claim id="addons.storefront.pilot" surface="subscription" className="block" />
             </div>
           </CardContent>
         </Card>

@@ -153,10 +153,11 @@ test('execution header: title + signal + factual pills, no header CTA', async ({
 test('the closing toggle is a real switch: keyboard operable, dirty-gated, saved canonically', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    // The duplicate "Ask customer for email" toggle is gone; the email option
-    // lives only in Required Order Fields.
+    // Unconsumed settings (ask_email, max-auto-order-value, required_fields)
+    // are hidden from the merchant UI.
     await expect(page.getByRole('switch', { name: 'Ask customer for email' })).toHaveCount(0);
-    await expect(page.getByLabel(/email address/i)).toBeVisible();
+    await expect(page.locator('#max-auto-order-value')).toHaveCount(0);
+    await expect(page.getByLabel(/email address/i)).toHaveCount(0);
     const closing = page.getByRole('switch', { name: 'Closing message' });
     await expect(closing).toHaveAttribute('aria-checked', 'true');
     const save = page.getByRole('button', { name: 'Save Reply Settings', exact: true });
@@ -231,8 +232,8 @@ test('stop confirm is labelled, traps focus, and cancels without a write', async
 test('honesty: recorded-only settings say so, and the fixed confidence is disclosed', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByText(/Order value does not limit automatic replies today/i)).toBeVisible();
-    await expect(page.getByText(/Checkout does not ask for or enforce these fields today/i)).toBeVisible();
+    await expect(page.getByLabel(/Maximum automatic order value/i)).toHaveCount(0);
+    await expect(page.getByText(/Checkout does not ask for or enforce these fields today/i)).toHaveCount(0);
     await expect(page.getByText(/any threshold at or below 90% passes every reply/i)).toBeVisible();
     await page.getByRole('button', { name: /When We Should Alert You/i }).click();
     await expect(page.getByText(/Alerts use EasyModerator's built-in sentiment checks, not this list/i)).toBeVisible();

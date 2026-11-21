@@ -14,7 +14,6 @@ const UnifiedInbox = lazy(() => import("./components/UnifiedInbox"));
 const OAuthCallbackPage = lazy(() => import("./components/OAuthCallbackPage"));
 const Products = lazy(() => import("./components/Products"));
 const Orders = lazy(() => import("./components/Orders"));
-const Reports = lazy(() => import("./components/Reports"));
 const AuditLogs = lazy(() => import("./components/AuditLogs"));
 const AddProduct = lazy(() => import("./components/AddProduct"));
 const ProductDetails = lazy(() => import("./components/ProductDetails"));
@@ -222,7 +221,9 @@ export const router = createBrowserRouter([
 			{ path: "/customers", Component: withSuspense(Customers) },
 			{ path: "/customers/:customerId", Component: withSuspense(CustomerDetailPage) },
 			{ path: "/knowledge", loader: () => redirect("/manage-shop/faqs") },
-			{ path: "/reports", Component: withSuspense(Reports) },
+			// Retired reports route: redirect bookmarks safely to the action-first dashboard.
+			{ path: "/reports", loader: () => redirect("/dashboard") },
+			{ path: "/reports/*", loader: () => redirect("/dashboard") },
 			{ path: "/audit-logs", Component: withSuspense(AuditLogs) },
 			{ path: "/subscription", Component: withSuspense(Subscription) },
 			// Hidden, not deleted: retired add-on paths redirect like /more so old
@@ -230,6 +231,7 @@ export const router = createBrowserRouter([
 			{ path: "/addons", loader: () => redirect("/dashboard") },
 			{ path: "/addons/ads-studio", loader: () => redirect("/dashboard") },
 			{ path: "/addons/storefront", loader: () => redirect("/dashboard") },
+			{ path: "/addons/*", loader: () => redirect("/dashboard") },
 			{ path: "/more", loader: () => redirect("/dashboard") },
 			{
 				path: "/team/users",
