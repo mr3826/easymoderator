@@ -226,7 +226,21 @@ describe("en/bn parity for every redesign key", () => {
     "dashboard.pulse.context.breadcrumb",
     "dashboard.pulse.context.workspace",
     "dashboard.pulse.overview.trendSummary",
-    "dashboard.setup.verifiedAt",
+    // P04: "verifiedAt" claimed the computation timestamp was a verification —
+    // the honest label is statusCheckedAt, and the operational ladder states
+    // must exist in BOTH locales so no state renders untranslated.
+    "dashboard.setup.statusCheckedAt",
+    "dashboard.setup.warningsTitle",
+    ...["configured", "waiting_for_test", "action_required", "verified_operational"].flatMap((state) => [
+      `dashboard.setup.states.${state}.title`,
+      `dashboard.setup.states.${state}.description`,
+    ]),
+    ...["title", "webhookVerifiedAt", "webhookStale", "webhookNever", "providerAccepted", "providerNone", "deliveryFailures", "none"].map(
+      (k) => `dashboard.setup.evidence.${k}`,
+    ),
+    ...["WEBHOOK_NOT_VERIFIED", "WEBHOOK_VERIFICATION_STALE", "OPERATIONAL_TEST_FAILED", "LOW_PRODUCT_COUNT", "AI_AUTO_ENABLED"].map(
+      (code) => `dashboard.setup.warnings.${code}`,
+    ),
   ];
 
   it.each(keys)("%s exists in both locales", (key) => {
