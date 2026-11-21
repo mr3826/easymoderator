@@ -15,7 +15,11 @@ const PushSubscription = sequelize.define('PushSubscription', {
     },
     user_id: {
         type: DataTypes.UUID,
-        allowNull: true,
+        // NOT NULL in the DB (20260520_000_initial_schema) and deliberately
+        // kept NOT NULL by 20260611_004_relax_not_null_drift: "the only writer
+        // is an authenticated route that always supplies it"
+        // (push-subscription.routes.js: authenticate + verifyShopAccess).
+        allowNull: false,
         references: { model: 'users', key: 'id' },
         onDelete: 'CASCADE'
     },
