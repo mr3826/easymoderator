@@ -237,8 +237,10 @@ async function probeClient(name, client) {
         const reply = await pingWithTimeout(client, PROBE_TIMEOUT_MS);
         // Accept PONG in every reply framing Redis uses:
         //   normal mode     -> status reply "PONG"
-        //   subscriber mode -> Redis <= 6: bulk string "pong";
-        //                      Redis 7: multi-bulk ["pong", "<echo>"]
+        //   subscriber mode -> older Redis (pre-7; not verified in this
+        //                      stack): bulk string "pong";
+        //                      Redis 7 (verified 7.4.9): multi-bulk
+        //                      ["pong", "<echo>"]
         // ioredis resolves the subscriber-mode reply verbatim (string or
         // array). Production incident 2026-11-21 (Phase 0 G00): an open
         // merchant inbox SSE stream puts sseRedisSub in subscriber mode;
