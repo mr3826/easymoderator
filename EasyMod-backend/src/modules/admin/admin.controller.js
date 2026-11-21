@@ -40,6 +40,14 @@ exports.getShopConfidenceRollup = async (req, res, next) => {
     ok(res, await adminService.getShopConfidenceRollup(validShopId(req.params.shopId), req.query.hours));
   } catch (e) { next(e); }
 };
+// WP-03: qualification verdict for one shop over the rollup's widest window.
+// No query parameters: the observation contract fixes the window, so there is
+// nothing a caller can tune into a cheaper pass.
+exports.getShopConfidenceQualification = async (req, res, next) => {
+  try {
+    ok(res, await adminService.getShopConfidenceQualification(validShopId(req.params.shopId)));
+  } catch (e) { next(e); }
+};
 exports.getShopChannels = async (req, res, next) => {
   try { ok(res, await adminService.getShopChannels(req.params.shopId)); } catch (e) { next(e); }
 };

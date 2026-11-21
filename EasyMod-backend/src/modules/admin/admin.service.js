@@ -717,11 +717,75 @@ async function getShopConfidenceRollup(shopId, hoursParam) {
   return { shopId: shop.id, generatedAt: new Date().toISOString(), ...report };
 }
 
+/**
+ * WP-03 observation qualification for one shop (aggregate-only, zero PII).
+ *
+ * Reads the shadow-confidence rollup over the contract's widest window (168h,
+ * which is what makes the 72h span criterion provable — see the evaluator
+ * header), maps the code-visible pilot-authorization proxy, and hands both to
+ * the PURE evaluator. The rollup read itself keeps its READ ONLY / 2s / tenant
+ * / 5000-cap invariants; this function performs no other data access beyond
+ * the shop and pilot-feature existence reads.
+ *
+ * shadowToLiveViolations=0 is an ARCHITECTURAL-ISOLATION statement, not a
+ * runtime counter: shouldHoldForLowConfidence() never reads shadow metadata
+ * and live hold sites consume only the legacy router confidence (evidenced by
+ * docs/ai/improvement-program/STAGE2_SHADOW_ISOLATION_PROOF.md and
+ * confidence-gate.service.js). The contract record names this source honestly.
+ */
+async function getShopConfidenceQualification(shopId) {
+  const shop = await Shop.findByPk(shopId, {
+    attributes: ['id', 'is_active', 'ai_emergency_stop'],
+  });
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+
+  // Lazy require mirrors getShopConfidenceRollup (keeps sequelize out of
+  // module load for callers that never touch this endpoint).
+  const { getReplyConfidenceRollup } = require('../ai/reply-confidence-rollup.service');
+  const qualification = require('../ai/confidence-qualification.service');
+
+  let rollup = null;
+  try {
+    rollup = await getReplyConfidenceRollup(shop.id, qualification.QUALIFICATION_WINDOW_HOURS);
+  } catch (_) {
+    // A failed read is MISSING evidence, not zero evidence: the evaluator
+    // maps rollup=null to INSUFFICIENT_EVIDENCE. Never a fabricated pass.
+    rollup = null;
+  }
+
+  let pilotFeatures = null;
+  try {
+    const PilotModel = require('../entities').ShopPilotFeatures;
+    if (PilotModel && typeof PilotModel.findByPk === 'function') {
+      pilotFeatures = await PilotModel.findByPk(shop.id, {
+        attributes: ['shop_id', 'customer_intelligence', 'interaction_choices',
+          'action_queue', 'knowledge_suggestions', 'ads_studio', 'storefront',
+          'ai_reply_shadow_meter', 'order_confidence_mode'],
+      });
+    }
+  } catch (_) {
+    pilotFeatures = null; // unresolved enrollment = not authorized (fails closed)
+  }
+
+  const shopAuthorized = qualification.computeShopAuthorized({
+    shop: { is_active: shop.is_active, ai_emergency_stop: shop.ai_emergency_stop },
+    pilotFeatures,
+  });
+
+  const verdict = qualification.evaluateQualification({
+    rollup,
+    shopAuthorized,
+    shadowToLiveViolations: 0, // architectural isolation — see function header
+    now: new Date(),
+  });
+  return { shopId: shop.id, generatedAt: new Date().toISOString(), ...verdict };
+}
+
 module.exports = {
   // reads
   getDashboard, getMetaIdentityReadiness, listShops, getShopOverview,
   getShopChannels, getShopBilling, getAuditLogs, getShopDiagnostics,
-  getShopConfidenceRollup,
+  getShopConfidenceRollup, getShopConfidenceQualification,
   // mutations
   setShopStatus, addCredits, changePlan, markChannelReconnect,
   emergencyDisableAi, resumeAiEmergencyStop,

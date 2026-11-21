@@ -18,6 +18,7 @@ const {
     OpportunityDetectorJob,
     GapSuggesterJob,
     CourierReconciliationJob,
+    ConfidenceQualificationSnapshotJob,
 } = require('./index');
 
 class QueueManager {
@@ -62,6 +63,9 @@ class QueueManager {
             // COD reconciliation — scheduled only when COURIER_RECON_JOBS_ENABLED
             // is set (see scheduleJobs); manual trigger always available.
             ['courier-reconciliation', 'courierReconciliation', CourierReconciliationJob],
+            // WP-03 — daily aggregate-only confidence-observation qualification
+            // snapshot (AuditLog rows only; zero PII; manual trigger available).
+            ['confidence-qualification-snapshot', 'confidenceQualificationSnapshot', ConfidenceQualificationSnapshotJob],
         ];
 
         this.workerDefinitions = billingQueues;
@@ -243,6 +247,17 @@ class QueueManager {
             { name: 'run', data: { dryRun: false } }
         );
 
+        // WP-03 — daily observation-qualification snapshot for authorized shops.
+        // Schedule is intentionally ENABLED: the job is aggregate-only (one
+        // AuditLog row per shop, zero PII) and MANUAL/low-traffic shops simply
+        // yield zero-eligible snapshots, which is the honest state the contract
+        // needs recorded daily rather than assembled by hand.
+        await this.queues.confidenceQualificationSnapshot.upsertJobScheduler(
+            'confidence-qualification-snapshot',
+            { pattern: '30 3 * * *', tz: 'UTC' },
+            { name: 'run', data: { dryRun: false } }
+        );
+
         // COD reconciliation — weekly Steadfast payout pull. The payments API's
         // account semantics are not live-verified yet (see
         // docs/mobile/COD_CAPABILITY_AUDIT.md), so the schedule stays OFF until
@@ -274,6 +289,7 @@ class QueueManager {
             'inbox_delivery_reconciler': 'inboxDeliveryReconciler',
             'opportunity_detector': 'opportunityDetector',
             'courier_reconciliation': 'courierReconciliation',
+            'confidence_qualification_snapshot': 'confidenceQualificationSnapshot',
         };
 
         const queueKey = queueMap[jobName];

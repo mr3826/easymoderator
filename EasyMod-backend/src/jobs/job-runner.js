@@ -25,6 +25,7 @@ const JOB_MAP = {
     'inbox_delivery_reconciler': jobs.InboxDeliveryReconcilerJob,
     'opportunity_detector': jobs.OpportunityDetectorJob,
     'gap_suggester': jobs.GapSuggesterJob,
+    'confidence_qualification_snapshot': jobs.ConfidenceQualificationSnapshotJob,  // Schedule: cron '30 3 * * *' (daily 03:30 UTC, WP-03)
 };
 
 async function runJob() {
