@@ -63,7 +63,7 @@ const webhookApp = () => (app || (app = buildWebhookApp()));
 let midSeq = 0;
 
 /** A Meta `page` webhook envelope carrying one inbound Messenger text message. */
-const messagePayload = ({ pageId, psid, text, mid, attachments, quickReply, replyTo }) => ({
+const messagePayload = ({ pageId, psid, text, mid, attachments, quickReply, replyTo, referral }) => ({
     object: 'page',
     entry: [{
         id: String(pageId),
@@ -79,6 +79,54 @@ const messagePayload = ({ pageId, psid, text, mid, attachments, quickReply, repl
                 ...(quickReply ? { quick_reply: quickReply } : {}),
                 ...(replyTo ? { reply_to: replyTo } : {}),
             },
+            // P0-02: an m.me / ad referral riding on a real message event.
+            ...(referral ? { referral } : {}),
+        }],
+    }],
+});
+
+/**
+ * A Meta `page` webhook envelope carrying one quick-reply BUTTON TAP
+ * (`messaging.postback`). `payload` is the opaque p1: reference the platform
+ * stamped on the outbound button; `mid` deliberately names the SHARED outbound
+ * message (Meta semantics) so tests can prove it is NOT the event identity.
+ * `referral` optionally mirrors Meta's postback.referral (ref on a tapped
+ * message that came through an m.me link).
+ */
+const postbackPayload = ({ pageId, psid, payload, title, mid, referral }) => ({
+    object: 'page',
+    entry: [{
+        id: String(pageId),
+        time: Date.now(),
+        messaging: [{
+            sender: { id: String(psid) },
+            recipient: { id: String(pageId) },
+            timestamp: Date.now(),
+            postback: {
+                title: title || '[Selection]',
+                payload,
+                mid: mid || `pb_e2e_${++midSeq}_${Date.now()}`,
+                ...(referral ? { referral } : {}),
+            },
+        }],
+    }],
+});
+
+/**
+ * A pure m.me / short-link referral open — `messaging.referral` with no
+ * message and no postback. Meta sends these when a customer opens a thread
+ * through a referral link.
+ */
+const referralPayload = ({ pageId, psid, ref, source = 'SHORTLINK', type = 'OPEN_THREAD' }) => ({
+    object: 'page',
+    entry: [{
+        id: String(pageId),
+        time: Date.now(),
+        messaging: [{
+            sender: { id: String(psid) },
+            recipient: { id: String(pageId) },
+            timestamp: Date.now(),
+            referral: { ref, source, type },
         }],
     }],
 });
@@ -130,6 +178,31 @@ const receiptsWithStatus = async (status) => {
 };
 
 /**
+ * The durable receipt for any messaging element — postbacks and referrals
+ * included. Postbacks/referrals carry no `message.mid`, so the receipt service
+ * dedupes on the page-scoped payload hash; this mirrors exactly
+ * `meta-webhook-receipt.service.scopedDedupeKey`
+ * (sha256(`${pageId}|${eventId || sha256(JSON.stringify(messaging))}`))
+ * so the test reads back the row the pipeline really wrote, without exporting
+ * internals from production code.
+ */
+const receiptForPayload = async (pageId, messaging, { timeoutMs = 2000 } = {}) => {
+    const MetaWebhookReceipt = require('../../src/modules/integration/meta-webhook-receipt.entity');
+    const sha = (v) => crypto.createHash('sha256').update(String(v)).digest('hex');
+    const eventId = messaging.message?.mid || null;
+    const dedupeKey = sha(`${String(pageId)}|${eventId || sha(JSON.stringify(messaging))}`);
+    const where = eventId
+        ? { page_id: String(pageId), event_id: eventId }
+        : { page_id: String(pageId), dedupe_key: dedupeKey };
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        const receipt = await MetaWebhookReceipt.findOne({ where });
+        if (receipt || Date.now() > deadline) return receipt;
+        await sleep(25);
+    }
+};
+
+/**
  * Wait for the queue to reach `count` jobs.
  *
  * The webhook handler awaits Queue.add before acknowledging Meta and marking
@@ -167,6 +240,36 @@ const drainQueue = async ({ timeoutMs = 8000 } = {}) => {
         jobs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         for (const job of jobs) {
             results.push(await processMessageJob(job));
+            await job.remove().catch(() => { /* already gone */ });
+        }
+    }
+    return results;
+};
+
+/**
+ * drainQueue plus the settlement step: after each job, run the SAME
+ * `settleInboundReceipts(job)` the production worker's `completed` listener
+ * runs (src/jobs/message-worker.js startWorker), moving the durable receipt
+ * QUEUED → PROCESSED. Used by the P0-01 postback acceptance scenarios; the
+ * plain `drainQueue`/`deliver` pair stays QUEUED on purpose, because half the
+ * existing suite asserts exactly that queue-handoff state.
+ */
+const drainAndSettle = async ({ timeoutMs = 8000 } = {}) => {
+    const { processMessageJob, _private } = require('../../src/jobs/message-worker');
+    const results = [];
+    const deadline = Date.now() + timeoutMs;
+
+    for (;;) {
+        const jobs = await pendingJobs();
+        if (!jobs.length) {
+            if (results.length || Date.now() > deadline) break;
+            await sleep(25);
+            continue;
+        }
+        jobs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        for (const job of jobs) {
+            results.push(await processMessageJob(job));
+            await _private.settleInboundReceipts(job);
             await job.remove().catch(() => { /* already gone */ });
         }
     }
@@ -341,6 +444,12 @@ const sendAgentReply = async ({ shopId, content }) => {
  * @param {string} [params.mid]        - Meta message id, for redelivery tests
  * @param {object} [params.quickReply] - Meta Messenger quick-reply payload
  * @param {object} [params.replyTo]    - Meta Messenger reply_to payload
+ * @param {object} [params.postback]   - { payload, title, mid, referral } — deliver a
+ *                                       quick-reply button tap instead of a text message
+ * @param {object} [params.referral]   - { ref, source, type } — with `text` it rides on the
+ *                                       message; alone it is a pure m.me referral open
+ * @param {boolean} [params.drain]     - false skips the queue drain (a pure referral
+ *                                       never enqueues; the handler settles its receipt inline)
  * @returns {Promise<{status:number, eventId:string, receipt:object|null,
  *                    jobResults:object[], sends:object[], decision:object|null}>}
  */
@@ -353,6 +462,9 @@ const deliver = async ({
     attachments,
     quickReply,
     replyTo,
+    postback,
+    referral,
+    drain = true,
 } = {}) => {
     if (candidate !== undefined) transport.setCandidate(candidate);
 
@@ -360,10 +472,21 @@ const deliver = async ({
     const decisionsBefore = groundingDecisions.length;
     const providersBefore = transport.llmProvidersCalled().length;
 
-    const payload = messagePayload({ pageId, psid, text, mid, attachments, quickReply, replyTo });
-    const eventId = payload.entry[0].messaging[0].message.mid;
+    const payload = postback
+        ? postbackPayload({ pageId, psid, ...postback })
+        : (referral && !text)
+            ? referralPayload({ pageId, psid, ...referral })
+            : messagePayload({ pageId, psid, text, mid, attachments, quickReply, replyTo, referral });
+    const messaging = payload.entry[0].messaging[0];
+    // Postbacks/referrals have no message.mid — their durable identity is the
+    // page-scoped payload hash, which is exactly what the test must read back.
+    const eventId = messaging.message?.mid || null;
     const response = await postWebhook(payload);
-    const jobResults = await drainQueue();
+    const jobResults = drain ? await drainQueue() : [];
+
+    // A pure referral never enqueues a job, but its receipt is terminal
+    // (PROCESSED/SKIPPED) before the webhook responds — the drain's own wait
+    // would only add latency, so receiptForPayload's poll covers visibility.
 
     // Scoped to THIS delivery: a turn that produced no grounding decision must
     // report null rather than silently re-asserting the previous turn's.
@@ -372,7 +495,10 @@ const deliver = async ({
     const result = {
         status: response.status,
         eventId,
-        receipt: await receiptForEvent(eventId),
+        messaging,
+        receipt: eventId
+            ? await receiptForEvent(eventId)
+            : await receiptForPayload(pageId, messaging),
         jobResults,
         sends: transport.capturedSends().slice(sendsBefore),
         decision: turnDecisions[turnDecisions.length - 1] || null,
@@ -488,6 +614,11 @@ const resetRun = async () => {
         'holding:*',
         'cb:*',
         'canary:*',
+        // The provider send-window counters (rateLimit.rule via cacheRedis).
+        // CI's fresh containers hid this, but re-running the suite twice
+        // within one hour on a persistent local Redis accumulates past the
+        // 170/hr page cap and every subsequent turn defers into moveToDelayed.
+        'meta:sends:*',
     ]);
     await deleteMatchingKeys(rateLimitRedis, ['rl:webhook:*']);
 
@@ -526,11 +657,15 @@ module.exports = {
     deliver,
     postWebhook,
     messagePayload,
+    postbackPayload,
+    referralPayload,
     sign,
     drainQueue,
+    drainAndSettle,
     pendingJobs,
     waitForJobs,
     receiptForEvent,
+    receiptForPayload,
     receiptsWithStatus,
     // evidence
     decisions,

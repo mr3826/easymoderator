@@ -159,3 +159,62 @@ describe('ADR M-004: native mobile CSRF exemption (isNativeCsrfExempt)', () => {
         expect(next).toHaveBeenCalledWith();
     });
 });
+
+describe('WP-02: Meta interaction probe route is CSRF-guarded (global chain, not skip-listed)', () => {
+    const PROBE_PATH = '/api/channels/meta/55555555-5555-4555-8555-555555555555/probe-interaction-fields';
+    const previousEnvironment = config.env;
+    const previousSecret = config.csrfSecret;
+
+    afterAll(() => {
+        config.env = previousEnvironment;
+        config.csrfSecret = previousSecret;
+    });
+
+    // A Bearer request that ALSO carries ambient cookies — the exact shape the
+    // merchant SPA sends (JWT + session cookie). Per ADR M-004 a cookie-bearing
+    // request is never native-exempt, so the double-submit check must run.
+    const postReq = (path) => ({
+        method: 'POST',
+        path,
+        cookies: { access_token: 'ambient-session-cookie' },
+        get: (name) => (name === 'Authorization' ? 'Bearer merchant-jwt' : undefined),
+        headers: { authorization: 'Bearer merchant-jwt' },
+        ip: '127.0.0.1',
+    });
+    const fakeRes = () => ({ cookie: jest.fn(), header: jest.fn(), locals: {} });
+
+    test('a cookie-bearing POST to the probe path without a CSRF token is rejected by the CSRF layer', () => {
+        config.env = 'production';
+        config.csrfSecret = 'contract-only-csrf-secret-not-a-real-one';
+        const next = jest.fn();
+
+        csrfProtectionMiddleware(postReq(PROBE_PATH), fakeRes(), next);
+
+        expect(next).toHaveBeenCalledTimes(1);
+        const error = next.mock.calls[0][0];
+        expect(error).toBeInstanceOf(Error);
+        expect([400, 403]).toContain(error.status);
+    });
+
+    test('provider webhook callbacks remain the deliberately skip-listed family', () => {
+        config.env = 'production';
+        const next = jest.fn();
+
+        csrfProtectionMiddleware(postReq('/api/webhooks/meta'), fakeRes(), next);
+
+        expect(next).toHaveBeenCalledWith();
+    });
+
+    test('safe methods never consume CSRF checks', () => {
+        config.env = 'production';
+        const next = jest.fn();
+
+        csrfProtectionMiddleware(
+            { method: 'GET', path: PROBE_PATH, cookies: {}, get: () => undefined, headers: {} },
+            fakeRes(),
+            next,
+        );
+
+        expect(next).toHaveBeenCalledWith();
+    });
+});
