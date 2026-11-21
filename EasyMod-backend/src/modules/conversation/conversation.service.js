@@ -38,6 +38,10 @@ const {
     isBeforeResumeBoundary,
 } = require('./message-lifecycle');
 const {
+    projectPublicMessageMetadata,
+    projectPublicSourceReferences,
+} = require('./internal-message-metadata');
+const {
     ATTACHMENT_URL_TTL_SECONDS,
     PREPARED_ATTACHMENT_METADATA,
     attachmentExists,
@@ -581,29 +585,39 @@ const projectedAttachmentMetadata = (message, metadata, shopId) => {
 
 const mapMessage = (message, shopId) => {
     const metadata = normalizeObject(message?.metadata);
-    const responseMetadata = projectedAttachmentMetadata(message, metadata, shopId);
+    const responseMetadata = projectPublicMessageMetadata(projectedAttachmentMetadata(message, metadata, shopId));
     const deliveryState = normalizeDeliveryState(message);
     const sender = message?.sender === 'business' ? 'agent' : message?.sender;
+    const deliverySource = typeof message?.delivery_source === 'string' && message.delivery_source
+        ? message.delivery_source
+        : responseMetadata?.delivery_source || null;
+    const providerMessageId = providerMessageIdFor(message);
+    const rawAiConfidence = message.ai_confidence;
+    const validAiConfidenceType = typeof rawAiConfidence === 'number'
+        || (typeof rawAiConfidence === 'string' && rawAiConfidence.trim() !== '');
+    const numericAiConfidence = validAiConfidenceType
+        ? Number(rawAiConfidence)
+        : NaN;
     return {
         id: message.id,
         conversation_id: message.conversation_id,
         content: message.content,
         sender,
-        message_type: metadata.message_type || 'text',
+        message_type: responseMetadata?.message_type || 'text',
         metadata: responseMetadata,
-        ai_suggestion: message.ai_suggestion || null,
-        ai_confidence: message.ai_confidence ? Number(message.ai_confidence) : null,
-        source_references: message.source_references || null,
+        ai_suggestion: typeof message.ai_suggestion === 'string' ? message.ai_suggestion : null,
+        ai_confidence: Number.isFinite(numericAiConfidence) ? numericAiConfidence : null,
+        source_references: projectPublicSourceReferences(message.source_references),
         message_tag: message.message_tag || null,
         delivery_state: deliveryState,
-        provider_message_id: providerMessageIdFor(message),
-        delivery_source: message.delivery_source || metadata.delivery_source || null,
-        reply_to: metadata.reply_to || (metadata.reply_to_provider_message_id
+        provider_message_id: typeof providerMessageId === 'string' ? providerMessageId : null,
+        delivery_source: deliverySource,
+        reply_to: responseMetadata?.reply_to || (responseMetadata?.reply_to_provider_message_id
             ? {
-                provider_message_id: metadata.reply_to_provider_message_id,
-                internal_message_id: metadata.reply_to_internal_message_id || null,
-                is_self_reply: metadata.reply_to_is_self_reply === true,
-                status: metadata.reply_to_internal_message_id ? 'resolved' : 'unavailable',
+                provider_message_id: responseMetadata.reply_to_provider_message_id,
+                internal_message_id: responseMetadata.reply_to_internal_message_id || null,
+                is_self_reply: responseMetadata.reply_to_is_self_reply === true,
+                status: responseMetadata.reply_to_internal_message_id ? 'resolved' : 'unavailable',
             }
             : null),
         is_transcript_message: sender !== 'ai' || isProviderConfirmed(message),

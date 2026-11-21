@@ -108,6 +108,123 @@ describe('conversation list reply-mode envelope', () => {
     });
 });
 
+describe('conversation message privacy projection', () => {
+    it('preserves the inbox transcript contract while projecting typed nested metadata', async () => {
+        const createdAt = new Date('2026-11-18T12:00:00.000Z');
+        Conversation.findOne = jest.fn().mockResolvedValue({ id: 'conversation-1', shop_id: 'shop-1' });
+        Message.findAndCountAll = jest.fn().mockResolvedValue({
+            rows: [{
+                id: 'message-1',
+                conversation_id: 'conversation-1',
+                sender: 'customer',
+                content: 'Can you share the catalog?',
+                message_type: 'file',
+                created_at: createdAt,
+                ai_confidence: 0.9,
+                source_references: [{ kind: 'faq', id: 'faq-1', title: 'Catalog', internal_note: 'fixture' }],
+                metadata: {
+                    message_type: 'file',
+                    file_name: 'catalog.pdf',
+                    file_url: 'https://assets.example.test/catalog.pdf',
+                    attachments: [{ type: 'file', url: 'https://assets.example.test/catalog.pdf', name: 'catalog.pdf', private_note: 'fixture' }],
+                    delivery_state: 'SENT',
+                    delivery_status: 'sent',
+                    delivered: true,
+                    provider_message_id: 'provider-1',
+                    provider_send_confirmed: true,
+                    reply_to: { provider_message_id: 'provider-0', content: 'Previous message', nested_private: { fixture: true } },
+                    confidence_score: 0.91,
+                    confidence_components: { fixture: 'private' },
+                    grounding_knowledge_ids: ['knowledge-1'],
+                    reply_evidence: { label: 'GROUNDED', fixture: 'private' },
+                    unexpected: { fixture: 'private' },
+                },
+            }],
+            count: 1,
+        });
+        Message.findAll = jest.fn().mockResolvedValue([]);
+
+        const result = await conversationService.getMessages('conversation-1', 'shop-1');
+
+        expect(result.messages).toHaveLength(1);
+        expect(result.messages[0]).toEqual(expect.objectContaining({
+            id: 'message-1',
+            message_type: 'file',
+            ai_confidence: 0.9,
+            source_references: [{ kind: 'faq', id: 'faq-1', title: 'Catalog' }],
+            reply_to: { provider_message_id: 'provider-0', content: 'Previous message' },
+            is_transcript_message: true,
+            metadata: {
+                message_type: 'file',
+                file_name: 'catalog.pdf',
+                file_url: 'https://assets.example.test/catalog.pdf',
+                attachments: [{ type: 'file', url: 'https://assets.example.test/catalog.pdf', name: 'catalog.pdf' }],
+                delivery_state: 'SENT',
+                delivery_status: 'sent',
+                delivered: true,
+                provider_message_id: 'provider-1',
+                provider_send_confirmed: true,
+                reply_to: { provider_message_id: 'provider-0', content: 'Previous message' },
+            },
+        }));
+        expect(result.pagination).toEqual({ total: 1, page: 1, limit: 50, totalPages: 1 });
+        expect(Conversation.findOne).toHaveBeenCalledWith({ where: { id: 'conversation-1', shop_id: 'shop-1' } });
+    });
+
+    // P0 sendProductCard contract — FLAGGED-FOR-PRIVACY-REVIEWER: product_card
+    // and quick_replies are allowlisted shop-scoped merchant data and must
+    // survive history projection for the owning shop.
+    it('preserves allowlisted product-card metadata in shop-scoped history', async () => {
+        Conversation.findOne = jest.fn().mockResolvedValue({ id: 'conversation-1', shop_id: 'shop-1' });
+        Message.findAndCountAll = jest.fn().mockResolvedValue({
+            rows: [{
+                id: 'message-card',
+                conversation_id: 'conversation-1',
+                sender: 'agent',
+                content: 'Fixture Product (৳1200 · In stock (4))',
+                message_type: 'text',
+                created_at: new Date('2026-11-18T12:00:00.000Z'),
+                metadata: {
+                    product_card: {
+                        product_id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+                        title: 'Fixture Product',
+                        subtitle: '৳1200 · In stock (4)',
+                        image_url: 'https://assets.example.test/product.jpg',
+                        internal_note: { fixture: 'private' },
+                    },
+                    quick_replies: [{
+                        content_type: 'text',
+                        title: 'Order now',
+                        payload: 'product:3f2504e0-4f89-41d3-9a0c-0305e82c3301:q:0',
+                        customer_phone: '+8801000000000',
+                    }],
+                    confidence_score: 0.91,
+                    unexpected: { fixture: 'private' },
+                },
+            }],
+            count: 1,
+        });
+        Message.findAll = jest.fn().mockResolvedValue([]);
+
+        const result = await conversationService.getMessages('conversation-1', 'shop-1');
+
+        expect(result.messages[0].metadata).toEqual({
+            product_card: {
+                product_id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+                title: 'Fixture Product',
+                subtitle: '৳1200 · In stock (4)',
+                image_url: 'https://assets.example.test/product.jpg',
+            },
+            quick_replies: [{
+                content_type: 'text',
+                title: 'Order now',
+                payload: 'product:3f2504e0-4f89-41d3-9a0c-0305e82c3301:q:0',
+            }],
+        });
+        expect(Conversation.findOne).toHaveBeenCalledWith({ where: { id: 'conversation-1', shop_id: 'shop-1' } });
+    });
+});
+
 describe('message projection turn scoping', () => {
     it('does not expose a stale reviewable draft from before the latest customer turn', async () => {
         Conversation.findOne = jest.fn().mockResolvedValue({

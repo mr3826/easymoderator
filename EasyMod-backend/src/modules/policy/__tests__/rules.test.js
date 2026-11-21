@@ -404,21 +404,9 @@ describe('businessHours.rule', () => {
         expect(r.reason).toBe('NO_HOURS_CONFIG');
     });
     test('denies (SUGGEST_ONLY) when AI_ACTIVE + outside hours', async () => {
-        // Set up hours that don't include current time: 03:00–03:01
-        const hours = {
-            sun: { open: '03:00', close: '03:01' },
-            mon: { open: '03:00', close: '03:01' },
-            tue: { open: '03:00', close: '03:01' },
-            wed: { open: '03:00', close: '03:01' },
-            thu: { open: '03:00', close: '03:01' },
-            fri: { open: '03:00', close: '03:01' },
-            sat: { open: '03:00', close: '03:01' },
-        };
-        // Only run the assertion when "now" is not in 03:00–03:01 window —
-        // skipped in the unlucky minute to keep the test deterministic.
-        const now = new Date();
-        const nowMin = now.getHours() * 60 + now.getMinutes();
-        if (nowMin === 3 * 60) return;
+        // An empty schedule is closed in every timezone and does not depend on
+        // the runner clock or its local timezone.
+        const hours = {};
         const r = await rule.evaluate({}, {
             settings: { automation_mode: 'AI_ACTIVE', business_hours: hours },
         });

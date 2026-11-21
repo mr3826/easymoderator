@@ -5,6 +5,7 @@ const { Op, literal, where: sequelizeWhere } = require('sequelize');
 const conversationService = require('./conversation.service');
 const cacheService = require('../../utils/cache.service');
 const sseManager = require('../../utils/sse-manager');
+const { projectPublicMessageMetadata } = require('./internal-message-metadata');
 const { cacheRedis } = require('../../config/redis');
 const { AppError } = require('../../utils/AppError');
 const {
@@ -381,7 +382,7 @@ function projectedMessageMetadata(message, shopId) {
     const projected = typeof conversationService.mapMessage === 'function'
         ? conversationService.mapMessage(message, shopId)
         : null;
-    return projected?.metadata || messageMetadata(message);
+    return projected?.metadata || projectPublicMessageMetadata(messageMetadata(message));
 }
 
 function providerClaimTokenPredicate(token) {
@@ -1333,12 +1334,15 @@ class ConversationController {
             }
 
             const { customer_id, limit, within_hours } = req.query;
-            if (!customer_id) {
+            const validInteger = (value, max) => value === undefined
+                || (typeof value === 'string' && /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= max);
+            if (typeof customer_id !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(customer_id)
+                || !validInteger(limit, 100) || !validInteger(within_hours, 24 * 365)) {
                 return res.status(400).json({
                     success: false,
                     error: {
                         code: 'VALIDATION_ERROR',
-                        message: 'customer_id is required'
+                        message: 'Expected a customer UUID, a limit of 1 to 100, and within_hours of 1 to 8760'
                     }
                 });
             }
@@ -1352,22 +1356,24 @@ class ConversationController {
                 id: entry.id,
                 role: entry.role,
                 message: entry.message,
-                normalized_message: entry.metadata?.normalized_message || null,
+                normalized_message: typeof entry.metadata?.normalized_message === 'string'
+                    ? entry.metadata.normalized_message : null,
                 intent: entry.intent || null,
-                timestamp: entry.created_at,
-                metadata: entry.metadata || {}
+                timestamp: entry.created_at ?? entry.createdAt ?? null,
+                // Compatibility field: conversation metadata is not a public API contract.
+                metadata: {}
             }));
 
             res.status(200).json({
                 conversations,
                 total: entries.length
             });
-        } catch (error) {
+        } catch {
             res.status(500).json({
                 success: false,
                 error: {
                     code: 'CONVERSATION_HISTORY_FAILED',
-                    message: error.message
+                    message: 'Unable to load conversation history'
                 }
             });
         }
@@ -1419,6 +1425,14 @@ class ConversationController {
 
     async checkDuplicate(req, res) {
         try {
+            const shopId = req.user?.shopId;
+            if (!shopId) {
+                return res.status(400).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'Shop ID is required' }
+                });
+            }
+
             const { message_id, customer_id, timestamp } = req.body;
             if (!message_id || !customer_id) {
                 return res.status(400).json({
@@ -1431,7 +1445,7 @@ class ConversationController {
             }
 
             const key = `dedup:${customer_id}:${message_id}`;
-            const existing = await cacheService.get(key);
+            const existing = await cacheService.getForShop(shopId, key);
 
             if (existing) {
                 return res.status(200).json({
@@ -1441,7 +1455,7 @@ class ConversationController {
             }
 
             const originalTimestamp = timestamp || new Date().toISOString();
-            await cacheService.set(key, originalTimestamp, 86400);
+            await cacheService.setForShop(shopId, key, originalTimestamp, 86400);
 
             res.status(200).json({
                 is_duplicate: false,
