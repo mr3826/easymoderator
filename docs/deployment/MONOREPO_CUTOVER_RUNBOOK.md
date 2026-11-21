@@ -141,10 +141,17 @@ Manual recovery, if the workflow runner is unavailable:
 cd /opt/easymod
 export GHCR_IMAGE_BACKEND='REPLACE_WITH_CAPTURED_BACKEND_REPODIGEST'
 export GHCR_IMAGE_FRONTEND='REPLACE_WITH_CAPTURED_FRONTEND_REPODIGEST'
+export GHCR_IMAGE_GROWTH='REPLACE_WITH_CAPTURED_GROWTH_REPODIGEST'
 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --no-build --remove-orphans
 curl --fail https://api.easymod.tech/health/ready
 curl --fail https://api.easymod.tech/health
 ```
+
+The Compose file renders the Growth service from an environment variable too,
+so all three immutable shell exports above are mandatory — omitting the third
+fails interpolation, and a service-filtered `up` never removes an orphaned
+service from the running set. Export the Growth reference in the shell only;
+never add it to the regenerated host environment file.
 
 The executable non-production rehearsal runs from the repository root in the
 CI `Deployment configuration dry run` job:
@@ -167,6 +174,44 @@ forward migration or an isolated database restore.
 The current production source and its tags remain the operator's rollback
 inputs; this repository must not be required to boot in order to execute that
 recovery.
+
+## Restore-floor recovery
+
+A Stage 2 promotion requires the qualified reader-only floor to be the running
+incumbent, and a verified floor restore is also the last-resort recovery when a
+promoted writer must be taken out of service. Use the guarded `ci-cd.yml`
+dispatch (`target=restore-floor`) instead of a manual SSH interlude:
+
+- Dispatch on `main` with `deploy_confirmation=DEPLOY-<current main SHA>` and
+  `PRODUCTION_DEPLOY_ENABLED=true`. The job additionally runs only on a direct
+  `ci-cd.yml` `workflow_dispatch` and sits behind the production environment
+  approval.
+- `existing_backend_digest` and `existing_frontend_digest` are reinterpreted as
+  the qualified floor pair to restore, not a new candidate build.
+- `expected_rollback_backend_digest` and `expected_rollback_frontend_digest`
+  are the backend/worker and frontend digests currently running on the writer.
+  The restore refuses to activate unless the live containers match them
+  exactly, so the running release is provably the rollback target.
+- Leave `wipe_db_first`, `seed_admin`, `expect_schema_drift`, and
+  `growth_image_override` empty; the runner rejects the dispatch otherwise.
+  Growth is carried forward from the running container.
+
+Before any SSH the runner resolves the floor image's `linux/arm64` OCI revision
+label, requires it to be a 40-hex ancestor of the dispatch main SHA, verifies
+the floor's reader-only projection source, and verifies the dispatch SHA is
+still the writer projection. On the host the restore reuses the deploy
+machinery: the same lock, the same active-transaction refusal (exit 70), the
+same incumbent snapshot, transaction marker, image/identity/health/queue gates,
+and the same rollback path. It stages no candidate configuration, copies no
+candidate files, and runs no migrations; the floor images boot against the
+unchanged live configuration.
+
+After every attempt — success, automatic rollback, or exit 70 — the operator
+sets `PRODUCTION_DEPLOY_ENABLED` back to false through the repository control
+plane; the workflow never mutates it. Any retained `active` record under
+`/opt/easymod/.cutover-rollback` must be reconciled against its transaction
+record, snapshot checksums, image references, running release, and health
+checks before the next cutover.
 
 The placeholders above are operator inputs, not credentials and must never be
 replaced in committed documentation.

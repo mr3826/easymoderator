@@ -303,7 +303,31 @@ describe('production workflow branch safety', () => {
         expect(workflow).toContain('test -f EasyMod-backend/src/modules/ai/reply-confidence-rollup.service.js');
         expect(workflow).toContain('[ "$DEPLOY_CONFIRMATION" = "DEPLOY-$SHA" ]');
         expect(workflow).toContain('test "$RELEASE_TARGET" = all');
-        expect(workflow).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST$GROWTH_OVERRIDE$SCHEMA_DRIFT_REQUEST"');
+        // WP-06 amendment: a growth_image_override is permitted on a paired
+        // promotion ONLY because every override still traverses the complete
+        // downstream chain pinned below — fail-closed digest resolution with
+        // assert_immutable_ref, deploy-time commit binding against the release
+        // SHA, public growth identity, and growth carry-restore in
+        // verify_rollback. WIPE/SEED/DRIFT stay forbidden at this gate.
+        expect(workflow).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST$SCHEMA_DRIFT_REQUEST"');
+        expect(workflow).not.toContain('$WIPE_REQUEST$SEED_REQUEST$GROWTH_OVERRIDE$SCHEMA_DRIFT_REQUEST');
+        expect(workflow).toContain('GROWTH_IMAGE_OVERRIDE: ${{ inputs.growth_image_override }}');
+        expect(workflow).toContain('candidate_growth_image="${GHCR_GROWTH}@${GROWTH_IMAGE_OVERRIDE}"');
+        expect(workflow).toContain('growth_image_source=override');
+        expect(workflow).toContain('assert_immutable_ref "$candidate_growth_image"');
+        expect(workflow).toContain('export GHCR_IMAGE_GROWTH="$candidate_growth_image"');
+        expect(workflow).toContain('if [ "$growth_build_commit" != "$DEPLOYED_COMMIT" ]; then');
+        expect(workflow).toContain(
+            "Growth image build-info commit '$growth_build_commit' does not match deployed commit '$DEPLOYED_COMMIT'",
+        );
+        expect(workflow).toContain('verify_public_stack "$candidate_backend_commit" "$candidate_growth_commit" || exit 1');
+        expect(workflow).toContain(
+            'Public Growth identity mismatch: expected ${process.env.EXPECTED_GROWTH_COMMIT}, got ${payload.commit || "(missing)"}',
+        );
+        expect(workflow).toContain('restored_growth=$(resolve_container_digest easymod-growth-frontend-1 || true)');
+        expect(workflow).toContain('rollback Growth image reference was not restored');
+        expect(workflow).toContain('export GHCR_IMAGE_GROWTH="${previous_growth_image:-$candidate_growth_image}"');
+        expect(workflow).toContain('verify_public_stack "$previous_backend_commit" "$previous_growth_commit" || return 1');
         expect(workflow).toContain('git merge-base --is-ancestor "$rollback_revision" "$SHA"');
         expect(workflow).toContain('message-evidence-projection.js');
         expect(workflow).toContain("git grep -Fq -e 'projectMessageEvidence('");
@@ -821,11 +845,18 @@ describe('production workflow branch safety', () => {
 
         expect(deployBlock).not.toMatch(/case\s+"\$image_ref"\s+in\s+\*@sha256:\[0-9a-fA-F\]\{64\}\)/);
         expect(deployBlock).toContain("grep -Eq '@sha256:[0-9a-fA-F]{64}");
-        // Three real-regex digest-pin checks total: EXISTING_BACKEND_DIGEST
-        // format validation, this probe, and assert_immutable_ref(). Each is in
-        // a different quoting context (one needs \$ since it is nested inside a
-        // local double-quoted ssh argument), so match on the pattern core only.
-        expect(workflow.match(/grep -Eq '[^']*\\?\[0-9a-fA-F\]\\?\{64\\?\}[^']*'/g)).toHaveLength(3);
+        // Four real-regex digest-pin checks total: EXISTING_BACKEND_DIGEST
+        // format validation, this probe, assert_immutable_ref() in the deploy
+        // script, and the restore-floor job's verbatim assert_immutable_ref
+        // copy. Each is in a different quoting context (one needs \$ since it
+        // is nested inside a local double-quoted ssh argument), so match on
+        // the pattern core only.
+        const digestSites = [...workflow.matchAll(/grep -Eq '[^']*\\?\[0-9a-fA-F\]\\?\{64\\?\}[^']*'/g)];
+        expect(digestSites).toHaveLength(4);
+        const restoreFloorSectionStart = workflow.indexOf('# ── 6. Restore-floor recovery');
+        expect(restoreFloorSectionStart).toBeGreaterThan(-1);
+        expect(digestSites[3].index).toBeGreaterThan(restoreFloorSectionStart);
+        expect(digestSites[3][0]).toContain('@sha256:[0-9a-fA-F]{64}');
     });
 
     test('rejects the destructive production wipe path', () => {
@@ -866,7 +897,12 @@ describe('production workflow branch safety', () => {
             expect(source).not.toContain('ssh-keyscan');
         }
 
-        expect(sshActionSites).toBe(9);
+        // The restore-floor job adds the tenth appleboy site. Every per-site
+        // pin above (pinned fingerprint derivation, known-hosts fail-closed,
+        // no DO_SSH_FINGERPRINT, no ssh-keyscan) applies to the whole file,
+        // and the dedicated restore-floor test below additionally pins the
+        // restore site's own id: ssh_host, command_timeout, and envs literal.
+        expect(sshActionSites).toBe(10);
     });
 
     test('requires an immutable image for restore-drill forward migration', () => {
@@ -1049,6 +1085,29 @@ describe('production workflow branch safety', () => {
         expect(rehearsal).toContain('rollback did not run the worker-health gate');
         expect(rehearsal).toContain('rollback did not run the identity-bound public-stack gate');
         expect(rehearsal).not.toContain('STUBBED-BY-REHEARSAL');
+
+        // WP-04 restore-floor lane: a --restore-floor selector skips the
+        // forward-cutover scenarios and runs the same extracted functions in
+        // writer -> floor -> rollback order; the default full rehearsal appends
+        // the lane after the forward scenarios so CI proves both.
+        expect(rehearsal).toContain('--restore-floor');
+        expect(rehearsal).toContain('if [[ "${1:-}" != --restore-floor ]]; then');
+        expect(rehearsal).toContain('extract_function verify_reader_projection_source');
+        expect(rehearsal).toContain('restore_assert_rollback_match');
+        expect(rehearsal).toContain('does not match the rehearsed rollback digest');
+        expect(rehearsal).toContain('is not a reader-only recovery revision');
+        expect(rehearsal).toContain('git merge-base --is-ancestor "$floor_sha" "$writer_sha"');
+        expect(rehearsal).toContain('does not match the exact floor pair');
+        expect(rehearsal).toContain('restore_before_activation');
+        expect(rehearsal).toContain('Floor-restore EXIT handler interruption checks passed');
+        expect(rehearsal).toContain('restoreScenarios');
+        for (const field of ['RESTORE_R1', 'RESTORE_R2', 'RESTORE_R3', 'RESTORE_R4', 'RESTORE_R5', 'RESTORE_R67', 'RESTORE_R8', 'RESTORE_GROWTH_OVERRIDE']) {
+            expect(rehearsal).toContain(`${field}=PASS`);
+        }
+        // WP-06 growth-override case: fixture commit binding, public identity
+        // through the live stub, swap taking effect, and rollback carry-restore.
+        expect(rehearsal).toContain('Growth image build-info commit');
+        expect(rehearsal).toContain('rollback did not restore the incumbent Growth image after the override');
     });
 
     test('successful cutover gates worker and identity-bound public app, API, and Growth health', () => {
@@ -1088,6 +1147,179 @@ describe('production workflow branch safety', () => {
         expect(workflow).toContain('evicted_keys:');
         expect(workflow).toContain('$NF == "/" || $NF == "/var/lib/docker"');
         expect(workflow).not.toContain('$1 == "/" || $1 == "/var/lib/docker"');
+    });
+
+    test('restore-floor is a gated production-only recovery path with build and deploy excluded', () => {
+        expect(workflow).toContain('options: [all, backend, frontend, probe, restore-floor]');
+        expect(releaseWorkflow).toContain('options: [all, backend, frontend, probe, restore-floor]');
+        expect(workflow.match(/inputs\.target != 'restore-floor'/g)).toHaveLength(2);
+        const buildBlock = workflow.match(/\n  build:\n([\s\S]*?)\n  # ── 4\./)?.[1];
+        expect(buildBlock).toContain("inputs.target != 'restore-floor' &&");
+        const deployStart = workflow.indexOf('\n  deploy:\n');
+        const deployGate = workflow.slice(deployStart, workflow.indexOf('environment: production', deployStart));
+        expect(deployGate).toContain("inputs.target != 'restore-floor' &&");
+        // The rehearsal + rollback-contract validator gate the restore dispatch.
+        const deploymentConfigBlock = workflow.match(/\n  deployment-config:\n([\s\S]*?)\n  # ── 2d\./)?.[1];
+        expect(deploymentConfigBlock).toContain("(inputs.target == 'probe' || inputs.target == 'restore-floor')");
+
+        const restoreBlock = workflow.slice(workflow.indexOf('# ── 6. Restore-floor recovery'));
+        expect(restoreBlock).toContain('name: Restore qualified floor images');
+        expect(restoreBlock).toContain('needs: [changes, deployment-config]');
+        expect(restoreBlock).toContain('timeout-minutes: 45');
+        expect(restoreBlock).toContain('environment: production');
+        expect(restoreBlock).toContain('permissions:\n      contents: read\n      packages: read');
+        expect(restoreBlock).toContain("github.event_name == 'workflow_dispatch' &&");
+        expect(restoreBlock).toContain("github.ref == 'refs/heads/main' &&");
+        expect(restoreBlock).toContain("inputs.target == 'restore-floor' &&");
+        expect(restoreBlock).toContain("vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&");
+        expect(restoreBlock).toContain("inputs.deploy_confirmation == format('DEPLOY-{0}', github.sha)");
+        // No new dispatch inputs: the restore reuses the existing 13 and the
+        // workflow_dispatch budget (capped by GitHub at 10 rendered fields)
+        // must not grow.
+        const dispatchBlock = workflow.slice(workflow.indexOf('  workflow_dispatch:'), workflow.indexOf('concurrency:'));
+        expect((dispatchBlock.match(/^      [a-z_]+:$/gm) || [])).toHaveLength(13);
+        // The gate is operator-owned: nothing in this workflow may mutate it.
+        expect(restoreBlock).toContain('The workflow never mutates PRODUCTION_DEPLOY_ENABLED;');
+        expect(restoreBlock).toContain('operator must set the gate back to false after');
+        expect(workflow).not.toContain('gh variable set');
+    });
+
+    test('restore-floor qualifies the floor pair before activation, carries growth forward, and fails closed to the writer', () => {
+        const restoreBlock = workflow.slice(workflow.indexOf('# ── 6. Restore-floor recovery'));
+        const qualifyStep = restoreBlock.indexOf('- name: Qualify floor images');
+        const sshStep = restoreBlock.indexOf('- name: Restore floor via SSH');
+        const activation = restoreBlock.indexOf('            activation_started=true');
+        const incumbent = restoreBlock.indexOf('[ "$previous_backend_image" != "$GHCR_BACKEND@$EXPECTED_ROLLBACK_BACKEND_DIGEST" ]');
+        const marker = restoreBlock.indexOf('ln -- "$ROLLBACK_STATE_DIR/transaction" "$active_transaction"');
+        const upLine = restoreBlock.indexOf('up -d --no-build --remove-orphans backend worker frontend growth-frontend');
+        const metadata = restoreBlock.indexOf('"DEPLOYED_COMMIT": "${FLOOR_REVISION}",');
+        expect(qualifyStep).toBeGreaterThan(-1);
+        expect(sshStep).toBeGreaterThan(qualifyStep);
+        expect(incumbent).toBeGreaterThan(sshStep);
+        expect(incumbent).toBeLessThan(activation);
+        expect(marker).toBeLessThan(activation);
+        expect(activation).toBeLessThan(upLine);
+        expect(upLine).toBeLessThan(metadata);
+        expect(restoreBlock).toContain('deploy_succeeded=true');
+        expect(restoreBlock).toContain('rollback || exit 70');
+
+        // Runner-side qualification before any SSH: destructive/override inputs
+        // rejected, all four digests required and exact, floor revision real.
+        expect(restoreBlock).toContain('test -z "$WIPE_REQUEST$SEED_REQUEST$GROWTH_REQUEST$SCHEMA_DRIFT_REQUEST"');
+        expect(restoreBlock).toContain('test "$RELEASE_TARGET" = restore-floor');
+        expect(restoreBlock).toContain('for digest in "$EXISTING_BACKEND_DIGEST" "$EXISTING_FRONTEND_DIGEST" "$EXPECTED_ROLLBACK_BACKEND_DIGEST" "$EXPECTED_ROLLBACK_FRONTEND_DIGEST"; do');
+        expect(restoreBlock).toContain('[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]');
+        expect(restoreBlock).toContain('floor_revision=$(arm64_image_revision "$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST")');
+        expect(restoreBlock).toContain('if ! [[ "$floor_revision" =~ ^[0-9a-f]{40}$ ]]; then');
+        expect(restoreBlock).toContain('git merge-base --is-ancestor "$floor_revision" "$SHA"');
+        expect(restoreBlock).toContain("verify_reader_projection_source \"$floor_revision\" 'Restore floor' reader");
+        expect(restoreBlock).toContain("verify_reader_projection_source \"$SHA\" 'Current main' writer");
+        expect(restoreBlock).toContain('pull_arm64_image "$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST" >/dev/null');
+        expect(restoreBlock).toContain("printf 'floor_revision=%s\\n' \"$floor_revision\" >> \"$GITHUB_OUTPUT\"");
+        expect(restoreBlock).toContain('FLOOR_REVISION: ${{ steps.floor.outputs.floor_revision }}');
+
+        // Host-side candidate = floor pair; growth carried forward, never
+        // overridden; interpolated production stack stays digest-pinned.
+        expect(restoreBlock).toContain('candidate_backend_image="$GHCR_BACKEND@$EXISTING_BACKEND_DIGEST"');
+        expect(restoreBlock).toContain('candidate_frontend_image="$GHCR_FRONTEND@$EXISTING_FRONTEND_DIGEST"');
+        expect(restoreBlock).toContain('assert_immutable_ref "$candidate_backend_image"');
+        expect(restoreBlock).toContain('assert_immutable_ref "$candidate_frontend_image"');
+        expect(restoreBlock).toContain('export GHCR_IMAGE_BACKEND="$candidate_backend_image"');
+        expect(restoreBlock).toContain('export GHCR_IMAGE_FRONTEND="$candidate_frontend_image"');
+        expect(restoreBlock).toContain('candidate_growth_image="$previous_growth_image"');
+        expect(restoreBlock).toContain('candidate_growth_image="${GHCR_GROWTH}@${GROWTH_BOOTSTRAP_DIGEST}"');
+        expect(restoreBlock).toContain('assert_immutable_ref "$candidate_growth_image"');
+        expect(restoreBlock).toContain('export GHCR_IMAGE_GROWTH="$candidate_growth_image"');
+        expect(restoreBlock).toContain('candidate_growth_commit=$(extract_growth_commit "$candidate_growth_image")');
+        expect(restoreBlock).toContain('production_images=$(docker compose --env-file .env.prod -f docker-compose.prod.yml config --images)');
+        expect(restoreBlock).toContain('if [ "$candidate_backend_commit" != "$FLOOR_REVISION" ]; then');
+        expect(restoreBlock).toContain('does not match the exact floor pair');
+        expect(restoreBlock).toContain('verify_public_stack "$candidate_backend_commit" "$candidate_growth_commit" || exit 1');
+
+        // The SSH envs literal is contiguous, restore-specific, and carries no
+        // destructive input; the fingerprint site and command cap are explicit.
+        expect(restoreBlock).toContain('id: ssh_host');
+        expect(restoreBlock).toContain('fingerprint: ${{ steps.ssh_host.outputs.fingerprint }}');
+        expect(restoreBlock).toContain('command_timeout: 30m');
+        expect(restoreBlock).toContain('timeout: 600s');
+        expect(restoreBlock).toContain('envs: GHCR_BACKEND,GHCR_FRONTEND,GHCR_GROWTH,GROWTH_BOOTSTRAP_DIGEST,EXISTING_BACKEND_DIGEST,EXISTING_FRONTEND_DIGEST,FLOOR_REVISION,WORKFLOW_RUN_ID,WORKFLOW_RUN_ATTEMPT,DEPLOYED_AT,GH_ACTOR,GH_TOKEN,ROLLBACK_STATE_DIR,APP_URL,API_URL,GROWTH_URL,EXPECTED_ROLLBACK_BACKEND_DIGEST,EXPECTED_ROLLBACK_FRONTEND_DIGEST');
+        expect(restoreBlock).not.toContain('WIPE_DB: ${{');
+        expect(restoreBlock).not.toContain('SEED_ADMIN: ${{');
+        expect(restoreBlock).not.toContain('BACKEND_TAG: ${{');
+        expect(restoreBlock).not.toContain('FRONTEND_TAG: ${{');
+
+        // A restore changes images only: no candidate config is staged or
+        // activated, no migrations run, no DB probe, no rendering, no build.
+        // This is also the only way the validator's single-cp-line uniqueness
+        // contract can hold with a second job in the file.
+        expect(restoreBlock).not.toContain('cp -p "$candidate_dir');
+        expect(restoreBlock).not.toContain('candidate.sha256');
+        expect(restoreBlock).not.toContain('Stage candidate config');
+        expect(restoreBlock).not.toContain('MIGRATION_START');
+        expect(restoreBlock).not.toContain('migrate.js');
+        expect(restoreBlock).not.toContain('schema-drift-audit');
+        expect(restoreBlock).not.toContain('production-db-auth-probe');
+        expect(restoreBlock).not.toContain('render-production-env');
+        expect(restoreBlock).not.toContain('build-push-action');
+        expect(restoreBlock).not.toContain('labels: org.opencontainers.image.revision');
+        expect(restoreBlock).not.toContain('npm ci');
+        expect(restoreBlock).not.toContain('npm run');
+        expect(restoreBlock).not.toContain('SEED_ADMIN');
+        expect(restoreBlock).not.toContain('WIPE_DB=WIPE is disabled');
+
+        // Minimal run-scoped cleanup; snapshots and metadata stay for the
+        // operator after every attempt.
+        expect(restoreBlock).toContain('name: Remove run-scoped restore state');
+        expect(restoreBlock).toContain('if: always()');
+        expect(restoreBlock).toContain('refusing to clean a restore candidate environment outside this workflow attempt');
+        expect(restoreBlock).toContain('restricted by its mode-700 parent directory');
+    });
+
+    test('the restore-floor job reuses the deploy machinery byte-identically', () => {
+        // R3 design ruling: rollback-rehearsal.sh extracts each function by
+        // FIRST name+indent match, so the forward scenarios exercise the
+        // deploy-side copies; the restore job must therefore be a verbatim
+        // copy, not a drifting second implementation. This pin compares the
+        // full function text (definition through closing brace at the same
+        // YAML block indent) between the two scopes.
+        const restoreStart = workflow.indexOf('# ── 6. Restore-floor recovery');
+        expect(restoreStart).toBeGreaterThan(-1);
+        const deploySide = workflow.slice(0, restoreStart);
+        const restoreSide = workflow.slice(restoreStart);
+        const extractFunction = (source, name) => {
+            const lines = source.split('\n');
+            const opener = new RegExp(`^[ ]+${name}\\(\\) \\{$`);
+            const start = lines.findIndex((line) => opener.test(line));
+            if (start < 0) return undefined;
+            const indent = lines[start].match(/^[ ]+/)[0];
+            const end = lines.slice(start + 1).findIndex((line) => line === `${indent}}`);
+            if (end < 0) return undefined;
+            return lines.slice(start, start + 2 + end).join('\n');
+        };
+        for (const name of [
+            'resolve_container_digest',
+            'assert_immutable_ref',
+            'config_hashes',
+            'verify_config',
+            'verify_worker_health',
+            'verify_public_stack',
+            'verify_rollback',
+            'finish_deploy',
+            'rollback',
+            'extract_growth_commit',
+            'pull_arm64_image',
+            'arm64_image_revision',
+            'verify_reader_projection_source',
+        ]) {
+            // Rehearsal extraction (first match) must keep landing on the
+            // deploy-side copy, never the restore-side duplicate.
+            expect(workflow.indexOf(`${name}() {`)).toBeLessThan(restoreStart);
+            const reference = extractFunction(deploySide, name);
+            const restored = extractFunction(restoreSide, name);
+            expect([name, reference === undefined ? 'deploy-missing' : 'ok']).toEqual([name, 'ok']);
+            expect([name, restored === undefined ? 'restore-missing' : 'ok']).toEqual([name, 'ok']);
+            expect(restored).toBe(reference);
+        }
     });
 });
 
