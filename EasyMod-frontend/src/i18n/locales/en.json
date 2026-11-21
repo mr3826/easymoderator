@@ -560,7 +560,7 @@
         "loading": "Checking today's verified work and business signals.",
         "error": "The dashboard could not load, so counts and tasks may be out of date.",
         "setup": "Your shop needs a few setup steps before EasyModerator can turn conversations into confirmed orders.",
-        "setupComplete": "All setup steps are verified complete.",
+        "setupComplete": "Setup steps are configured; live operational verification is shown on this page.",
         "work": "Verified work is waiting — replies: {{replies}} · draft orders: {{drafts}} · delivery exceptions: {{exceptions}}.",
         "caughtUp": "No verified work items remain.",
         "partial": "Some work sources could not be verified, so this page shows only what is confirmed."
@@ -603,15 +603,43 @@
       ],
       "estimatedTime": "Estimated time: about 5 minutes",
       "startCta": "Start Business Setup",
-      "completeEyebrow": "Your shop is ready",
-      "completeTitle": "Your shop is ready.",
-      "completeSubtitle": "EasyModerator can now help reply to customers, recommend products, capture orders, and reduce manual work.",
+      "completeTitle": "Shop setup is configured.",
+      "completeSubtitle": "Every required setting is filled in. Live delivery is confirmed only after a test reply is verified below — configuration alone never claims operation.",
       "completeBullets": [
         "Reply to customers",
         "Recommend products",
         "Capture orders",
         "Reduce manual work"
       ],
+      "states": {
+        "configured": {
+          "title": "Setup is configured — not verified live yet",
+          "description": "All required settings are filled in, but no approved AI reply has reached Messenger yet. Send a message to your page as a customer, approve the draft in Inbox, then refresh this page."
+        },
+        "waiting_for_test": {
+          "title": "Waiting for a verified test reply",
+          "description": "Some channel evidence exists, but we cannot yet confirm a merchant-approved AI reply reached Messenger within the last {{windowDays}} days. Send a test message and approve the reply in Inbox."
+        },
+        "action_required": {
+          "title": "A test reply failed to deliver",
+          "description": "An approved AI reply failed to reach Messenger or is stuck in delivery. Open the channel settings, re-check the connection, and send a fresh test reply."
+        },
+        "verified_operational": {
+          "title": "Verified end to end",
+          "description": "The page webhook is freshly verified and a merchant-approved AI reply reached Messenger. EasyModerator is operational for live customer conversations."
+        }
+      },
+      "warningsTitle": "Things to fix before launch",
+      "evidence": {
+        "title": "Operational evidence",
+        "webhookVerifiedAt": "Page webhook verified {{time}}",
+        "webhookStale": "Webhook verification is older than {{days}} days",
+        "webhookNever": "No webhook verification recorded",
+        "providerAccepted": "Approved AI replies accepted by Messenger: {{count}}",
+        "providerNone": "No approved AI reply has reached Messenger yet",
+        "deliveryFailures": "{{count}} approved replies failed delivery",
+        "none": "No operational evidence records found yet."
+      },
       "goToDashboard": "Go To Dashboard",
       "reviewReplySettings": "Review Reply Settings",
       "eyebrow": "Business Setup Progress",
@@ -623,7 +651,7 @@
       "progressPercent": "Your shop is {{percent}}% ready.",
       "progressOneLeft": "Only one step left.",
       "progressAlmostReady": "Your business is almost ready.",
-      "progressReady": "Your shop is ready.",
+      "progressReady": "Configuration complete — live verification pending.",
       "complete": "Complete",
       "incomplete": "Needs work",
       "missingPrefix": "Missing:",
@@ -660,13 +688,15 @@
         "confidence_threshold": "confidence threshold"
       },
       "warnings": {
-        "WEBHOOK_NOT_VERIFIED": "No recent webhook verification was found. Send a test message before launch.",
+        "WEBHOOK_NOT_VERIFIED": "No webhook verification was found for the connected page. Send a test message before launch.",
+        "WEBHOOK_VERIFICATION_STALE": "The most recent webhook verification is older than the accepted window. Re-run the channel webhook check before launch.",
+        "OPERATIONAL_TEST_FAILED": "An approved AI reply failed to reach Messenger or could not be reconciled. Check the channel connection, then approve a fresh test reply.",
         "LOW_PRODUCT_COUNT": "Three or more active products are recommended before launch.",
-        "AI_NOT_DRAFT": "Review first is recommended for first launch verification."
+        "AI_AUTO_ENABLED": "Automatic replies are enabled; verify the shop setup and safety gates before launch."
       },
       "stateUnavailable": "Shop setup status could not be loaded.",
       "nextStep": "Start here",
-      "verifiedAt": "Verified {{time}}"
+      "statusCheckedAt": "Status checked {{time}}"
     },
     "nav": {
       "dashboard": "Dashboard",

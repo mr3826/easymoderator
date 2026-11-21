@@ -24,6 +24,43 @@ export interface SetupTask {
   meta: Record<string, unknown>;
 }
 
+/**
+ * P04 — the backend distinguishes configuration from operation. These states
+ * describe the live evidence ladder only; `isComplete` still means
+ * "configuration complete" and must never be rendered as operational proof.
+ */
+export type SetupOperationalState =
+  | 'configured'
+  | 'waiting_for_test'
+  | 'action_required'
+  | 'verified_operational';
+
+export interface SetupOperationalEvidence {
+  webhook: {
+    connectedFacebookPages: number;
+    verifiedEver: number;
+    verifiedWithinWindow: number;
+    lastVerifiedAt: string | null;
+  };
+  assistant: {
+    draftsGenerated: number;
+    draftsApproved: number;
+    providerAcceptedEver: number;
+    providerAcceptedWithinWindow: number;
+    lastProviderAcceptedAt: string | null;
+    approvedSendFailures: number;
+    outboxNeedsReconciliation: number;
+  };
+}
+
+export interface SetupOperational {
+  state: SetupOperationalState;
+  operationalVerified: boolean;
+  evidenceWindowDays: number;
+  warnings: SetupTaskWarning[];
+  evidence: SetupOperationalEvidence;
+}
+
 export interface SetupStatus {
   isComplete: boolean;
   completedCount: number;
@@ -36,6 +73,9 @@ export interface SetupStatus {
     activeProducts: number;
     activeFaqs?: number;
     knowledgeDocuments?: number;
+    aiMessagesSent?: number;
   };
+  /** Absent on older responses — treat as "configured", never as verified. */
+  operational?: SetupOperational;
   generatedAt: string;
 }
