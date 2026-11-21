@@ -386,12 +386,19 @@ export function useMetaChannelConnection(): UseMetaChannelConnectionResult {
       setSelectedPageIds(new Set());
       setTempToken("");
       if (actionRequired) {
+        // A5-3: channels.actionRequired has no locale entry yet (locale files
+        // are owned by a separate stream). Inline bilingual default follows
+        // the D7 error-messages pattern — i18n.t prefers the real translation
+        // as soon as the key lands, so this needs no follow-up edit.
+        const lang = i18n.language?.startsWith("en") ? "en" : "bn";
         toast.warning(
           webhookWarning
-          || t(
-            "channels.actionRequired",
-            "The Page was saved, but its Messenger connection could not be verified. Open the channel and run a webhook test.",
-          ),
+          || i18n.t("channels.actionRequired", {
+            lng: lang,
+            defaultValue: lang === "bn"
+              ? "Page টি সংরক্ষিত হয়েছে, তবে এর Messenger সংযোগ যাচাই করা যায়নি। Channel টি খুলে webhook test চালান।"
+              : "The Page was saved, but its Messenger connection could not be verified. Open the channel and run a webhook test.",
+          }),
           { duration: 12000 },
         );
       } else {

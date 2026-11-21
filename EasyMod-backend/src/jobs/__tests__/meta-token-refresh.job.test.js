@@ -136,6 +136,48 @@ describe('MetaTokenRefreshJob.run()', () => {
         expect(OwnerNotification.create).not.toHaveBeenCalled();
     });
 
+    test('refresh failure clears webhook verification stamps while preserving the attempts counter (D2 bypass guard)', async () => {
+        const ch = makeChannel({
+            token_refresh_attempts: 4,
+            webhook_last_verified_at: new Date(),
+            webhook_subscribed_fields: ['messages', 'messaging_postbacks'],
+        });
+        MetaChannel.findAll.mockResolvedValue([ch]);
+
+        exchangeForLongLivedToken.mockRejectedValue(new Error('Meta 190'));
+
+        const job = new MetaTokenRefreshJob();
+        const result = await job.run({ dryRun: false, runDate: new Date() });
+
+        expect(result.failed).toBe(1);
+        expect(ch.status).toBe('TOKEN_EXPIRED');
+        // The direct-write bypass exists to PRESERVE the counter — that must hold.
+        expect(ch.token_refresh_attempts).toBe(5);
+        // But it must not keep a webhook stamp an expired token cannot back up:
+        // the health grid and setup-status read the stamp as proof of delivery.
+        expect(ch.webhook_last_verified_at).toBeNull();
+        expect(ch.webhook_subscribed_fields).toEqual([]);
+        expect(ch.save).toHaveBeenCalled();
+    });
+
+    test('dry-run reports a no-token failure but clears nothing (stamps intact)', async () => {
+        const stamp = new Date();
+        const ch = makeChannel({
+            page_access_token_ct: null, // fails before the dryRun short-circuit
+            webhook_last_verified_at: stamp,
+            webhook_subscribed_fields: ['messages'],
+        });
+        MetaChannel.findAll.mockResolvedValue([ch]);
+
+        const job = new MetaTokenRefreshJob();
+        const result = await job.run({ dryRun: true, runDate: new Date() });
+
+        expect(result.failed).toBe(1);
+        expect(ch.status).toBe('CONNECTED');
+        expect(ch.webhook_last_verified_at).toBe(stamp);
+        expect(ch.save).not.toHaveBeenCalled();
+    });
+
     test('failure threshold reached: writes OwnerNotification + emits action_required', async () => {
         const ch = makeChannel({ token_refresh_attempts: 2 }); // becomes 3
         MetaChannel.findAll.mockResolvedValue([ch]);
