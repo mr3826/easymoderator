@@ -224,6 +224,32 @@ describe('production workflow branch safety', () => {
         expect(readerCheck).toBeGreaterThan(ancestorTest);
     });
 
+    test('provenance identity mismatch prints every component before failing', () => {
+        // Runs 44874186785 (backend floor) and 44874189551 (frontend floor)
+        // failed with only the generic error, so the mismatched component
+        // (platform, .Id vs manifest config.digest, revision label) was
+        // unattributable without registry read access. The failure branch must
+        // stay diagnosable, and the comparison itself must not be weakened.
+        const provenance = fs.readFileSync(
+            path.resolve(__dirname, '../../../../.github/workflows/stage2-image-provenance.yml'),
+            'utf8',
+        );
+        const mismatchStart = provenance.indexOf('if [[ "$identity" != "$PLATFORM $config_digest $SOURCE_SHA" ]]; then');
+        expect(mismatchStart).toBeGreaterThan(-1);
+        const mismatchBranch = provenance.slice(mismatchStart, provenance.indexOf('exit 1', mismatchStart));
+        expect(mismatchBranch).toContain('::error::Pulled image platform, config digest or OCI revision did not match.');
+        expect(mismatchBranch).toContain('actual_platform=$(docker image inspect --format \'{{.Os}}/{{.Architecture}}\' "$platform_ref")');
+        expect(mismatchBranch).toContain('actual_id=$(docker image inspect --format \'{{.Id}}\' "$platform_ref")');
+        expect(mismatchBranch).toContain('actual_revision=$(docker image inspect --format \'{{index .Config.Labels "org.opencontainers.image.revision"}}\' "$platform_ref")');
+        expect(mismatchBranch).toContain('actual_labels=$(docker image inspect --format \'{{json .Config.Labels}}\' "$platform_ref")');
+        expect(mismatchBranch).toContain('printf -- \'- actual identity:   %s\\n\' "$identity"');
+        expect(mismatchBranch).toContain('printf -- \'- expected identity: %s\\n\' "$PLATFORM $config_digest $SOURCE_SHA"');
+        expect(mismatchBranch).toContain('printf -- \'- platform: actual=%s expected=%s\\n\' "$actual_platform" "$PLATFORM"');
+        expect(mismatchBranch).toContain('printf -- \'- image .Id: actual=%s expected=%s (manifest config.digest)\\n\' "$actual_id" "$config_digest"');
+        expect(mismatchBranch).toContain('printf -- \'- revision label: actual=%s expected=%s\\n\' "${actual_revision:-<empty>}" "$SOURCE_SHA"');
+        expect(mismatchBranch).toContain('printf -- \'- all config labels: %s\\n\' "$actual_labels"');
+    });
+
     test('always-run cleanup removes only the run-scoped staged candidate environment', () => {
         const deployBlock = workflow.match(/\n  deploy:\n([\s\S]*?)\n  # ── 4\./)?.[1];
         expect(deployBlock).toBeDefined();
