@@ -48,6 +48,14 @@ const RETRYABLE_STATUSES = ['RETRY_PENDING', 'MESSAGE_STORE_FAILED', 'IDENTITY_N
 const RECOVERABLE_STATUSES = [...RETRYABLE_STATUSES, 'QUEUED'];
 const TERMINAL_STATUSES = ['PROCESSED', 'SKIPPED', 'DEAD_LETTERED'];
 
+/**
+ * Event types that carry a business action and MUST be replayable. The live
+ * handler's recovery allowlists (channel-resolution failure, disconnected Page,
+ * bound-channel loss) use this same list, so classification, encrypted replay
+ * retention, and recovery can never drift apart.
+ */
+const REPLAYABLE_EVENT_TYPES = ['message', 'optin', 'echo', 'postback', 'referral'];
+
 /** Thrown when the durable receipt itself cannot be written. */
 class WebhookReceiptPersistenceError extends Error {
     constructor(cause) {
@@ -72,6 +80,12 @@ const scopedDedupeKey = (pageId, eventId, payloadHash) => (
 function classifyEvent(messaging = {}, pageId = null) {
     const senderId = messaging.sender?.id;
     const senderRef = senderId ? sha256(senderId) : null;
+    // Only a real inbound message mid is an event identity. postback.mid names
+    // the OUTBOUND message containing the tapped button — two different button
+    // taps on one message share it — so postbacks (like referrals, which carry
+    // no mid at all) dedupe on the payload-hash fallback below. That hash covers
+    // the full event body: Page scope comes from the key prefix, sender and
+    // event identity (timestamp + payload/ref) from the hashed content.
     const eventId = messaging.message?.mid || null;
     const isOutboundEcho = messaging.message?.is_echo === true
         && (pageId == null || String(senderId) === String(pageId));
@@ -80,6 +94,8 @@ function classifyEvent(messaging = {}, pageId = null) {
     if (messaging.optin) eventType = 'optin';
     else if (isOutboundEcho) eventType = 'echo';
     else if (messaging.message?.text || (messaging.message?.attachments || []).length > 0) eventType = 'message';
+    else if (messaging.postback && typeof messaging.postback === 'object') eventType = 'postback';
+    else if (messaging.referral && typeof messaging.referral === 'object') eventType = 'referral';
     else if (messaging.delivery) eventType = 'delivery';
     else if (messaging.read) eventType = 'read';
 
@@ -105,8 +121,10 @@ async function recordReceipt({
 
     // Keep echoes too: an echo can arrive before the original provider request
     // finishes, so it may need a later reconciliation pass to attach Meta's MID
-    // to the already-persisted outbound row.
-    const replayable = eventType === 'message' || eventType === 'optin' || eventType === 'echo';
+    // to the already-persisted outbound row. Postbacks and referrals carry
+    // customer selections and referral attribution — the same durability
+    // contract applies before the webhook may be acknowledged.
+    const replayable = REPLAYABLE_EVENT_TYPES.includes(eventType);
 
     // A replayable event cannot be acknowledged without a durable recovery
     // body. Reject before inserting a receipt when encryption is unavailable or
@@ -657,6 +675,7 @@ module.exports = {
     TERMINAL_STATUSES,
     RETRYABLE_STATUSES,
     RECOVERABLE_STATUSES,
+    REPLAYABLE_EVENT_TYPES,
     QUEUED_RECOVERY_DELAY_MS,
     QUEUE_RECOVERY_DELAY_MS,
     QUEUED_MAX_AGE_MS,

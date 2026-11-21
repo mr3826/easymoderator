@@ -307,6 +307,7 @@ export default function UnifiedInbox() {
   const takeoverDialogRef = useRef<HTMLDivElement>(null);
   useDialogFocus(takeoverDialogRef, takeoverOpen);
   const [aiReplyMode, setAiReplyMode] = useState<AiReplyMode>(DEFAULT_AI_REPLY_MODE);
+  const [interactionChoicesEnabled, setInteractionChoicesEnabled] = useState(false);
   const [aiReplyStatuses, setAiReplyStatuses] = useState<Record<string, AiReplyStatus>>({});
   const aiReplyModeRef = useRef<AiReplyMode>(DEFAULT_AI_REPLY_MODE);
   const aiReplyModeRevisionRef = useRef(0);
@@ -437,6 +438,7 @@ export default function UnifiedInbox() {
         aiReplyModeRef.current = normalizedMode;
         setAiReplyMode(normalizedMode);
       }
+      setInteractionChoicesEnabled(result.interaction_choices === true);
       const mergedConversations = mergeConversationLists(
         pageData,
         conversationsRef.current,
@@ -1644,6 +1646,7 @@ export default function UnifiedInbox() {
             messagesEndRef={messagesEndRef}
             is24hExpired={is24hExpired}
             is24hWarning={is24hWarning}
+            interactionChoicesEnabled={interactionChoicesEnabled}
             mobilePanelOpen={mobilePanelOpen}
             onMobileBack={() => setMobilePanelOpen(false)}
             onToggleHITL={handleToggleHITL}

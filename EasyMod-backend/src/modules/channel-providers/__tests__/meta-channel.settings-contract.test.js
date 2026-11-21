@@ -43,6 +43,7 @@ jest.mock('../meta-channel.controller', () => ({
     disconnect: jest.fn(),
     reconnect: jest.fn(),
     testWebhook: jest.fn(),
+    probeInteractionFields: jest.fn(),
     getSettings: jest.fn(),
     updateChannelSettings: mockUpdateChannelSettings,
     updatePurposeLabel: jest.fn(),

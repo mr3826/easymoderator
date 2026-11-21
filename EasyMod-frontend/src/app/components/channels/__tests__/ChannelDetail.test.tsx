@@ -423,4 +423,40 @@ describe('ChannelDetail', () => {
     );
     expect(metaApi.updateMetaChannelSettings).not.toHaveBeenCalled();
   });
+
+  it('surfaces non-secret connection, 3-scope, and webhook diagnostics on the Advanced tab', async () => {
+    metaApi.listMetaChannels.mockResolvedValue([
+      {
+        ...channel,
+        webhookSubscribedFields: ['messages'],
+        webhookLastVerifiedAt: '2026-11-19T10:00:00.000Z',
+        tokenExpiresAt: '2099-01-01T00:00:00.000Z',
+        lastError: null,
+      },
+    ]);
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+
+    const diag = screen.getByTestId('channel-connection-diagnostics');
+    expect(diag).toHaveTextContent('CONNECTED');
+    expect(diag).toHaveTextContent('pages_show_list, pages_manage_metadata, pages_messaging');
+    expect(diag).toHaveTextContent('messages');
+    expect(diag).not.toHaveTextContent('EAAG');
+    expect(screen.queryByTestId('channel-mme-link-helper')).not.toBeInTheDocument();
+  });
+
+  it('shows sanitized m.me referral helper on Advanced tab only when interaction_choices is true', async () => {
+    metaApi.getMetaChannelSettings.mockResolvedValue(
+      makeSettings({ interaction_choices: true }),
+    );
+    renderDetail();
+    await screen.findByTestId('channel-effective-mode');
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+
+    const helper = await screen.findByTestId('channel-mme-link-helper');
+    const input = helper.querySelector('input')!;
+    fireEvent.change(input, { target: { value: 'eid campaign 2026!' } });
+    expect(helper).toHaveTextContent('https://m.me/page-1?ref=eidcampaign2026');
+  });
 });

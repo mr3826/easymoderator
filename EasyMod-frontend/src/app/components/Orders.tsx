@@ -36,6 +36,21 @@ const WORKLIST_BUCKETS: Array<{ key: OrderWorklistBucket; labelKey: string }> = 
   { key: 'delivered', labelKey: 'orders.buckets.delivered' },
 ];
 
+// WP-03: the originating conversation's authoritative channel (backend
+// conversation.validator.js vocabulary) mapped onto the order-create form's
+// channel vocabulary. 'web' conversations are attributed as 'webchat' orders.
+// Values outside this map are ignored — channel is NEVER inferred from the
+// mere presence of a conversation/channel id (the old Messenger hardcode).
+// A Map (not a plain object) so prototype-chain keys like '__proto__' or
+// 'constructor' from a hand-crafted URL fail closed to undefined (A3 review).
+const CONVERSATION_TO_ORDER_CHANNEL = new Map<string, string>([
+  ['messenger', 'messenger'],
+  ['facebook', 'facebook'],
+  ['telegram', 'telegram'],
+  ['web', 'webchat'],
+  ['webchat', 'webchat'],
+]);
+
 const statusColors = {
   draft: 'bg-em-bg-muted text-em-text-secondary',
   pending: 'bg-em-warning-100 text-em-warning-700',
@@ -58,6 +73,7 @@ interface OrderItem {
 }
 
 interface ManualOrder {
+  customerId?: string;
   customerName: string;
   customerPhone: string;
   deliveryAddress: string;
@@ -207,6 +223,35 @@ export default function Orders() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Prefill & open manual create modal when launched from Inbox CustomerContextPanel
+  // (/orders?create=1&customerId=...&customerName=...&customerPhone=...&conversationId=...&channelId=...&channel=...).
+  // WP-03: the order's channel comes from the conversation's authoritative
+  // `channel` param — never guessed from conversationId/channelId presence.
+  // Missing/unknown values keep the form default ('manual') so the merchant
+  // sees an honest selection instead of a fabricated Messenger attribution.
+  useEffect(() => {
+    if (searchParams.get('create') !== '1') return;
+    const customerId = searchParams.get('customerId')?.trim() || '';
+    const customerName = searchParams.get('customerName')?.trim() || '';
+    const customerPhone = searchParams.get('customerPhone')?.trim() || '';
+    const channelParam = searchParams.get('channel')?.trim().toLowerCase() || '';
+    const conversationChannel = CONVERSATION_TO_ORDER_CHANNEL.get(channelParam);
+    setManualOrder((prev) => ({
+      ...prev,
+      ...(customerId ? { customerId } : {}),
+      ...(customerName ? { customerName } : {}),
+      ...(customerPhone ? { customerPhone } : {}),
+      channel: conversationChannel ?? prev.channel,
+    }));
+    setShowCreateOrder(true);
+    const next = new URLSearchParams(searchParams);
+    for (const key of ['create', 'customerId', 'customerName', 'customerPhone', 'conversationId', 'channelId', 'channel']) {
+      next.delete(key);
+    }
+    setSearchParams(next, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Keep the URL shareable/back-navigable with the applied query.
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
@@ -278,6 +323,7 @@ export default function Orders() {
 
   // Manual order form state
   const [manualOrder, setManualOrder] = useState<ManualOrder>({
+    customerId: '',
     customerName: '',
     customerPhone: '',
     deliveryAddress: '',
@@ -594,7 +640,10 @@ export default function Orders() {
         street_address: manualOrder.streetAddress,
         zone: deriveZone(manualOrder.division, manualOrder.district),
       };
+      const validCustomerUuid = manualOrder.customerId
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(manualOrder.customerId.trim());
       const orderData = {
+        ...(validCustomerUuid ? { customer_id: manualOrder.customerId!.trim() } : {}),
         customer_name: manualOrder.customerName,
         customer_phone: manualOrder.customerPhone,
         delivery_address: structuredAddress,
@@ -634,6 +683,7 @@ export default function Orders() {
       setShowCreateOrder(false);
       toast.success(t('orders.createModal.createSuccess', { orderId: newOrder.orderNumber || newOrder.id }));
       setManualOrder({
+        customerId: '',
         customerName: '',
         customerPhone: '',
         deliveryAddress: '',
@@ -967,6 +1017,7 @@ export default function Orders() {
                     >
                       <option value="manual">{t('orders.createModal.channelManual')}</option>
                       <option value="facebook">{t('orders.createModal.channelFacebook')}</option>
+                      <option value="messenger">{t('orders.createModal.channelMessenger', 'Messenger')}</option>
                       <option value="webchat">{t('orders.createModal.channelWebChat')}</option>
                       <option value="telegram">{t('orders.createModal.channelTelegram')}</option>
                     </select>

@@ -975,6 +975,99 @@ class MetaMessengerProvider extends ChannelProvider {
         }
     }
 
+    /**
+     * Explicitly probe whether Meta permits optional interactive Messenger webhook
+     * fields (`messaging_postbacks`, `messaging_referrals`) on this Page.
+     * Core `WEBHOOK_FIELDS` (`['messages']`) is never weakened or replaced: every
+     * subscription call includes `this.webhookFields()` and any Meta permission /
+     * product-access rejection fails closed with EXTERNALLY_BLOCKED_PERMISSION_OR_PRODUCT_ACCESS.
+     */
+    async probeInteractionWebhookFields({
+        channel,
+        fields = ['messaging_postbacks', 'messaging_referrals'],
+    }) {
+        const token = channel?.page_access_token_ct;
+        const targetId = channel?.meta_asset_id;
+        const targetFields = Array.isArray(fields)
+            ? Array.from(new Set(fields.map((f) => String(f || '').trim()).filter(Boolean)))
+            : ['messaging_postbacks', 'messaging_referrals'];
+        if (!token || !targetId) {
+            return {
+                ok: false,
+                code: 'CHANNEL_NOT_CONNECTED',
+                coreMessagesIntact: false,
+                blockedFields: targetFields,
+                subscribedFields: [],
+            };
+        }
+
+        const existing = await this.verifyWebhookSubscription({ channel });
+        if (targetFields.length > 0 && targetFields.every((f) => existing.fields.includes(f))) {
+            return {
+                ok: true,
+                code: 'ALREADY_SUBSCRIBED',
+                coreMessagesIntact: existing.ok,
+                subscribedFields: existing.fields,
+                addedFields: [],
+            };
+        }
+
+        const requestedFields = Array.from(new Set([...this.webhookFields(), ...targetFields]));
+        try {
+            await axios.post(
+                `${GRAPH_BASE}/${targetId}/subscribed_apps`,
+                null,
+                {
+                    params: {
+                        access_token: token,
+                        appsecret_proof: appsecretProof(token),
+                        subscribed_fields: requestedFields.join(','),
+                    },
+                },
+            );
+            const after = await this.verifyWebhookSubscription({ channel });
+            return {
+                ok: true,
+                code: 'SUBSCRIBED',
+                coreMessagesIntact: after.ok,
+                subscribedFields: after.fields,
+                addedFields: targetFields.filter((f) => !existing.fields.includes(f)),
+            };
+        } catch (err) {
+            const metaCode = err.response?.data?.error?.code ?? null;
+            const metaSubcode = err.response?.data?.error?.error_subcode ?? null;
+            const httpStatus = err.response?.status ?? null;
+            const isPermissionOrProductBlock = httpStatus === 400
+                || httpStatus === 403
+                || [10, 100, 190, 200, 230].includes(Number(metaCode));
+            if (!isPermissionOrProductBlock) {
+                throw metaError(err, 'probeInteractionWebhookFields');
+            }
+
+            logger.warn('probeInteractionWebhookFields blocked by Meta permission/product access', {
+                channelId: channel.id,
+                targetId,
+                metaCode,
+                metaSubcode,
+                httpStatus,
+            });
+            let coreCheck = await this.verifyWebhookSubscription({ channel });
+            if (!coreCheck.ok) {
+                await this.subscribeWebhook({ channel }).catch(() => {});
+                coreCheck = await this.verifyWebhookSubscription({ channel });
+            }
+            return {
+                ok: false,
+                code: 'EXTERNALLY_BLOCKED_PERMISSION_OR_PRODUCT_ACCESS',
+                coreMessagesIntact: coreCheck.ok,
+                blockedFields: targetFields,
+                subscribedFields: coreCheck.fields || [],
+                metaCode,
+                metaSubcode,
+            };
+        }
+    }
+
     async verifyWebhookSignature({ rawBody, signature }) {
         if (!signature || typeof signature !== 'string' || !signature.startsWith('sha256=')) {
             return false;
@@ -1039,25 +1132,59 @@ class MetaMessengerProvider extends ChannelProvider {
         const attachments = Array.isArray(normalizedMessage.attachments)
             ? normalizedMessage.attachments.filter(a => a?.url)
             : [];
+        const rawQuickReplies = Array.isArray(normalizedMessage.quick_replies)
+            ? normalizedMessage.quick_replies
+            : [];
+        // P+02: Meta accepts up to 13 quick replies, title <= 20 chars, payload <= 1000 chars.
+        const quickReplies = rawQuickReplies
+            .filter(qr => typeof qr?.title === 'string' && qr.title.trim()
+                && qr.title.trim().length <= 20
+                && typeof qr?.payload === 'string' && qr.payload.length
+                && qr.payload.length <= 1000)
+            .slice(0, 13)
+            .map(qr => ({ title: qr.title.trim(), content_type: 'text', payload: qr.payload }));
         const bodies = [];
         if (normalizedMessage.text?.trim()) {
             const messageBody = { text: normalizedMessage.text.trim() };
-            // P+02: quick replies ride the TEXT body (Meta: <=13, title <=20
-            // chars, payload <=1000 chars, content_type text). Invalid entries
-            // are dropped, never truncated onto the wire; if the whole set is
-            // invalid the text still sends (safe fallback stays possible).
-            const raw = Array.isArray(normalizedMessage.quick_replies) ? normalizedMessage.quick_replies : [];
-            const quickReplies = raw
-                .filter(qr => typeof qr?.title === 'string' && qr.title.trim()
-                    && qr.title.trim().length <= 20
-                    && typeof qr?.payload === 'string' && qr.payload.length
-                    && qr.payload.length <= 1000)
-                .slice(0, 13)
-                .map(qr => ({ title: qr.title.trim(), content_type: 'text', payload: qr.payload }));
             if (quickReplies.length) messageBody.quick_replies = quickReplies;
             bodies.push({
                 recipient: { id: recipientId },
                 message: messageBody,
+            });
+        }
+        if (normalizedMessage.product_card && typeof normalizedMessage.product_card === 'object') {
+            const rawCard = normalizedMessage.product_card;
+            const title = typeof rawCard.title === 'string' ? rawCard.title.trim().slice(0, 80) : '';
+            if (!title) {
+                throw new Error('sendMessage: product_card title is required');
+            }
+            const cardElement = { title };
+            if (typeof rawCard.subtitle === 'string' && rawCard.subtitle.trim()) {
+                cardElement.subtitle = rawCard.subtitle.trim().slice(0, 80);
+            }
+            if (typeof rawCard.image_url === 'string' && rawCard.image_url.trim()) {
+                try {
+                    const parsedUrl = new URL(rawCard.image_url.trim());
+                    if (parsedUrl.protocol === 'https:') {
+                        cardElement.image_url = parsedUrl.toString();
+                    }
+                } catch (_) { /* ignore malformed image URL */ }
+            }
+            const cardMessage = {
+                attachment: {
+                    type: 'template',
+                    payload: {
+                        template_type: 'generic',
+                        elements: [cardElement],
+                    },
+                },
+            };
+            if (!normalizedMessage.text?.trim() && quickReplies.length) {
+                cardMessage.quick_replies = quickReplies;
+            }
+            bodies.push({
+                recipient: { id: recipientId },
+                message: cardMessage,
             });
         }
         for (const attachment of attachments) {

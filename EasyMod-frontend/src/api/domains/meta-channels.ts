@@ -276,6 +276,7 @@ export interface MetaChannelSettings {
   warnings: ChannelAutomationWarning[];
   emergency_stop: EmergencyStopState;
   billing_ai_active: boolean;
+  interaction_choices?: boolean;
   /** Legacy runtime-dead thresholds; the redesigned UI never renders these. */
   deprecated_fields: string[];
 }

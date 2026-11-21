@@ -126,8 +126,8 @@ test('AI settings survive save and reload', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
 
-    const maxOrderValue = page.locator('#max-auto-order-value');
-    await maxOrderValue.fill('7500');
+    const slider = page.getByRole('slider');
+    await slider.fill('80');
 
     const saveRequest = page.waitForRequest((request) =>
         request.url().endsWith('/api/shop/ai-settings') && request.method() === 'PUT'
@@ -135,10 +135,10 @@ test('AI settings survive save and reload', async ({ page }) => {
     await page.getByRole('button', { name: 'Save Reply Settings' }).click();
 
     const request = await saveRequest;
-    expect(request.postDataJSON()).toEqual(expect.objectContaining({ max_auto_order_value: 7500 }));
+    expect(request.postDataJSON()).toEqual(expect.objectContaining({ confidence_threshold: 80 }));
     await expect(page.getByText('Reply settings saved.')).toBeVisible();
 
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Reply Settings' })).toBeVisible();
-    await expect(page.locator('#max-auto-order-value')).toHaveValue('7500');
+    await expect(page.getByRole('slider')).toHaveValue('80');
 });

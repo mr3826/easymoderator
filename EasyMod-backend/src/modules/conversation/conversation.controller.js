@@ -11,9 +11,11 @@ const {
     Conversation: ConvModel,
     Customer: CustomerModel,
     Message: MessageModel,
+    Product: ProductModel,
     AuditLog,
 } = require('../entities');
 const metaChannelService = require('../channel-providers/meta-channel.service');
+const stockStatusGuard = require('../product/stock-status-guard.service');
 const { getProvider } = require('../channel-providers/provider.registry');
 const conversationLockService = require('./conversation-lock.service');
 const policyEngine = require('../policy/policy.engine');
@@ -685,8 +687,12 @@ async function deliverViaMetaIfApplicable(
 
         const autoFileContent = attachments.length > 0 && outboundMessage?.metadata?.file_name && content === outboundMessage.metadata.file_name;
         const normalizedMessage = {
-            text: autoFileContent ? '' : content,
+            text: (options.productCard || autoFileContent) ? '' : content,
             attachments,
+            ...(options.productCard ? { product_card: options.productCard } : {}),
+            ...(Array.isArray(options.quickReplies) && options.quickReplies.length > 0
+                ? { quick_replies: options.quickReplies }
+                : {}),
             platform,
             direction: 'outbound',
             senderRole,
@@ -704,7 +710,7 @@ async function deliverViaMetaIfApplicable(
         const decision = await policyEngine.evaluateOutbound(normalizedMessage, policyCtx);
         if (!decision.allow) {
             failureReason = `Message blocked by policy: ${decision.reason}`;
-            return { sent: false, reason: failureReason };
+            return { sent: false, policyBlocked: true, reason: failureReason };
         }
 
         deliveryClaimed = await claimOutboundDelivery(conversationId, outboundMessage);
@@ -1506,6 +1512,179 @@ class ConversationController {
                 success: false,
                 error: { code: 'SEARCH_FAILED', message: error.message }
             });
+        }
+    }
+
+    /**
+     * Send one DB-grounded Messenger product card (generic template + optional
+     * bounded quick replies) inside the active 24h customer-care window.
+     * Gated behind the shop's `interaction_choices` feature flag.
+     */
+    async sendProductCard(req, res) {
+        let deliveryLock = null;
+        try {
+            const { conversationId } = req.params;
+            const shopId = req.user?.shopId;
+            if (!shopId) {
+                return res.status(400).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'Shop ID is required' },
+                });
+            }
+
+            const { isInteractionChoicesEnabled } = require('../pilot-features/pilot-features.service');
+            const enabled = await isInteractionChoicesEnabled(shopId);
+            if (!enabled) {
+                return res.status(409).json({
+                    success: false,
+                    error: {
+                        code: 'FEATURE_DISABLED',
+                        message: 'Interaction choices are not enabled for this shop',
+                    },
+                });
+            }
+
+            deliveryLock = await acquireDeliveryLock(conversationId);
+
+            const product = await ProductModel.findOne({
+                where: {
+                    id: req.body.product_id,
+                    shop_id: shopId,
+                    is_active: true,
+                },
+            });
+            if (!product) {
+                return res.status(404).json({
+                    success: false,
+                    error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found' },
+                });
+            }
+            // Availability is decided by the authoritative stock-status guard —
+            // the same policy the chatbot uses. An explicit in_stock=false is
+            // unavailable even when quantity tracking is disabled or the stored
+            // quantity is still positive (mobile quick-update writes in_stock
+            // independently of quantity). Invalidate first so a stale cache
+            // entry can never resurrect an "Available"/"In stock" claim after
+            // a merchant stock update; the guard then re-reads the live row.
+            await stockStatusGuard.invalidate(shopId, product.id);
+            const stock = await stockStatusGuard.getStock(product.id, shopId);
+            if (stock.in_stock !== true) {
+                return res.status(409).json({
+                    success: false,
+                    error: { code: 'OUT_OF_STOCK', message: 'Product is out of stock' },
+                });
+            }
+
+            const rawPrice = Number(product.price);
+            const priceLabel = Number.isFinite(rawPrice) ? `৳${rawPrice}` : '';
+            // Guard contract: quantity is null when tracking is disabled,
+            // a positive number otherwise (non-positive was rejected above).
+            const stockLabel = stock.quantity === null
+                ? 'Available'
+                : `In stock (${Number(stock.quantity)})`;
+            const subtitle = [priceLabel, stockLabel].filter(Boolean).join(' · ').slice(0, 80);
+            const candidateImages = Array.isArray(product.images) ? product.images : [];
+            const imageCandidate = candidateImages.find((img) => isHttpsUrl(img))
+                || (isHttpsUrl(product.image_url) ? product.image_url : null);
+            const productCard = {
+                title: String(product.name || '').trim().slice(0, 80),
+                ...(subtitle ? { subtitle } : {}),
+                ...(imageCandidate ? { image_url: imageCandidate } : {}),
+            };
+            const quickReplies = Array.isArray(req.body.quick_replies)
+                ? req.body.quick_replies
+                    .map((label) => String(label || '').trim())
+                    .filter((label) => label.length > 0 && label.length <= 20)
+                    .slice(0, 3)
+                    .map((title, idx) => ({
+                        content_type: 'text',
+                        title,
+                        payload: `product:${product.id}:q:${idx}`,
+                    }))
+                : [];
+
+            const contentSummary = productCard.subtitle
+                ? `${productCard.title} (${productCard.subtitle})`
+                : productCard.title;
+            const message = await conversationService.createMessage(conversationId, shopId, {
+                content: contentSummary,
+                sender: 'agent',
+                message_type: 'text',
+                send_idempotency_key: req.get('Idempotency-Key') || null,
+                metadata: {
+                    product_card: {
+                        product_id: product.id,
+                        ...productCard,
+                    },
+                    ...(quickReplies.length > 0 ? { quick_replies: quickReplies } : {}),
+                },
+            });
+
+            if (message.idempotency_replay === true) {
+                return res.status(201).json({ success: true, data: message });
+            }
+
+            sseManager.emit(shopId, 'new_message', { conversation_id: conversationId, message });
+
+            if (typeof conversationService.holdPendingAiCandidates === 'function') {
+                await conversationService.holdPendingAiCandidates(conversationId, shopId, 'human_active')
+                    .catch((error) => lifecycleLogger.warn('Unable to cancel pending AI candidate after product card send', {
+                        shopId,
+                        conversationId,
+                        error: error.message,
+                    }));
+            }
+            if (cacheRedis && typeof cacheRedis.setex === 'function') {
+                await cacheRedis.setex(`ai:pause:${conversationId}`, AI_PAUSE_TTL_SECS, '1').catch(() => {});
+            }
+
+            const delivery = await deliverViaMetaIfApplicable(conversationId, shopId, message, 'agent', {
+                deliveryLock,
+                productCard,
+                quickReplies,
+            });
+            const refreshed = await loadProjectedMessage(message.id, conversationId, shopId).catch(() => null) || {
+                ...message,
+                ...(delivery?.sent && delivery?.providerMessageId
+                    ? {
+                        delivery_state: MESSAGE_DELIVERY_STATES.SENT,
+                        provider_message_id: delivery.providerMessageId,
+                    }
+                    : {
+                        delivery_state: MESSAGE_DELIVERY_STATES.FAILED,
+                    }),
+            };
+
+            if (!delivery || delivery.sent !== true || !delivery.providerMessageId) {
+                const status = delivery?.policyBlocked ? 409 : 502;
+                const code = delivery?.policyBlocked ? 'POLICY_BLOCKED' : 'DELIVERY_FAILED';
+                return res.status(status).json({
+                    success: false,
+                    error: {
+                        code,
+                        message: delivery?.reason || 'Product card delivery failed',
+                    },
+                    data: refreshed,
+                });
+            }
+
+            return res.status(201).json({
+                success: true,
+                data: refreshed,
+            });
+        } catch (error) {
+            const statusCode = error.statusCode || (error.message === 'Conversation not found' ? 404 : 500);
+            const errorCode = statusCode === 404 ? 'CONVERSATION_NOT_FOUND' : 'PRODUCT_CARD_SEND_FAILED';
+            return res.status(statusCode).json({
+                success: false,
+                error: {
+                    code: errorCode,
+                    message: error.message,
+                },
+            });
+        } finally {
+            await releaseDeliveryLock(deliveryLock, req.params?.conversationId);
+            deliveryLock = null;
         }
     }
 }
