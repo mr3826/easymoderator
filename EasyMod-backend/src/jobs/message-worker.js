@@ -2700,6 +2700,42 @@ async function processMessageJob(job) {
     }
     } // if (!interactionTurn)
 
+    // ── Guard 5b: explicit human-agent request (D-P2-06) ───────────────────
+    // Deterministic, before any LLM call and before the keyword-fallback tier:
+    // a customer asking for a human gets the live handoff machinery shared with
+    // sentiment escalation (HITL marked transactionally + holding reply through
+    // the policy engine), never a conversational answer. Also completes the
+    // handoff the in-session order-flow branch only paused the cart for.
+    if (!orderFlow.handled) {
+        try {
+            const { classify } = require('../modules/ai/intent/stage2-rules');
+            const humanIntent = classify(effMessage, { language: detectedLanguage });
+            if (humanIntent && humanIntent.intentId === 'HUMAN_HANDOFF_REQUEST') {
+                console.log(`[worker] Human-agent request detected for conv ${conversationId} — handing off`);
+                await requireHumanRecovery({
+                    turnId,
+                    traceId: stableTraceId,
+                    turnStartedAt,
+                    recoveryAvailable: recoveryStarted,
+                    conversation, shopId, conversationId,
+                    platform, recipientId, channel: jobChannel,
+                    reason: 'human_requested',
+                });
+                return {
+                    success: true,
+                    conversationId,
+                    confidence: 1.0,
+                    sent: false,
+                    reason: 'human_requested',
+                    handoff: true,
+                };
+            }
+        } catch (humanErr) {
+            if (humanErr?.retryable) throw humanErr;
+            console.error(`[worker] Human-request guard failed (continuing normally)`, { error: humanErr.message });
+        }
+    }
+
     if (shadowProposal?.intentId === 'PURCHASE_INTENT_START') {
         try {
             const { hasPurchaseIntent } = require('../modules/conversation/order-flow.service');
