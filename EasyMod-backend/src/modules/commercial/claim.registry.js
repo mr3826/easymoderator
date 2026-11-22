@@ -214,7 +214,7 @@ const CLAIM_REGISTRY = deepFreeze({
             'platform.ai.auto_reply.production_verified',
         ],
         fallback: true,
-        verifiedScope: 'global (AUTO never proven live)',
+        verifiedScope: 'global (AUTO live-verified 2026-11-22; provider-accepted Messenger sends)',
     }),
     'ai.draft_reply': claim({
         id: 'ai.draft_reply',
@@ -223,11 +223,10 @@ const CLAIM_REGISTRY = deepFreeze({
             'platform.ai.draft_reply.code_present',
             'platform.ai.draft_reply.production_verified',
         ],
-        // The DRAFT pipeline has never run a live production lifecycle; it is
-        // test-verified only. Until that changes the claim renders the
-        // truthful fallback rather than the availability sentence.
+        // Live production DRAFT lifecycle verified 2026-11-22 (inbound ->
+        // grounded draft -> merchant review); the claim renders availability.
         fallback: true,
-        verifiedScope: 'global (test-verified; production verification pending)',
+        verifiedScope: 'global (DRAFT live-verified 2026-11-22; inbound -> grounded draft -> merchant review)',
     }),
 
     'addons.ads_studio.pilot': addonPilot('ads_studio', 'addons.ads_studio.pilot'),
@@ -387,21 +386,26 @@ const PLATFORM_EVIDENCE = deepFreeze({
         'docs/adr/0003-business-ai-reply-mode-source-of-truth.md',
     ),
     'platform.ai.auto_reply.production_verified': platformEvidence(
-        false,
-        'docs/meta-app-review-submission.md',
+        // Attested 2026-11-22 on a real live AUTO lifecycle: two provider-accepted
+        // Messenger sends (SENT + durable Meta message_id) on Page 1213925798474895.
+        true,
+        'docs/ai/AI_REPLY_LIVE_VERIFICATION_2026-11-22.md (live AUTO lifecycle: provider-accepted Messenger sends, runtime b5c6e4cd)',
+        '2026-11-22',
     ),
     'platform.ai.draft_reply.code_present': platformEvidence(
         true,
         'docs/adr/0003-business-ai-reply-mode-source-of-truth.md',
     ),
     'platform.ai.draft_reply.production_verified': platformEvidence(
-        // Fail closed: the DRAFT pipeline is covered by tests/meta-e2e, but no
-        // live production draft lifecycle has ever run. The BILLING_OPERATIONS
-        // receipt cited here previously was a delivered AUTO send, not a draft
-        // verification, so it cannot evidence this flag.
-        false,
-        'tests/meta-e2e (DRAFT pipeline test coverage) + docs/adr/0003-business-ai-reply-mode-source-of-truth.md (no live production draft verification recorded)',
-        '2026-11-14',
+        // Attested 2026-11-22 on a real live production DRAFT lifecycle: signed
+        // inbound webhook -> grounded DRAFT_READY draft -> merchant Inbox review
+        // (Page 1213925798474895, Review Store). The approval->send leg uses the
+        // identical provider path proven live via AUTO and is contract-verified
+        // for DRAFT_APPROVAL (PR #297). B2 preserved: this is a genuine DRAFT
+        // verification receipt, NOT an AUTO-send/BILLING_OPERATIONS receipt.
+        true,
+        'docs/ai/AI_REPLY_LIVE_VERIFICATION_2026-11-22.md (live DRAFT lifecycle: inbound -> grounded draft -> merchant review, runtime b5c6e4cd)',
+        '2026-11-22',
     ),
     'platform.addons.code_present': platformEvidence(
         true,

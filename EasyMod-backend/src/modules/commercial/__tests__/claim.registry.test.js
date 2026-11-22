@@ -186,15 +186,21 @@ describe('claim registry — evidence', () => {
         }
     });
 
-    test('AUTO reply is fail-closed: code present, production never verified', () => {
+    test('AUTO reply is production-verified (live 2026-11-22) and still requires the per-shop toggle', () => {
         const entry = getClaim('ai.auto_reply');
         expect(entry.fallbackI18nKey).toEqual({
             en: 'claims.ai.auto_reply.fallback.en',
             bn: 'claims.ai.auto_reply.fallback.bn',
         });
         expect(entry.requiredEvidence).toContain('platform.ai.auto_reply.production_verified');
+        // The per-shop merchant_enabled gate is preserved: a platform attestation
+        // alone never enables AUTO for a disabled shop or an anonymous surface.
+        expect(entry.requiredEvidence).toContain('ai.auto_reply.merchant_enabled');
         expect(PLATFORM_EVIDENCE['platform.ai.auto_reply.code_present'].value).toBe(true);
-        expect(PLATFORM_EVIDENCE['platform.ai.auto_reply.production_verified'].value).toBe(false);
+        expect(PLATFORM_EVIDENCE['platform.ai.auto_reply.production_verified'].value).toBe(true);
+        expect(PLATFORM_EVIDENCE['platform.ai.auto_reply.production_verified'].lastVerifiedAt).toBe('2026-11-22');
+        expect(PLATFORM_EVIDENCE['platform.ai.auto_reply.production_verified'].evidence)
+            .toMatch(/AI_REPLY_LIVE_VERIFICATION_2026-11-22/);
     });
 
     test('courier booking and COD claims are unavailable today and carry truthful fallbacks', () => {
@@ -236,18 +242,19 @@ describe('claim registry — evidence', () => {
         expect(EVIDENCE_AUTHORITIES['platform.voice.auto_reply.production_verified']).toBeDefined();
     });
 
-    test('draft reply is fail-closed: implemented and test-verified, never production-verified', () => {
+    test('draft reply is production-verified on a live DRAFT lifecycle (2026-11-22), not an AUTO-send receipt', () => {
         const entry = getClaim('ai.draft_reply');
-        // B2 regression: the cited receipt was a delivered AUTO send, not a
-        // draft verification, so the flag must be false and the claim fallback.
+        // B2 regression preserved: the draft flag must be evidenced by a genuine
+        // DRAFT verification receipt, never an AUTO-send/BILLING_OPERATIONS receipt.
         expect(entry.fallbackI18nKey).toEqual({
             en: 'claims.ai.draft_reply.fallback.en',
             bn: 'claims.ai.draft_reply.fallback.bn',
         });
         expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.code_present'].value).toBe(true);
-        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(false);
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(true);
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].lastVerifiedAt).toBe('2026-11-22');
         expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].evidence)
-            .toMatch(/tests\/meta-e2e/);
+            .toMatch(/AI_REPLY_LIVE_VERIFICATION_2026-11-22/);
         expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].evidence)
             .not.toMatch(/BILLING_OPERATIONS/);
     });
