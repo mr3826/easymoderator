@@ -189,14 +189,16 @@ describe('claim gate — evidence predicates', () => {
     });
 
     it('reads platform evidence from the frozen registry', async () => {
-        // B2: draft reply is test-verified only, so it renders its fallback.
-        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(false);
+        // Draft reply attested on a live DRAFT lifecycle (2026-11-22) -> available.
+        expect(PLATFORM_EVIDENCE['platform.ai.draft_reply.production_verified'].value).toBe(true);
 
         const draft = await service.evaluateClaim('ai.draft_reply', { surface: 'pricing', locale: 'en' });
-        expect(draft.available).toBe(false);
-        expect(draft.render).toBe('fallback');
-        expect(draft.textKey).toBe('claims.ai.draft_reply.fallback.en');
+        expect(draft.available).toBe(true);
+        expect(draft.render).toBe('claim');
+        expect(draft.textKey).toBe('claims.ai.draft_reply.en');
 
+        // AUTO still fails closed without a shopId: the per-shop merchant_enabled
+        // gate is preserved even though the platform flag is now attested.
         const unverified = await service.evaluateClaim('ai.auto_reply', { surface: 'pricing', locale: 'en' });
         expect(unverified.available).toBe(false);
         expect(unverified.render).toBe('fallback');

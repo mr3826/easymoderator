@@ -118,7 +118,7 @@ const EVIDENCE_AUTHORITIES = deepFreeze({
         './claim.registry',
         'PLATFORM_EVIDENCE',
         true,
-        'PLATFORM_EVIDENCE value (AUTO never proven live; fail closed)',
+        'PLATFORM_EVIDENCE value (AUTO live-verified 2026-11-22; provider-accepted sends)',
         'src/modules/commercial/claim.registry.js',
     ),
     'platform.ai.draft_reply.code_present': authority(
@@ -132,7 +132,7 @@ const EVIDENCE_AUTHORITIES = deepFreeze({
         './claim.registry',
         'PLATFORM_EVIDENCE',
         true,
-        'PLATFORM_EVIDENCE value (test-verified only; never proven in production; fail closed)',
+        'PLATFORM_EVIDENCE value (DRAFT live-verified 2026-11-22; inbound -> grounded draft -> merchant review)',
         'src/modules/commercial/claim.registry.js',
     ),
     'platform.addons.code_present': authority(
