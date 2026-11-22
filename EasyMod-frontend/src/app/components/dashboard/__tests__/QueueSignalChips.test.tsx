@@ -30,7 +30,7 @@ describe("QueueSignalChips", () => {
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
     const links = screen.getAllByRole("link");
-    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/inbox", "/orders", "/orders"]);
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/inbox", "/orders?payment=pending", "/orders?bucket=to_pack"]);
   });
 
   it("shows Unavailable for failed sources, never 0", () => {

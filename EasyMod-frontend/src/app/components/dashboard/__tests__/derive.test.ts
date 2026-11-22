@@ -201,6 +201,7 @@ describe("coverage honesty", () => {
     });
     const groups = buildWorkGroups(buildWorkItems(pulse, t), t);
     expect(groups.map((g) => g.kind)).toEqual(["reply", "draft", "exception"]);
+    expect(groups.map((g) => g.to)).toEqual(["/inbox?tab=needs_review", "/orders?bucket=to_confirm", "/orders?bucket=needs_action"]);
     expect(groups[0].visibleItems).toHaveLength(2);
     expect(groups[0].hiddenCount).toBe(1);
   });

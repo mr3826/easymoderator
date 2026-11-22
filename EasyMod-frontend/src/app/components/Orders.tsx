@@ -223,6 +223,23 @@ export default function Orders() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Deep link (/orders?bucket=…&payment=…) from dashboard aggregates: seed the
+  // existing worklist bucket / payment filters fail-closed (unknown values keep
+  // the default 'all'). The server owns the bucket predicates + Joi whitelist;
+  // this only selects the matching client filter. Params stay in the URL so the
+  // filtered view is shareable/refresh-stable (same as the search deep link).
+  useEffect(() => {
+    const bucket = searchParams.get('bucket');
+    if (bucket && WORKLIST_BUCKETS.some((b) => b.key === bucket)) {
+      setDeliveryBucket(bucket as OrderWorklistBucket);
+    }
+    const payment = searchParams.get('payment');
+    if (payment && ['pending', 'paid', 'unpaid', 'partially_paid', 'refunded'].includes(payment)) {
+      setPaymentStatusFilter(payment);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Prefill & open manual create modal when launched from Inbox CustomerContextPanel
   // (/orders?create=1&customerId=...&customerName=...&customerPhone=...&conversationId=...&channelId=...&channel=...).
   // WP-03: the order's channel comes from the conversation's authoritative

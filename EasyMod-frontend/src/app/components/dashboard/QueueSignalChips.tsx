@@ -15,10 +15,14 @@ interface QueueSignalChipsProps {
 
 export function QueueSignalChips({ unread, pendingPayment, readyToDispatch }: QueueSignalChipsProps) {
   const { t } = useTranslation();
+  // Dashboard aggregates use payment/fulfillment predicates that differ from the
+  // worklist bucket predicates, so a chip count and the bucket count it opens can
+  // differ. The links select the closest bucket / exact payment filter and never
+  // adjust or fabricate counts (the "aggregates are not verified tasks" note stands).
   const chips = [
     { label: t("dashboard.pulse.attention.waitingForReply"), count: unread, to: "/inbox" },
-    { label: t("dashboard.pulse.attention.pendingPayment"), count: pendingPayment, to: "/orders" },
-    { label: t("dashboard.pulse.attention.readyToDispatch"), count: readyToDispatch, to: "/orders" },
+    { label: t("dashboard.pulse.attention.pendingPayment"), count: pendingPayment, to: "/orders?payment=pending" },
+    { label: t("dashboard.pulse.attention.readyToDispatch"), count: readyToDispatch, to: "/orders?bucket=to_pack" },
   ];
 
   return (
