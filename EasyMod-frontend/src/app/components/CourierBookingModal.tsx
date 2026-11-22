@@ -426,7 +426,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                 className={`py-2 px-3 rounded-lg border text-sm font-medium capitalize transition-colors ${
                   provider === p
                     ? 'bg-em-violet-600 text-white border-em-violet-600'
-                    : 'bg-em-bg-surface text-em-text-primary border-em-border-strong hover:border-em-violet-400'
+                    : 'bg-em-bg-surface text-em-text-primary border-em-border-strong hover:border-em-violet-300'
                 }`}
               >
                 {p}
@@ -441,7 +441,7 @@ export default function CourierBookingModal({ order, onClose, onBooked, onHeld, 
                   ? 'border-em-danger-700/20 bg-em-danger-100 text-em-danger-700'
                   : eligibility?.decision === 'SERVICEABLE'
                     ? 'border-em-success-700/20 bg-em-success-100 text-em-success-700'
-                    : 'border-em-warning-600/30 bg-em-warning-100 text-em-warning-700'
+                    : 'border-em-warning-700/30 bg-em-warning-100 text-em-warning-700'
               }`}
             >
               {checkingEligibility ? (

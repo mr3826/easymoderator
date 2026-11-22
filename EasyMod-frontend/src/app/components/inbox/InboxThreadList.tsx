@@ -171,7 +171,7 @@ export function InboxThreadList({
             aria-label={t("inbox.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className={`w-full min-h-11 pl-9 pr-4 py-2 border border-em-border-strong bg-em-bg-surface rounded-lg text-sm text-em-text-primary placeholder:text-em-text-disabled focus:outline-none ${ROW_FOCUS}`}
+            className={`w-full min-h-11 pl-9 pr-4 py-2 border border-em-border-input bg-em-bg-surface rounded-lg text-sm text-em-text-primary placeholder:text-em-text-secondary focus:outline-none ${ROW_FOCUS}`}
           />
         </div>
         <div className="flex gap-1">

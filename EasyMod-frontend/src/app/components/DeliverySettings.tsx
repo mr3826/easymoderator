@@ -198,7 +198,7 @@ const FOCUS_RING =
   'focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none';
 
 const INPUT_CLASSES =
-  `w-full min-h-11 border border-em-border-strong rounded-lg bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
+  `w-full min-h-11 border border-em-border-input rounded-lg bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
 
 const normalizeActivationStatus = (status: DeliveryProviderStatus | undefined): DeliveryActivationStatus => {
   const rawStatus = typeof status?.activation_status === 'string'

@@ -16,7 +16,7 @@ const METHODS: VerifyMethod[] = ["PHONE_CALL", "CHAT", "IN_PERSON", "OTHER"];
 
 const decisionStyle = {
   READY: { box: "bg-em-success-100 border-em-success-700/20", text: "text-em-success-700" },
-  VERIFY: { box: "bg-em-warning-100 border-em-warning-600/30", text: "text-em-warning-700" },
+  VERIFY: { box: "bg-em-warning-100 border-em-warning-700/30", text: "text-em-warning-700" },
   MANUAL_REVIEW: { box: "bg-em-danger-100 border-em-danger-700/20", text: "text-em-danger-700" },
 } as const;
 

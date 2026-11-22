@@ -223,9 +223,10 @@
   --em-bg-muted: #EDF1F8;
   --em-border: #D7DEEB;
   --em-border-strong: #B8C4DA;
+  --em-border-input: #7C8AA5;
   --em-text-primary: #17223B;
   --em-text-secondary: #4C5B7A;
-  --em-text-disabled: #8A97B0;
+  --em-text-disabled: #6E7D9C;
 
   /* Semantic */
   --em-success-700: #256D4F;
@@ -269,6 +270,7 @@
   --color-em-bg-muted: var(--em-bg-muted);
   --color-em-border: var(--em-border);
   --color-em-border-strong: var(--em-border-strong);
+  --color-em-border-input: var(--em-border-input);
   --color-em-text-primary: var(--em-text-primary);
   --color-em-text-secondary: var(--em-text-secondary);
   --color-em-text-disabled: var(--em-text-disabled);
@@ -330,6 +332,27 @@
 .em-billing :focus-visible,
 .em-automation :focus-visible {
   outline: 2px solid var(--em-focus-light) !important;
+  outline-offset: 2px !important;
+}
+
+/* Dark-surface focus ring (§18): sunlight on dark. Forward-looking correctness;
+   no live dark-mode toggle ships in the merchant app. Higher specificity than
+   the light rule so it wins under equal !important when a .dark ancestor exists. */
+.dark .em-dashboard :focus-visible,
+.dark .em-inbox :focus-visible,
+.dark .em-shell :focus-visible,
+.dark .em-faqs :focus-visible,
+.dark .em-notifications :focus-visible,
+.dark .em-delivery :focus-visible,
+.dark .em-payment :focus-visible,
+.dark .em-business :focus-visible,
+.dark .em-channels :focus-visible,
+.dark .em-orders :focus-visible,
+.dark .em-customers :focus-visible,
+.dark .em-products :focus-visible,
+.dark .em-billing :focus-visible,
+.dark .em-automation :focus-visible {
+  outline: 2px solid var(--em-focus-dark) !important;
   outline-offset: 2px !important;
 }
 

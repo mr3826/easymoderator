@@ -831,7 +831,7 @@ export default function ChannelDetail() {
               <p
                 role="alert"
                 data-testid="channel-hours-closed-warning"
-                className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-2 text-[11px] font-medium text-em-warning-700"
+                className="rounded-lg border border-em-warning-700/30 bg-em-warning-100 p-2 text-[11px] font-medium text-em-warning-700"
               >
                 {t("manageShop.channels.detail.hoursClosedWarning")}
               </p>
