@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { motion, MotionConfig } from "motion/react";
 import { toast } from "sonner";
 import { fadeUp } from "@/lib/motion";
@@ -461,6 +462,7 @@ export default function Subscription() {
                           lineOrder: t("subscription.billingLineColumns.order"),
                           lineKind: t("subscription.billingLineColumns.kind"),
                           lineOutcome: t("subscription.billingLineColumns.outcome"),
+                          lineProvider: t("subscription.billingLineColumns.provider"),
                           lineAmount: t("subscription.billingLineColumns.amount"),
                           lineOccurredAt: t("subscription.billingLineColumns.occurredAt"),
                           usageLine: invoice.usage
@@ -474,10 +476,11 @@ export default function Subscription() {
                             : invoice.dueDate
                               ? t("subscription.invoiceDueOn", { date: invoice.dueDate })
                               : "",
-                          outcomeDate: (orderId) => {
-                            const occurredAt = outcomeDateFor(invoice.metadata, orderId);
-                            return occurredAt ? formatUtcDay(occurredAt) : "—";
+                          outcomeDate: (orderId, occurredAt) => {
+                            const day = occurredAt ?? outcomeDateFor(invoice.metadata, orderId);
+                            return day ? formatUtcDay(day) : "—";
                           },
+                          creditLine: (minor) => t("subscription.billingCreditLine", { amount: formatMinor(minor) }),
                           status: invoiceStatusLabel(invoice.status),
                           statusClass: invoiceStatusClass(invoice.status),
                           type: t(`subscription.invoiceTypes.${invoice.type}`, invoice.type),
@@ -522,11 +525,13 @@ interface InvoiceTableLabels {
   lineOrder: string;
   lineKind: string;
   lineOutcome: string;
+  lineProvider: string;
   lineAmount: string;
   lineOccurredAt: string;
   usageLine: string;
   dueLine: string;
-  outcomeDate: (orderId: string | null | undefined) => string;
+  outcomeDate: (orderId: string | null | undefined, occurredAt?: string | null) => string;
+  creditLine: (minor: number) => string;
   status: string;
   statusClass: string;
   type: string;
@@ -637,12 +642,16 @@ function InvoiceTableRows({
                 {labels.usageLine && (
                   <p className="em-tabular mb-2 text-xs font-medium text-em-text-secondary">{labels.usageLine}</p>
                 )}
+                {invoice.usage && invoice.usage.creditMinor !== null && invoice.usage.creditMinor > 0 && (
+                  <p className="em-tabular mb-2 text-xs font-medium text-em-text-secondary">{labels.creditLine(invoice.usage.creditMinor)}</p>
+                )}
                 <table className="w-full text-sm" aria-label={labels.view}>
                   <thead>
                     <tr className="text-left text-xs text-em-text-secondary">
                       <th scope="col" className="py-1 pr-4">{labels.lineOrder}</th>
                       <th scope="col" className="py-1 pr-4">{labels.lineKind}</th>
                       <th scope="col" className="py-1 pr-4">{labels.lineOutcome}</th>
+                      <th scope="col" className="py-1 pr-4">{labels.lineProvider}</th>
                       <th scope="col" className="py-1 pr-4">{labels.lineOccurredAt}</th>
                       <th scope="col" className="py-1">{labels.lineAmount}</th>
                     </tr>
@@ -650,12 +659,22 @@ function InvoiceTableRows({
                   <tbody>
                     {lines.map((line) => (
                       <tr key={line.id} className="text-em-text-primary">
-                        <td className="py-1 pr-4 font-mono text-xs">{line.orderId ?? "—"}</td>
+                        <td className="py-1 pr-4 font-mono text-xs">
+                          {line.orderId ? (
+                            <Link
+                              to={`/orders?orderId=${encodeURIComponent(line.orderId)}`}
+                              className="underline decoration-em-border-strong underline-offset-2 hover:text-em-violet-700"
+                            >
+                              {line.orderId}
+                            </Link>
+                          ) : "—"}
+                        </td>
                         <td className="py-1 pr-4">{line.lineKind ?? "—"}</td>
                         <td className="py-1 pr-4">{line.outcome ?? "—"}</td>
-                        {/* The API's createdAt is row-insert time; the real outcome
-                            date only exists in the invoice's frozen line list. */}
-                        <td className="py-1 pr-4 text-xs">{labels.outcomeDate(line.orderId)}</td>
+                        <td className="py-1 pr-4">{line.provider ?? "—"}</td>
+                        {/* occurredAt is the row's own outcome date (DATEONLY, UTC);
+                            frozen invoice metadata remains the fallback for older lines. */}
+                        <td className="py-1 pr-4 text-xs">{labels.outcomeDate(line.orderId, line.occurredAt)}</td>
                         <td className="py-1">{labels.formatMinor(line.amountMinor)}</td>
                       </tr>
                     ))}
