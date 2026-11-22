@@ -92,13 +92,13 @@ export function buildWorkGroups(workItems: WorkItem[], t: Translate): WorkGroup[
     {
       kind: "draft" as const,
       title: t("dashboard.pulse.work.groups.drafts"),
-      to: "/orders",
+      to: "/orders?bucket=to_confirm",
       action: t("dashboard.pulse.work.openOrders"),
     },
     {
       kind: "exception" as const,
       title: t("dashboard.pulse.work.groups.exceptions"),
-      to: "/orders",
+      to: "/orders?bucket=needs_action",
       action: t("dashboard.pulse.work.openOrders"),
     },
   ]).map((group) => {

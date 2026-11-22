@@ -300,6 +300,27 @@ describe('Orders', () => {
     expect(await screen.findByRole('heading', { name: 'Order Details' })).toBeInTheDocument()
     expect(apiClient.getOrder).toHaveBeenCalledTimes(2)
   })
+
+  it('seeds the worklist bucket from a dashboard deep link (?bucket=to_pack)', async () => {
+    const { apiClient } = await import('@/api')
+    render(<MemoryRouter initialEntries={['/orders?bucket=to_pack']}><Orders /></MemoryRouter>)
+    await waitFor(() => expect(apiClient.getOrders).toHaveBeenLastCalledWith(expect.objectContaining({ delivery_bucket: 'to_pack' })))
+    expect(screen.getByTestId('orders-bucket-to_pack')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('seeds the payment filter from a dashboard deep link (?payment=pending)', async () => {
+    const { apiClient } = await import('@/api')
+    render(<MemoryRouter initialEntries={['/orders?payment=pending']}><Orders /></MemoryRouter>)
+    await waitFor(() => expect(apiClient.getOrders).toHaveBeenLastCalledWith(expect.objectContaining({ payment_status: 'pending' })))
+  })
+
+  it('fails closed to All for an unknown bucket deep link', async () => {
+    const { apiClient } = await import('@/api')
+    render(<MemoryRouter initialEntries={['/orders?bucket=bogus']}><Orders /></MemoryRouter>)
+    await waitFor(() => expect(apiClient.getOrders).toHaveBeenCalled())
+    expect(vi.mocked(apiClient.getOrders).mock.lastCall?.[0]?.delivery_bucket).toBeUndefined()
+    expect(screen.getByTestId('orders-bucket-all')).toHaveAttribute('aria-pressed', 'true')
+  })
 })
 
 describe('manual order idempotency', () => {
