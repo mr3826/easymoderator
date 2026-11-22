@@ -117,6 +117,9 @@ const HUMAN_HANDOFF_PHRASES = Object.freeze([
     'real person', 'talk to a person', 'talk to human', 'talk to a human', 'connect me to customer care',
     'customer care chai', 'i need customer care', 'human please', 'human help', 'need a human',
     'i need an agent', 'let me speak with someone', 'shop team help me',
+    // D-P2-06: phrasings actually observed from BD customers (word-boundary matched).
+    'human agent', 'speak to a human', 'want to speak to someone', 'i want to talk to someone',
+    'ekjon manus', 'manus er sathe', 'manusher sathe', 'manus kotha',
     ...PENDING_BANGLA_LANGUAGE_QA_LITERALS.slice(3, 6),
 ]);
 const SHADOW_PURCHASE_PATTERNS = Object.freeze([
