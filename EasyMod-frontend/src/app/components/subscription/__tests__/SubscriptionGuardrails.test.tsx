@@ -235,6 +235,7 @@ describe('usage on the billing page', () => {
       id: 'line-1', invoiceId: INVOICE_ID, orderId: 'order-1', lineKind: 'DELIVERED_ORDER',
       outcome: 'DELIVERED', unitPriceMinor: 1000, amountMinor: 1000, currency: 'BDT',
       contractVersion: '1.0.0', createdAt: '2026-11-01T00:00:00.000Z',
+      provider: 'pathao', occurredAt: '2026-10-12',
     }] as never);
     const user = userEvent.setup();
     renderPage();
@@ -254,5 +255,31 @@ describe('usage on the billing page', () => {
     await user.click(screen.getByRole('button', { name: /billing lines/i }));
     expect(await screen.findByText('12 Oct 2026')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Outcome date' })).toBeInTheDocument();
+    // Provider column exposes the courier brand; order ID is a shop-scoped deep link.
+    expect(screen.getByRole('columnheader', { name: 'Provider' })).toBeInTheDocument();
+    expect(screen.getByText('pathao')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'order-1' })).toHaveAttribute('href', '/orders?orderId=order-1');
+  });
+
+  it('prefers the line occurredAt over frozen metadata and shows a frozen credit line', async () => {
+    vi.mocked(getInvoices).mockResolvedValue([{
+      ...USAGE_INVOICE,
+      metadata: { ...USAGE_INVOICE.metadata, creditMinor: 1000, lines: [{ orderId: 'order-1', occurredAt: '2026-10-12' }] },
+    }] as never);
+    vi.mocked(getBillingLines).mockResolvedValue([{
+      id: 'line-1', invoiceId: INVOICE_ID, orderId: 'order-1', lineKind: 'DELIVERED_ORDER',
+      outcome: 'DELIVERED', unitPriceMinor: 1000, amountMinor: 1000, currency: 'BDT',
+      contractVersion: '1.0.0', createdAt: '2026-11-01T00:00:00.000Z',
+      provider: null, occurredAt: '2026-10-15',
+    }] as never);
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText('Delivered orders billed')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /billing lines/i }));
+    // Line occurredAt (15 Oct) wins over frozen metadata (12 Oct).
+    expect(await screen.findByText('15 Oct 2026')).toBeInTheDocument();
+    expect(screen.queryByText('12 Oct 2026')).toBeNull();
+    // Credit line shows the frozen amount (never recomputed client-side).
+    expect(screen.getByText('Credit applied: ৳10.00')).toBeInTheDocument();
   });
 });

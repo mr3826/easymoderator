@@ -53,7 +53,10 @@ const { mockUseCommercialContract, mockUseClaimDecisions, translations, mocks } 
     'subscription.billingLineColumns.order': 'Order',
     'subscription.billingLineColumns.kind': 'Kind',
     'subscription.billingLineColumns.outcome': 'Outcome',
+    'subscription.billingLineColumns.provider': 'Provider',
     'subscription.billingLineColumns.amount': 'Amount',
+    'subscription.billingLineColumns.occurredAt': 'Outcome date',
+    'subscription.billingCreditLine': 'Credit applied: {{amount}}',
     'subscription.noInvoices': 'No invoices yet.',
     'subscription.invoiceDisclaimer': 'Amounts come from validated billing lines.',
     'subscription.viewInvoiceTitle': 'View / Print invoice',
@@ -306,6 +309,7 @@ describe('Subscription billing page', () => {
 
     await waitFor(() => expect(mocks.getBillingLines).toHaveBeenCalledWith(INVOICE_ID));
     expect(await screen.findByText('order-1')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'order-1' })).toHaveAttribute('href', '/orders?orderId=order-1');
     expect(screen.getByText('DELIVERED_ORDER')).toBeInTheDocument();
   });
 

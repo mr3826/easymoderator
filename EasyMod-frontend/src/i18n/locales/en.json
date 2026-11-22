@@ -3175,9 +3175,11 @@
       "order": "Order",
       "kind": "Kind",
       "outcome": "Outcome",
+      "provider": "Provider",
       "amount": "Amount",
       "occurredAt": "Outcome date"
     },
+    "billingCreditLine": "Credit applied: {{amount}}",
     "noInvoices": "No invoices yet.",
     "invoiceDisclaimer": "Amounts come from validated billing lines; the invoice PDF is the final document.",
     "viewInvoiceTitle": "View / Print invoice",

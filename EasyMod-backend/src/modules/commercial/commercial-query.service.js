@@ -74,6 +74,10 @@ function toBillingLine(row) {
         currency: row.currency || 'BDT',
         contractVersion: row.contract_version ?? row.contractVersion ?? null,
         createdAt: asIsoString(row.created_at ?? row.createdAt),
+        provider: row.provider ?? null,
+        // occurred_at is DATEONLY (UTC day); keep the raw YYYY-MM-DD string so the
+        // client's UTC-day formatter cannot shift it across timezones.
+        occurredAt: row.occurred_at ?? row.occurredAt ?? null,
     };
 }
 

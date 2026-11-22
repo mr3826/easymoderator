@@ -153,6 +153,8 @@ export interface InvoiceBillingLine {
   currency: string;
   contractVersion: string | null;
   createdAt: string | null;
+  provider: string | null;
+  occurredAt: string | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => (
@@ -200,6 +202,8 @@ function parseBillingLine(value: unknown, index: number): InvoiceBillingLine {
     currency,
     contractVersion,
     createdAt: optionalString(value.createdAt, `${label}.createdAt`),
+    provider: optionalString(value.provider, `${label}.provider`),
+    occurredAt: optionalString(value.occurredAt, `${label}.occurredAt`),
   };
 }
 

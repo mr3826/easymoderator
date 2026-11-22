@@ -49,6 +49,8 @@ describe('listBillingLines', () => {
             currency: 'BDT',
             contract_version: '1.0.0',
             created_at: '2026-11-14T00:00:00.000Z',
+            provider: 'pathao',
+            occurred_at: '2026-11-14',
         }]);
 
         const lines = await listBillingLines({ shopId: SHOP_ID, invoiceId: INVOICE_ID });
@@ -64,6 +66,8 @@ describe('listBillingLines', () => {
             currency: 'BDT',
             contractVersion: '1.0.0',
             createdAt: '2026-11-14T00:00:00.000Z',
+            provider: 'pathao',
+            occurredAt: '2026-11-14',
         }]);
     });
 
@@ -112,5 +116,16 @@ describe('toBillingLine', () => {
     it('truncates non-integer minor amounts rather than emitting floats', () => {
         const line = toBillingLine({ id: 'x', amount_minor: 1000.9 });
         expect(line.amountMinor).toBe(1000);
+    });
+
+    it('passes provider through and renders null honestly (ui_cancel/catch-up lines)', () => {
+        expect(toBillingLine({ id: 'x', provider: 'steadfast' }).provider).toBe('steadfast');
+        expect(toBillingLine({ id: 'x' }).provider).toBeNull();
+        expect(toBillingLine({ id: 'x', provider: null }).provider).toBeNull();
+    });
+
+    it('keeps occurredAt as a raw date-only string (no ISO timestamp, no timezone shift)', () => {
+        expect(toBillingLine({ id: 'x', occurred_at: '2026-11-14' }).occurredAt).toBe('2026-11-14');
+        expect(toBillingLine({ id: 'x' }).occurredAt).toBeNull();
     });
 });

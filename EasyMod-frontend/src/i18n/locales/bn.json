@@ -3175,9 +3175,11 @@
       "order": "অর্ডার",
       "kind": "ধরন",
       "outcome": "ফলাফল",
+      "provider": "প্রোভাইডার",
       "amount": "পরিমাণ",
       "occurredAt": "ফলাফলের তারিখ"
     },
+    "billingCreditLine": "ক্রেডিট প্রয়োগ: {{amount}}",
     "noInvoices": "এখনো কোনো ইনভয়েস নেই।",
     "invoiceDisclaimer": "পরিমাণ যাচাইকৃত বিলিং লাইন থেকে আসে; ইনভয়েস PDF চূড়ান্ত নথি।",
     "viewInvoiceTitle": "ইনভয়েস দেখুন / প্রিন্ট করুন",

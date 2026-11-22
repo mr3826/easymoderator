@@ -29,6 +29,8 @@ const LINE = {
   currency: 'BDT',
   contractVersion: COMMERCIAL_CONTRACT_VERSION,
   createdAt: '2026-11-14T00:00:00.000Z',
+  provider: 'steadfast',
+  occurredAt: '2026-11-14',
 };
 
 describe('Subscription Domain API', () => {
@@ -101,6 +103,24 @@ describe('Subscription Domain API', () => {
       });
       expect(lines).toHaveLength(1);
       expect(lines[0].amountMinor).toBe(1000);
+      expect(lines[0].provider).toBe('steadfast');
+      expect(lines[0].occurredAt).toBe('2026-11-14');
+    });
+
+    it('accepts null provider/occurredAt and ignores unknown keys', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { success: true, data: { lines: [{ ...LINE, provider: null, occurredAt: null, extraKey: 'ignored' }] } },
+      });
+      const lines = await subscription.getBillingLines(LINE.invoiceId);
+      expect(lines[0].provider).toBeNull();
+      expect(lines[0].occurredAt).toBeNull();
+    });
+
+    it('rejects a non-string provider', async () => {
+      (httpClient.get as any).mockResolvedValue({
+        data: { success: true, data: { lines: [{ ...LINE, provider: 123 }] } },
+      });
+      await expect(subscription.getBillingLines(LINE.invoiceId)).rejects.toThrow(/provider must be a string or null/);
     });
 
     it('rejects a non-BDT line instead of guessing a currency', async () => {
