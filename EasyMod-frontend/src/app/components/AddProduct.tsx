@@ -705,7 +705,7 @@ export default function AddProduct({ editMode = false, editProduct = null, onClo
                     <div className="grid grid-cols-5 gap-2">
                       {productImages.map((file, index) => (
                         <div key={index} className="relative group">
-                          <div className="aspect-square bg-em-bg-muted rounded-lg overflow-hidden border-2 border-em-border hover:border-em-violet-400 transition-colors">
+                          <div className="aspect-square bg-em-bg-muted rounded-lg overflow-hidden border-2 border-em-border hover:border-em-violet-300 transition-colors">
                             <img
                               src={imageObjectUrls[index]}
                               alt={`Product ${index + 1}`}

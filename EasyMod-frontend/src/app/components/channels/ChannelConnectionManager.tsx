@@ -290,7 +290,7 @@ export default function ChannelConnectionManager({ embedded = false }: { embedde
                         ? t("channels.tokenExpired")
                         : t("channels.tokenExpiresIn", { days: Math.ceil(expiresMs / dayMs) });
                     return (
-                      <div className="flex items-start gap-2 bg-em-warning-100 border border-em-warning-600/30 rounded-lg p-2.5 mb-4 text-xs text-em-warning-700">
+                      <div className="flex items-start gap-2 bg-em-warning-100 border border-em-warning-700/30 rounded-lg p-2.5 mb-4 text-xs text-em-warning-700">
                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                         <span>{label}</span>
                       </div>

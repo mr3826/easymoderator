@@ -980,7 +980,7 @@ export default function Orders() {
             </div>
 
             <div className="p-6 space-y-6">
-              <p role="note" className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-3 text-sm text-em-warning-700 font-bn">
+              <p role="note" className="rounded-lg border border-em-warning-700/30 bg-em-warning-100 p-3 text-sm text-em-warning-700 font-bn">
                 {t('orders.createModal.draftStockDisclosure')}
               </p>
               {/* Customer Info */}
@@ -1507,7 +1507,7 @@ export default function Orders() {
                 {selectedOrder.payment_method || t('orders.paymentMethod.unknown')}
               </p>
               {showPaymentReconciliation && (
-                <div role="alert" className="mt-3 rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-3 text-sm text-em-warning-700">
+                <div role="alert" className="mt-3 rounded-lg border border-em-warning-700/30 bg-em-warning-100 p-3 text-sm text-em-warning-700">
                   <p className="font-semibold">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.title`)}</p>
                   <p className="mt-1">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.body`)}</p>
                   <p className="mt-1 text-xs">{t(`orders.paymentReconciliation.${reconciliationWarningKey}.nextStep`)}</p>

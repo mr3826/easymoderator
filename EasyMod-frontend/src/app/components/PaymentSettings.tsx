@@ -16,7 +16,7 @@ const FOCUS_RING =
   "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
 
 const INPUT_CLASSES =
-  `w-full min-h-11 px-4 py-2 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
+  `w-full min-h-11 px-4 py-2 border border-em-border-input rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
 
 interface PaymentGateway {
   id: string;
@@ -699,7 +699,7 @@ export default function PaymentSettings() {
                     value={advancePercentage}
                     onChange={(e) => setAdvancePercentage(parseFloat(e.target.value) || 0)}
                     disabled={advancePaymentRule !== 'percentage'}
-                    className={`w-24 px-3 py-2 min-h-11 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none disabled:bg-em-bg-muted disabled:text-em-text-disabled ${FOCUS_RING}`}
+                    className={`w-24 px-3 py-2 min-h-11 border border-em-border-input rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none disabled:bg-em-bg-muted disabled:text-em-text-disabled ${FOCUS_RING}`}
                     min="0"
                     max="100"
                   />
@@ -715,7 +715,7 @@ export default function PaymentSettings() {
                     value={advanceFixed}
                     onChange={(e) => setAdvanceFixed(parseFloat(e.target.value) || 0)}
                     disabled={advancePaymentRule !== 'fixed'}
-                    className={`w-32 px-3 py-2 min-h-11 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none disabled:bg-em-bg-muted disabled:text-em-text-disabled ${FOCUS_RING}`}
+                    className={`w-32 px-3 py-2 min-h-11 border border-em-border-input rounded-lg bg-em-bg-surface text-sm text-em-text-primary focus:outline-none disabled:bg-em-bg-muted disabled:text-em-text-disabled ${FOCUS_RING}`}
                     min="0"
                     step="10"
                   />

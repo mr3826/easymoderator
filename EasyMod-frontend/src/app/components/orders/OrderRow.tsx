@@ -6,7 +6,7 @@ import { canBookCourierForOrder, getExpectedCourierCollection } from "./orderRul
 
 // em-token status pill classes (guardrails §8 semantic tones)
 const STATUS_CLASSES: Record<string, string> = {
-  draft: "bg-em-bg-em-bg-muted text-em-text-secondary",
+  draft: "bg-em-bg-muted text-em-text-secondary",
   confirmed: "bg-em-info-100 text-em-info-700",
   processing: "bg-em-warning-100 text-em-warning-700",
   completed: "bg-em-success-100 text-em-success-700",

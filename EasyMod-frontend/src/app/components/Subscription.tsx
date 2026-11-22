@@ -310,7 +310,7 @@ export default function Subscription() {
               <p role="status" className="text-sm text-em-text-secondary">{t("subscription.loading")}</p>
             )}
             {contractQuery.error && (
-              <div role="alert" className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 p-3 text-sm text-em-warning-700">
+              <div role="alert" className="rounded-lg border border-em-warning-700/30 bg-em-warning-100 p-3 text-sm text-em-warning-700">
                 {t("subscription.contractUnavailable")}
               </div>
             )}

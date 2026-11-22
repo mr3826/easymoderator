@@ -558,7 +558,7 @@ export function InboxComposer({
               handleSendMessage();
             }
           }}
-          className={`flex-1 min-h-11 px-4 py-3 border border-em-border-strong rounded-lg bg-em-bg-surface text-sm text-em-text-primary placeholder:text-em-text-disabled focus:outline-none ${FOCUS_RING} ${
+          className={`flex-1 min-h-11 px-4 py-3 border border-em-border-input rounded-lg bg-em-bg-surface text-sm text-em-text-primary placeholder:text-em-text-secondary focus:outline-none ${FOCUS_RING} ${
             is24hExpired ? "bg-em-bg-muted cursor-not-allowed" : ""
           }`}
         />

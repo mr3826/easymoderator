@@ -33,7 +33,7 @@ export function NoMetaAssetsFound({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-lg border border-em-warning-600/30 bg-em-warning-100 px-3 py-3 text-left">
+    <div className="rounded-lg border border-em-warning-700/30 bg-em-warning-100 px-3 py-3 text-left">
       <div className="flex items-start gap-2">
         <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-em-warning-700" />
         <div className="min-w-0">
@@ -54,7 +54,7 @@ export function NoMetaAssetsFound({
           href="https://business.facebook.com/settings"
           target="_blank"
           rel="noopener noreferrer"
-          className={`inline-flex flex-1 min-h-11 items-center justify-center rounded-lg border border-em-warning-600/30 bg-em-bg-surface px-3 py-2 text-xs font-semibold text-em-warning-700 hover:bg-em-warning-100 ${FOCUS_RING}`}
+          className={`inline-flex flex-1 min-h-11 items-center justify-center rounded-lg border border-em-warning-700/30 bg-em-bg-surface px-3 py-2 text-xs font-semibold text-em-warning-700 hover:bg-em-warning-100 ${FOCUS_RING}`}
         >
           {t("channels.noPages.openSettings")}
         </a>
@@ -68,7 +68,7 @@ export function NoMetaAssetsFound({
         <button
           type="button"
           onClick={onCancel}
-          className={`flex-1 min-h-11 rounded-lg border border-em-warning-600/30 px-3 py-2 text-xs font-semibold text-em-warning-700 hover:bg-em-warning-100 ${FOCUS_RING}`}
+          className={`flex-1 min-h-11 rounded-lg border border-em-warning-700/30 px-3 py-2 text-xs font-semibold text-em-warning-700 hover:bg-em-warning-100 ${FOCUS_RING}`}
         >
           {t("common.cancel")}
         </button>
@@ -174,7 +174,7 @@ export default function ChannelOAuthFlowCard({
                     className={`flex items-center gap-3 p-2.5 rounded-lg border-2 transition-colors ${
                       isDisabled
                         ? !isConnectable
-                          ? "border-em-warning-600/30 bg-em-warning-100 cursor-not-allowed opacity-80"
+                          ? "border-em-warning-700/30 bg-em-warning-100 cursor-not-allowed opacity-80"
                           : "border-em-border bg-em-bg-muted cursor-not-allowed opacity-70"
                         : selectedPageIds.has(page.id)
                           ? "border-em-violet-600 bg-em-bg-surface cursor-pointer"
