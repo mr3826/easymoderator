@@ -243,6 +243,30 @@ test('mobile 390px keeps the primary action reachable without horizontal overflo
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
+// A6 G-UX09/G-UX09b additions (the 390px pin above is unchanged).
+test('mobile 360px keeps the primary action reachable without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await setupRoutes(page);
+  await loginAndGo(page, '/dashboard');
+  await expect(page.getByTestId('dashboard-primary-action')).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('200% zoom-equivalent (1280×1024 content at 640 CSS px): signal and queue link stay reachable', async ({ page }) => {
+  // 200% zoom of a 1280×1024 window = 640×512 CSS viewport with media
+  // queries re-evaluated (CSS zoom on <html> would scale the desktop layout
+  // without reflowing — phantom overflow, see A6 probe). Overview content
+  // must fit the page and the #301 queue link must stay reachable.
+  await page.setViewportSize({ width: 640, height: 512 });
+  await setupRoutes(page);
+  await loginAndGo(page, '/dashboard');
+  await expect(page.getByTestId('dashboard-signal')).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toBeVisible();
+});
+
 test('setup variant shows one primary action on the next incomplete task', async ({ page }) => {
   await setupRoutes(page, { setupComplete: false, dismissSetup: false });
   await loginAndGo(page, '/dashboard');
