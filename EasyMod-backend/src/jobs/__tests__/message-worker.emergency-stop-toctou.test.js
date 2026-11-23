@@ -111,6 +111,8 @@ jest.mock('src/modules/notification/merchant-notification.service', () => ({ not
 jest.mock('src/modules/notification/notification-events', () => ({ NOTIFICATION_EVENTS: { AI_HITL: 'ai_hitl' } }));
 
 const { processMessageJob, _private } = require('src/jobs/message-worker');
+const stage2Rules = require('src/modules/ai/intent/stage2-rules');
+const turnRecovery = require('src/modules/ai/recovery/turn-recovery.service');
 
 const makeJob = (over = {}) => ({
     id: 'job-1',
@@ -261,5 +263,25 @@ describe('W3 — resolveMutationsAllowed recomputes effective stop/mode (unit)',
         mockShopFindByPk.mockRejectedValue(new Error('db down'));
         const allowed = await _private.resolveMutationsAllowed('shop-1', channel, 'AUTO');
         expect(allowed).toBe(false);
+    });
+});
+
+describe('Guard 5b (PR #302 / D-P2-06) — explicit human request wins over generic product lookup', () => {
+    test('a "human agent please" message routes to recovery, never to the conversational fallback', async () => {
+        // Guard 5b classify()s the EFFECTIVE message; match on content so an earlier
+        // intent-shadow classify call cannot consume this stub.
+        stage2Rules.classify.mockImplementation((text) => (
+            String(text).includes('human agent') || String(text).includes('manus')
+                ? { intentId: 'HUMAN_HANDOFF_REQUEST', domain: 'CONVERSATION', slots: {}, confidence: 1, source: 'RULE', matchedRule: 'human_handoff' }
+                : { intentId: 'GENERAL_INQUIRY', domain: 'CONVERSATION', slots: {}, confidence: 1, source: 'RULE', matchedRule: 'test' }
+        ));
+
+        const result = await processMessageJob(makeJob({ message: 'aman ushno ekjon manus. human agent please' }));
+
+        expect(result).toEqual(expect.objectContaining({ success: true }));
+        expect(turnRecovery.requireHuman).toHaveBeenCalledWith(expect.objectContaining({ reason: 'human_requested' }));
+        // Guard 5b short-circuits BEFORE the conversational LLM / generic product lookup.
+        expect(mockProcessNewIntent).not.toHaveBeenCalled();
+        expect(mockSendMessage).not.toHaveBeenCalled();
     });
 });
