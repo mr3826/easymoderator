@@ -19,6 +19,7 @@ const sseManager = require('../../utils/sse-manager');
 const { getProvider } = require('../channel-providers/provider.registry');
 const { sendEscalationAutoReply } = require('./escalation-auto-reply.service');
 const policyEngine = require('../policy/policy.engine');
+const { cacheRedis } = require('../../config/redis');
 const { Customer, MetaChannelSettings, Message, Conversation } = require('../entities');
 const conversationLockService = require('./conversation-lock.service');
 const { Op, literal } = require('sequelize');
@@ -38,6 +39,29 @@ const MAX_HANDOFF_COOLDOWN_MINUTES = 1440;
 const DELIVERY_LOCK_TIMEOUT_MS = 300_000;
 const DELIVERY_LOCK_WAIT_MS = 10_000;
 const SUPPORTED_HANDOFF_PLATFORMS = new Set(['facebook', 'messenger', 'instagram']);
+// W4: the ai:pause read is a safety HINT, never a blocker. Bound it so an
+// unreachable Redis can neither stall the customer-facing send path nor hang a
+// unit suite that does not mock the client. On timeout / error → not paused; the
+// business-wide emergency stop is a separate, DB-backed fence enforced below.
+const MANUAL_PAUSE_READ_TIMEOUT_MS = 200;
+
+async function readManualPause(convId) {
+    if (!cacheRedis || typeof cacheRedis.get !== 'function') return null;
+    let timer = null;
+    try {
+        return await Promise.race([
+            Promise.resolve(cacheRedis.get(`ai:pause:${convId}`)),
+            new Promise((resolve) => {
+                timer = setTimeout(() => resolve(null), MANUAL_PAUSE_READ_TIMEOUT_MS);
+                if (typeof timer.unref === 'function') timer.unref();
+            }),
+        ]);
+    } catch (_) {
+        return null;
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
 
 function hasRequiredContextValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== '';
@@ -299,7 +323,7 @@ async function escalateToHuman({
 
         try {
             const customerChannelType = pf === 'facebook' ? 'messenger' : pf;
-            const [customer, settings, automation] = await Promise.all([
+            const [customer, settings, automation, manualPause] = await Promise.all([
                 Customer.findOne({
                     where: {
                         shop_id: shopId,
@@ -310,6 +334,13 @@ async function escalateToHuman({
                 }),
                 MetaChannelSettings.findOne({ where: { channel_id: channel.id } }),
                 loadEffectiveChannelAutomation(shopId, channel.id).catch(() => null),
+                // W4: the manual-takeover / human_active fence. A merchant or mobile
+                // agent reply sets `ai:pause:<conv>` alongside the HITL flip (and the
+                // 'human_active' candidate hold), so reading it here is what closes
+                // the window where the AI-voiced holding template could reach the
+                // customer during a live takeover. Bounded + fail-open on Redis error
+                // (see readManualPause); the emergency stop is enforced separately.
+                readManualPause(convId),
             ]);
 
             const customerKnown = isContextRecord(customer) && hasRequiredContextValue(customer.id);
@@ -335,6 +366,18 @@ async function escalateToHuman({
                 // stays HITL for the human team; hitl is never cleared here.
                 await stampHoldingMessage(holdingMsg, convId, MESSAGE_DELIVERY_STATES.HELD, null, {
                     held_reason: 'emergency_stop',
+                    suggestion_visibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
+                }).catch(() => {});
+                emitHoldingDelivery(shopId, convId, holdingMsg, MESSAGE_DELIVERY_STATES.HELD);
+                return holdingMsg;
+            }
+
+            if (manualPause) {
+                // W4: a human has taken over this conversation (manual reply set
+                // ai:pause). Keep the conversation HITL for the team and retain the
+                // holding message for review, but send nothing in the AI's voice.
+                await stampHoldingMessage(holdingMsg, convId, MESSAGE_DELIVERY_STATES.HELD, null, {
+                    held_reason: 'ai_paused',
                     suggestion_visibility: SUGGESTION_VISIBILITY.VISIBLE_HITL_REVIEW,
                 }).catch(() => {});
                 emitHoldingDelivery(shopId, convId, holdingMsg, MESSAGE_DELIVERY_STATES.HELD);
