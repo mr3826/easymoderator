@@ -767,3 +767,89 @@ describe('response cache', () => {
         expect(llm.chat).not.toHaveBeenCalled();
     });
 });
+
+/**
+ * W3 FIX 3 (agent A5, from agent A8's blind merchant pass 2026-11-24).
+ * A8's DRAFT-mode capture: inbound "amar Classic Blue Denim Jeans ta eku 32
+ * size pabo? dam koto ar COD ache? reply niye wait korbo" produced the draft
+ * "Ei product ta amader catalog e pacchi na ... Amader kache ja ache:
+ * • Classic Blue Denim Jeans — ৳1290" — a single reply that denied finding
+ * the product and listed it by name and price in the same breath (thin
+ * UI-created catalog, deterministic fallback tier, no provider involved).
+ * Root cause was in resolveProductEvidence: conversational noise counted as
+ * unmatched identity claims, so the quoted row fell to relatedProducts and
+ * the NOT_FOUND tier enumerated the very product the deny sentence denied.
+ * This suite runs the real route + real gate (product-search stubbed), which
+ * is exactly the composition A8's local worker exercised.
+ */
+describe('W3 FIX 3 — no reply denies a product it lists', () => {
+    const JEANS = product({
+        id: 'p-jeans', name: 'Classic Blue Denim Jeans', category: 'bottoms',
+        price: 1290, quantity: 30, track_quantity: true,
+        ai_material: 'denim', ai_color: 'blue',
+    });
+
+    const A8_MESSAGE = 'amar Classic Blue Denim Jeans ta eku 32 size pabo? dam koto ar COD ache? reply niye wait korbo';
+    const NOT_FOUND_BOILERPLATE = /pacchi na|couldn'?t find|could not find|খুঁজে পাচ্ছি না|no catalog product matches/i;
+    const ENUMERATED_OFFER_HEAD = /Amader kache ja ache|What we do have|আমাদের কাছে যা আছে/i;
+
+    test('the A8 sentence presents the named product and never denies finding it', async () => {
+        productSearch.searchByAttributes.mockResolvedValue([JEANS]);
+
+        const result = await routeMessage(A8_MESSAGE);
+
+        expect(llm.chat).not.toHaveBeenCalled();
+        expect(result.grounding.productStatus).toBe(grounding.ProductEvidenceStatus.VERIFIED);
+        expect(result.response).toContain('Classic Blue Denim Jeans');
+        expect(result.response).toMatch(/৳1,?290/);
+        expect(result.response.toLowerCase()).not.toMatch(NOT_FOUND_BOILERPLATE);
+        expect(result.response).not.toMatch(ENUMERATED_OFFER_HEAD);
+        expect(gate(result).decision).toBe(grounding.GroundingDecision.SEND);
+    });
+
+    test('quoting the name with a photo request says only the photo is not stored, never that the product is missing', async () => {
+        productSearch.searchByAttributes.mockResolvedValue([JEANS]);
+
+        const result = await routeMessage('Classic Blue Denim Jeans er chobi pathao please');
+
+        expect(result.grounding.productStatus).toBe(grounding.ProductEvidenceStatus.VERIFIED);
+        expect(result.response.toLowerCase()).not.toMatch(NOT_FOUND_BOILERPLATE);
+        expect(result.response).toContain('Classic Blue Denim Jeans');
+        // String-level invariant: never deny-and-display.
+        const denies = NOT_FOUND_BOILERPLATE.test(result.response);
+        const displays = /•\s*\S/.test(result.response) || ENUMERATED_OFFER_HEAD.test(result.response);
+        expect(denies && displays).toBe(false);
+        expect(gate(result).decision).toBe(grounding.GroundingDecision.SEND);
+    });
+
+    test('invariant across A8-style variants: deny + enumerated offer naming a quoted product never co-occur', async () => {
+        const variants = [
+            A8_MESSAGE,
+            'amar Classic Blue Denim Jeans ta eku 32 size pabo?',
+            'Classic Blue Denim Jeans ache? dam koto',
+            'Classic Blue Denim Jeans er dam koto? reply niye wait korbo',
+            'hi, Classic Blue Denim Jeans ta ekta na? COD ache? wait korbo',
+            'chiffon saree ache?', // deny+list of a DIFFERENT product stays legal
+        ];
+        productSearch.searchByAttributes.mockResolvedValue([JEANS, BLACK_SAREE, COTTON_SAREE]);
+
+        for (const message of variants) {
+            const result = await routeMessage(message);
+            const denies = NOT_FOUND_BOILERPLATE.test(result.response);
+            if (!denies) continue;
+            // When a reply denies, it must not enumerate the product the
+            // customer quoted verbatim. Quoted row names present in the
+            // message may only appear in non-deny replies.
+            const quotedNames = ['Classic Blue Denim Jeans', 'Premium Black Saree', 'Cotton Saree']
+                .filter(name => message.toLowerCase().includes(name.toLowerCase()));
+            for (const name of quotedNames) {
+                expect(`${result.response} :: ${message}`).not.toContain(name);
+            }
+            // And a reply that denies while showing a "what we have" list
+            // must never show the denied item itself.
+            if (ENUMERATED_OFFER_HEAD.test(result.response)) {
+                for (const name of quotedNames) expect(result.response).not.toContain(name);
+            }
+        }
+    });
+});
