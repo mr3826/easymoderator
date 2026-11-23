@@ -349,3 +349,82 @@ test('SSE offline is announced honestly', async ({ page }) => {
     await rail.locator('summary').click();
     await expect(rail.getByText('Live updates offline — reconnecting')).toBeVisible({ timeout: 15000 });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A6 G-UX09 / G-UX09b additions (existing 390px pins above are unchanged):
+// TRUE 360px pass, 200%-zoom proxy, and keyboard-only draft-review order.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('360px: no horizontal overflow, single-pane swap and back', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await setupRoutes(page);
+    await loginAndGo(page);
+    await expect(page.getByRole('button', { name: /Bob/ }).first()).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    await page.getByRole('button', { name: /Bob/ }).first().click();
+    const back = page.getByRole('button', { name: 'Back to conversations' });
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect(page.getByRole('button', { name: /Bob/ }).first()).toBeVisible();
+});
+
+test('200% zoom-equivalent (1280×1024 content at 640 CSS px): no page overflow, focus still painted', async ({ page }) => {
+    // A real 200% desktop zoom of a 1280×1024 window gives the page a
+    // 640×512 CSS viewport AND re-evaluates media queries. Plain CSS `zoom`
+    // on <html> does neither the second part (probed: it scales the desktop
+    // 1280 layout with its min-w-[1240px] table into page overflow that no
+    // real zoom produces) — so the faithful, repo-conventional emulation is
+    // setViewportSize to the zoomed CSS size. Screen-reader/Bengali pass
+    // stays founder/manual (§29).
+    await page.setViewportSize({ width: 640, height: 512 });
+    await setupRoutes(page);
+    await loginAndGo(page);
+    await expect(page.getByTestId('inbox-signal')).toBeVisible();
+    const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    // Primary work affordance still reachable by keyboard with a painted ring.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+    let rowFocused = false;
+    for (let i = 0; i < 80 && !rowFocused; i += 1) {
+        await page.keyboard.press('Tab');
+        rowFocused = await page.evaluate(
+            () => document.activeElement?.getAttribute('role') === 'button'
+                && Boolean(document.activeElement?.closest('.mw-inbox-workbench')),
+        );
+    }
+    expect(rowFocused).toBe(true);
+    await expect.poll(async () => page.evaluate(() => {
+        const style = getComputedStyle(document.activeElement as Element);
+        return parseFloat(style.outlineWidth) > 0 && style.outlineStyle !== 'none';
+    })).toBe(true);
+});
+
+test('keyboard-only draft review: Send this → Edit & send → Dismiss are tabbed in order', async ({ page }) => {
+    await setupRoutes(page, {
+        messagesFor: (id) => [customerMessage(id), heldDraft(id)],
+    });
+    await loginAndGo(page);
+    await page.getByRole('button', { name: /Alice/ }).first().click();
+    const sendThis = page.getByRole('button', { name: 'Send this', exact: true });
+    const editSend = page.getByRole('button', { name: 'Edit & send', exact: true });
+    const dismiss = page.getByRole('button', { name: 'Dismiss', exact: true });
+    await expect(sendThis).toBeEnabled();
+    await expect(editSend).toBeEnabled();
+    await expect(dismiss).toBeEnabled();
+
+    // Start inside the draft card, then walk the group with Tab only.
+    await sendThis.focus();
+    await page.keyboard.press('Tab');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Edit & send');
+    await page.keyboard.press('Tab');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Dismiss');
+    // And keyboard focus paints a real ring (no color-only indication).
+    await expect.poll(async () => page.evaluate(() => {
+        const style = getComputedStyle(document.activeElement as Element);
+        return parseFloat(style.outlineWidth) > 0 && style.outlineStyle !== 'none';
+    })).toBe(true);
+});

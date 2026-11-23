@@ -150,6 +150,39 @@ test('390px: no horizontal overflow on the worklist', async ({ page }) => {
     expect(overflow).toBeLessThanOrEqual(0);
 });
 
+// A6 G-UX09/G-UX09b additions (the 390px pin above is unchanged).
+test('360px: no horizontal overflow and the create action stays reachable', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await setupRoutes(page);
+    await loginAndGo(page);
+    await expect(page.getByTestId('orders-signal')).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    // Primary task action reachable and functional at true 360px.
+    await page.getByRole('button', { name: 'Create Order' }).click();
+    await expect(page.getByTestId('create-order-modal')).toBeVisible();
+    const dialogOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(dialogOverflow).toBeLessThanOrEqual(1);
+});
+
+test('200% zoom-equivalent (1280×1024 content at 640 CSS px): worklist fits, create action reachable', async ({ page }) => {
+    // Real 200% zoom = 640×512 CSS viewport WITH media-query re-evaluation
+    // (plain CSS zoom would scale the desktop table's min-w-[1240px] into a
+    // phantom page-overflow that no actual zoom produces — probed). The
+    // desktop table therefore drops to the mobile worklist here; the page
+    // must not scroll horizontally and the task action must stay reachable.
+    await page.setViewportSize({ width: 640, height: 512 });
+    await setupRoutes(page);
+    await loginAndGo(page);
+    await expect(page.getByTestId('orders-signal')).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    await page.getByRole('button', { name: 'Create Order' }).click();
+    await expect(page.getByTestId('create-order-modal')).toBeVisible();
+    const dialogOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(dialogOverflow).toBeLessThanOrEqual(1);
+});
+
 test('axe: no critical or serious violations in the orders surface', async ({ page }) => {
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });

@@ -212,6 +212,28 @@ test('390px: no horizontal page overflow on the billing surface', async ({ page 
     expect(overflow).toBeLessThanOrEqual(1);
 });
 
+// A6 G-UX09/G-UX09b additions (the 390px pin above is unchanged).
+test('360px: no horizontal page overflow on the billing surface', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await setupRoutes(page);
+    await loginAndGo(page);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test('200% zoom-equivalent (1280×1024 content at 640 CSS px): billing reflows with no page overflow', async ({ page }) => {
+    // Same faithful emulation as the other A6 specs: 200% of a 1280×1024
+    // window is a 640×512 CSS viewport with media queries re-evaluated
+    // (CSS `zoom` alone would keep the desktop layout and hallucinate
+    // overflow). The frozen contract price must remain visible.
+    await page.setViewportSize({ width: 640, height: 512 });
+    await setupRoutes(page);
+    await loginAndGo(page);
+    await expect(page.getByText('৳10.00')).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test('axe: no critical or serious violations in the billing surface', async ({ page }) => {
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
