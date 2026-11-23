@@ -1000,11 +1000,19 @@ class OrderSessionService {
                     let stockChanged = false;
                     for (const item of cart) {
                         if (!item.product_id) continue;
-                        const stockCheck = await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1, {
-                            variantId: item.variant_id || null,
-                            size: item.size || item.variant_size || null,
-                            color: item.color || item.variant_color || null,
-                        });
+                        // D-P2-02: pass the selected-variant selector ONLY when the
+                        // line actually carries one, so a plain product line keeps the
+                        // exact product-level gate (and the existing call shape).
+                        const variantSelector = (item.variant_id || item.size || item.variant_size || item.color || item.variant_color)
+                            ? {
+                                variantId: item.variant_id || null,
+                                size: item.size || item.variant_size || null,
+                                color: item.color || item.variant_color || null,
+                            }
+                            : null;
+                        const stockCheck = variantSelector
+                            ? await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1, variantSelector)
+                            : await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1);
                         if (!stockCheck.available) {
                             await session.update({ status: 'CANCELLED' });
                             return {
