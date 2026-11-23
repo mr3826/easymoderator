@@ -528,15 +528,30 @@ const getChannelAISettings = async (channel) => {
 };
 
 /**
- * Mutations are allowed only while the effective automation mode is AUTO and
- * the channel's `allow_order_creation` is true. The channel is re-read fresh
- * immediately before each mutation entry point so a mid-turn disable is honored
- * at the Action Gate boundary (fail-closed on any read failure).
+ * Mutations are allowed only while the EFFECTIVE automation mode is AUTO and the
+ * channel's `allow_order_creation` is true.
+ *
+ * W3 (TOCTOU): the `guardEffectiveMode` captured early in the turn is only a fast
+ * reject. Immediately before an irreversible side effect (order commit / cart edit
+ * inside handleOrderFlow, or an interaction resolve) the business-wide STOP state
+ * is re-asserted from the AUTHORITATIVE resolver — a fresh Shop safety read
+ * (`loadShopSafetyState`, the same source the send gate uses) — plus a fresh
+ * channel read, so a mid-turn emergency stop, shop deactivation, or an
+ * allow_order_creation disable cannot commit an order against a stale in-memory
+ * mode. Any read failure fails closed (no mutation). The business/channel MODE
+ * narrow itself is re-checked by the post-generation send gate (unchanged), which
+ * holds the reply; this boundary specifically stops the irreversible COMMIT.
  */
-const resolveMutationsAllowed = async (effectiveMode, channel) => {
-    if (!isAutoSendMode(effectiveMode)) return false;
+const resolveMutationsAllowed = async (shopId, channel, guardEffectiveMode) => {
+    if (!isAutoSendMode(guardEffectiveMode)) return false;
     try {
-        const latest = await getChannelAISettings(channel);
+        const [safety, latest] = await Promise.all([
+            loadShopSafetyState(shopId),
+            getChannelAISettings(channel),
+        ]);
+        // Fresh emergency stop / shop deactivation at the commit boundary.
+        if (safety.emergencyStop?.active === true) return false;
+        if (safety.shopIsActive === false) return false;
         return latest.allow_order_creation !== false;
     } catch (_) {
         return false;
@@ -2607,8 +2622,9 @@ async function processMessageJob(job) {
             interactionTurn = true;
             try {
                 const interactions = require('../modules/interactions/interactions.service');
-                // Fresh channel re-read immediately before the mutation boundary.
-                const interactionsMutationsAllowed = await resolveMutationsAllowed(guardEffectiveMode, jobChannel);
+                // W3: recompute the effective stop/mode via the authoritative
+                // resolver immediately before the mutation boundary (no stale mode).
+                const interactionsMutationsAllowed = await resolveMutationsAllowed(shopId, jobChannel, guardEffectiveMode);
                 const outcome = await interactions.resolveInteraction({
                     payload: payloadToResolve,
                     shopId,
@@ -2667,9 +2683,11 @@ async function processMessageJob(job) {
             // retries may arrive as a new BullMQ job ID without mutating BullMQ's
             // own identity or delayed-job bookkeeping.
             const job = { ...workerJob, id: stableTraceId };
-            // Fresh channel re-read immediately before the order-flow mutation
-            // boundary so a mid-turn allow_order_creation disable is honored.
-            const orderFlowMutationsAllowed = await resolveMutationsAllowed(guardEffectiveMode, jobChannel);
+            // W3: recompute the effective stop/mode via the authoritative resolver
+            // immediately before the order-commit boundary, so a mid-turn emergency
+            // stop / shop deactivation / narrowing cannot commit an order while the
+            // reply is only held, and honor a mid-turn allow_order_creation disable.
+            const orderFlowMutationsAllowed = await resolveMutationsAllowed(shopId, jobChannel, guardEffectiveMode);
             orderFlow = await handleOrderFlow({
                 shopId,
                 customerChannelId: recipientId,

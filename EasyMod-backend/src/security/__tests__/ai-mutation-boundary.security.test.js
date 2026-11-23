@@ -31,24 +31,26 @@ describe('AI mutation import boundary', () => {
         expect(violations).toEqual([]);
     });
 
-    test('the worker derives mutation permission from the resolved effective mode and a fresh channel order permission', () => {
+    test('the worker derives mutation permission from the resolved effective mode, a fresh stop re-assertion, and a fresh channel order permission', () => {
         const source = fs.readFileSync(workerPath, 'utf8');
 
         // ADR-0013 §7: permission is no longer the business-mode literal. It is
-        // (a) the EFFECTIVE resolved mode for this turn and (b) a fresh channel
-        // re-read of allow_order_creation immediately before each mutation seam.
+        // (a) the EFFECTIVE resolved mode for this turn, (b) a FRESH business-wide
+        // emergency-stop / shop-active re-read from the authoritative safety
+        // resolver immediately before each mutation seam (W3 TOCTOU closure), and
+        // (c) a fresh channel re-read of allow_order_creation.
         expect(source).toMatch(
-            /const\s+resolveMutationsAllowed\s*=\s*async\s*\(effectiveMode,\s*channel\)\s*=>\s*\{[\s\S]*?if\s*\(!isAutoSendMode\(effectiveMode\)\)\s*return\s+false;[\s\S]*?const\s+latest\s*=\s*await\s+getChannelAISettings\(channel\);[\s\S]*?return\s+latest\.allow_order_creation\s*!==\s*false;/,
+            /const\s+resolveMutationsAllowed\s*=\s*async\s*\(shopId,\s*channel,\s*guardEffectiveMode\)\s*=>\s*\{[\s\S]*?if\s*\(!isAutoSendMode\(guardEffectiveMode\)\)\s*return\s+false;[\s\S]*?loadShopSafetyState\(shopId\)[\s\S]*?if\s*\(safety\.emergencyStop\?\.active\s*===\s*true\)\s*return\s+false;[\s\S]*?if\s*\(safety\.shopIsActive\s*===\s*false\)\s*return\s+false;[\s\S]*?return\s+latest\.allow_order_creation\s*!==\s*false;/,
         );
 
         // Both mutation seams (interaction kernel and order flow) re-resolve
         // immediately before the call and pass the fresh decision in.
         expect(source).toMatch(
-            /const\s+interactionsMutationsAllowed\s*=\s*await\s+resolveMutationsAllowed\(guardEffectiveMode,\s*jobChannel\);/,
+            /const\s+interactionsMutationsAllowed\s*=\s*await\s+resolveMutationsAllowed\(shopId,\s*jobChannel,\s*guardEffectiveMode\);/,
         );
         expect(source).toContain('mutationsAllowed: interactionsMutationsAllowed');
         expect(source).toMatch(
-            /const\s+orderFlowMutationsAllowed\s*=\s*await\s+resolveMutationsAllowed\(guardEffectiveMode,\s*jobChannel\);/,
+            /const\s+orderFlowMutationsAllowed\s*=\s*await\s+resolveMutationsAllowed\(shopId,\s*jobChannel,\s*guardEffectiveMode\);/,
         );
         expect(source).toContain('mutationsAllowed: orderFlowMutationsAllowed');
 
