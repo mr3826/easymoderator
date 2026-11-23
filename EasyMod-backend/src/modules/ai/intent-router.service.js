@@ -624,6 +624,14 @@ const route = async ({
                     const faqText = faqContent(best.faq);
 
                     const replyContextBlock = renderReplyContext(replyContext);
+                    // D-P2-04 (A7): usageContext carries the server-authoritative
+                    // request context into the AI cost ledger. llm.service spreads
+                    // it flat into recordUsage; the recorder is a total no-op
+                    // unless AI_USAGE_ACCOUNTING=true. shopId is the tenant bound
+                    // to this route() call — never model output. requestId is
+                    // suffixed per call site so one turn's two AI calls (attribute
+                    // extraction + reply) can never dedupe against each other,
+                    // while a retried turn with the same traceId counts once.
                     const { text: answer, provider } = await (evaluationClient?.chat || llmService.chat)({
                         systemPrompt: systemPrompt || 'You are a helpful shop assistant. Answer using the provided FAQ content.',
                         messages: [{
@@ -632,7 +640,13 @@ const route = async ({
                                 + `FAQ context:\n${faqText}\n\nCustomer question: ${message}\n\nRespond in language: ${language}`
                         }],
                         preferredProvider,
-                        maxTokens: 512
+                        maxTokens: 512,
+                        usageContext: {
+                            shopId: shopId || null,
+                            operationType: 'chat_reply',
+                            requestId: traceId ? `${traceId}:chat_reply` : null,
+                            conversationId: conversationId || null,
+                        },
                     });
 
                     // Fix #16: Track FAQ hit — best-effort, non-blocking
@@ -920,8 +934,15 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
         // answer the customer did not ask for.
         const [primaryImageUrl] = imageUrls;
 
+        // D-P2-04 (A7): the vision call is a separate AI call, so it gets its
+        // own suffixed requestId — it must not dedupe against the reply call.
         attrs = photoMatchEnabled()
-            ? await _extractProductAttributes(primaryImageUrl, message, evaluationClient)
+            ? await _extractProductAttributes(primaryImageUrl, message, evaluationClient, {
+                shopId: shopId || null,
+                operationType: 'product_attrs',
+                requestId: traceId ? `${traceId}:product_attrs` : null,
+                conversationId: conversationId || null,
+            })
             : null;
 
         // The customer's own words ("ei kurti ta ache?" alongside the photo) are
@@ -1346,6 +1367,8 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
         }
     }
 
+    // D-P2-04 (A7): attribution contract documented at the FAQ call site —
+    // authoritative context only, suffixed requestId, gate-controlled recorder.
     const { text: response, provider, fallbackUsed } = await (evaluationClient?.chat || llmService.chat)({
         systemPrompt:      finalSystemPrompt,
         messages:          finalMessages,
@@ -1353,6 +1376,12 @@ const _callLlm = async ({ shopId, message, history, conversationId, traceId = nu
         cachedContentName,
         maxTokens:         768,
         observeFallback:   true,
+        usageContext: {
+            shopId: shopId || null,
+            operationType: 'chat_reply',
+            requestId: traceId ? `${traceId}:chat_reply` : null,
+            conversationId: conversationId || null,
+        },
     });
 
     if (cacheKey && isCacheable(evidence)) {
@@ -1655,7 +1684,12 @@ const validateVisualObservations = (value) => {
     return result;
 };
 
-const _extractProductAttributes = async (imageUrl, customerMessage, evaluationClient = null) => {
+// usageContext: server-authoritative attribution for the AI cost ledger
+// (D-P2-04). The vision call carries no shop context of its own — the caller
+// (_callLlm) threads it from the authenticated request scope. Fields the
+// caller cannot know stay null (unattributed); they are never inferred from
+// the image or from model output.
+const _extractProductAttributes = async (imageUrl, customerMessage, evaluationClient = null, usageContext = null) => {
     const EXTRACTION_PROMPT = `You are a product image analyzer for a Bangladeshi e-commerce shop.
 Analyze this product image and return ONLY a JSON object (no markdown, no explanation):
 {
@@ -1680,7 +1714,15 @@ Use common Bangladesh garment names. Classify from the garment's complete visibl
                         : 'Identify the product shown in this image.' }
                 ]
             }],
-            maxTokens: 250
+            maxTokens: 250,
+            // Null here (no caller context) still records the call — it is
+            // simply unattributed, which the ledger stores as null shop_id.
+            usageContext: usageContext || {
+                shopId: null,
+                operationType: 'product_attrs',
+                requestId: null,
+                conversationId: null,
+            },
         });
 
         // Accept only a bounded JSON object (optionally one complete JSON fence).

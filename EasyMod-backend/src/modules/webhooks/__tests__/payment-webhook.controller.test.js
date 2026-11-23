@@ -425,4 +425,50 @@ describe('bKash payment webhook replay protection', () => {
         expect(logs).not.toContain('Mirpur');
         expect(logs).not.toContain('raw request data');
     });
+
+    // DC-2 lock (A7, 2026-11-23): webhook processing must not touch order
+    // sessions AT ALL. The removed payment-webhook block looked up an ACTIVE
+    // OrderSession only to call OrderSessionService.autoConfirmOrder — a
+    // method no provider in this repo defines, so the block was a silent
+    // typeof-guarded no-op whose only effect was a pointless DB read. This
+    // test makes any reintroduction fail loudly: a session is deliberately
+    // findable (findOne resolves an ACTIVE row), so if the webhook queries or
+    // mutates it again — even through a new auto-confirm helper — these
+    // assertions catch it. Session completion/expiry stays owned by the 24h
+    // expires_at TTL in order-session-standalone.service.js.
+    test('a verified payment performs no order-session lookup or mutation (DC-2 lock)', async () => {
+        const { bookForOrder } = require('../../order/order.service');
+        const activeSession = {
+            id: 'session-1',
+            status: 'ACTIVE',
+            update: jest.fn(),
+            save: jest.fn(),
+        };
+        const order = {
+            id: 'order-1', shop_id: 'shop-1', customer_id: 'customer-1',
+            order_status: 'pending', payment_method: 'bkash',
+            delivery_status: null, update: jest.fn(async function update(values) { Object.assign(this, values); }),
+        };
+        const payment = {
+            id: 'payment-5', shop_id: 'shop-1', order_id: 'order-1',
+            update: jest.fn().mockResolvedValue(undefined),
+        };
+        mockOrder.findOne.mockResolvedValue(order);
+        mockOrderSession.findOne.mockResolvedValue(activeSession);
+        bookForOrder.mockResolvedValueOnce({ booked: true });
+        jest.spyOn(controller, 'sendPaymentConfirmationToCustomer').mockResolvedValue(undefined);
+
+        await controller.processSuccessfulPayment(payment, { order, gateway: 'bkash', transactionId: 'trx-5' });
+
+        // The clean payment path still confirmed and booked the order — the
+        // webhook works — but never consulted or mutated the session.
+        expect(order.update).toHaveBeenCalledWith(expect.objectContaining({
+            payment_status: 'paid',
+            order_status: 'confirmed',
+        }), { transaction: mockTransaction });
+        expect(bookForOrder).toHaveBeenCalledTimes(1);
+        expect(mockOrderSession.findOne).not.toHaveBeenCalled();
+        expect(activeSession.update).not.toHaveBeenCalled();
+        expect(activeSession.save).not.toHaveBeenCalled();
+    });
 });
