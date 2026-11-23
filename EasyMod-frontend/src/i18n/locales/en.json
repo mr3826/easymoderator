@@ -888,6 +888,11 @@
       "productCardWindowExpired": "Outside 24h Messenger window",
       "productCardSent": "Product card sent",
       "productCardFailed": "Could not send product card",
+      "productCardLoading": "Loading products...",
+      "productCardError": "Couldn't load your product catalog. Check your connection and try again.",
+      "productCardRetry": "Try again",
+      "productCardNoResults": "No products match this search.",
+      "productCardOutOfStock": "Out of stock",
       "noSavedQuickReplies": "No saved quick replies yet. Add answers you send often to save time in customer conversations."
     },
     "mode": {
