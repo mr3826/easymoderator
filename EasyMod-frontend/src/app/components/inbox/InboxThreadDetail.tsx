@@ -154,10 +154,12 @@ const MessageItem = memo(function MessageItem({
   message,
   customerName,
   onRetry,
+  retrying = false,
 }: {
   message: Message;
   customerName: string;
   onRetry: (message: Message) => void;
+  retrying?: boolean;
 }) {
   const { t } = useTranslation();
   const ts = new Date(message.created_at).toLocaleTimeString("en-US", {
@@ -355,7 +357,9 @@ const MessageItem = memo(function MessageItem({
                 <span>{t("inbox.deliveryStatus.failed")}</span>
                 <button
                   onClick={() => onRetry(message)}
-                  className={`inline-flex min-h-11 items-center gap-1 rounded border border-white/40 px-2 py-1 text-white hover:bg-white/10 ${FOCUS_RING}`}
+                  disabled={retrying}
+                  aria-busy={retrying}
+                  className={`inline-flex min-h-11 items-center gap-1 rounded border border-white/40 px-2 py-1 text-white hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed ${FOCUS_RING}`}
                 >
                   <RotateCcw className="w-3 h-3" aria-hidden="true" />
                   {t("inbox.retry", { defaultValue: "Retry" })}
@@ -533,6 +537,16 @@ export function InboxThreadDetail({
   const [editingSuggestion, setEditingSuggestion] = useState(false);
   const [editedSuggestion, setEditedSuggestion] = useState("");
   const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  // D-A3-5: per-failed-message retry bookkeeping. `retryingMessageId` disables
+  // the bubble's Retry affordance while its request is in flight; the two refs
+  // below enforce the request-level contract even if clicks land before the
+  // state flush (React batches): one in-flight attempt per message id, and one
+  // STABLE idempotency key per logical attempt so server-side
+  // send_idempotency_key dedup can replay it (conversation.service.js) instead
+  // of creating a second SEND_PENDING row.
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
+  const retryInFlightRef = useRef(new Set<string>());
+  const retryIdempotencyKeysRef = useRef(new Map<string, string>());
   const resolveDialogRef = useRef<HTMLDivElement>(null);
   useDialogFocus(resolveDialogRef, showResolveDialog);
 
@@ -646,8 +660,37 @@ export function InboxThreadDetail({
     }
   };
 
+  /**
+   * D-A3-5 retry idempotency semantics (pinned by InboxThreadDetail.retry.test):
+   *  - One attempt per failed message may be in flight; extra clicks are dropped
+   *    by the ref guard and the disabled button.
+   *  - The key is minted at the first click for a given failed message id and
+   *    persisted across attempts. If the REQUEST itself errored, the outcome is
+   *    unknown (the row may exist server-side), so the next click reuses the
+   *    same key and the server dedup replays rather than double-sending.
+   *  - If the retry COMPLETED with a known FAILED send, that attempt is closed
+   *    and its key is released: the next click is a genuinely new attempt and
+   *    mints a fresh key (reusing it would only replay the failed row forever).
+   *  - If the retry completed pending/confirmed, the key is kept, so a stray
+   *    later click on the old failed bubble replays the existing send.
+   */
   const handleRetryMessage = async (failedMessage: Message) => {
+    const messageId = failedMessage.id;
+    if (!messageId || retryInFlightRef.current.has(messageId)) return;
+    retryInFlightRef.current.add(messageId);
+    setRetryingMessageId(messageId);
     try {
+      let idempotencyKey = retryIdempotencyKeysRef.current.get(messageId);
+      if (!idempotencyKey) {
+        idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
+          ? globalThis.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        retryIdempotencyKeysRef.current.set(messageId, idempotencyKey);
+        if (retryIdempotencyKeysRef.current.size > 50) {
+          const oldest = retryIdempotencyKeysRef.current.keys().next().value;
+          if (oldest) retryIdempotencyKeysRef.current.delete(oldest);
+        }
+      }
       const metadata = { ...(failedMessage.metadata || {}) };
       delete metadata.delivery_error;
       delete metadata.provider_message_id;
@@ -657,16 +700,20 @@ export function InboxThreadDetail({
         sender: "agent",
         message_type: failedMessage.message_type,
         metadata: { ...metadata, delivery_status: "pending" },
-      }, {
-        idempotencyKey: typeof globalThis.crypto?.randomUUID === "function"
-          ? globalThis.crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      });
+      }, { idempotencyKey });
+      if (getDeliveryState(message) === "FAILED" || message.metadata?.delivery_status === "failed") {
+        // Known failed outcome: this attempt completed; the next click is a
+        // genuinely new attempt and must not be deduped onto this failed row.
+        retryIdempotencyKeysRef.current.delete(messageId);
+      }
       onMessageSent(message);
       if (!isProviderConfirmed(message)) toast.warning(t("inbox.taskOutcome.replyPending"));
     } catch (err: unknown) {
       onSendFailed();
       toast.error((err as { message?: string })?.message || "Retry failed");
+    } finally {
+      retryInFlightRef.current.delete(messageId);
+      setRetryingMessageId(null);
     }
   };
 
@@ -866,6 +913,7 @@ export function InboxThreadDetail({
                 message={message}
                 customerName={displayCustomerName(selectedConversation)}
                 onRetry={handleRetryMessage}
+                retrying={retryingMessageId === message.id}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -951,8 +999,11 @@ export function InboxThreadDetail({
         </div>
       )}
 
-      {/* Composer */}
+      {/* Composer — keyed per conversation (D-A3-6): switching threads remounts
+          it so draft text, attachments and open pickers never leak from one
+          customer's conversation into another's. */}
       <InboxComposer
+        key={selectedConversation.id}
         selectedConversation={selectedConversation}
         is24hExpired={is24hExpired}
         is24hWarning={is24hWarning}
