@@ -1763,3 +1763,83 @@ describe('settings generation and inactive FAQ cache boundaries', () => {
         expect(FaqResponse.findAll).toHaveBeenCalledTimes(2);
     });
 });
+
+// D-P2-04 (A7) — router→llm.service attribution boundary. The end-to-end
+// ledger proof lives in intent-router.usage-attribution.test.js; this locks
+// the exact usageContext param each call site sends (the route helper injects
+// conversationId 'test-conversation-1' / traceId 'test-trace-1'), so a
+// regression at a single site fails fast without the real LLM chain.
+describe('D-P2-04 usageContext boundary', () => {
+    // llm.chat is mocked in this lane, so the URL is never fetched — no
+    // data-URL fixture is needed for the attribution params under test.
+    const PHOTO_URL = 'https://scontent.xx.fbcdn.net/attribution.jpg';
+
+    test('the FAQ reply call carries attributed chat_reply context', async () => {
+        FaqResponse.findAll.mockResolvedValueOnce([{
+            id: 'faq-attr-1', shop_id: SHOP, is_active: true,
+            category: 'Delivery', template_en: 'Dhaka delivery takes 3 days.', template_bn: null,
+        }]);
+        await route({ shopId: SHOP, message: 'delivery days dhaka', systemPrompt: 'BASE', language: 'en' });
+
+        expect(llm.chat).toHaveBeenCalledTimes(1);
+        expect(llm.chat).toHaveBeenCalledWith(expect.objectContaining({
+            usageContext: {
+                shopId: SHOP,
+                operationType: 'chat_reply',
+                requestId: 'test-trace-1:chat_reply',
+                conversationId: 'test-conversation-1',
+            },
+        }));
+    });
+
+    test('the main reply call carries attributed chat_reply context', async () => {
+        await route({ shopId: SHOP, message: 'What should I know before choosing?', systemPrompt: 'BASE', language: 'en' });
+
+        expect(llm.chat).toHaveBeenCalledTimes(1);
+        expect(llm.chat).toHaveBeenCalledWith(expect.objectContaining({
+            usageContext: {
+                shopId: SHOP,
+                operationType: 'chat_reply',
+                requestId: 'test-trace-1:chat_reply',
+                conversationId: 'test-conversation-1',
+            },
+        }));
+    });
+
+    test('a photo turn sends product_attrs on the extraction call and chat_reply on the reply call', async () => {
+        const previousPhotoMatchFlag = process.env.AI_PHOTO_MATCH_ENABLED;
+        process.env.AI_PHOTO_MATCH_ENABLED = 'true';
+        llm.chat
+            .mockResolvedValueOnce({ text: JSON.stringify({
+                category: 'jacket', color: 'blue', material: null, query: 'blue jacket',
+                tags: ['jacket', 'blue'], description: 'a blue denim jacket',
+            }), provider: 'gemini-lite' })
+            .mockResolvedValue({ text: 'ok', provider: 'gemini' });
+        productSearch.searchByAttributes.mockResolvedValue([{
+            id: 'jacket-attr-1', shop_id: SHOP, name: 'Blue Denim Jacket', category: 'jacket',
+            price: 3200, quantity: 4, track_quantity: true, variants: [],
+        }]);
+
+        await route({ shopId: SHOP, message: '[image]', systemPrompt: 'BASE', language: 'en', imageUrls: [PHOTO_URL] });
+        if (previousPhotoMatchFlag === undefined) delete process.env.AI_PHOTO_MATCH_ENABLED;
+        else process.env.AI_PHOTO_MATCH_ENABLED = previousPhotoMatchFlag;
+
+        expect(llm.chat).toHaveBeenCalledTimes(2);
+        expect(llm.chat.mock.calls[0][0]).toMatchObject({
+            usageContext: {
+                shopId: SHOP,
+                operationType: 'product_attrs',
+                requestId: 'test-trace-1:product_attrs',
+                conversationId: 'test-conversation-1',
+            },
+        });
+        expect(llm.chat.mock.calls[1][0]).toMatchObject({
+            usageContext: {
+                shopId: SHOP,
+                operationType: 'chat_reply',
+                requestId: 'test-trace-1:chat_reply',
+                conversationId: 'test-conversation-1',
+            },
+        });
+    });
+});
