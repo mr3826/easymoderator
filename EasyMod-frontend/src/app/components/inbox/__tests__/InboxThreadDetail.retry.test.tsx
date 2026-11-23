@@ -123,6 +123,20 @@ const retryButton = () => screen.getByRole("button", { name: "inbox.retry" });
 const keysUsed = () =>
   vi.mocked(apiClient.createMessage).mock.calls.map((call: any[]) => call[2]?.idempotencyKey as string);
 
+/**
+ * Deterministic attempt-settle gate (CI flake fix, A0 report on f3e0b4bd).
+ * The 0->1-call waitFor can be satisfied synchronously at click time, BEFORE
+ * the mocked response's continuation (and the handler's finally) runs; a
+ * second click landing in that window is dropped by the in-flight ref guard -
+ * correct production behavior, but it made the replay assertions timing-
+ * dependent. The finally clause clears the guard and re-enables the button
+ * together, so waiting for the enabled state guarantees the next click is
+ * processed as a real attempt instead of racing the guard.
+ */
+const settleAttempt = async (btn: HTMLElement) => {
+  await waitFor(() => expect(btn).toBeEnabled());
+};
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -183,6 +197,7 @@ describe("InboxThreadDetail failed-reply Retry (D-A3-5)", () => {
 
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(1));
+    await settleAttempt(btn);
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(2));
 
@@ -216,6 +231,7 @@ describe("InboxThreadDetail failed-reply Retry (D-A3-5)", () => {
 
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(1));
+    await settleAttempt(btn);
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(2));
 
@@ -252,6 +268,7 @@ describe("InboxThreadDetail failed-reply Retry (D-A3-5)", () => {
 
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(1));
+    await settleAttempt(btn);
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(2));
 
@@ -272,6 +289,7 @@ describe("InboxThreadDetail failed-reply Retry (D-A3-5)", () => {
 
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(1));
+    await settleAttempt(btn);
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(2));
 
@@ -297,6 +315,7 @@ describe("InboxThreadDetail failed-reply Retry (D-A3-5)", () => {
 
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(1));
+    await settleAttempt(btn);
     fireEvent.click(btn);
     await waitFor(() => expect(apiClient.createMessage).toHaveBeenCalledTimes(2));
 
