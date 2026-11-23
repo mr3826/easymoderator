@@ -29,8 +29,10 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-const hasKey = (obj: unknown, key: string): boolean =>
-  key.split('.').reduce<any>((o, k) => (o && typeof o === 'object' ? o[k] : undefined), obj) !== undefined;
+const hasKey = (obj: unknown, key: string): boolean => valueAt(obj, key) !== undefined;
+
+const valueAt = (obj: unknown, key: string): unknown =>
+  key.split('.').reduce<any>((o, k) => (o && typeof o === 'object' ? o[k] : undefined), obj);
 
 const keyPattern = /^[A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)+$/;
 const translationFiles = sourceFiles(SRC);
@@ -67,25 +69,38 @@ for (const file of translationFiles) {
   collectVariables(source);
 }
 
-const usedKeys = (() => {
+const usedKeysResult = (() => {
   const found = new Map<string, string>();
-  const addKey = (key: string, file: string) => {
+  // Keys called with { returnObjects: true } intentionally resolve to
+  // arrays/objects (e.g. dashboard.setup.welcomeBullets); every other used
+  // key must be a string or i18next renders its internal
+  // "returned an object instead of string" error verbatim (A8 F-6(b)).
+  const returnObjects = new Set<string>();
+  const addKey = (key: string, file: string, allowObject = false) => {
     if (!found.has(key)) found.set(key, path.relative(SRC, file).replace(/\\/g, '/'));
+    if (allowObject) returnObjects.add(key);
   };
-  const collectDynamicKeys = (node: ts.Node, seen: Set<ts.Expression>, file: string) => {
+  const collectDynamicKeys = (node: ts.Node, seen: Set<ts.Expression>, file: string, allowObject = false) => {
     if (ts.isStringLiteralLike(node)) {
-      if (keyPattern.test(node.text)) addKey(node.text, node.getSourceFile().fileName);
+      if (keyPattern.test(node.text)) addKey(node.text, node.getSourceFile().fileName, allowObject);
       return;
     }
     if (ts.isIdentifier(node)) {
       for (const declaration of variableInitializers.get(file)?.get(node.text) ?? []) {
         if (seen.has(declaration.initializer)) continue;
         seen.add(declaration.initializer);
-        collectDynamicKeys(declaration.initializer, seen, declaration.file);
+        collectDynamicKeys(declaration.initializer, seen, declaration.file, allowObject);
       }
     }
-    ts.forEachChild(node, (child) => collectDynamicKeys(child, seen, file));
+    ts.forEachChild(node, (child) => collectDynamicKeys(child, seen, file, allowObject));
   };
+
+  const usesReturnObjects = (options: ts.Expression | undefined): boolean =>
+    !!options && ts.isObjectLiteralExpression(options)
+    && options.properties.some((property) => ts.isPropertyAssignment(property)
+      && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+      && property.name.getText().replace(/['"]/g, '') === 'returnObjects'
+      && property.initializer.kind === ts.SyntaxKind.TrueKeyword);
 
   for (const [file, source] of parsedFiles) {
     const visit = (node: ts.Node) => {
@@ -94,15 +109,17 @@ const usedKeys = (() => {
         && node.expression.text === 't'
         && node.arguments[0]) {
         const argument = node.arguments[0];
-        if (ts.isStringLiteralLike(argument)) addKey(argument.text, file);
-        else collectDynamicKeys(argument, new Set(), file);
+        const allowObject = usesReturnObjects(node.arguments[1]);
+        if (ts.isStringLiteralLike(argument)) addKey(argument.text, file, allowObject);
+        else collectDynamicKeys(argument, new Set(), file, allowObject);
       }
       ts.forEachChild(node, visit);
     };
     visit(source);
   }
-  return found;
+  return { usedKeys: found, returnObjectsKeys: returnObjects };
 })();
+const { usedKeys, returnObjectsKeys } = usedKeysResult;
 
 describe('translation coverage', () => {
   it('finds translation keys to check', () => {
@@ -121,6 +138,22 @@ describe('translation coverage', () => {
       .filter(([key]) => !hasKey(bn, key))
       .map(([key, file]) => `${key} (${file})`);
     expect(missing).toEqual([]);
+  });
+
+  it('resolves every plain-used t() key to a string, not an object node', () => {
+    // i18next renders its own failure text verbatim when t() is called on an
+    // object node ("key 'x.y' returned an object instead of string.") —
+    // exactly how A8 saw internals on the channel detail screen (F-6(b)).
+    const offenders = [...usedKeys.entries()]
+      .filter(([key]) => !returnObjectsKeys.has(key))
+      .filter(([key]) => {
+        const enValue = valueAt(en, key);
+        const bnValue = valueAt(bn, key);
+        const bad = (v: unknown) => v !== undefined && typeof v !== 'string';
+        return bad(enValue) || bad(bnValue);
+      })
+      .map(([key, file]) => `${key} (${file})`);
+    expect(offenders).toEqual([]);
   });
 
   it('keeps the document language synchronized with the selected UI language', async () => {

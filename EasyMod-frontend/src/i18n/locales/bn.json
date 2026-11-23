@@ -2212,7 +2212,7 @@
       "webhook": "Webhook",
       "active": "সক্রিয়",
       "token": "টোকেন",
-      "valid": "বৈধ",
+      "notExpiredUnverified": "মেয়াদোত্তীর্ণ নয় (যাচাই করা হয়নি)",
       "expired": "মেয়াদোত্তীর্ণ",
       "lastWebhook": "শেষ webhook",
       "notVerified": "যাচাই হয়নি",
@@ -2754,6 +2754,7 @@
         "businessDefault": "ব্যবসার ডিফল্ট",
         "failClosed": "পাওয়া যায়নি (নিরাপদ ডিফল্ট)"
       },
+      "modeSourceLabel": "রিপ্লাই মোড নির্ধারিত হয়েছে",
       "overrideCount": "{{count}}টি ওভাররাইড",
       "badge": {
         "inherited": "উত্তরাধিকারসূত্রে",

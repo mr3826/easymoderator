@@ -87,7 +87,10 @@ describe('ChannelConnectionManager', () => {
       expect(screen.getByTestId('channel-health-grid')).toBeInTheDocument();
       expect(screen.getAllByText('Connected').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Valid').length).toBeGreaterThan(0);
+      // A8 F-4: the token cell only knows the stored expiry timestamp, so it
+      // must read as a timestamp claim, not a provider-verified "Valid".
+      expect(screen.getAllByText('Not expired (unverified)').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Valid')).not.toBeInTheDocument();
     });
   });
 

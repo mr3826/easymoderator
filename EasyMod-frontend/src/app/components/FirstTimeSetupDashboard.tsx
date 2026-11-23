@@ -224,7 +224,10 @@ export default function FirstTimeSetupDashboard({
       label: t('dashboard.setup.reviewReplySettings'),
       onClick: () => {
         onDismissCompletion?.();
-        navigate('/manage-shop/business-info');
+        // A8 Task 8 / F-7: the label promises REPLY settings — the canonical
+        // automation/reply-settings page is /manage-shop/automation
+        // (BusinessAutomationDefaults); business-info was a mis-wired target.
+        navigate('/manage-shop/automation');
       },
     };
 

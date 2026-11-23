@@ -13,7 +13,7 @@ import { PublicFunnelAuthLayout } from "./PublicFunnelAuthLayout";
 import { createSignupSchema, type SignupFormData } from "@/features/auth/validation/schemas";
 import { PasswordStrengthMeter } from "@/features/auth/components/PasswordStrengthMeter";
 import { trackFunnelEvent } from "@/app/lib/funnel";
-import { getErrorMessage } from "@shared/lib/http/errors";
+import { getErrorMessage, isApiError } from "@shared/lib/http/errors";
 import { buildMarketingUrlWithLocale } from "@/app/lib/config";
 import { getSignupAttribution, getSignupSuccessPath } from "@/app/lib/signupIntent";
 import { useCommercialContract } from "@/api/domains/commercialContract";
@@ -82,7 +82,16 @@ export default function Signup() {
       });
       navigate(getSignupSuccessPath(searchParams, locale));
     } catch (error: unknown) {
-      setError("root", { message: getErrorMessage(error, t("publicFunnel.auth.signUpError")) });
+      // A8 F-1: a transport timeout on signup must NEVER read as "failed" —
+      // the cold server may have created the account (AuthService already
+      // re-queried the session before re-throwing). Honest "still creating,
+      // sign in shortly" copy instead; a re-submit would hit the backend's
+      // "email already exists" 400 and dead-end the merchant.
+      const message =
+        isApiError(error) && error.type === "TIMEOUT_ERROR"
+          ? t("publicFunnel.auth.signupSlow")
+          : getErrorMessage(error, t("publicFunnel.auth.signUpError"));
+      setError("root", { message });
     } finally {
       signupInFlight.current = false;
     }

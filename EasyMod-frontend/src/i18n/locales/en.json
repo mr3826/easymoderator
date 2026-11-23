@@ -2212,7 +2212,7 @@
       "webhook": "Webhook",
       "active": "Active",
       "token": "Token",
-      "valid": "Valid",
+      "notExpiredUnverified": "Not expired (unverified)",
       "expired": "Expired",
       "lastWebhook": "Last webhook",
       "notVerified": "Not verified",
@@ -2754,6 +2754,7 @@
         "businessDefault": "Business default",
         "failClosed": "Unavailable (safe default)"
       },
+      "modeSourceLabel": "Reply mode set by",
       "overrideCount": "{{count}} overrides",
       "badge": {
         "inherited": "Inherited",
