@@ -47,8 +47,16 @@ const DEFAULT_AI_SETTINGS = {
     // the AI offers payment rails the shop can't accept. The live operating
     // context (shop-operating-context.service) is the AI's source of truth.
     payment_methods: ['COD'],
+    // A9 MF-2: this default is merged into EVERY shop's settings (shop.service
+    // getShopAiSettings) and the send path PREFERS the shop template, so a stale
+    // SLA here would still reach customers regardless of the service-layer default.
+    // Deliberately non-time-bound — the platform has not committed to a fixed
+    // human-response window. Matches DEFAULT_ESCALATION_TEMPLATE in
+    // escalation-auto-reply.service.js. (Existing shops whose DB row already
+    // stores the old "within 2 hours" text need a separate data follow-up — flagged
+    // to A0; no migration is written here.)
     escalation_reply_template:
-        "ধন্যবাদ আপনার message এর জন্য! আমরা শীঘ্রই আপনার সাথে যোগাযোগ করব। (Thank you! Our team will respond within 2 hours.)",
+        'আপনার অনুরোধটি আমাদের টিমের কাছে পাঠানো হয়েছে। একজন প্রতিনিধি আপনার সাথে যোগাযোগ করবেন।\n\nYour request has been forwarded to our team. A representative will get back to you. 🙏',
     intent_confidence_map: {},
     required_fields: {
         customer_name: true,

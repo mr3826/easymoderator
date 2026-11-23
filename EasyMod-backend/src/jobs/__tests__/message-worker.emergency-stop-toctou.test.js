@@ -285,3 +285,39 @@ describe('Guard 5b (PR #302 / D-P2-06) — explicit human request wins over gene
         expect(mockSendMessage).not.toHaveBeenCalled();
     });
 });
+
+describe('A9 MF-1 — ingestionResult carries the resume meta channel (D-P2-01 wiring)', () => {
+    // The fallback tier (ai-chatbot.controller.js) seeds/resumes the order session
+    // by meta_channel_id, and getActiveSession matches it EXACTLY. Before the fix the
+    // worker's ingestionResult omitted meta_channel_id + customer_id entirely, so
+    // `ingestionResult.meta_channel_id ?? null` was ALWAYS null while the worker
+    // resumed on the real channel id → an outage-seeded session was orphaned. This
+    // test asserts on the REAL object the worker passes to processNewIntent, so it
+    // fails against the pre-fix producer (keys undefined, not the expected id).
+    test('the ingestionResult passed to the fallback tier includes the real meta_channel_id + customer_id', async () => {
+        stage2Rules.classify.mockImplementation(() => ({
+            intentId: 'GENERAL_INQUIRY', domain: 'CONVERSATION', slots: {}, confidence: 1, source: 'RULE', matchedRule: 'test',
+        }));
+
+        await processMessageJob(makeJob({ message: 'what is the price?', metaChannelId: 'channel-1' }));
+
+        expect(mockProcessNewIntent).toHaveBeenCalled();
+        const ingestionResult = mockProcessNewIntent.mock.calls.at(-1)[5];
+        expect(ingestionResult.meta_channel_id).toBe('channel-1');
+        expect(ingestionResult.customer_id).toBe('customer-1');
+        // Seed value must equal the worker's resume key, not fall back to null.
+        expect(ingestionResult.meta_channel_id).not.toBeNull();
+    });
+
+    test('a turn with no meta channel still yields an explicit null (not an absent key)', async () => {
+        stage2Rules.classify.mockImplementation(() => ({
+            intentId: 'GENERAL_INQUIRY', domain: 'CONVERSATION', slots: {}, confidence: 1, source: 'RULE', matchedRule: 'test',
+        }));
+
+        await processMessageJob(makeJob({ message: 'what is the price?', metaChannelId: undefined }));
+
+        const ingestionResult = mockProcessNewIntent.mock.calls.at(-1)[5];
+        expect(ingestionResult).toHaveProperty('meta_channel_id');
+        expect(ingestionResult.meta_channel_id).toBeNull();
+    });
+});

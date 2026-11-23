@@ -2710,8 +2710,11 @@ class OrderSessionService {
         } = mutationContext;
         const parsed = OrderSessionService.parseLineItems(answer);
         if (parsed.length < 2) {
+            // A9 minor: applyNextProduct takes 5 args and has no gated writes, so
+            // mutationContext was silently dropped here while :2761 (same function,
+            // other branch) already omitted it. Make the call match the signature.
             return OrderSessionService.applyNextProduct(
-                session, step_data, answer, rawMessage, lang, mutationContext,
+                session, step_data, answer, rawMessage, lang,
             );
         }
 

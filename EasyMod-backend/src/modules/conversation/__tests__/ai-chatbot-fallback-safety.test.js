@@ -64,6 +64,14 @@ jest.mock('../../../utils/structured-logger', () => ({
 
 const AIChatbotController = require('../ai-chatbot.controller');
 
+// Mirrors the REAL ingestionResult shape emitted by BOTH producers: the worker's
+// ingestionResult literal (message-worker.js ~:2559) and ConversationStateService
+// .ingestMessage's return (conversation-state-standalone.service.js). meta_channel_id
+// and customer_id are genuine producer fields — not a fixture invention — and that is
+// pinned by conversation-state.ingestion-meta-channel.test.js and the MF-1 block in
+// message-worker.emergency-stop-toctou.test.js (both assert the producers emit them).
+// getActiveSession matches meta_channel_id exactly, so the seed below must carry the
+// same value the worker resumes on, else the session is orphaned during an outage.
 const ingestion = (over = {}) => ({
     shop_id: '11111111-1111-4111-8111-111111111111',
     customer_channel_id: 'psid-1',

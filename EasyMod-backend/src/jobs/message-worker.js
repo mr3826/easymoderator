@@ -2561,6 +2561,14 @@ async function processMessageJob(job) {
         customer_channel_id: recipientId,
         platform,
         conversation_id: conversationId,
+        // A9 MF-1 (D-P2-01): the keyword-fallback tier seeds the order session via
+        // this object, and getActiveSession matches meta_channel_id EXACTLY. These
+        // two fields must carry the SAME values the worker's own resume path uses
+        // just above (`metaChannelId`, `conversation.customer_id`) — otherwise a
+        // session seeded during a provider outage lands under a null meta channel
+        // and is orphaned on the next turn instead of resuming. Both are in scope.
+        meta_channel_id: metaChannelId,
+        customer_id: conversation.customer_id || null,
         sender_info: senderInfo,
         reply_context: replyContext,
     };
