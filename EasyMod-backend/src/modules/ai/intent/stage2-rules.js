@@ -156,6 +156,10 @@ const GENERAL_CHAT_PATTERNS = Object.freeze([
 ]);
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Word-boundary phrase matcher shared by the deterministic rule tier AND the
+// keyword-fallback tier (D-P2-05): an ASCII literal only counts as a whole word,
+// so 'hi' never matches inside 'this'/'thhis'. Non-ASCII (Bengali) literals use
+// substring containment because \\b is undefined across scripts.
 const phraseMatches = (text, phrases) => phrases.some((phrase) => {
     if (/[^\u0000-\u007f]/.test(phrase)) return text.toLowerCase().includes(phrase.toLowerCase());
     const pattern = new RegExp(`(?:^|\\b)${escapeRegExp(phrase)}(?:$|\\b)`, 'i');
@@ -420,6 +424,7 @@ module.exports = {
     isOrderCancel,
     isShadowPurchase,
     isPlainGreeting,
+    wordBoundaryMatches: phraseMatches,
     normalizeForCancel,
     normalizeForIntent,
     extractVariant,

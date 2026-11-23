@@ -431,7 +431,14 @@ const authorizeSessionMutation = async (session, actionType, payload, {
         evidenceSnapshot,
         materialStateRevalidated: true,
         customerConfirmationValid: true,
-        merchantModeAllowsMutation: actionType === 'CREATE_ORDER' ? mutationsAllowed === true : true,
+        // W2: the effective automation mode clamps EVERY mutating session action,
+        // not just CREATE_ORDER. A DRAFT/MANUAL/takeover/emergency-stopped shop must
+        // not be able to EDIT the cart or CANCEL a session through the AI path either.
+        // The caller supplies `mutationsAllowed` from the authoritative resolver
+        // (fail-closed to false on any read failure). The `true` default is the
+        // merchant-initiated path only: an authenticated dashboard action with proper
+        // RBAC is a human decision and is never clamped by the AI reply mode.
+        merchantModeAllowsMutation: mutationsAllowed === true,
         costBudgetAvailable: true,
     });
     if (!result.authorized) throw new Error(`Action Gate denied ${actionType}: ${result.reasonCode}`);
@@ -811,12 +818,12 @@ class OrderSessionService {
                 }
                 // Treat the message as the next product(s) — one name, or several
                 // in one go ("2 lawn and 1 dupatta") via free-text parsing.
-                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang));
+                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang, { conversationId, traceId, mutationsAllowed }));
                 break;
             }
 
             case 'ADDING_PRODUCT': {
-                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang));
+                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang, { conversationId, traceId, mutationsAllowed }));
                 break;
             }
 
@@ -993,7 +1000,19 @@ class OrderSessionService {
                     let stockChanged = false;
                     for (const item of cart) {
                         if (!item.product_id) continue;
-                        const stockCheck = await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1);
+                        // D-P2-02: pass the selected-variant selector ONLY when the
+                        // line actually carries one, so a plain product line keeps the
+                        // exact product-level gate (and the existing call shape).
+                        const variantSelector = (item.variant_id || item.size || item.variant_size || item.color || item.variant_color)
+                            ? {
+                                variantId: item.variant_id || null,
+                                size: item.size || item.variant_size || null,
+                                color: item.color || item.variant_color || null,
+                            }
+                            : null;
+                        const stockCheck = variantSelector
+                            ? await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1, variantSelector)
+                            : await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1);
                         if (!stockCheck.available) {
                             await session.update({ status: 'CANCELLED' });
                             return {
@@ -1853,10 +1872,14 @@ class OrderSessionService {
             channel: session.channel || 'chatbot',
             order_status: 'confirmed',
             // One entry per cart line. price omitted intentionally — the server
-            // computes totals from the live catalog price.
+            // computes totals from the live catalog price. variant_id is carried so
+            // the per-variant server-side stock/price validation actually runs and an
+            // out-of-stock size can never be silently committed as a product-level
+            // order (D-P2-02). Null keeps the existing product-level path.
             items: cart.map(c => ({
                 product_id: c.product_id,
-                quantity: c.quantity || 1
+                quantity: c.quantity || 1,
+                ...(c.variant_id ? { variant_id: c.variant_id } : {}),
             })),
             delivery_fee: stepData.delivery_charge || 0,
             payment_status: GATEWAY_PAYMENT_STATUS[stepData.payment_method] || 'pending',
@@ -2679,10 +2702,20 @@ class OrderSessionService {
      * each resolved, in-stock line to the cart. Falls back to the single-product
      * path when the message isn't multi-item. Mutates step_data.cart.
      */
-    static async applyLineItems(session, step_data, answer, rawMessage, lang) {
+    static async applyLineItems(session, step_data, answer, rawMessage, lang, mutationContext = {}) {
+        const {
+            conversationId = null,
+            traceId = null,
+            mutationsAllowed = true,
+        } = mutationContext;
         const parsed = OrderSessionService.parseLineItems(answer);
         if (parsed.length < 2) {
-            return OrderSessionService.applyNextProduct(session, step_data, answer, rawMessage, lang);
+            // A9 minor: applyNextProduct takes 5 args and has no gated writes, so
+            // mutationContext was silently dropped here while :2761 (same function,
+            // other branch) already omitted it. Make the call match the signature.
+            return OrderSessionService.applyNextProduct(
+                session, step_data, answer, rawMessage, lang,
+            );
         }
 
         const added = [];
@@ -2719,7 +2752,7 @@ class OrderSessionService {
                 edit: 'add',
                 lineIndex: (step_data.cart || []).length,
                 quantity,
-            }, { mutationsAllowed: true });
+            }, { conversationId, traceId, mutationsAllowed });
             verifySessionMutationAuthorization(session, 'EDIT_PREORDER_CART', cartGate);
             step_data.cart = [...(step_data.cart || []), item];
             added.push(item);

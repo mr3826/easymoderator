@@ -8,7 +8,6 @@ const metaChannelService = require('../channel-providers/meta-channel.service');
 const { selectChannelRuntimeSettings } = require('../channel-providers/meta-channel-settings.runtime');
 const cacheService = require('../../utils/cache.service');
 const { isTooLong } = require('../ai/prompt-sanitizer.service');
-const { SupportTicket } = require('../entities');
 const { createLogger } = require('../../utils/structured-logger');
 const { AI_SETTINGS_CACHE_KEY } = require('../../utils/shop-settings-cache');
 const { planHasFeature } = require('../subscription/subscription.plans');
@@ -22,6 +21,10 @@ const {
     normalizeAiReplyMode,
     isAutoSendMode,
 } = require('../shop/ai-reply-mode');
+// D-P2-05: share the deterministic word-boundary phrase matcher with the rule tier
+// so the keyword-fallback tier cannot shadow complaint escalation (e.g. 'hi' inside
+// 'this') nor start a session on a substring match (e.g. 'order' inside 'border').
+const { wordBoundaryMatches } = require('../ai/intent/stage2-rules');
 
 const presetLogger = createLogger('AiChatbotPreset');
 
@@ -452,16 +455,23 @@ class AIChatbotController {
             'order', 'buy', 'purchase', 'অর্ডার', 'কিনতে', 'নিবে', 'চাই',
             'দাম', 'price', 'cost', 'কত', 'available'
         ];
-        const hasOrderIntent = orderKeywords.some(keyword => lowerMessage.includes(keyword));
+        const hasOrderIntent = wordBoundaryMatches(lowerMessage, orderKeywords);
 
         if (hasOrderIntent) {
             const productInfo = AIChatbotController.extractProductInfo(message, entities);
+            // D-P2-01: meta_channel_id is carried from the ingestion result (it is
+            // not a free variable in this scope). `startOrderSession` only SEEDS the
+            // deterministic session state — it never creates an Order, edits a live
+            // order, cancels, or sends to a provider. Every actual mutation and the
+            // outbound send from this fallback tier are clamped by the worker's
+            // effective-mode / emergency-stop gate (W2/W3), so a DRAFT/MANUAL shop
+            // degrades to HELD/DRAFT/merchant review with no false business claim.
             const sessionResult = await OrderSessionService.startOrderSession({
                 shop_id,
                 customer_channel_id,
                 platform,
-                meta_channel_id,
-                customer_id: ingestionResult.customer_id,
+                meta_channel_id: ingestionResult.meta_channel_id ?? null,
+                customer_id: ingestionResult.customer_id ?? null,
                 initial_message: message,
                 entities,
                 product_info: productInfo
@@ -473,7 +483,7 @@ class AIChatbotController {
             'hello', 'hi', 'hey', 'হ্যালো', 'স্বাগতম', 'আসসালামু আলাইকুম',
             'good morning', 'good evening', 'সুপ্রভাত', 'শুভ সকাল'
         ];
-        const hasGreeting = greetings.some(greeting => lowerMessage.includes(greeting));
+        const hasGreeting = wordBoundaryMatches(lowerMessage, greetings);
 
         if (hasGreeting) {
             return { response: AIChatbotController.generateGreetingResponse(language, aiSettings), confidence: 0.90 };
@@ -677,33 +687,28 @@ class AIChatbotController {
      */
     static async escalateToHumanAgent(escalationData) {
         const logger = createLogger();
-        
-        try {
-            // Create support ticket
-            const ticket = await SupportTicket.create({
-                shop_id: escalationData.shop_id,
-                conversation_id: escalationData.conversation_id,
-                customer_channel_id: escalationData.customer_channel_id,
-                platform: escalationData.platform,
-                type: escalationData.intent,
-                status: 'pending',
-                priority: 'medium',
-                message: escalationData.message,
-                customer_info: escalationData.customer_info,
-                metadata: {
-                    escalated_at: new Date(),
-                    escalation_reason: escalationData.reason,
-                    ai_detected_intent: escalationData.intent
-                }
-            });
 
-            // Mark conversation for human handoff
-            await ConversationStateService.markForHumanHandoff(
+        try {
+            // D-P2-03: the live HITL escalation model records the durable handoff on
+            // the Conversation itself (status=needs_human + the canonical hitl flag +
+            // a [HANDOFF] business message) through the shared ConversationStateService
+            // — the SAME artifact the sentiment / low-confidence worker paths write.
+            // The previous SupportTicket.create minted a row without the required
+            // ticket_number / tenant_id / customer_id columns, threw a notNull
+            // violation, and — because it was awaited BEFORE markForHumanHandoff —
+            // blocked the durable record entirely, so the customer was promised
+            // contact with no handoff ever created. A SupportTicket table is not the
+            // escalation artifact in this system; the HITL conversation flag is.
+            const result = await ConversationStateService.markForHumanHandoff(
                 escalationData.conversation_id,
                 escalationData.reason,
                 {
-                    ticket_id: ticket.id,
-                    intent: escalationData.intent
+                    intent: escalationData.intent,
+                    customer_channel_id: escalationData.customer_channel_id,
+                    platform: escalationData.platform,
+                    source: 'keyword_fallback',
+                    escalated_at: new Date().toISOString(),
+                    ai_detected_intent: escalationData.intent,
                 }
             );
 
@@ -711,15 +716,17 @@ class AIChatbotController {
                 shopId: escalationData.shop_id,
                 conversationId: escalationData.conversation_id,
                 intent: escalationData.intent,
-                ticketId: ticket.id
             });
 
-            return ticket;
+            return result;
 
         } catch (error) {
+            // Fail closed: if the durable handoff cannot be recorded the worker
+            // degrades to a generic reply — it must NEVER deliver a "a representative
+            // will contact you" promise with no handoff behind it.
             logger.error('Failed to escalate to human agent', {
                 error: error.message,
-                escalationData
+                escalationData,
             });
             throw error;
         }
