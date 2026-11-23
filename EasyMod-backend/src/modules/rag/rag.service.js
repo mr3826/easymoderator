@@ -56,11 +56,49 @@ const normalizeText = (text) => (text || '').toString().trim();
 
 // Qdrant ONLY accepts unsigned-integer or UUID point IDs. Human-readable
 // document IDs are retained in payloads but mapped to deterministic UUIDs.
+//
+// W1 hardening (tenant-safe keying): the legacy scheme keyed a point by
+// uuidv5(documentId) ALONE. FAQ documentIds embed the global SERIAL PK
+// ("faq-<id>"), so a backup-restore sequence reset or a cross-environment
+// import can hand the same "faq-<id>" label to a different shop — the new
+// shop's upsert would then silently OVERWRITE the old shop's vector point,
+// and a delete by that id could wipe another tenant's data. New writes are
+// keyed by uuidv5(`shop:<shopId>:<documentId>`) so the same document label
+// can never collide across shops.
+//
+//   - toPointId stays exported UNCHANGED for legacy compatibility: existing
+//     points keep their old ids and stay readable by the vector+shop-filter
+//     search path (search never keys by point id). The tenant key-migration
+//     script (src/scripts/migrate-qdrant-tenant-keys.js) and the delete path
+//     both use it to find legacy points.
+//   - ingestData writes the scoped id and best-effort prunes the shop-owned
+//     legacy point, so documents converge to the new scheme on next touch
+//     without any collection drop/recreate.
+//   - deletePoint resolves BOTH candidate ids and deletes only points whose
+//     payload shopId matches the caller's shop — a colliding legacy id owned
+//     by another tenant is skipped, never overwritten or deleted.
+//   - In QDRANT_PER_TENANT=true mode the collection itself is per shop; the
+//     scoped id adds defence-in-depth without changing behaviour (ids stay
+//     deterministic within the shop's own collection).
 const POINT_ID_NAMESPACE = '5f6c1f1e-6b2a-4c3d-8e7f-0a1b2c3d4e5f';
 const toPointId = (documentId) => {
     if (!documentId) return crypto.randomUUID();
     const id = String(documentId);
     return uuidValidate(id) ? id : uuidv5(id, POINT_ID_NAMESPACE);
+};
+
+/**
+ * Tenant-safe point id: uuidv5("shop:<shopId>:<documentId>").
+ * A documentId that is already a valid UUID is kept verbatim (globally unique
+ * by construction; re-keying it would orphan existing points for no gain).
+ * Throws (400) when shopId is missing — refusing to key unscoped is the point.
+ */
+const toScopedPointId = (shopId, documentId) => {
+    if (!documentId) return crypto.randomUUID();
+    const id = String(documentId);
+    if (uuidValidate(id)) return id;
+    const scopedShopId = requireShopId(shopId);
+    return uuidv5(`shop:${scopedShopId}:${id}`, POINT_ID_NAMESPACE);
 };
 
 const resolveCollectionName = (shopId, baseCollection = qdrantCollection) => {
@@ -278,6 +316,62 @@ const buildShopFilter = (shopId, extraFilters) => {
     return { must: [shopFilter, extraFilters] };
 };
 
+/**
+ * Retrieve existing points by id (payload shopId projection only). Used by the
+ * ownership-checked delete path and by the ingest cross-tenant guard. A point
+ * that does not exist is simply absent from the result.
+ */
+const retrievePoints = async (collection, ids, { signal } = {}) => {
+    const unique = [...new Set((ids || []).filter(Boolean).map(String))];
+    if (!unique.length) return [];
+    const result = await qdrantJson(qdrantPath(collection, '/points'), {
+        method: 'POST',
+        body: JSON.stringify({
+            ids: unique,
+            with_payload: ['shopId'],
+            with_vector: false,
+        }),
+        signal,
+    });
+    return result?.result || [];
+};
+
+/**
+ * Retrieve candidate point ids and return only those that belong to `shopId`
+ * (payload shopId match). Points that do not exist, or exist under a
+ * different tenant after an id collision, are excluded — the caller must
+ * never act on them. Missing/unreadable points are simply not returned.
+ */
+const findOwnedPointIds = async (collection, candidateIds, shopId, { signal } = {}) => {
+    const scopedShopId = requireShopId(shopId);
+    const shopKey = String(scopedShopId);
+    const found = await retrievePoints(collection, candidateIds, { signal });
+    return found
+        .filter((point) => String(point?.payload?.shopId ?? '') === shopKey)
+        .map((point) => point.id);
+};
+
+/**
+ * F1 (A9 adversarial review): a UUID-shaped documentId keeps its value as the
+ * point id, which hands the CALLER arbitrary point-id selection. Legacy ids
+ * are deterministic (uuidv5("faq-<N>")), so a malicious authenticated shop
+ * could compute another shop's legacy point id and POST it as its own
+ * documentId to overwrite that tenant's vector+payload. Before any upsert onto
+ * a passthrough id, verify the point does not exist or belongs to this shop.
+ */
+const CROSS_TENANT_DOCUMENT_ID = 'CROSS_TENANT_DOCUMENT_ID';
+const assertPassthroughOwnership = async (binding, pointId, shopId) => {
+    const found = await retrievePoints(binding.collection, [pointId]);
+    const existing = found.find((point) => String(point?.id) === String(pointId));
+    if (existing && String(existing?.payload?.shopId ?? '') !== String(shopId)) {
+        throw new AppError(
+            'This document id belongs to another shop.',
+            400,
+            CROSS_TENANT_DOCUMENT_ID,
+        );
+    }
+};
+
 const upsertPoint = async ({ id, vector, identity, payload, binding, signal }) => {
     assertEmbeddingSpaceCompatible(binding.identity, identity, 'document');
     return qdrantJson(qdrantPath(binding.collection, '/points?wait=true'), {
@@ -332,6 +426,16 @@ const ingestData = async ({ text, metadata = {} }) => {
             allowCreate: true,
             requestedIdentity: configuredIdentity,
         });
+        const pointId = toScopedPointId(shopId, metadata.documentId);
+        // F1 (A9): a UUID-shaped documentId maps verbatim to a point id, so the
+        // caller controls point identity. Only proceed when the target does not
+        // exist or is owned by this shop — otherwise another tenant's FAQ point
+        // could be overwritten through POST /api/rag/ingest. Checked BEFORE
+        // embedding spend so rejected attempts cost nothing.
+        if (metadata.documentId && uuidValidate(String(metadata.documentId))) {
+            await assertPassthroughOwnership(binding, pointId, shopId);
+        }
+
         const embedding = await getEmbeddingResult(content, {
             identity: binding.identity,
             purpose: 'document',
@@ -339,21 +443,48 @@ const ingestData = async ({ text, metadata = {} }) => {
         });
 
         await upsertPoint({
-            id: toPointId(metadata.documentId),
+            id: pointId,
             vector: embedding.vector,
             identity: embedding.identity,
             binding,
-            payload: { text: content, ...metadata },
+            // documentId + shopId are always present in the payload so legacy
+            // points stay identifiable for the key migration and deletes.
+            payload: { text: content, ...metadata, shopId, documentId: metadata.documentId ?? null },
         });
+
+        // Converge legacy keys: best-effort removal of the old shop-agnostic
+        // point for the SAME document (only if it belongs to this shop). A
+        // collision owned by another tenant is skipped — never deleted here.
+        if (metadata.documentId) {
+            try {
+                const legacyId = toPointId(metadata.documentId);
+                if (legacyId !== pointId) {
+                    const owned = await findOwnedPointIds(binding.collection, [legacyId], shopId);
+                    if (owned.length) {
+                        await qdrantJson(qdrantPath(binding.collection, '/points/delete?wait=true'), {
+                            method: 'POST',
+                            body: JSON.stringify({ points: owned }),
+                        });
+                    }
+                }
+            } catch (_) {
+                // Duplicate legacy copies are harmless (same text) and will be
+                // reaped by the key-migration script; ingestion must not fail.
+            }
+        }
 
         return {
             success: true,
             message: 'Data ingested successfully',
-            ingestionId: toPointId(metadata.documentId),
+            ingestionId: pointId,
             documentId: metadata.documentId || null,
             embeddingSpace: binding.identity,
         };
     } catch (error) {
+        // The cross-tenant passthrough rejection is a client error (400), not a
+        // degraded-unavailable case — surface it to the caller instead of
+        // swallowing it into { success: false }.
+        if (error?.code === CROSS_TENANT_DOCUMENT_ID) throw error;
         console.warn('RAG ingestion skipped (service unavailable):', error.code || error.name || 'EmbeddingError');
         return {
             success: false,
@@ -482,11 +613,25 @@ const queryData = async ({ query, limit = 5, filters, shopId }, { timeoutMs = RA
     }
 };
 
+// W1: a delete must only ever touch the CALLING shop's points. The legacy
+// scheme could map a reused document label onto another tenant's point (id
+// collision after a restore/sequence reset), so deletes now resolve the
+// legacy + tenant-scoped candidate ids, verify ownership via the payload
+// shopId, and delete only the owned subset.
 const deletePoint = async (id, shopId) => {
-    const binding = await ensureCollection(requireShopId(shopId), { allowCreate: false });
+    const scopedShopId = requireShopId(shopId);
+    const binding = await ensureCollection(scopedShopId, { allowCreate: false });
+    const candidateIds = [...new Set([toPointId(id), toScopedPointId(scopedShopId, id)])];
+    const ownedIds = await findOwnedPointIds(binding.collection, candidateIds, scopedShopId);
+    if (!ownedIds.length) {
+        // Nothing owned by this shop under any of the candidate ids — an
+        // unowned match (legacy collision) is deliberately SKIPPED, never
+        // deleted, so no tenant can remove another tenant's data.
+        return { result: { acknowledged: true, operation_id: null, deleted: 0, skippedForeignIds: candidateIds.length } };
+    }
     return qdrantJson(qdrantPath(binding.collection, '/points/delete?wait=true'), {
         method: 'POST',
-        body: JSON.stringify({ points: [toPointId(id)] }),
+        body: JSON.stringify({ points: ownedIds }),
     });
 };
 
@@ -501,4 +646,6 @@ module.exports = {
     resolveCollectionName,
     contentFilter,
     toPointId,
+    toScopedPointId,
+    findOwnedPointIds,
 };
