@@ -668,9 +668,18 @@ export function InboxThreadDetail({
    *    persisted across attempts. If the REQUEST itself errored, the outcome is
    *    unknown (the row may exist server-side), so the next click reuses the
    *    same key and the server dedup replays rather than double-sending.
-   *  - If the retry COMPLETED with a known FAILED send, that attempt is closed
-   *    and its key is released: the next click is a genuinely new attempt and
-   *    mints a fresh key (reusing it would only replay the failed row forever).
+   *  - If the retry COMPLETED with FAILED, the key is released ONLY when the
+   *    response says explicitly `provider_send_attempted === false` (a not-
+   *    attempted failure — safe to re-dispatch as a genuinely new attempt).
+   *    When the provider call was STARTED and errored (lost ack, outcome
+   *    unknown), the row persists FAILED with provider_send_attempted: true
+   *    (conversation.controller.js:779); minting a fresh key there would
+   *    create a second row and a possible SECOND provider-visible message.
+   *    An unknown attempt state (flag absent) also keeps the key — the FE
+   *    cannot prove it is safe to re-send, and the same-key replay is inert:
+   *    the server returns the stored row without dispatching (controller
+   *    :990-999 skips delivery on idempotency_replay). Mirrors the P05
+   *    no-blind-resend posture (PROVIDER_SEND_ALREADY_ATTEMPTED 409s).
    *  - If the retry completed pending/confirmed, the key is kept, so a stray
    *    later click on the old failed bubble replays the existing send.
    */
@@ -701,9 +710,13 @@ export function InboxThreadDetail({
         message_type: failedMessage.message_type,
         metadata: { ...metadata, delivery_status: "pending" },
       }, { idempotencyKey });
-      if (getDeliveryState(message) === "FAILED" || message.metadata?.delivery_status === "failed") {
-        // Known failed outcome: this attempt completed; the next click is a
-        // genuinely new attempt and must not be deduped onto this failed row.
+      const completedFailed =
+        getDeliveryState(message) === "FAILED" || message.metadata?.delivery_status === "failed";
+      if (completedFailed && message.metadata?.provider_send_attempted === false) {
+        // Only a server-confirmed NOT-attempted failure releases the key; an
+        // attempted (or indistinguishable) FAILED outcome keeps it so the next
+        // click replays the stored row instead of risking a second
+        // provider-visible send (F-1, A6 QA on PR #305).
         retryIdempotencyKeysRef.current.delete(messageId);
       }
       onMessageSent(message);
