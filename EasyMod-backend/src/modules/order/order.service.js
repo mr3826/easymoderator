@@ -1344,11 +1344,37 @@ const listOrders = async (userId, shopId, filters = {}) => {
 
     if (filters.search) {
         const search = String(filters.search).trim();
-        whereClause[Op.or] = [
-            { order_number: { [likeOp]: `%${search}%` } },
-            { '$customer.name$': { [likeOp]: `%${search}%` } },
-            { '$customer.phone$': { [likeOp]: `%${search}%` } }
-        ];
+        // A8 F-5 (deterministic HTTP 500 on any Orders search): with `limit`
+        // plus the hasMany order_items include, Sequelize emits a page
+        // subquery carrying the whole top-level WHERE, while the optional
+        // (`required: false`) customer join survives only in the outer query.
+        // The '$customer.name$' / '$customer.phone$' path references
+        // therefore hit an alias missing from the subquery's FROM — Postgres
+        // fails every search, order-number matches included
+        // ("missing FROM-clause entry for table \"customer\"").
+        // Resolve the matching customers first, scoped to THIS shop, and
+        // constrain orders by customer_id — the semijoin idiom this service
+        // already uses elsewhere (Op.in) — preserving order_number OR
+        // customer name OR customer phone semantics with server-side tenant
+        // scoping intact.
+        const matchedCustomers = await Customer.findAll({
+            where: {
+                shop_id: shopId,
+                [Op.or]: [
+                    { name: { [likeOp]: `%${search}%` } },
+                    { phone: { [likeOp]: `%${search}%` } },
+                ],
+            },
+            attributes: ['id'],
+            raw: true,
+        });
+        const customerIds = matchedCustomers.map((row) => row.id);
+        whereClause[Op.or] = customerIds.length
+            ? [
+                { order_number: { [likeOp]: `%${search}%` } },
+                { customer_id: { [Op.in]: customerIds } },
+            ]
+            : [{ order_number: { [likeOp]: `%${search}%` } }];
     }
 
     const page = Math.max(1, Number(filters.page || 1));
