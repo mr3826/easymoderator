@@ -195,6 +195,11 @@ class ConversationStateService {
                 shop_id,
                 customer_channel_id,
                 platform,
+                // A9 MF-1: expose the same resolved meta channel the session-resume
+                // above keyed on, so any ingestionResult built from this producer
+                // (the HTTP path → processNewIntent fallback seed) carries the real
+                // channel id instead of an always-null value.
+                meta_channel_id: conversation.meta_channel_id || meta_channel_id || null,
                 conversation_state: {
                     status: conversation.status,
                     language: currentMeta.language_detected,

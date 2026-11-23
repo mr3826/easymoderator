@@ -211,15 +211,92 @@ const getProductLive = async (productId, shopId) => {
     return results[0] ? formatProduct(results[0]) : null;
 };
 
+const toFiniteNumber = (value) => {
+    // null / undefined / empty string are ABSENT (invalid) counts, distinct from a
+    // real 0 (sold out). Only a genuine finite number is a valid quantity.
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+};
+
 /**
- * Validate stock for a product before starting order.
- * Returns { available: bool, reason: string }.
+ * Resolve a selected variant (by variant id, or size/color option value) inside
+ * a live product row. Returns:
+ *   { status: 'none' }            — no variant requested → use product level
+ *   { status: 'matched', variant }— the requested variant found
+ *   { status: 'missing' }         — a variant was requested but the product has
+ *                                   no variant data to satisfy it (never guess)
  */
-const checkStock = async (productId, shopId, requestedQty = 1) => {
+const resolveSelectedVariant = (product, selector) => {
+    if (!selector) return { status: 'none' };
+    const { variantId, size, color } = selector;
+    if (!variantId && !size && !color) return { status: 'none' };
+    const variants = Array.isArray(product.variants) ? product.variants : [];
+    if (!variants.length) return { status: 'missing' };
+
+    if (variantId) {
+        const byId = variants.find((v) => v && v.id != null && String(v.id) === String(variantId));
+        if (byId) return { status: 'matched', variant: byId };
+        return { status: 'missing' };
+    }
+    const wanted = [size, color]
+        .filter((s) => typeof s === 'string' && s.trim())
+        .map((s) => s.trim().toLowerCase());
+    const byValue = variants.find((v) => {
+        if (!v) return false;
+        const value = typeof v.option_value === 'string' ? v.option_value.trim().toLowerCase() : '';
+        return value && wanted.includes(value);
+    });
+    return byValue ? { status: 'matched', variant: byValue } : { status: 'missing' };
+};
+
+/**
+ * Validate stock for a product before ordering.
+ *
+ * D-P2-02 (variant authority): when a specific variant is selected (by id or by
+ * size/color) the gate is that VARIANT's own finite quantity — the field the
+ * grounding layer already prints as per-size availability. Product-level stock is
+ * consulted ONLY when no variant is selected. A selected variant that is missing,
+ * inactive, or has invalid/insufficient/stale stock fails CLOSED; there is no
+ * silent substitution of product-level availability for an out-of-stock size.
+ *
+ * Returns { available, reason, product?, selectedVariant?, quantity? }.
+ */
+const checkStock = async (productId, shopId, requestedQty = 1, variantSelector = null) => {
     const product = await getProductLive(productId, shopId);
     if (!product) return { available: false, reason: 'Product not found' };
     if (!product.is_active) return { available: false, reason: 'Product is no longer available' };
     if (!product.in_stock) return { available: false, reason: 'Product is out of stock' };
+
+    const selection = resolveSelectedVariant(product, variantSelector);
+    if (selection.status === 'missing') {
+        // A concrete option was requested but the live product cannot honour it
+        // (unknown / cross-shop / stale-claimed variant id). Do not fall back to
+        // product-level stock — that would order a size we never verified.
+        return { available: false, reason: 'The selected option is not available for this product', variant_missing: true };
+    }
+
+    if (selection.status === 'matched') {
+        const variant = selection.variant;
+        if (variant.is_active === false) {
+            return { available: false, reason: 'The selected option is no longer available', selectedVariant: variant };
+        }
+        if (product.track_quantity) {
+            const vQty = toFiniteNumber(variant.quantity);
+            if (vQty === null) {
+                // Tracked product with an unresolvable variant quantity → fail closed.
+                return { available: false, reason: 'Stock for the selected option is unavailable', selectedVariant: variant, invalid_variant_stock: true };
+            }
+            if (vQty < requestedQty) {
+                return { available: false, reason: `Only ${vQty} unit(s) left in stock`, quantity: vQty, selectedVariant: variant };
+            }
+            return { available: true, reason: null, product, selectedVariant: variant, quantity: vQty };
+        }
+        // Not tracked at product level: product.in_stock already gated above.
+        return { available: true, reason: null, product, selectedVariant: variant };
+    }
+
+    // No variant selected → preserve the original product-level semantics.
     if (product.track_quantity && product.quantity < requestedQty) {
         // Expose the live count so callers can localise "only N left" without re-querying.
         return { available: false, reason: `Only ${product.quantity} unit(s) left in stock`, quantity: product.quantity };
