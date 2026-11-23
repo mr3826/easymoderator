@@ -561,12 +561,15 @@ export function ChannelHealthGrid({
         okText={t("channels.health.active", "Active")}
         badText={t("channels.health.notVerified", "Not verified")}
       />
+      {/* A8 F-4: this cell is a stored-expiry timestamp check only — no
+          provider call. It must claim no more than the neighboring honest
+          "Webhook: Not verified" row. */}
       <HealthRow
         label={t("channels.health.token", "Token")}
         ok={
           !channel.tokenExpiresAt || new Date(channel.tokenExpiresAt).getTime() > Date.now()
         }
-        okText={t("channels.health.valid", "Valid")}
+        okText={t("channels.health.notExpiredUnverified", "Not expired (unverified)")}
         badText={t("channels.health.expired", "Expired")}
       />
       <HealthRow

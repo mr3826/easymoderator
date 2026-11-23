@@ -152,7 +152,13 @@ describe('ChannelDetail', () => {
     const effective = await screen.findByTestId('channel-effective-mode');
     expect(effective).toHaveAttribute('aria-live', 'polite');
     expect(effective).toHaveTextContent('Drafts for review');
-    expect(screen.getByTestId('channel-mode-source')).toHaveTextContent('Channel override');
+    // A8 F-6(b): this line used to render i18next's internal failure text
+    // ("key 'manageShop.channels.modeSource (en)' returned an object instead
+    // of string.") because t() was called on an object node. Human copy only.
+    const source = screen.getByTestId('channel-mode-source');
+    expect(source).toHaveTextContent(/^Reply mode set by: Channel override$/);
+    expect(source).not.toHaveTextContent(/returned an object/);
+    expect(source).not.toHaveTextContent(/manageShop\.channels\./);
   });
 
   it('offers only narrow-only modes (never AUTO under a DRAFT ceiling)', async () => {

@@ -1,8 +1,41 @@
 import { apiClient } from '@/api';
 import { httpClient } from '@/shared/lib/http/client';
+import { isApiError } from '@/shared/lib/http/errors';
 import type { User, Shop, SigninRequest, SignupRequest, CreateShopRequest } from '@/api/types';
 import { queryClient } from './queryClient';
 import { isMarketingSurface } from './config';
+
+/**
+ * Signup timeout recovery (A8 merchant pass F-1, CRITICAL).
+ *
+ * A cold server can finish the signup transaction AFTER the client-side
+ * request deadline (observed: 201 Created at 12.18 s vs a then-10 s axios
+ * timeout). The domain layer now gives signup its own 30 s budget so the
+ * normal outcome is a genuine full response. If even that aborts, declaring
+ * "failed" would be a lie about a possibly-existing account, so we re-query
+ * session state twice (bounded: +2 s and +4 s, each probe capped) before
+ * letting the UI render honest "still creating — try signing in" copy.
+ *
+ * Honest caveat: when axios aborts, the browser discards the late response
+ * and its Set-Cookie, so a recovered session here is the exception, not the
+ * rule — the loop is a safety net for races where the response completed
+ * around the abort and for any future flow where cookies survive it. The
+ * copy for the give-up branch never claims creation failed either way.
+ */
+const SIGNUP_RECHECK_ATTEMPTS = [
+  { delayMs: 2000, timeoutMs: 5000 },
+  { delayMs: 4000, timeoutMs: 5000 },
+] as const;
+
+function waitWithDeadline<T>(promise: Promise<T>, deadlineMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('session-recheck-deadline')), deadlineMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 // Auth state interface
 export interface AuthState {
@@ -176,9 +209,39 @@ export class AuthService {
         isLoading: false,
       });
     } catch (error) {
+      // Cold-server timeout (A8 F-1): re-query the session before anything is
+      // declared. If a session exists, complete the normal success path —
+      // the account genuinely exists and the browser genuinely holds cookies.
+      if (isApiError(error) && error.type === 'TIMEOUT_ERROR') {
+        const recovered = await this.recoverSessionAfterSignupTimeout();
+        if (recovered) return;
+      }
       this.setAuthState({ isLoading: false });
       throw error;
     }
+  }
+
+  private async recoverSessionAfterSignupTimeout(): Promise<boolean> {
+    for (const { delayMs, timeoutMs } of SIGNUP_RECHECK_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      try {
+        const authContext = await waitWithDeadline(
+          apiClient.getAuthContext({ timeoutMs, skipGlobalErrorToast: true }),
+          timeoutMs,
+        );
+        this.setAuthState({
+          user: authContext.user,
+          currentShop: authContext.currentShop,
+          allShops: authContext.allShops,
+          isAuthenticated: true,
+          isLoading: false,
+        });
+        return true;
+      } catch {
+        // No session yet, or the probe itself failed/timed out — bounded loop.
+      }
+    }
+    return false;
   }
 
   async switchShop(shopId: string): Promise<void> {

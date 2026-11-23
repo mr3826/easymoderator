@@ -317,7 +317,7 @@ export default function ChannelDetail() {
                   <span className="font-semibold">{t(MODE_LABEL_KEYS[effectiveMode])}</span>
                 </p>
                 <p data-testid="channel-mode-source" className="text-xs text-em-text-secondary">
-                  {t("manageShop.channels.modeSource")}:{" "}
+                  {t("manageShop.channels.modeSourceLabel")}:{" "}
                   {t(MODE_SOURCE_LABEL_KEYS[modeSource])}
                 </p>
               </div>

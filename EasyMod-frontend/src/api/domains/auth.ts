@@ -51,10 +51,23 @@ export async function signin(credentials: SigninRequest): Promise<AuthResponse> 
   return data;
 }
 
+/**
+ * Targeted client budget for signup ONLY (A8 merchant pass F-1, CRITICAL).
+ * A cold server answered POST /auth/signup with 201 Created in 12.18 s while
+ * the shared axios default aborts at 10 s — the first merchant moment then
+ * lied ("Request timeout. Please try again.") about an account that existed.
+ * 30 s keeps the honest full-response path (Set-Cookie arrives, true success)
+ * for measured cold starts (12 s) with ~2.5x headroom, without slowing failure
+ * detection everywhere else. Signin keeps the client default: it never showed
+ * this behaviour and fast failure is better UX there.
+ */
+export const SIGNUP_REQUEST_TIMEOUT_MS = 30000;
+
 export async function signup(userData: SignupRequest): Promise<AuthResponse> {
   const response: AxiosResponse<ApiResponse<AuthResponse>> = await httpClient.post(
     '/api/auth/signup',
-    userData
+    userData,
+    { timeout: SIGNUP_REQUEST_TIMEOUT_MS }
   );
   const { data } = response.data;
   const normalizedData: AuthResponse = {
@@ -132,6 +145,14 @@ export async function logout(): Promise<void> {
   }
 }
 
+export interface AuthContextRequestConfig {
+  /** Per-request timeout override (ms) for the /auth/me fetch. */
+  timeoutMs?: number;
+  /** Suppress the global error toast — for probes whose outcome the caller
+   * renders itself (e.g. the signup-timeout session recheck). */
+  skipGlobalErrorToast?: boolean;
+}
+
 /**
  * Get current authentication context including user and shop information
  * @returns Promise resolving to auth context with user, current shop, and all shops
@@ -143,7 +164,7 @@ export async function logout(): Promise<void> {
  * console.log('Current shop:', context.currentShop);
  * ```
  */
-export async function getAuthContext(): Promise<{
+export async function getAuthContext(requestConfig?: AuthContextRequestConfig): Promise<{
   user: User;
   currentShop: Shop;
   allShops: Shop[];
@@ -152,7 +173,12 @@ export async function getAuthContext(): Promise<{
     user: User;
     currentShop: Shop;
     allShops: Shop[];
-  }>> = await httpClient.get('/api/auth/me');
+  }>> = requestConfig
+    ? await httpClient.get('/api/auth/me', {
+        timeout: requestConfig.timeoutMs,
+        ...(requestConfig.skipGlobalErrorToast ? { __skipGlobalErrorToast: true } : {}),
+      })
+    : await httpClient.get('/api/auth/me');
   // A valid session exists — re-arm the hint in case storage was cleared while
   // the cookies survived, so a later expiry can still be refreshed.
   httpClient.setSessionHint(true);

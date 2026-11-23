@@ -527,7 +527,8 @@ describe('ChatSettings', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Connected').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Valid').length).toBeGreaterThan(0);
+      // A8 F-4 relabel: timestamp-only token check now reads honestly.
+      expect(screen.getAllByText('Not expired (unverified)').length).toBeGreaterThan(0);
     }, { timeout: 2000 });
   });
 
