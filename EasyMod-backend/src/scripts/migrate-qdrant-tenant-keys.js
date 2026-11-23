@@ -92,6 +92,30 @@ function planKeyMigration(points) {
     return plan;
 }
 
+/**
+ * F2 (A9 adversarial review): the batch-local planner cannot see a scoped
+ * point that lives in ANOTHER scroll batch, so plan.moves may name a target
+ * that is already occupied by a NEWER copy of the same shop. The executor must
+ * probe the target id directly and classify before writing:
+ *   'move'         — target absent → copy legacy → verify → delete legacy.
+ *   'prune-stale'  — target occupied by the SAME shop (newer scoped copy in
+ *                    another batch, or the planned stale-duplicate case) →
+ *                    delete only the legacy; NEVER overwrite the fresher
+ *                    scoped point with older content. For a planned 'stale'
+ *                    entry whose occupant has since vanished, deleting the
+ *                    legacy is still right: re-copying would resurrect a
+ *                    deleted document.
+ *   'skip-foreign' — target occupied by a DIFFERENT shop → touch neither.
+ * Pure so it is unit-testable without a network.
+ */
+function classifyMove(item, occupantShopId) {
+    if (occupantShopId === null || occupantShopId === undefined) {
+        return item.kind === 'stale' ? 'prune-stale' : 'move';
+    }
+    if (String(occupantShopId) === String(item.shopId)) return 'prune-stale';
+    return 'skip-foreign';
+}
+
 // ── Execution (only reached from main; import is side-effect free) ───────────
 
 const buildQdrantClient = () => {
@@ -147,6 +171,17 @@ const retrieveExists = async (call, id) => {
     return (result?.result || []).length > 0;
 };
 
+/** Owner (payload shopId) of the point at `id`, or null when absent. A point
+ *  that exists WITHOUT a shopId payload returns '' — treated as foreign. */
+const retrievePointOwner = async (call, id) => {
+    const result = await call('/points', {
+        method: 'POST',
+        body: JSON.stringify({ ids: [id], with_payload: ['shopId'], with_vector: false }),
+    });
+    const point = (result?.result || [])[0];
+    return point ? String(point.payload?.shopId ?? '') : null;
+};
+
 async function main() {
     const requestedCollection = parseArg('collection') || process.env.QDRANT_COLLECTION || 'knowledge_documents';
     state.collection = requestedCollection;
@@ -184,23 +219,37 @@ async function main() {
         if (!state.apply) continue;
 
         const byId = new Map(scoped.map((point) => [String(point.id), point]));
-        // moves: copy first, verify the scoped point landed, THEN delete legacy.
-        for (const move of plan.moves) {
-            const source = byId.get(move.from);
-            await upsertCopy(call, source, move.to);
-            if (!(await retrieveExists(call, move.to))) {
-                throw new Error(`verification failed: scoped point ${move.to} did not land; legacy ${move.from} kept`);
+        // F2: never trust the batch-local view for the TARGET side. Probe the
+        // occupant of every planned `to` id right before writing.
+        const pending = [
+            ...plan.moves.map((item) => ({ ...item, kind: 'move' })),
+            ...plan.staleLegacy.map((item) => ({ ...item, kind: 'stale' })),
+        ];
+        for (const item of pending) {
+            const occupant = await retrievePointOwner(call, item.to);
+            const action = classifyMove(item, occupant);
+            if (action === 'skip-foreign') {
+                console.warn(`  SKIPPED foreign occupant at ${item.to} (shop ${occupant}); legacy ${item.from} left untouched`);
+                totals.foreignSkipped += 1;
+                continue;
             }
-            await removeLegacy(call, [move.from]);
+            if (action === 'prune-stale') {
+                // A newer same-shop copy holds the target — drop ONLY the
+                // (shop-owned, planner-verified) legacy point. No overwrite.
+                await removeLegacy(call, [item.from]);
+                totals.executed += 1;
+                console.log(`  PRUNED stale legacy ${item.from} (shop ${item.shopId}, doc ${item.documentId})`);
+                continue;
+            }
+            const source = byId.get(item.from);
+            if (!source) continue; // vanished mid-run; nothing to copy
+            await upsertCopy(call, source, item.to);
+            if (!(await retrieveExists(call, item.to))) {
+                throw new Error(`verification failed: scoped point ${item.to} did not land; legacy ${item.from} kept`);
+            }
+            await removeLegacy(call, [item.from]);
             totals.executed += 1;
-            console.log(`  MOVED faq/product key ${pointText(source)}: ${move.from} -> ${move.to}`);
-        }
-        for (const stale of plan.staleLegacy) {
-            // Scoped copy already exists and is owned by the same shop, so the
-            // legacy duplicate is safe to drop for THIS shop only.
-            await removeLegacy(call, [stale.from]);
-            totals.executed += 1;
-            console.log(`  PRUNED stale legacy ${stale.from} (shop ${stale.shopId}, doc ${stale.documentId})`);
+            console.log(`  MOVED ${item.kind} key ${pointText(source)}: ${item.from} -> ${item.to}`);
         }
     }
 
@@ -228,4 +277,4 @@ if (require.main === module) {
         });
 }
 
-module.exports = { planKeyMigration, isManifestPoint };
+module.exports = { planKeyMigration, classifyMove, isManifestPoint };

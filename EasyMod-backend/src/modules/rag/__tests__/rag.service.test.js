@@ -141,10 +141,23 @@ describe('Qdrant point-id normalization', () => {
         expect(delBody.points).toEqual([upsertId]);
     });
 
-    test('an already-valid UUID documentId is preserved unchanged', async () => {
+    test('an already-valid UUID documentId passes through only when absent or caller-owned (F1)', async () => {
         const uuid = '11111111-2222-4333-8444-555555555555';
         await rag.ingestData({ text: 'x', metadata: { documentId: uuid, shopId: 's1' } });
+        // F1 (A9 BLOCK): a passthrough id gives the caller arbitrary point-id
+        // selection, so the service must probe ownership BEFORE writing.
+        const retrieve = calls.find((c) => c.url.endsWith('/points') && c.init?.method === 'POST');
+        expect(retrieve).toBeTruthy();
+        expect(JSON.parse(retrieve.init.body).ids).toEqual([uuid]);
         expect(upsertBody().points[0].id).toBe(uuid);
+
+        // The owner re-writing its own UUID-keyed point is still allowed.
+        calls.length = 0;
+        const res = await rag.ingestData({ text: 'y', metadata: { documentId: uuid, shopId: 's1' } });
+        expect(res.success).toBe(true);
+        expect(upsertBody().points[0].id).toBe(uuid);
+        // Foreign-tenant rejection (the malicious case) is covered in
+        // rag.service.tenant-keys.test.js against a populated collection.
     });
 
     test('a provider transition cannot reuse the active collection for writes', async () => {

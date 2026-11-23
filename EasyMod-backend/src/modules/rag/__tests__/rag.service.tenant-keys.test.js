@@ -224,6 +224,53 @@ describe('W1 restore-collision scenario (two shops, overlapping FAQ PKs)', () =>
     });
 });
 
+describe('F1 (A9 BLOCK) — passthrough point-id takeover rejected', () => {
+    // A9 executed this attack against the pre-fix code (ATTACK_SUCCEEDED true):
+    // POST /api/rag/ingest with metadata.documentId set to the victim's
+    // deterministic legacy id, which the UUID-passthrough branch mapped
+    // verbatim to the victim's point id and rewrote payload.shopId.
+    test('shop B cannot overwrite shop A legacy point by submitting its UUID', async () => {
+        seedPoint({ id: LEGACY_FAQ7, payload: { shopId: SHOP_A, documentId: 'faq-7', text: 'Shop A private answer', type: 'faq' } });
+
+        await expect(rag.ingestData({
+            text: 'Shop B malicious content',
+            metadata: { documentId: LEGACY_FAQ7, shopId: SHOP_B, type: 'faq' },
+        })).rejects.toMatchObject({ status: 400, code: 'CROSS_TENANT_DOCUMENT_ID' });
+
+        // Victim point byte-identical: neither content nor ownership moved.
+        expect(collection.get(String(LEGACY_FAQ7)).payload.text).toBe('Shop A private answer');
+        expect(collection.get(String(LEGACY_FAQ7)).payload.shopId).toBe(SHOP_A);
+        // No upsert was ever issued for the victim id.
+        const puts = calls.filter((c) => c.url.includes('/points?wait=true'));
+        expect(puts.some((c) => JSON.parse(c.init.body).points.some((p) => String(p.id) === String(LEGACY_FAQ7)))).toBe(false);
+    });
+
+    test('the owner may still rewrite its own UUID-keyed point', async () => {
+        seedPoint({ id: LEGACY_FAQ7, payload: { shopId: SHOP_A, documentId: 'faq-7', text: 'old' } });
+        const res = await rag.ingestData({ text: 'new', metadata: { documentId: LEGACY_FAQ7, shopId: SHOP_A } });
+        expect(res.success).toBe(true);
+        expect(collection.get(String(LEGACY_FAQ7)).payload.text).toBe('new');
+    });
+
+    test('an absent UUID documentId still passes through unchanged (compat path)', async () => {
+        const fresh = '99999999-9999-4999-8999-999999999999';
+        const res = await rag.ingestData({ text: 'new doc', metadata: { documentId: fresh, shopId: SHOP_B } });
+        expect(res.success).toBe(true);
+        expect(res.ingestionId).toBe(fresh);
+    });
+
+    test('a caller-owned legacy-scoped collision cannot be hijacked via delete either', async () => {
+        // B owns faq-7 at its scoped key; A submits the same UUID docId that
+        // equals B's scoped key → refused; B's data intact.
+        await rag.ingestData({ text: 'B answer', metadata: { documentId: 'faq-7', shopId: SHOP_B } });
+        await expect(rag.ingestData({
+            text: 'A hijack',
+            metadata: { documentId: SCOPED_B_FAQ7, shopId: SHOP_A },
+        })).rejects.toMatchObject({ status: 400, code: 'CROSS_TENANT_DOCUMENT_ID' });
+        expect(collection.get(String(SCOPED_B_FAQ7)).payload.text).toBe('B answer');
+    });
+});
+
 describe('QDRANT_PER_TENANT interaction', () => {
     test('per-tenant mode keeps per-shop collections; scoped keys stay deterministic', () => {
         // Module-level config capture — load a fresh copy with the flag on.

@@ -317,6 +317,26 @@ const buildShopFilter = (shopId, extraFilters) => {
 };
 
 /**
+ * Retrieve existing points by id (payload shopId projection only). Used by the
+ * ownership-checked delete path and by the ingest cross-tenant guard. A point
+ * that does not exist is simply absent from the result.
+ */
+const retrievePoints = async (collection, ids, { signal } = {}) => {
+    const unique = [...new Set((ids || []).filter(Boolean).map(String))];
+    if (!unique.length) return [];
+    const result = await qdrantJson(qdrantPath(collection, '/points'), {
+        method: 'POST',
+        body: JSON.stringify({
+            ids: unique,
+            with_payload: ['shopId'],
+            with_vector: false,
+        }),
+        signal,
+    });
+    return result?.result || [];
+};
+
+/**
  * Retrieve candidate point ids and return only those that belong to `shopId`
  * (payload shopId match). Points that do not exist, or exist under a
  * different tenant after an id collision, are excluded — the caller must
@@ -324,21 +344,32 @@ const buildShopFilter = (shopId, extraFilters) => {
  */
 const findOwnedPointIds = async (collection, candidateIds, shopId, { signal } = {}) => {
     const scopedShopId = requireShopId(shopId);
-    const ids = [...new Set(candidateIds.filter(Boolean).map(String))];
-    if (!ids.length) return [];
-    const result = await qdrantJson(qdrantPath(collection, '/points'), {
-        method: 'POST',
-        body: JSON.stringify({
-            ids,
-            with_payload: ['shopId'],
-            with_vector: false,
-        }),
-        signal,
-    });
     const shopKey = String(scopedShopId);
-    return (result?.result || [])
+    const found = await retrievePoints(collection, candidateIds, { signal });
+    return found
         .filter((point) => String(point?.payload?.shopId ?? '') === shopKey)
         .map((point) => point.id);
+};
+
+/**
+ * F1 (A9 adversarial review): a UUID-shaped documentId keeps its value as the
+ * point id, which hands the CALLER arbitrary point-id selection. Legacy ids
+ * are deterministic (uuidv5("faq-<N>")), so a malicious authenticated shop
+ * could compute another shop's legacy point id and POST it as its own
+ * documentId to overwrite that tenant's vector+payload. Before any upsert onto
+ * a passthrough id, verify the point does not exist or belongs to this shop.
+ */
+const CROSS_TENANT_DOCUMENT_ID = 'CROSS_TENANT_DOCUMENT_ID';
+const assertPassthroughOwnership = async (binding, pointId, shopId) => {
+    const found = await retrievePoints(binding.collection, [pointId]);
+    const existing = found.find((point) => String(point?.id) === String(pointId));
+    if (existing && String(existing?.payload?.shopId ?? '') !== String(shopId)) {
+        throw new AppError(
+            'This document id belongs to another shop.',
+            400,
+            CROSS_TENANT_DOCUMENT_ID,
+        );
+    }
 };
 
 const upsertPoint = async ({ id, vector, identity, payload, binding, signal }) => {
@@ -395,13 +426,22 @@ const ingestData = async ({ text, metadata = {} }) => {
             allowCreate: true,
             requestedIdentity: configuredIdentity,
         });
+        const pointId = toScopedPointId(shopId, metadata.documentId);
+        // F1 (A9): a UUID-shaped documentId maps verbatim to a point id, so the
+        // caller controls point identity. Only proceed when the target does not
+        // exist or is owned by this shop — otherwise another tenant's FAQ point
+        // could be overwritten through POST /api/rag/ingest. Checked BEFORE
+        // embedding spend so rejected attempts cost nothing.
+        if (metadata.documentId && uuidValidate(String(metadata.documentId))) {
+            await assertPassthroughOwnership(binding, pointId, shopId);
+        }
+
         const embedding = await getEmbeddingResult(content, {
             identity: binding.identity,
             purpose: 'document',
             title: embeddingTitle(metadata),
         });
 
-        const pointId = toScopedPointId(shopId, metadata.documentId);
         await upsertPoint({
             id: pointId,
             vector: embedding.vector,
@@ -441,6 +481,10 @@ const ingestData = async ({ text, metadata = {} }) => {
             embeddingSpace: binding.identity,
         };
     } catch (error) {
+        // The cross-tenant passthrough rejection is a client error (400), not a
+        // degraded-unavailable case — surface it to the caller instead of
+        // swallowing it into { success: false }.
+        if (error?.code === CROSS_TENANT_DOCUMENT_ID) throw error;
         console.warn('RAG ingestion skipped (service unavailable):', error.code || error.name || 'EmbeddingError');
         return {
             success: false,

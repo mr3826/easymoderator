@@ -12,7 +12,7 @@ delete process.env.QDRANT_PER_TENANT;
 
 jest.mock('src/config/config', () => ({ env: 'test' }));
 
-const { planKeyMigration } = require('../migrate-qdrant-tenant-keys');
+const { planKeyMigration, classifyMove } = require('../migrate-qdrant-tenant-keys');
 const { toPointId, toScopedPointId, EMBEDDING_SPACE_MANIFEST_POINT_ID } = {
     ...require('../../modules/rag/rag.service'),
     ...require('../../modules/rag/embedding-space'),
@@ -82,5 +82,48 @@ describe('planKeyMigration', () => {
         const plan = planKeyMigration([point(docUuid, { shopId: SHOP_A, documentId: docUuid })]);
         expect(plan.compliant).toEqual([{ id: docUuid, shopId: SHOP_A }]);
         expect(plan.moves).toHaveLength(0);
+    });
+});
+
+describe('classifyMove — F2 cross-batch target probe (A9 BLOCK)', () => {
+    const move = {
+        kind: 'move', from: toPointId('faq-7'), to: toScopedPointId(SHOP_A, 'faq-7'), shopId: SHOP_A, documentId: 'faq-7',
+    };
+    const stale = { ...move, kind: 'stale' };
+
+    test('absent target → copy-then-delete (classic move)', () => {
+        expect(classifyMove(move, null)).toBe('move');
+        expect(classifyMove(move, undefined)).toBe('move');
+    });
+
+    test('same-shop occupant (newer scoped copy in ANOTHER scroll batch) → prune legacy only', () => {
+        // The F2 hole: batch 1 holds only the legacy point, so the batch-local
+        // planner schedules a move. The scoped copy actually exists in batch 2
+        // with FRESHER content. The direct probe must reclassify to a prune —
+        // never an upsertCopy that rolls the newer point back to older text.
+        const batch1 = [point(move.from, { shopId: SHOP_A, documentId: 'faq-7', text: 'older' })];
+        const batch2 = [point(move.to, { shopId: SHOP_A, documentId: 'faq-7', text: 'newer' })];
+        const plan1 = planKeyMigration(batch1);
+        expect(plan1.moves).toHaveLength(1); // planner is batch-local (proven hole)
+        expect(classifyMove({ ...plan1.moves[0], kind: 'move' }, SHOP_A)).toBe('prune-stale');
+        // batch2 is untouched by this decision: 'prune-stale' deletes only
+        // plan1.moves[0].from.
+        expect(batch2[0].payload.text).toBe('newer');
+    });
+
+    test('foreign occupant → touch neither point', () => {
+        expect(classifyMove(move, SHOP_B)).toBe('skip-foreign');
+        expect(classifyMove(stale, SHOP_B)).toBe('skip-foreign');
+    });
+
+    test('occupant without a shopId payload is treated as foreign', () => {
+        expect(classifyMove(move, '')).toBe('skip-foreign');
+    });
+
+    test('planned stale entry whose occupant vanished mid-run still prunes (no resurrection)', () => {
+        // Scoped copy is gone → the document was deleted; re-copying legacy
+        // content would resurrect it. Deleting the (planner-verified, own-shop)
+        // legacy is the only safe action.
+        expect(classifyMove(stale, null)).toBe('prune-stale');
     });
 });
