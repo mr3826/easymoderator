@@ -1187,3 +1187,64 @@ describe('message-worker source safety boundary', () => {
         expect(postMutationSource).toContain('notifyExecutedMutationWithoutOutbound');
     });
 });
+
+/**
+ * W3 FIX 1 (agent A5, from agent A8's blind merchant pass 2026-11-24):
+ * "I want to talk to a real human, not a bot" missed Guard 5b (the phrase
+ * list had 'real person'/'talk to a human' but not the 'real human' class)
+ * and the customer got a product-catalog apology draft with no takeover.
+ * The real stage2-rules classify runs here — only the conversational tier
+ * is stubbed — so this pins the worker routing itself: an A8 sentence must
+ * reach human recovery with zero product boilerplate written to the turn.
+ */
+describe('W3 FIX 1 — explicit "real human" request routes to recovery, never to a product draft', () => {
+    const A8_SENTENCE = 'I want to talk to a real human, not a bot';
+
+    const misrouteShape = () => ({
+        response: "Sorry — I couldn't find that product in our current catalog. Tell me what else you're looking for.",
+        confidence: 1.0,
+        source: 'grounding_not_found',
+        grounding: grounding.resolveProductEvidence({
+            shopId: SHOP, message: A8_SENTENCE, candidates: [],
+        }),
+        attachments: [],
+    });
+
+    test('A8 sentence hands off via requireHuman recovery with zero product boilerplate', async () => {
+        AIChatbotController.processNewIntent.mockResolvedValue(misrouteShape());
+
+        // An earlier describe in this file sets a PERSISTENT
+        // handleOrderFlow({handled:true}) default (clearAllMocks does not
+        // restore implementations). Guard 5b only runs when the order-flow
+        // tier did not take the turn, so this suite's baseline must be
+        // re-asserted here.
+        handleOrderFlow.mockResolvedValue({ handled: false });
+
+        const result = await processMessageJob(job({ message: A8_SENTENCE }));
+
+        expect(result.reason).toBe('human_requested');
+        expect(result.handoff).toBe(true);
+        expect(escalateToHuman).toHaveBeenCalledWith(expect.objectContaining({ reason: 'human_requested' }));
+        // The conversational product tier never runs for a human request.
+        expect(AIChatbotController.processNewIntent).not.toHaveBeenCalled();
+        // Nothing reaches the customer, and no product boilerplate is drafted.
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(mockStoreAIResponse).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        'real human please',
+        'can I speak to an actual person?',
+        'asol manus please',
+        'manush er sathe kotha bolun',
+    ])('handoff also covers: %s', async (message) => {
+        handleOrderFlow.mockResolvedValue({ handled: false }); // see note above
+        AIChatbotController.processNewIntent.mockResolvedValue(misrouteShape());
+
+        const result = await processMessageJob(job({ message }));
+
+        expect(result.reason).toBe('human_requested');
+        expect(escalateToHuman).toHaveBeenCalledWith(expect.objectContaining({ reason: 'human_requested' }));
+        expect(mockStoreAIResponse).not.toHaveBeenCalled();
+    });
+});

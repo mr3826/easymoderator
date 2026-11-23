@@ -120,6 +120,18 @@ const HUMAN_HANDOFF_PHRASES = Object.freeze([
     // D-P2-06: phrasings actually observed from BD customers (word-boundary matched).
     'human agent', 'speak to a human', 'want to speak to someone', 'i want to talk to someone',
     'ekjon manus', 'manus er sathe', 'manusher sathe', 'manus kotha',
+    // W3 FIX 1 (A8 merchant pass 2026-11-24): "I want to talk to a real human,
+    // not a bot" fell through to a product-catalog apology because the list
+    // had 'real person'/'talk to a human' but not the 'real human' class.
+    // Kept deliberately multi-word: single 'human'/'manus'/'manush' would
+    // false-positive product talk ("manush er jonno gift"). Residual
+    // ambiguity (e.g. "real human hair wig") errs toward handoff — a human
+    // reviews it; a misrouted bot answer is what the pilot cannot afford.
+    // Bengali-script entries are substring-matched by phraseMatches, so they
+    // are two-word human-request shapes only.
+    'real human', 'actual human', 'actual person', 'speak to someone real', 'talk to someone real',
+    'real manus', 'real manush', 'asol manus', 'asol manush', 'manush er sathe', 'manusher kotha',
+    'সত্যিকারের মানুষ', 'আসল মানুষ', 'মানুষ চাই', 'মানুষ দাও', 'মানুষের সাথে কথা',
     ...PENDING_BANGLA_LANGUAGE_QA_LITERALS.slice(3, 6),
 ]);
 const SHADOW_PURCHASE_PATTERNS = Object.freeze([

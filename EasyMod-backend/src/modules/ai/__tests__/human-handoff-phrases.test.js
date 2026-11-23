@@ -39,3 +39,47 @@ describe('D-P2-06 human-handoff phrase rules', () => {
         expect(hit(text)).toBe(false);
     });
 });
+
+/**
+ * W3 FIX 1 (agent A5, from agent A8's blind merchant pass 2026-11-24):
+ * "I want to talk to a real human, not a bot" — a common frustrated-customer
+ * phrasing — was NOT caught: the phrase list had 'real person' and
+ * 'talk to a human' but not the 'real human' class, so the message fell to the
+ * product tier and the customer got a catalog apology with no handoff.
+ * These positives are the missed phrasings (en + banglish + bangla, each
+ * word-boundary / multi-word disciplined). The direction of any residual
+ * ambiguity stays fail-safe: a false handoff is reviewed by a human, a false
+ * product-boilerplate answer is what A8 observed as the pilot risk.
+ */
+describe('W3 human-request phrasings missed by the D-P2-06 list (A8 pass)', () => {
+    test.each([
+        // A8's exact sentence, verbatim.
+        'I want to talk to a real human, not a bot',
+        'real human please',
+        'can I speak to an actual person?',
+        'i need to speak to someone real',
+        'connect me to a real human',
+        'ekjon real manus din please',
+        'asol manus please',
+        'real manusher kotha bolte chai',
+        'manush er sathe kotha bolun',
+        'সত্যিকারের মানুষ দরকার আমার',
+        'আসল মানুষ চাই',
+        'মানুষ দাও',
+        'দয়া করে মানুষের সাথে কথা বলুন',
+    ])('classifies human request: %s', (text) => {
+        expect(hit(text)).toBe(true);
+    });
+
+    test.each([
+        // Product queries that mention people/realness must NOT hand off:
+        // the new phrases are multi-word human-request shapes, and 'actual
+        // person' must not read through to 'actual price'.
+        'real leather jacket price?',
+        'manush er jonno gift suggest koro',
+        'actual price koto?',
+        'ekjon robot chai amake',
+    ])('does NOT false-positive on: %s', (text) => {
+        expect(hit(text)).toBe(false);
+    });
+});
