@@ -176,6 +176,57 @@ describe('Signup terms consent', () => {
     expect(submit).toBeEnabled();
   });
 
+  it('presents honest slow-creation copy when a cold signup times out (A8 F-1)', async () => {
+    const user = userEvent.setup();
+    // The thrown shape is exactly what the axios interceptor hands up after
+    // AuthService's bounded session recheck found no recoverable session.
+    mockSignup.mockRejectedValue({
+      type: 'TIMEOUT_ERROR',
+      statusCode: 408,
+      message: 'Request timeout. Please try again.',
+      timestamp: '2026-11-24T00:00:00.000Z',
+    });
+    renderSignup();
+    await fillValidFields(user);
+    await user.click(screen.getByRole('checkbox', { name: /privacy policy/i }));
+    const submit = screen.getByRole('button', { name: /create your EasyModerator account/i });
+
+    await user.click(submit);
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    const alert = screen.getByRole('alert');
+    // Honest wording: the account may exist; never claims creation failed and
+    // never invites a duplicate signup.
+    expect(alert).toHaveTextContent(/taking longer than usual/i);
+    expect(alert).toHaveTextContent(/sign(ing)? in/i);
+    expect(alert).not.toHaveTextContent(/could not create your account/i);
+    expect(alert).not.toHaveTextContent(/Request timeout/i);
+    // The button recovers for the sign-in handoff, and the form stays guarded
+    // while pending (double-submit assertion covered by the guard test).
+    expect(submit).toBeEnabled();
+  });
+
+  it('never renders raw axios internals from transport failures (A8 F-6)', async () => {
+    const user = userEvent.setup();
+    mockSignup.mockRejectedValue({
+      type: 'UNKNOWN_ERROR',
+      statusCode: 0,
+      message: 'Could not reach the service. Please check your connection and try again.',
+      details: { transportMessage: 'Unsupported protocol C:/Program Files/Git/api' },
+      timestamp: '2026-11-24T00:00:00.000Z',
+    });
+    renderSignup();
+    await fillValidFields(user);
+    await user.click(screen.getByRole('checkbox', { name: /privacy policy/i }));
+
+    await user.click(screen.getByRole('button', { name: /create your EasyModerator account/i }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not reach the service/i);
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/Unsupported protocol/i);
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/transportMessage/i);
+  });
+
   it('ignores duplicate programmatic submissions while signup is pending', async () => {
     const user = userEvent.setup();
     let resolveSignup!: () => void;

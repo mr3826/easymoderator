@@ -71,9 +71,23 @@ describe('Auth Domain API', () => {
 
       const result = await auth.signup({ email: 'new@example.com', password: 'password123', full_name: 'New User', accepted_terms: true });
 
-      expect(httpClient.post).toHaveBeenCalledWith('/api/auth/signup', { email: 'new@example.com', password: 'password123', full_name: 'New User', accepted_terms: true });
+      expect(httpClient.post).toHaveBeenCalledWith('/api/auth/signup', { email: 'new@example.com', password: 'password123', full_name: 'New User', accepted_terms: true }, { timeout: 30000 });
       expect(result.user).toEqual(mockResponse.data.data.user);
       expect(result.currentShop).toEqual(mockResponse.data.data.currentShop);
+    });
+
+    it('grants signup ONLY the extended cold-server timeout', async () => {
+      // A8 merchant pass (F-1): a cold local server answered signup 201 in
+      // 12.18 s while the shared client aborts at 10 s — the UI then lied
+      // "failed" about an account that existed. Signup carries a targeted 30 s
+      // budget; signin (fast path) must keep the client default.
+      (httpClient.post as any).mockResolvedValue({ data: { data: { user: {}, allShops: [] } } });
+
+      await auth.signup({ email: 'cold@example.com', password: 'password123', full_name: 'Cold', accepted_terms: true });
+      expect(httpClient.post).toHaveBeenLastCalledWith('/api/auth/signup', expect.anything(), { timeout: 30000 });
+
+      await auth.signin({ email: 'fast@example.com', password: 'password123' });
+      expect(httpClient.post).toHaveBeenLastCalledWith('/api/auth/signin', { email: 'fast@example.com', password: 'password123' });
     });
 
     it('should normalize response when only shop is returned', async () => {
@@ -161,6 +175,18 @@ describe('Auth Domain API', () => {
       expect(httpClient.get).toHaveBeenCalledWith('/api/auth/me');
       expect(result.user).toEqual(mockResponse.data.data.user);
       expect(result.allShops).toHaveLength(1);
+    });
+
+    it('forwards a bounded recheck config without a global error toast', async () => {
+      // The signup-timeout session recheck must fail quietly and fast — the
+      // honest outcome copy is rendered by the signup flow itself.
+      (httpClient.get as any).mockResolvedValue({
+        data: { data: { user: {}, currentShop: {}, allShops: [] } },
+      });
+
+      await auth.getAuthContext({ timeoutMs: 5000, skipGlobalErrorToast: true });
+
+      expect(httpClient.get).toHaveBeenCalledWith('/api/auth/me', { timeout: 5000, __skipGlobalErrorToast: true });
     });
   });
 

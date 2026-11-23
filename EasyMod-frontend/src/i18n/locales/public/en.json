@@ -536,6 +536,7 @@
       "signUpTitle": "Create your EasyModerator account",
       "signingIn": "Signing in…",
       "signupNextStep": "After account creation, finish shop setup from the dashboard. To connect Messenger, go to Settings → Chat, complete Facebook Login, then choose an eligible Page in the in-app Page picker.",
+      "signupSlow": "Account creation is taking longer than usual — it may already be finished. Wait a minute, then try signing in with this email. You do not need to create a second account.",
       "termsJoin": "and",
       "termsOfService": "Terms of service",
       "termsPrefix": "I agree to the",
