@@ -888,6 +888,11 @@
       "productCardWindowExpired": "২৪ ঘণ্টার মেসেঞ্জার উইন্ডোর বাইরে",
       "productCardSent": "প্রোডাক্ট কার্ড পাঠানো হয়েছে",
       "productCardFailed": "প্রোডাক্ট কার্ড পাঠানো যায়নি",
+      "productCardLoading": "প্রোডাক্ট লোড হচ্ছে...",
+      "productCardError": "আপনার প্রোডাক্ট ক্যাটালগ লোড করা যায়নি। সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।",
+      "productCardRetry": "আবার চেষ্টা করুন",
+      "productCardNoResults": "এই অনুসন্ধানে কোনো প্রোডাক্ট মেলেনি।",
+      "productCardOutOfStock": "স্টক নেই",
       "noSavedQuickReplies": "এখনও কোনো দ্রুত উত্তর সংরক্ষিত নেই। কাস্টমার কথোপকথনে সময় বাঁচাতে প্রায়ই পাঠানো উত্তর যুক্ত করুন।"
     },
     "mode": {

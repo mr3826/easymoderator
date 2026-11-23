@@ -229,7 +229,7 @@ test('390px: five mobile destinations, no horizontal overflow, sidebar hidden', 
     expect(overflow).toBeLessThanOrEqual(0);
 });
 
-test('Add-ons and Reports are hidden: no nav entry, and retired paths redirect to the dashboard', async ({ page }) => {
+test('Add-ons, Reports and Team users are hidden: no nav entry, and retired paths redirect to the dashboard', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     const navs = page.locator('nav[aria-label="Workspace navigation"]');
@@ -239,7 +239,10 @@ test('Add-ons and Reports are hidden: no nav entry, and retired paths redirect t
     await expect(navs.nth(1).getByRole('link', { name: 'Add-ons' })).toHaveCount(0);
     await expect(navs.nth(0).getByRole('link', { name: 'Reports' })).toHaveCount(0);
     await expect(navs.nth(1).getByRole('link', { name: 'Reports' })).toHaveCount(0);
-    for (const path of ['/reports', '/reports/summary', '/addons', '/addons/ads-studio', '/addons/storefront', '/addons/other']) {
+    // /team/users was only ever offered from the account popup; the entry is
+    // gone there (unit contract: TeamUsersRetirement.test) and the path
+    // redirects like every retired merchant destination (D-A3-7).
+    for (const path of ['/reports', '/reports/summary', '/addons', '/addons/ads-studio', '/addons/storefront', '/addons/other', '/team/users']) {
         await page.goto(path);
         await expect(page).toHaveURL(/\/dashboard$/);
     }

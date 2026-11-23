@@ -5,7 +5,7 @@ import {
   Store, LogOut, Users,
   CreditCard, Bell, ChevronLeft, ChevronRight,
   ChevronDown, Building2, MessageSquare, Truck, BookOpen,
-  FileClock, ShieldCheck,
+  FileClock,
 } from "lucide-react";
 import { useRef, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
@@ -13,8 +13,8 @@ import InstallPrompt from "./InstallPrompt";
 import BrandLogo from "./BrandLogo";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../features/auth/AuthProvider";
-import { UserRole } from "@/shared/lib/rbac/types";
-import { useUserPermissions } from "@/shared/lib/rbac/useUserPermissions";
+// D-A3-7: role-gated Team users entry retired (no /api/users backend mount);
+// the RBAC permission hook is no longer needed in this shell.
 import LanguageToggle from "./LanguageToggle";
 import InAppNotificationCenter from "./InAppNotificationCenter";
 import { buildMarketingUrl } from "@/app/lib/config";
@@ -62,8 +62,6 @@ export default function DashboardLayout() {
   const mobileNavigation = navigation;
 
   const { user, currentShop, logout } = useAuth();
-  const { hasRole } = useUserPermissions();
-  const isAdmin = hasRole(UserRole.ADMIN);
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [showShopPanel, setShowShopPanel] = useState(false);
@@ -288,10 +286,15 @@ export default function DashboardLayout() {
                     </button><button type="button" onClick={() => { setShowShopPanel(false); navigate("/audit-logs"); }} className={`w-full flex min-h-11 items-center gap-2.5 px-4 py-2 text-sm text-em-text-primary hover:bg-em-bg-muted transition-colors ${FOCUS_RING}`}>
                       <FileClock className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
                       {t('nav.auditLogs', { defaultValue: 'Audit logs' })}
-                    </button>{isAdmin && (<button type="button" onClick={() => { setShowShopPanel(false); navigate("/team/users"); }} className={`w-full flex min-h-11 items-center gap-2.5 px-4 py-2 text-sm text-em-text-primary hover:bg-em-bg-muted transition-colors ${FOCUS_RING}`}>
-                        <ShieldCheck className="w-4 h-4 text-em-text-secondary" aria-hidden="true" />
-                        {t('nav.teamUsers', { defaultValue: 'Team users' })}
-                      </button>)}
+                    </button>
+                    {/* Team users is hidden from the merchant shell (D-A3-7, A0
+                        reversible retirement decision pending founder review):
+                        /api/users has no backend mount, so the destination can
+                        only 404. The UsersPage components, tests, users API
+                        domain and nav.teamUsers i18n keys stay in the repo so
+                        real staff management can be re-exposed without a
+                        rewrite — same pattern as the Add-ons retirement
+                        (founder decision 2026-11-17). */}
                   </div>
                   {/* Logout */}
                   <div className="border-t border-em-border py-1">

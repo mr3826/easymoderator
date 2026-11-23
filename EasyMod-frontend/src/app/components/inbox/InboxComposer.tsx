@@ -5,7 +5,7 @@
  * duration bands), the composer input keeps its exact placeholders and gains
  * data-testid="message-input" for the shared-inbox proof locator.
  */
-import { useRef, useState, ChangeEvent } from "react";
+import { useEffect, useRef, useState, ChangeEvent } from "react";
 import {
   Send, Loader2, X, Paperclip, Zap, AlertTriangle, Search, Pencil,
   Trash2, Plus, Save, FileText, Image as ImageIcon, Package,
@@ -38,6 +38,11 @@ interface InboxComposerProps {
 }
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+// D-A3-1: picker search is debounced and executed SERVER-side through the
+// authorized catalog endpoint (GET /api/product with the `search` param —
+// the same WP-04/#283 path the Products page uses), so the match set is the
+// full authorized tenant catalog, not the first page filtered in memory.
+const PRODUCT_SEARCH_DEBOUNCE_MS = 300;
 const SUPPORTED_ATTACHMENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -93,27 +98,63 @@ export function InboxComposer({
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  // D-A3-2/DC-1: a failed catalog read must never render as "no products".
+  const [productsError, setProductsError] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [sendingProductId, setSendingProductId] = useState<string | null>(null);
 
   const isMessengerThread =
     selectedConversation.channel === "messenger" || selectedConversation.channel === "facebook";
 
-  const handleToggleProductPicker = async () => {
+  const productQueryGenRef = useRef(0);
+  const productSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadProducts = async (search: string) => {
+    const gen = ++productQueryGenRef.current;
+    setLoadingProducts(true);
+    setProductsError(false);
+    try {
+      const trimmed = search.trim();
+      const params: Record<string, unknown> = { is_active: true };
+      if (trimmed) params.search = trimmed;
+      const list = await apiClient.getProducts(params);
+      if (gen !== productQueryGenRef.current) return;
+      setProducts(Array.isArray(list) ? list.filter((p) => p.is_active !== false) : []);
+    } catch {
+      if (gen !== productQueryGenRef.current) return;
+      setProducts([]);
+      setProductsError(true);
+    } finally {
+      if (gen === productQueryGenRef.current) setLoadingProducts(false);
+    }
+  };
+
+  const handleToggleProductPicker = () => {
     if (is24hExpired) return;
     const next = !showProductPicker;
     setShowProductPicker(next);
     if (!next) return;
-    setLoadingProducts(true);
-    try {
-      const list = await apiClient.getProducts({ is_active: true, limit: 25 });
-      setProducts(Array.isArray(list) ? list.filter((p) => p.is_active !== false) : []);
-    } catch {
-      setProducts([]);
-    } finally {
-      setLoadingProducts(false);
+    if (productSearchTimerRef.current) {
+      clearTimeout(productSearchTimerRef.current);
+      productSearchTimerRef.current = null;
     }
+    void loadProducts(productSearch);
   };
+
+  const handleProductSearchChange = (value: string) => {
+    setProductSearch(value);
+    if (productSearchTimerRef.current) clearTimeout(productSearchTimerRef.current);
+    productSearchTimerRef.current = setTimeout(() => {
+      productSearchTimerRef.current = null;
+      void loadProducts(value);
+    }, PRODUCT_SEARCH_DEBOUNCE_MS);
+  };
+
+  useEffect(() => () => {
+    // Drop any pending debounced search and invalidate in-flight catalog reads.
+    if (productSearchTimerRef.current) clearTimeout(productSearchTimerRef.current);
+    productQueryGenRef.current += 1;
+  }, []);
 
   const handleSendProductCard = async (product: Product) => {
     if (is24hExpired || sendingProductId) return;
@@ -139,10 +180,6 @@ export function InboxComposer({
       setSendingProductId(null);
     }
   };
-
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(productSearch.trim().toLowerCase()),
-  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickReplyRef = useRef<HTMLDivElement>(null);
@@ -464,7 +501,7 @@ export function InboxComposer({
             <button
               type="button"
               data-testid="inbox-product-card-button"
-              onClick={() => void handleToggleProductPicker()}
+              onClick={handleToggleProductPicker}
               disabled={is24hExpired}
               title={
                 is24hExpired
@@ -500,7 +537,7 @@ export function InboxComposer({
                   <input
                     type="text"
                     value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
+                    onChange={(e) => handleProductSearchChange(e.target.value)}
                     placeholder={t("inbox.composer.productCardSearch")}
                     className={`w-full min-h-10 px-3 py-1.5 text-sm border border-em-border-strong rounded-lg bg-em-bg-surface text-em-text-primary focus:outline-none ${FOCUS_RING}`}
                   />
@@ -508,38 +545,73 @@ export function InboxComposer({
                 <div className="max-h-60 overflow-y-auto divide-y divide-em-border">
                   {loadingProducts && (
                     <div className="px-3 py-3 text-xs text-em-text-secondary">
-                      {t("inbox.composer.loadingQuickReplies")}
+                      {t("inbox.composer.productCardLoading")}
                     </div>
                   )}
-                  {!loadingProducts && filteredProducts.length === 0 && (
+                  {!loadingProducts && productsError && (
+                    <div role="alert" className="px-3 py-3 text-xs text-em-danger-700">
+                      <div className="flex items-start gap-1">
+                        <AlertTriangle className="mt-0.5 w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                        <span>{t("inbox.composer.productCardError")}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void loadProducts(productSearch)}
+                        className={`mt-2 min-h-11 text-xs font-medium text-em-violet-700 hover:text-em-violet-900 ${FOCUS_RING}`}
+                      >
+                        {t("inbox.composer.productCardRetry")}
+                      </button>
+                    </div>
+                  )}
+                  {!loadingProducts && !productsError && products.length === 0 && (
                     <div className="px-3 py-3 text-xs text-em-text-secondary">
-                      {t("inbox.composer.productCardEmpty")}
+                      {productSearch.trim()
+                        ? t("inbox.composer.productCardNoResults")
+                        : t("inbox.composer.productCardEmpty")}
                     </div>
                   )}
                   {!loadingProducts &&
-                    filteredProducts.map((product) => (
-                      <div
-                        key={product.id}
-                        className="px-3 py-2.5 flex items-center justify-between gap-2"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium text-em-text-primary truncate">
-                            {product.name}
-                          </div>
-                          <div className="text-xs text-em-text-secondary">
-                            ৳{Number(product.price)}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleSendProductCard(product)}
-                          disabled={sendingProductId === product.id}
-                          className={`min-h-9 px-3 py-1.5 text-xs font-medium bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700 disabled:opacity-50 ${FOCUS_RING}`}
+                    !productsError &&
+                    products.map((product) => {
+                      // D-A3-4: the server catalog read carries `in_stock`
+                      // (product.entity.js); an explicit false is shown as an
+                      // honest out-of-stock label. The server stays the send
+                      // authority (stock policy rejects regardless), so the
+                      // row remains enabled; variant-level detail is not
+                      // rendered here.
+                      const row = product as Product & { in_stock?: boolean };
+                      return (
+                        <div
+                          key={product.id}
+                          className="px-3 py-2.5 flex items-center justify-between gap-2"
                         >
-                          {sendingProductId === product.id ? "..." : t("inbox.composer.productCardSend")}
-                        </button>
-                      </div>
-                    ))}
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-em-text-primary truncate">
+                              {product.name}
+                            </div>
+                            <div className="text-xs text-em-text-secondary">
+                              ৳{Number(product.price)}
+                              {row.in_stock === false && (
+                                <span
+                                  data-testid="product-card-out-of-stock"
+                                  className="ml-2 font-medium text-em-danger-700"
+                                >
+                                  {t("inbox.composer.productCardOutOfStock")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleSendProductCard(product)}
+                            disabled={sendingProductId === product.id}
+                            className={`min-h-9 px-3 py-1.5 text-xs font-medium bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700 disabled:opacity-50 ${FOCUS_RING}`}
+                          >
+                            {sendingProductId === product.id ? "..." : t("inbox.composer.productCardSend")}
+                          </button>
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             )}

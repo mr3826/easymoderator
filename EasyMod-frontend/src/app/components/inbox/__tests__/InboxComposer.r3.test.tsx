@@ -86,7 +86,10 @@ describe("InboxComposer R3 product card picker", () => {
 
     fireEvent.click(btn);
     expect(await screen.findByText("Jamdani Saree")).toBeInTheDocument();
-    expect(apiClient.getProducts).toHaveBeenCalledWith({ is_active: true, limit: 25 });
+    // D-A3-1: the client-side `limit: 25` first-page hack is gone — the
+    // authorized catalog endpoint is server-authoritative (no LIMIT applied
+    // server-side), so the picker reads the full active catalog.
+    expect(apiClient.getProducts).toHaveBeenCalledWith({ is_active: true });
 
     fireEvent.click(screen.getByRole("button", { name: "inbox.composer.productCardSend" }));
     await waitFor(() => {
