@@ -431,7 +431,14 @@ const authorizeSessionMutation = async (session, actionType, payload, {
         evidenceSnapshot,
         materialStateRevalidated: true,
         customerConfirmationValid: true,
-        merchantModeAllowsMutation: actionType === 'CREATE_ORDER' ? mutationsAllowed === true : true,
+        // W2: the effective automation mode clamps EVERY mutating session action,
+        // not just CREATE_ORDER. A DRAFT/MANUAL/takeover/emergency-stopped shop must
+        // not be able to EDIT the cart or CANCEL a session through the AI path either.
+        // The caller supplies `mutationsAllowed` from the authoritative resolver
+        // (fail-closed to false on any read failure). The `true` default is the
+        // merchant-initiated path only: an authenticated dashboard action with proper
+        // RBAC is a human decision and is never clamped by the AI reply mode.
+        merchantModeAllowsMutation: mutationsAllowed === true,
         costBudgetAvailable: true,
     });
     if (!result.authorized) throw new Error(`Action Gate denied ${actionType}: ${result.reasonCode}`);
@@ -811,12 +818,12 @@ class OrderSessionService {
                 }
                 // Treat the message as the next product(s) — one name, or several
                 // in one go ("2 lawn and 1 dupatta") via free-text parsing.
-                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang));
+                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang, { conversationId, traceId, mutationsAllowed }));
                 break;
             }
 
             case 'ADDING_PRODUCT': {
-                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang));
+                ({ nextStep, prompt } = await OrderSessionService.applyLineItems(session, step_data, answer, rawMessage, lang, { conversationId, traceId, mutationsAllowed }));
                 break;
             }
 
@@ -2679,10 +2686,17 @@ class OrderSessionService {
      * each resolved, in-stock line to the cart. Falls back to the single-product
      * path when the message isn't multi-item. Mutates step_data.cart.
      */
-    static async applyLineItems(session, step_data, answer, rawMessage, lang) {
+    static async applyLineItems(session, step_data, answer, rawMessage, lang, mutationContext = {}) {
+        const {
+            conversationId = null,
+            traceId = null,
+            mutationsAllowed = true,
+        } = mutationContext;
         const parsed = OrderSessionService.parseLineItems(answer);
         if (parsed.length < 2) {
-            return OrderSessionService.applyNextProduct(session, step_data, answer, rawMessage, lang);
+            return OrderSessionService.applyNextProduct(
+                session, step_data, answer, rawMessage, lang, mutationContext,
+            );
         }
 
         const added = [];
@@ -2719,7 +2733,7 @@ class OrderSessionService {
                 edit: 'add',
                 lineIndex: (step_data.cart || []).length,
                 quantity,
-            }, { mutationsAllowed: true });
+            }, { conversationId, traceId, mutationsAllowed });
             verifySessionMutationAuthorization(session, 'EDIT_PREORDER_CART', cartGate);
             step_data.cart = [...(step_data.cart || []), item];
             added.push(item);
