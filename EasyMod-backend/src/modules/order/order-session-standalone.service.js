@@ -1000,7 +1000,11 @@ class OrderSessionService {
                     let stockChanged = false;
                     for (const item of cart) {
                         if (!item.product_id) continue;
-                        const stockCheck = await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1);
+                        const stockCheck = await productSearch.checkStock(item.product_id, session.shop_id, item.quantity || 1, {
+                            variantId: item.variant_id || null,
+                            size: item.size || item.variant_size || null,
+                            color: item.color || item.variant_color || null,
+                        });
                         if (!stockCheck.available) {
                             await session.update({ status: 'CANCELLED' });
                             return {
@@ -1860,10 +1864,14 @@ class OrderSessionService {
             channel: session.channel || 'chatbot',
             order_status: 'confirmed',
             // One entry per cart line. price omitted intentionally — the server
-            // computes totals from the live catalog price.
+            // computes totals from the live catalog price. variant_id is carried so
+            // the per-variant server-side stock/price validation actually runs and an
+            // out-of-stock size can never be silently committed as a product-level
+            // order (D-P2-02). Null keeps the existing product-level path.
             items: cart.map(c => ({
                 product_id: c.product_id,
-                quantity: c.quantity || 1
+                quantity: c.quantity || 1,
+                ...(c.variant_id ? { variant_id: c.variant_id } : {}),
             })),
             delivery_fee: stepData.delivery_charge || 0,
             payment_status: GATEWAY_PAYMENT_STATUS[stepData.payment_method] || 'pending',
