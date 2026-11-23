@@ -6,10 +6,14 @@
  * the shop's AI settings (settings.ai.escalation_reply_template) so each shop
  * can customise it. Falls back to a bilingual Bengali/English default.
  *
- * Default template (Bengali + English):
- *   "আপনার অনুরোধটি আমাদের টিমের কাছে পাঠানো হয়েছে। আমরা ২ ঘণ্টার মধ্যে
- *    আপনার সাথে যোগাযোগ করব।
- *    Your request has been forwarded to our team. We'll get back to you within 2 hours."
+ * Default template (Bengali + English) — deliberately non-time-bound:
+ *   "আপনার অনুরোধটি আমাদের টিমের কাছে পাঠানো হয়েছে। একজন প্রতিনিধি আপনার
+ *    সাথে যোগাযোগ করবেন।
+ *    Your request has been forwarded to our team. A representative will get back to you."
+ *
+ * No response-time SLA is asserted: the platform has not committed to a fixed
+ * human-response window (the previous "within 2 hours" wording was an unsupported
+ * claim that could promise contact the business never agreed to deliver).
  */
 
 const { v4: uuidv4 } = require('uuid');
@@ -23,8 +27,8 @@ const {
 } = require('./message-lifecycle');
 
 const DEFAULT_ESCALATION_TEMPLATE =
-    'আপনার অনুরোধটি আমাদের টিমের কাছে পাঠানো হয়েছে। আমরা ২ ঘণ্টার মধ্যে আপনার সাথে যোগাযোগ করব।\n\n' +
-    "Your request has been forwarded to our team. We'll get back to you within 2 hours. 🙏";
+    'আপনার অনুরোধটি আমাদের টিমের কাছে পাঠানো হয়েছে। একজন প্রতিনিধি আপনার সাথে যোগাযোগ করবেন।\n\n' +
+    'Your request has been forwarded to our team. A representative will get back to you. 🙏';
 
 /**
  * Send an escalation auto-reply message to the customer.
