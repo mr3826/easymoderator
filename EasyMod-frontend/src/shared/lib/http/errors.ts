@@ -60,10 +60,20 @@ export function normalizeApiError(error: any): NormalizedApiError {
       };
     }
 
+    // A8 merchant pass F-6: an error with no HTTP response is a TRANSPORT
+    // problem, and its raw axios message is library vocabulary
+    // ("Unsupported protocol C:/…", "Request failed with status code 500",
+    // "Network Error"). Never echo it at a merchant — render honest transport
+    // copy and keep the raw string for debugging only. Backend-authored copy
+    // is untouched: it only exists when a response arrived (branch below).
     return {
       type: 'UNKNOWN_ERROR',
       statusCode: 0,
-      message: error.message || 'An unexpected error occurred',
+      message: 'Could not reach the service. Please check your connection and try again.',
+      details:
+        typeof error?.message === 'string'
+          ? { transportMessage: error.message }
+          : undefined,
       timestamp,
     };
   }
