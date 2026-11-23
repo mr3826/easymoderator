@@ -8,6 +8,11 @@
  * which Qdrant rejects with a 400 — and ingestData swallows that, so the upsert
  * silently never lands. These tests lock in the deterministic UUIDv5 mapping
  * that makes those upserts valid (and keeps deletes targeting the same point).
+ *
+ * W1 hardening: new writes key the point by uuidv5("shop:<shopId>:<docId>")
+ * and deletes retrieve candidate ids first, deleting only the shop-owned
+ * points. Cross-tenant collision isolation is covered in
+ * rag.service.tenant-keys.test.js.
  */
 
 process.env.NODE_ENV = 'test';
@@ -38,6 +43,10 @@ const manifestPayload = createManifestPayload({
 });
 
 const calls = [];
+// Point-store simulator: the W1 delete path retrieves candidate ids and only
+// deletes points owned by the calling shop, so the mock must behave like a
+// real collection (payload-addressable by id), not a blind "success" stub.
+const pointsById = new Map();
 const defaultFetch = async (url, init) => {
     calls.push({ url: String(url), init });
     const endpoint = String(url);
@@ -49,6 +58,21 @@ const defaultFetch = async (url, init) => {
             json: async () => ({ result: { points: [{ id: EMBEDDING_SPACE_MANIFEST_POINT_ID, payload: manifestPayload }] } }),
         };
     }
+    if (endpoint.includes('/points?wait=true') && init?.method === 'PUT') {
+        for (const point of JSON.parse(init.body).points) pointsById.set(String(point.id), point);
+        return { ok: true, status: 200, text: async () => '', json: async () => ({ result: { acknowledged: true } }) };
+    }
+    if (endpoint.includes('/points/delete')) {
+        const body = JSON.parse(init.body);
+        for (const id of body.points || []) pointsById.delete(String(id));
+        return { ok: true, status: 200, text: async () => '', json: async () => ({ result: { acknowledged: true } }) };
+    }
+    if (endpoint.endsWith('/points') && init?.method === 'POST') {
+        const { ids = [] } = JSON.parse(init.body);
+        const found = ids.map((id) => pointsById.get(String(id))).filter(Boolean)
+            .map((point) => ({ id: point.id, payload: point.payload }));
+        return { ok: true, status: 200, text: async () => '', json: async () => ({ result: found }) };
+    }
     if (/\/collections\/[^/]+$/.test(endpoint)) {
         return {
             ok: true,
@@ -57,7 +81,7 @@ const defaultFetch = async (url, init) => {
             json: async () => ({ result: { config: { params: { vectors: { size: 384 } } } } }),
         };
     }
-    // All remaining Qdrant calls "succeed": upsert, search, count, delete.
+    // All remaining Qdrant calls "succeed": search, count.
     return { ok: true, status: 200, text: async () => '', json: async () => ({ result: [] }) };
 };
 const transportFetch = global.fetch;
@@ -72,6 +96,7 @@ const upsertBody = () => {
 
 beforeEach(() => {
     calls.length = 0;
+    pointsById.clear();
     global.fetch.mockClear().mockImplementation(defaultFetch);
 });
 
@@ -101,12 +126,19 @@ describe('Qdrant point-id normalization', () => {
     test('the same documentId is deterministic, and delete targets that exact point', async () => {
         await rag.ingestData({ text: 'a', metadata: { documentId: 'faq-42', shopId: 's1' } });
         const upsertId = upsertBody().points[0].id;
+        // W1: new writes are keyed tenant-scoped, not by the bare documentId.
+        expect(upsertId).toBe(rag.toScopedPointId('s1', 'faq-42'));
 
         calls.length = 0;
         await rag.deletePoint('faq-42', 's1');
-        const delCall = calls.find(c => c.url.includes('/points/delete'));
+        // The delete first retrieves the candidate ids (legacy + scoped)…
+        const retrieve = calls.find((c) => c.url.endsWith('/points') && c.init?.method === 'POST');
+        const retrieveBody = JSON.parse(retrieve.init.body);
+        expect(retrieveBody.ids).toEqual(expect.arrayContaining([rag.toPointId('faq-42'), upsertId]));
+        // …and then deletes ONLY the shop-owned point it actually found.
+        const delCall = calls.find((c) => c.url.includes('/points/delete'));
         const delBody = JSON.parse(delCall.init.body);
-        expect(delBody.points[0]).toBe(upsertId);
+        expect(delBody.points).toEqual([upsertId]);
     });
 
     test('an already-valid UUID documentId is preserved unchanged', async () => {
