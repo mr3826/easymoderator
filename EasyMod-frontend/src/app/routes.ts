@@ -4,7 +4,8 @@ import { authService } from "./lib/auth";
 import { hasSeparateProductOrigins, isMarketingSurface } from "./lib/config";
 import { getSignupSuccessPath } from "./lib/signupIntent";
 import { readStoredLanguage } from "@/i18n/language";
-import { AdminRoute } from "@/shared/components/guards";
+// D-A3-7: AdminRoute import retired with the /team/users route (no /api/users
+// backend mount); PlatformAdminRoute (operations panel) is unaffected.
 import { PlatformAdminRoute } from "@/shared/components/guards/PlatformAdminRoute";
 import PageLoader from "./components/PageLoader";
 
@@ -49,7 +50,11 @@ const TermsOfService = lazy(() => import("./components/TermsOfService"));
 const DataDeletion = lazy(() => import("./components/DataDeletion"));
 const LandingPage = lazy(() => import("./components/LandingPage"));
 const Pricing = lazy(() => import("./components/Pricing"));
-const UsersPage = lazy(() => import("./features/users/components/UsersPage"));
+// UsersPage is deliberately not imported: the Team users workspace is hidden
+// from the merchant shell (D-A3-7, A0 reversible retirement decision pending
+// founder review — /api/users has no backend mount). The components and their
+// tests stay in the repo so real staff management can be wired later without a
+// rewrite, matching the Add-ons retirement convention (routes.ts /addons).
 
 // Phase 1 — EasyModerator operations admin panel (platform-admin only)
 const AdminLayout = lazy(() => import("./components/admin/AdminLayout"));
@@ -233,12 +238,11 @@ export const router = createBrowserRouter([
 			{ path: "/addons/storefront", loader: () => redirect("/dashboard") },
 			{ path: "/addons/*", loader: () => redirect("/dashboard") },
 			{ path: "/more", loader: () => redirect("/dashboard") },
-			{
-				path: "/team/users",
-				Component: withSuspense((props: Record<string, never>) =>
-					createElement(AdminRoute, null, createElement(UsersPage, props))
-				),
-			},
+			// Hidden, not deleted: the retired team-users path redirects like
+			// /addons and /more so old bookmarks land on the dashboard instead
+			// of a dead-end 404-everywhere page (D-A3-7; A0 decision pending
+			// founder review).
+			{ path: "/team/users", loader: () => redirect("/dashboard") },
 		],
 	},
 	{
