@@ -4,14 +4,13 @@
  * Updates payment status and triggers order confirmation.
  */
 
-const { PaymentTransaction, Order, OrderSession, CourierDispatch, DeliveryTracking } = require('../entities');
+const { PaymentTransaction, Order, CourierDispatch, DeliveryTracking } = require('../entities');
 const { Op } = require('sequelize');
 const { AppError } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
 const { createLogger } = require('../../utils/structured-logger');
 const bkashService = require('../payment/bkash-merchant.service');
 const paymentService = require('../payment/payment.service');
-const OrderSessionService = require('../order/order-session-standalone.service');
 
 const safeErrorCode = (error) => {
     const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
@@ -292,33 +291,19 @@ class PaymentWebhookController {
                 });
             }
 
-            // Check if there's an active order session to complete
-            const activeSession = !paymentState.requiresReconciliation && OrderSession && typeof OrderSession.findOne === 'function'
-                ? await OrderSession.findOne({
-                    where: {
-                        shop_id: order.shop_id,
-                        customer_id: order.customer_id,
-                        status: 'ACTIVE'
-                    },
-                    order: [['last_activity_at', 'DESC']]
-                })
-                : null;
-
-            if (activeSession) {
-                // Older deployments do not expose a session auto-confirm
-                // method. Payment fulfilment must continue without turning that
-                // compatibility gap into a failed order/payment webhook.
-                if (typeof OrderSessionService.autoConfirmOrder === 'function') {
-                    try {
-                        await OrderSessionService.autoConfirmOrder(activeSession);
-                    } catch (error) {
-                        this.logger.warn('Payment order session confirmation deferred', {
-                            orderId: order.id,
-                            errorCode: safeErrorCode(error),
-                        });
-                    }
-                }
-            }
+            // DC-2 (A7, 2026-11-23): a verified payment deliberately does NOT
+            // touch order sessions here. The removed block looked up an ACTIVE
+            // OrderSession only to call OrderSessionService.autoConfirmOrder —
+            // a method that does not exist on any provider in this repo (grep
+            // at 77cc5b35: the only references were the typeof-guard itself),
+            // so the block was a silent no-op whose only real effect was a
+            // pointless DB read. Session completion/expiry is owned by the 24h
+            // expires_at TTL in order-session-standalone.service.js. If a
+            // session-confirm path is ever genuinely needed, implement it
+            // explicitly on the service — never behind a typeof guard, which
+            // can silently regress to a no-op. The payment-webhook controller
+            // test locks that webhook processing performs no session lookup or
+            // mutation at all.
 
             // Trigger invoice generation. chat-invoice, NOT the legacy
             // invoice.service: that one requires puppeteer at module load, which
