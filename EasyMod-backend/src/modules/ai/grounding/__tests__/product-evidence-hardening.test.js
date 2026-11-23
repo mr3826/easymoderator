@@ -1915,3 +1915,74 @@ describe('product evidence trust boundaries', () => {
         expect(result.violations).not.toContain('unsupported_stock_claim');
     });
 });
+
+/**
+ * W3 FIX 3 (agent A5, from agent A8's blind merchant pass 2026-11-24):
+ * A8 typed the catalog's own product name into the chat ("amar Classic Blue
+ * Denim Jeans ta eku 32 size pabo? dam koto ar COD ache? reply niye wait
+ * korbo"). Conversational noise ('eku', 'cod', 'reply', 'niye', 'wait') is
+ * not product identity, but the conjunctive rule counted it as unmatched
+ * claims: the real row went to relatedProducts, productStatus came back
+ * NOT_FOUND, and the deterministic tier wrote "I can't find this product in
+ * our catalog, tell me its name" in the same message that then enumerated
+ * Classic Blue Denim Jeans at ৳1290. Quoting a row's full multi-word name is
+ * direct proof of what the customer means — it must resolve to VERIFIED,
+ * which removes the contradiction at the source (route to the catalog-list
+ * answer) rather than papering over the wording. Single-word names (bare
+ * categories) are deliberately NOT promoted: "chiffon saree ache?" against a
+ * row named "Saree" must stay NOT_FOUND — that is the incident guard.
+ */
+describe('W3 FIX 3 — verbatim product-name quoting resolves to VERIFIED', () => {
+    const A8_MESSAGE = 'amar Classic Blue Denim Jeans ta eku 32 size pabo? dam koto ar COD ache? reply niye wait korbo';
+    const jeansRow = (over = {}) => catalogProduct({
+        id: 'p-jeans',
+        name: 'Classic Blue Denim Jeans',
+        category: 'bottoms',
+        price: 1290,
+        quantity: 30,
+        track_quantity: true,
+        ai_color: 'blue',
+        ai_material: 'denim',
+        ...over,
+    });
+
+    test('A8 message quoting the row name verifies the row despite noise tokens', () => {
+        const evidence = grounding.resolveProductEvidence({
+            shopId: SHOP, message: A8_MESSAGE, candidates: [jeansRow()],
+        });
+        expect(evidence.productStatus).toBe(grounding.ProductEvidenceStatus.VERIFIED);
+        expect(evidence.verifiedProducts.map(p => p.id)).toContain('p-jeans');
+    });
+
+    test('other-shop rows quoted verbatim still cannot enter the evidence', () => {
+        const evidence = grounding.resolveProductEvidence({
+            shopId: SHOP, message: A8_MESSAGE, candidates: [jeansRow({ shop_id: OTHER_SHOP })],
+        });
+        expect(evidence.productStatus).toBe(grounding.ProductEvidenceStatus.NOT_FOUND);
+        expect(evidence.verifiedProducts).toHaveLength(0);
+    });
+
+    test('a quoted name that no catalog row owns stays NOT_FOUND (conjunctive guard intact)', () => {
+        const evidence = grounding.resolveProductEvidence({
+            shopId: SHOP, message: 'do you have the Golden Peacock Jamdani Saree?',
+            candidates: [jeansRow()],
+        });
+        expect(evidence.productStatus).toBe(grounding.ProductEvidenceStatus.NOT_FOUND);
+    });
+
+    test('single-word row names are never promoted by quoting', () => {
+        const evidence = grounding.resolveProductEvidence({
+            shopId: SHOP, message: 'chiffon saree ache?',
+            candidates: [catalogProduct({ name: 'Saree', category: 'saree', ai_material: null })],
+        });
+        expect(evidence.productStatus).toBe(grounding.ProductEvidenceStatus.NOT_FOUND);
+    });
+
+    test('Bengali-script row name quoted in Bengali verifies too', () => {
+        const evidence = grounding.resolveProductEvidence({
+            shopId: SHOP, message: 'আমি কি ক্লাসিক নীল ডেনিম জিন্স পাবো?',
+            candidates: [jeansRow({ name_bn: 'ক্লাসিক নীল ডেনিম জিন্স' })],
+        });
+        expect(evidence.productStatus).toBe(grounding.ProductEvidenceStatus.VERIFIED);
+    });
+});

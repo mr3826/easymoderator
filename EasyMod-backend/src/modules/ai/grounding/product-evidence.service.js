@@ -215,6 +215,42 @@ const identityText = (product) => {
     ].filter(Boolean).join(' ').toLowerCase();
 };
 
+/**
+ * W3 FIX 3 (agent A5, from agent A8's blind merchant pass 2026-11-24):
+ * quoting a row's full multi-word name is direct proof of what the customer
+ * means. A8's turn ("amar Classic Blue Denim Jeans ta eku 32 size pabo? dam
+ * koto ar COD ache? reply niye wait korbo") matched every product-descriptive
+ * word of the real "Classic Blue Denim Jeans" row, but conversational noise
+ * ('eku', 'cod', 'reply', 'niye', 'wait') counted as unmatched identity
+ * claims under the conjunctive rule — so the row went to relatedProducts and
+ * the deterministic NOT_FOUND tier wrote "I can't find this product in our
+ * catalog, tell me its name" in the same message that then enumerated that
+ * product at ৳1290. Promotion is deliberately narrow: word-aligned full
+ * name (or name_bn/alias) in the message, and multi-word only — a single
+ * word is a category ("chiffon saree ache?" must stay NOT_FOUND against a
+ * row named "Saree"; the incident guard depends on it). Existence proven,
+ * facts still rendered only from recorded fields.
+ */
+const normalisePhraseText = (value) => String(value || '')
+    .toLowerCase()
+    .replace(/[০-৯]/g, digit => String('০১২৩৪৫৬৭৮৯'.indexOf(digit)))
+    .replace(/[^\wঀ-৿\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const quotesRowName = (product, messageHaystack) => {
+    const names = [
+        product.name,
+        product.name_bn,
+        ...(Array.isArray(product.aliases) ? product.aliases : []),
+    ];
+    return names.some((name) => {
+        const normalised = normalisePhraseText(name);
+        if (!normalised || normalised.split(' ').length < 2) return false;
+        return messageHaystack.includes(` ${normalised} `);
+    });
+};
+
 /** Which identifying terms does this catalog row actually satisfy? */
 const matchTerms = (product, terms) => {
     const haystack = identityText(product);
@@ -449,6 +485,7 @@ const resolveProductEvidence = ({ shopId, message, candidates = [], retrievalFai
         return withEvidenceSnapshot(evidence);
     }
 
+    const messageHaystack = ` ${normalisePhraseText(message)} `;
     const verified = [];
     const related = [];
     for (const candidate of candidates) {
@@ -456,7 +493,7 @@ const resolveProductEvidence = ({ shopId, message, candidates = [], retrievalFai
         const candidateShopId = candidate.shop_id || candidate.shopId;
         if (!candidateShopId || String(candidateShopId) !== String(shopId)) continue;
         const matched = matchTerms(candidate, terms);
-        if (matched.length === terms.length) {
+        if (matched.length === terms.length || quotesRowName(candidate, messageHaystack)) {
             verified.push(toVerifiedProduct(candidate, shopId, matched));
         } else if (matched.length > 0) {
             related.push(toVerifiedProduct(candidate, shopId, matched));

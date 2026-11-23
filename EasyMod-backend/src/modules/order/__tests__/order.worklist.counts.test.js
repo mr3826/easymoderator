@@ -16,7 +16,7 @@ jest.mock('../../entities', () => ({
     OrderItem: { findAll: jest.fn(), create: jest.fn() },
     Product: { findAll: jest.fn(), findOne: jest.fn(), decrement: jest.fn(), increment: jest.fn() },
     ProductVariant: { findAll: jest.fn() },
-    Customer: { findOne: jest.fn() },
+    Customer: { findOne: jest.fn(), findAll: jest.fn() },
     UserShop: { findOne: jest.fn() },
     OrderReturn: { create: jest.fn() },
     CourierDispatch: { findOne: jest.fn(), findOrCreate: jest.fn(), update: jest.fn() },
@@ -45,7 +45,7 @@ jest.mock('../../delivery/delivery.service', () => ({
     createOrder: jest.fn(),
 }));
 
-const { Order, UserShop } = require('../../entities');
+const { Order, UserShop, Customer } = require('../../entities');
 const orderService = require('../order.service');
 const { BUCKET_KEYS, buildBucketSql } = require('../order-worklist.buckets');
 
@@ -135,11 +135,23 @@ describe('listOrders delivery_bucket filter', () => {
     it('keeps search and bucket together instead of one overwriting the other', async () => {
         // Both want their own predicate; a naive merge would lose the search
         // OR and quietly return the whole bucket.
+        // W3 FIX 2: customer name/phone matches are now a tenant-scoped
+        // semijoin (customer_id IN resolved ids) because the $customer.$
+        // path references break the page-limit subquery (A8 500). Provide
+        // two resolved customers: the OR must carry order_number AND the
+        // semijoin, still AND-ed with the bucket.
+        Customer.findAll.mockResolvedValue([{ id: 'cust-1' }, { id: 'cust-2' }]);
         await orderService.listOrders(USER_ID, SHOP_ID, { delivery_bucket: 'booked', search: 'ORD-1' });
 
         const where = whereOf();
-        expect(where[Op.or]).toBeDefined();
+        expect(where[Op.or]).toEqual([
+            { order_number: { [Op.iLike]: '%ORD-1%' } },
+            { customer_id: { [Op.in]: ['cust-1', 'cust-2'] } },
+        ]);
         expect(where[Op.and]).toEqual([{ delivery_status: { [Op.in]: ['booked'] } }]);
+        // The customer lookup is server-side tenant-scoped, never caller-shaped.
+        const customerWhere = Customer.findAll.mock.calls[0][0].where;
+        expect(customerWhere.shop_id).toBe(SHOP_ID);
     });
 
     it('leaves the query untouched when no bucket is requested', async () => {
