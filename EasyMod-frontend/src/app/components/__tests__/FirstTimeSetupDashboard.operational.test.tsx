@@ -11,8 +11,8 @@
  */
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirstTimeSetupDashboard from "../FirstTimeSetupDashboard";
 import type { SetupOperational, SetupStatus, SetupTask } from "@/api/types";
@@ -269,5 +269,37 @@ describe("FirstTimeSetupDashboard — operational truthfulness (P04)", () => {
     );
     expect(screen.getByText(/dashboard\.setup\.states\.verified_operational\.title/)).toBeInTheDocument();
     expect(screen.queryByText(/dashboard\.setup\.states\.waiting_for_test/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A8 merchant pass (Task 8 / F-7): "Review Reply Settings" promised reply
+ * settings and delivered Business Info. The canonical automation page is
+ * /manage-shop/automation (BusinessAutomationDefaults) — this test pins the
+ * CTA's RESOLVED route, not just its label.
+ */
+function LocationDisplay() {
+  const location = useLocation();
+  return <output data-testid="current-location">{location.pathname}</output>;
+}
+
+describe("FirstTimeSetupDashboard — CTA destinations", () => {
+  it("routes the complete-state 'Review Reply Settings' CTA to the automation page", async () => {
+    render(
+      <MemoryRouter>
+        <FirstTimeSetupDashboard
+          setupStatus={makeStatus({ operational: makeOperational("verified_operational") })}
+          onRefresh={vi.fn()}
+          onDismissCompletion={vi.fn()}
+        />
+        <LocationDisplay />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "dashboard.setup.reviewReplySettings" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("current-location")).toHaveTextContent("/manage-shop/automation"),
+    );
   });
 });
