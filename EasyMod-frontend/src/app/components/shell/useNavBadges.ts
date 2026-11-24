@@ -14,7 +14,11 @@
  *
  * Honesty rules (D1/D10, A9 attack items):
  *  - failure / 403 / abort → null → NO badge — a missing source is never
- *    rendered as "0";
+ *    rendered as "0"; the rule is PER SOURCE (A9 partial-failure): a blip in
+ *    the inbox endpoint hides the Inbox badge and merges into the readings
+ *    alone — healthy Orders/Products keep their last-known-good values and a
+ *    slow source never blocks the others from rendering (no cross-source
+ *    cascade); superseded/aborted passes still commit NOTHING for any source;
  *  - count 0 → no badge either: absence of a badge is not a "0" claim and
  *    not an "all clear" claim — the dashboard keeps the exhaustive states;
  *  - display cap 99+; when the server says coverage is incomplete the pill
@@ -163,35 +167,30 @@ export function useNavBadges(): NavBadges {
     abortRef.current = controller;
     const generation = ++generationRef.current;
 
-    void Promise.allSettled([
-      getOrderCounts(),
-      getNeedsReplyCount(controller.signal),
-      getStockExceptions(controller.signal),
-    ]).then(([orderResult, replyResult, stockResult]) => {
+    // PER-SOURCE merge (A9 partial-failure): every source commits its own
+    // reading as it settles, so a failing or hanging endpoint only ever
+    // touches its own badge. The generation/abort guard still drops every
+    // result of a superseded pass — honesty is per-source, staleness is
+    // per-source, and there is no cross-source cascade in either direction.
+    const commit = (source: keyof NavBadgeReadings, reading: CountReading | null) => {
       if (generation !== generationRef.current || controller.signal.aborted) return;
-
-      const ordersReading: CountReading | null =
-        orderResult.status === 'fulfilled'
-          // Bucket counts are exact server numbers — full coverage.
-          ? { count: orderResult.value.needs_action, coverageComplete: true }
-          : null;
-      const inboxReading: CountReading | null =
-        replyResult.status === 'fulfilled'
-          ? { count: replyResult.value.count, coverageComplete: replyResult.value.coverageComplete }
-          : null;
-      const productsReading: CountReading | null =
-        stockResult.status === 'fulfilled'
-          // D2: exceptions = outOfStock + lowStock, disjoint by construction.
-          ? { count: stockResult.value.exceptions, coverageComplete: stockResult.value.coverageComplete }
-          : null;
-
       // Raw structured readings — no locale strings stored (DE-2).
-      setReadings({
-        orders: ordersReading,
-        inbox: inboxReading,
-        products: productsReading,
-      });
-    });
+      setReadings((previous) => ({ ...previous, [source]: reading }));
+    };
+
+    getOrderCounts()
+      // Bucket counts are exact server numbers — full coverage.
+      .then((counts) => commit('orders', { count: counts.needs_action, coverageComplete: true }))
+      .catch(() => commit('orders', null));
+
+    getNeedsReplyCount(controller.signal)
+      .then((reply) => commit('inbox', { count: reply.count, coverageComplete: reply.coverageComplete }))
+      .catch(() => commit('inbox', null));
+
+    getStockExceptions(controller.signal)
+      // D2: exceptions = outOfStock + lowStock, disjoint by construction.
+      .then((stock) => commit('products', { count: stock.exceptions, coverageComplete: stock.coverageComplete }))
+      .catch(() => commit('products', null));
   }, []);
 
   useShellPolling(refresh, SHELL_POLL_MS);

@@ -140,6 +140,19 @@ describe('AiStatusChip rendering', () => {
     });
   }
 
+  // A9: absence of shape = failed source, not proven-empty. The two paths
+  // must never collapse into each other: [] is a VERIFIED zero-channel list
+  // (notConnected); a malformed 200 payload says nothing at all (unavailable).
+  it('malformed non-array success payloads map to unavailable, never notConnected', async () => {
+    for (const payload of [{ success: true }, null, undefined, { data: [] }]) {
+      vi.mocked(listMetaChannels).mockResolvedValue(payload as never);
+      const { unmount } = renderChip();
+      const chip = await screen.findByRole('link', { name: EXPECTED.unavailable.aria });
+      expect(chip).toHaveAttribute('data-state', 'unavailable');
+      unmount();
+    }
+  });
+
   it('renders nothing before the first read settles (absence, not a guess)', async () => {
     let release: (value: MetaChannel[]) => void = () => {};
     vi.mocked(listMetaChannels).mockReturnValue(new Promise((resolve) => { release = resolve; }));

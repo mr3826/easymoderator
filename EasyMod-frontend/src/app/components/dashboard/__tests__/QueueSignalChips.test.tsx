@@ -91,8 +91,23 @@ describe("QueueSignalChips", () => {
     expect(screen.getByText("BDT 28.75")).toBeInTheDocument();
     expect(screen.getByText(/commerceSignals.charges/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /commerceSignals.charges/ })).toHaveAttribute("href", "/subscription");
-    // D5: raw numeric count (i18next plural option) + day interpolation.
+    // D5: raw numeric `count` (i18next plural selector) + day + Intl-formatted
+    // `displayCount` (locale digits) all reach the template (A8 fix-5/fix-8).
     expect(screen.getByText(/commerceSignals.dayCount 2026-11-24 3/)).toBeInTheDocument();
+    expect(screen.getByText(/commerceSignals\.dayCount 2026-11-24 3 3$/)).toBeInTheDocument();
+  });
+
+  it('dayCount keeps the raw plural count AND the locale-formatted displayCount distinct', () => {
+    render(
+      <MemoryRouter>
+        <QueueSignalChips needsReply={reply({ count: 0 })} pendingPayment={0} readyToDispatch={0}
+          billing={{ dayUtc: "2026-11-24", count: 4, amountMinor: 1200 }}
+          formatCount={(n) => `X${n}`} formatMoney={() => "x"} />
+      </MemoryRouter>,
+    );
+    // key + day + raw numeric count + formatted display — proves the chip
+    // feeds plural selection with the number and the text with the digits.
+    expect(screen.getByText(/commerceSignals\.dayCount 2026-11-24 4 X4$/)).toBeInTheDocument();
     // Honest charges tooltip (title attribute) — gross ledger ≠ invoiced/collected.
     expect(screen.getByRole("link", { name: /commerceSignals.charges/ })).toHaveAttribute("title", "dashboard.pulse.commerceSignals.chargesTooltip");
   });

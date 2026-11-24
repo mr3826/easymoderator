@@ -15,7 +15,10 @@
  * GET /api/shop/delivery/readiness verdict). missing[] and missing_fields[]
  * are the SAME array — the count uses `missing` only and excludes
  * provider_not_active (the controller's own settings-row aggregation rule).
- * READY is typed-but-unreachable through this endpoint; it maps defensively.
+ * A8 MAJOR: the API genuinely distinguishes ACTIVE from READY — READY means
+ * configured-but-not-active (can never dispatch), so it maps to the published
+ * `connectedNotActive` label, NOT to the healthy "Ready" (which is ACTIVE
+ * only). The missing-count rule is unchanged by that mapping.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -149,7 +152,11 @@ export function ConnectionHealth() {
   if (!courier.loading) {
     if (readiness === null) courierBadge = unavailableBadge;
     else if (noProviders) courierBadge = { kind: "attention", label: t("dashboard.connections.notSetUp") };
-    else if (readiness.status === "ACTIVE" || readiness.status === "READY") courierBadge = { kind: "healthy", label: t("dashboard.connections.ready") };
+    else if (readiness.status === "ACTIVE") courierBadge = { kind: "healthy", label: t("dashboard.connections.ready") };
+    // READY is a DISTINCT server state: credentials/store configured but the
+    // integration is not active — it can never dispatch. Same honest label
+    // as connected-but-inactive, never a green "Ready".
+    else if (readiness.status === "READY") courierBadge = { kind: "attention", label: t("dashboard.connections.connectedNotActive") };
     else if (courierConnectedNotActive) courierBadge = { kind: "attention", label: t("dashboard.connections.connectedNotActive") };
     else courierBadge = { kind: "attention", label: t("dashboard.connections.setupIncomplete") };
   }

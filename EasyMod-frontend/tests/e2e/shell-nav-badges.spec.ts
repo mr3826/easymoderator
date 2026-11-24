@@ -197,16 +197,32 @@ test('no badge on zero and no badge on failure/403 — absence never claims "0" 
     expect(state.unexpected).toEqual([]);
 });
 
-test('5xx badge sources degrade to no badge, no crash', async ({ page }) => {
+test('5xx badge sources degrade to no badge, no crash — per source', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(String(error)));
     const { state } = await setupRoutes(page, { orders: 'fail', inbox: 'fail', products: 'fail' });
     await loginAndGo(page);
+    // Per-source expectation (A9): each failed source hides its OWN badge.
+    await expect(rail(page).getByRole('link', { name: 'Orders', exact: true })).toBeVisible();
     await expect(rail(page).getByRole('link', { name: 'Inbox', exact: true })).toBeVisible();
+    await expect(rail(page).getByRole('link', { name: 'Products', exact: true })).toBeVisible();
     await expect(rail(page).locator('span.sr-only')).toHaveCount(0);
     expect(errors).toEqual([]);
-    // The aborts are expected here (sources deliberately fail): assert the
-    // three sources are the ONLY recorded ones — the shell invented nothing.
+    // No source path is aborted here — the three fixtures FULFILL 5xx
+    // responses; the abort path belongs only to unknown (invented) routes.
+    // state.unexpected must stay empty: the shell invented nothing.
+    expect(state.unexpected).toEqual([]);
+});
+
+// A9 partial failure: honesty is per source. The failing inbox hides its own
+// badge; the healthy Orders/Products badges keep rendering (no cascade).
+test('partial failure is per-source: inbox 5xx never blanks healthy Orders/Products badges', async ({ page }) => {
+    const { state } = await setupRoutes(page, { orders: 5, products: 2, inbox: 'fail' });
+    await loginAndGo(page);
+    await expect(rail(page).getByRole('link', { name: 'Orders 5 orders need action' })).toBeVisible();
+    await expect(rail(page).getByRole('link', { name: 'Products 2 products have stock exceptions' })).toBeVisible();
+    // The failed source alone: bare link, no badge, no aria claim.
+    await expect(rail(page).getByRole('link', { name: 'Inbox', exact: true })).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
 
@@ -215,7 +231,10 @@ test('403 restricted badge sources → no badge, app keeps working (D10 restrict
     page.on('pageerror', (error) => errors.push(String(error)));
     const { state } = await setupRoutes(page, { orders: '403', inbox: '403', products: '403' });
     await loginAndGo(page);
+    // Per-source: each restricted source hides only its own badge.
+    await expect(rail(page).getByRole('link', { name: 'Orders', exact: true })).toBeVisible();
     await expect(rail(page).getByRole('link', { name: 'Inbox', exact: true })).toBeVisible();
+    await expect(rail(page).getByRole('link', { name: 'Products', exact: true })).toBeVisible();
     await expect(rail(page).locator('span.sr-only')).toHaveCount(0);
     expect(errors).toEqual([]);
     expect(state.unexpected).toEqual([]);
@@ -247,11 +266,12 @@ test('bn locale: badge numbers are Intl-rendered Bangla numerals (never literal 
     const { state } = await setupRoutes(page, { orders: 8 });
     await loginAndGo(page);
     // Switch via the shell toggle (same path a merchant uses), then reload so
-    // the shell mounts with bn resolved. NOTE (defect routed to A3): the badge
-    // display/aria strings are computed at FETCH time inside useNavBadges, so
-    // a mid-session language switch keeps the old-locale strings until the
-    // next 60s tick — the reload below is the deterministic path, not a test
-    // convenience around a live-behaviour gap.
+    // the shell mounts with bn resolved. DE-2 correction: badge display/aria
+    // strings are DERIVED at RENDER time from raw readings, so a mid-session
+    // switch already re-renders in the new locale (unit-pinned in
+    // useNavBadges.test.ts); the reload below keeps the E2E rail text
+    // deterministic from mount — it is no longer a workaround for a
+    // fetch-time staleness gap.
     await page.locator('header .mw-language-toggle').click();
     await page.reload();
     const ordersLink = rail(page).getByRole('link', { name: /অর্ডারে ব্যবস্থা দরকার/ });

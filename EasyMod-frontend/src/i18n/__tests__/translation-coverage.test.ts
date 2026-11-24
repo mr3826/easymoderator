@@ -156,6 +156,29 @@ describe('translation coverage', () => {
     expect(offenders).toEqual([]);
   });
 
+  // A8 fix-5: real-i18next proof that commerceSignals.dayCount pluralizes
+  // from the raw numeric `count` (dayCount_one/_other) while the template
+  // interpolates the locale-formatted {{displayCount}}. bn's Intl cardinal
+  // categories are [one, other] (verified: Intl.PluralRules('bn').select(1)
+  // === 'one'), so bn ships BOTH forms with the same uninflected noun text.
+  it('pluralizes dayCount from count while rendering displayCount digits', async () => {
+    const previousLanguage = i18n.language;
+    const key = 'dashboard.pulse.commerceSignals.dayCount';
+    try {
+      await i18n.changeLanguage('en');
+      expect(i18n.t(key, { day: '2026-11-24', count: 1, displayCount: '1' })).toBe('2026-11-24 UTC · 1 order');
+      expect(i18n.t(key, { day: '2026-11-24', count: 4, displayCount: '4' })).toBe('2026-11-24 UTC · 4 orders');
+      await i18n.changeLanguage('bn');
+      expect(i18n.t(key, { day: '2026-11-24', count: 1, displayCount: '১' })).toBe('2026-11-24 UTC · ১টি অর্ডার');
+      expect(i18n.t(key, { day: '2026-11-24', count: 4, displayCount: '৪' })).toBe('2026-11-24 UTC · ৪টি অর্ডার');
+      // A non-numeric count (legacy call sites) must not throw: it falls
+      // back to the base form, still interpolating displayCount.
+      expect(i18n.t(key, { day: '2026-11-24', count: undefined, displayCount: '৫' })).toBe('2026-11-24 UTC · ৫টি অর্ডার');
+    } finally {
+      await i18n.changeLanguage(previousLanguage);
+    }
+  });
+
   it('keeps the document language synchronized with the selected UI language', async () => {
     const previousLanguage = i18n.language;
     const previousStoredLanguage = window.localStorage.getItem('easymod_lang');

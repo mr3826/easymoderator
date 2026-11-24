@@ -11,6 +11,9 @@
  *
  * State machine (fail-closed, exact order):
  *   fetch failed          → unavailable        (never guessed, never green)
+ *   malformed 200 (non-array payload)
+ *                         → unavailable        (absence of shape is a failed
+ *                              source, NOT a proven-empty one — A9)
  *   zero channels         → notConnected
  *   any emergency_stop    → emergencyStop      (safety overrides modes)
  *   no CONNECTED channel
@@ -147,7 +150,10 @@ export default function AiStatusChip() {
     void listMetaChannels()
       .then((channels) => {
         if (generation !== generationRef.current) return;
-        setState(resolveAiChipState(Array.isArray(channels) ? channels : []));
+        // A9: absence of shape = a FAILED source, not a proven-empty one. A
+        // malformed 200 (non-array payload) must render `unavailable` — the
+        // "notConnected" claim is reserved for a genuine empty channel list.
+        setState(Array.isArray(channels) ? resolveAiChipState(channels) : 'unavailable');
       })
       .catch(() => {
         if (generation !== generationRef.current) return;

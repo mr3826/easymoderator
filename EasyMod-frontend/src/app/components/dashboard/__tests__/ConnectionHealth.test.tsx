@@ -3,7 +3,8 @@
  * (worst-state aggregate; connected·verified vs connected·unverified via the
  * stored webhook timestamp; reconnect-required with the REAL OAuth hand-off —
  * no auto-ping; disconnected; fetch failure → Unavailable, never green) and
- * the courier row from getDeliveryReadiness (ACTIVE/READY → ready;
+ * the courier row from getDeliveryReadiness (ACTIVE → ready; READY →
+ * connectedNotActive — the two server states are distinct (A8);
  * SETUP_INCOMPLETE + missingCount excluding provider_not_active; no
  * integrations → notSetUp; failure → unavailable).
  */
@@ -183,9 +184,31 @@ describe("ConnectionHealth rendering", () => {
     expect(screen.getByText(/connections.missingCount 2/)).toBeInTheDocument();
   });
 
-  it("READY maps defensively to ready", async () => {
-    await renderHealth([channel()], readiness({ status: "READY", active: false, connected: true }));
+  // A8 MAJOR: ACTIVE and READY are DISTINCT server states — READY is
+  // configured-but-not-active (can never dispatch) and must never borrow
+  // the healthy "Ready" label. The missing-count rule is untouched.
+  it("READY renders connectedNotActive, ACTIVE still renders ready", async () => {
+    await renderHealth([channel()], readiness({ status: "READY", active: false, connected: true, ready: true, credentials_configured: true }));
+    expect(screen.getByText("dashboard.connections.connectedNotActive")).toBeInTheDocument();
+    expect(screen.queryByText("dashboard.connections.ready")).not.toBeInTheDocument();
+  });
+
+  it("READY keeps counting gaps from `missing` alone (provider_not_active excluded)", async () => {
+    // READY with real missing steps — the distinct label did NOT change the
+    // missing-count rule (uses `missing` only, provider_not_active excluded).
+    await renderHealth([channel()], readiness({
+      status: "READY", active: false, connected: true, ready: true,
+      missing: ["default_store", "provider_not_active"],
+      missing_fields: ["default_store", "provider_not_active"],
+    }));
+    expect(screen.getByText("dashboard.connections.connectedNotActive")).toBeInTheDocument();
+    expect(screen.getByText(/connections.missingCount 1/)).toBeInTheDocument();
+  });
+
+  it("ACTIVE renders the healthy ready label (regression pin for the split)", async () => {
+    await renderHealth([channel()], readiness());
     expect(screen.getByText("dashboard.connections.ready")).toBeInTheDocument();
+    expect(screen.queryByText("dashboard.connections.connectedNotActive")).not.toBeInTheDocument();
   });
 
   it("row labels link to the verified settings destinations", async () => {

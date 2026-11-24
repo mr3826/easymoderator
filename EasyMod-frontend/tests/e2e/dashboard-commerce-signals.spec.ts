@@ -16,7 +16,8 @@
  *    and fetch-failure → unavailable; always a link, never a control;
  *  - ConnectionHealth: meta-row worst-state aggregate, real reconnect POST
  *    (server-issued redirect; failure → honest status, never auto-ping),
- *    courier ACTIVE / SETUP_INCOMPLETE+missingCount / notSetUp / unavailable,
+ *    courier ACTIVE → ready / READY → connected·inactive (distinct server
+ *    states — A8) / SETUP_INCOMPLETE+missingCount / notSetUp / unavailable,
  *    and the independent retry control for degraded reads.
  *
  * Mock-only; allowlist+abort discipline identical to shell-guardrails.
@@ -51,11 +52,16 @@ type ChannelsMode =
 
 interface Fixture {
     channels: ChannelsMode;
-    readiness: 'active' | 'setup' | 'none' | 'fail';
+    /** ACTIVE | READY (configured-not-active) | setup | none | fail. */
+    readiness: 'active' | 'ready' | 'setup' | 'none' | 'fail';
     needsReply: 'complete' | 'partial' | 'capped' | 'null';
-    /** queue.commerce_signals delivery: normal | null | emptyActivity */
-    signals: 'normal' | 'nullSignals' | 'emptyActivity';
+    /** queue.commerce_signals delivery: normal | null | emptyActivity | singleOrder */
+    signals: 'normal' | 'nullSignals' | 'emptyActivity' | 'singleOrder';
     replyCardCount?: number;
+    /** GET /api/order/counts needs_action (the Orders badge AND hero authority). */
+    needsActionCount?: number;
+    /** Queue at_risk sample row count (10 = the server's sample cap). */
+    exceptionSampleRows?: number;
 }
 
 const channelPayload = (mode: ChannelsMode): unknown[] | null => {
@@ -102,6 +108,12 @@ const activityRows = (n: number) => Array.from({ length: n }, (_, i) => ({
     user: i % 3 === 0 ? { id: 'user-1', full_name: 'Signal Owner' } : null,
 }));
 
+const exceptionRow = (i: number) => ({
+    id: i === 0 ? 'order-deep-1' : `order-cap-${i}`,
+    orderNumber: `EM-09${String(i).padStart(2, '0')}`,
+    status: 'returned', tracking_id: null, updatedAt: isoNow,
+});
+
 const queueFor = (fx: Fixture) => {
     const needs_reply = fx.needsReply === 'null' ? null
         : fx.needsReply === 'partial' ? { count: 8, scanned: 200, cap: 200, coverageComplete: false, generated_at: isoNow }
@@ -109,19 +121,23 @@ const queueFor = (fx: Fixture) => {
                 : { count: fx.replyCardCount ?? 2, scanned: 40, cap: 200, coverageComplete: true, generated_at: isoNow };
     const commerce_signals = fx.signals === 'nullSignals' ? { deliveredCharges: null, recentActivity: null }
         : fx.signals === 'emptyActivity' ? { deliveredCharges: { dayUtc: '2026-11-24', count: 4, amountMinor: 123450 }, recentActivity: [] }
-            : {
-                deliveredCharges: { dayUtc: '2026-11-24', count: 4, amountMinor: 123450 },
-                // Deep-clone per mount: rows mutate nothing, but keep fixtures honest.
-                recentActivity: activityRows(7),
-            };
+            : fx.signals === 'singleOrder' ? { deliveredCharges: { dayUtc: '2026-11-24', count: 1, amountMinor: 3250 }, recentActivity: activityRows(2) }
+                : {
+                    deliveredCharges: { dayUtc: '2026-11-24', count: 4, amountMinor: 123450 },
+                    // Deep-clone per mount: rows mutate nothing, but keep fixtures honest.
+                    recentActivity: activityRows(7),
+                };
+    // Sample rows: default 1 (the deep-link proof); exceptionSampleRows lets
+    // the hero-authority test drive the capped 10-row sample explicitly.
+    const at_risk_orders = fx.exceptionSampleRows !== undefined
+        ? Array.from({ length: fx.exceptionSampleRows }, (_, i) => exceptionRow(i))
+        : [exceptionRow(0)];
     return {
         predicate_version: 'worklist-v1',
         pending_payment_count: 1,
         ready_to_dispatch_count: 3,
         needs_reply,
-        at_risk_orders: [
-            { id: 'order-deep-1', orderNumber: 'EM-0900', status: 'confirmed', tracking_id: null, updatedAt: isoNow },
-        ],
+        at_risk_orders,
         commerce_signals,
     };
 };
@@ -133,6 +149,16 @@ const readinessPayload = (mode: Fixture['readiness']) => {
         pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0,
         missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'],
         status: 'SETUP_INCOMPLETE', providers: [],
+    };
+    // ready: the DISTINCT server verdict — credentials/store configured, the
+    // integration NOT active (can never dispatch). Renders "Connected ·
+    // inactive", never the healthy "Ready" (A8 MAJOR-3 fix-4).
+    if (mode === 'ready') return {
+        provider: 'redx', ready: true, connected: true, active: false, credentials_configured: true,
+        provider_store_id: 'store-4', provider_store_count: 1, pickup_location_configured: false, pickup_enabled: false,
+        pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0,
+        missing: [], missing_fields: [], status: 'READY',
+        providers: [{ provider: 'redx', ready: true, connected: true, active: false, credentials_configured: true, provider_store_id: 'store-4', provider_store_count: 1, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: [], missing_fields: [], status: 'READY' }],
     };
     if (mode === 'active') return {
         provider: 'pathao', ready: true, connected: true, active: true, credentials_configured: true,
@@ -193,7 +219,10 @@ async function setupRoutes(page: Page, initial: Partial<Fixture> = {}) {
             return route.fulfill({ json: json({ metrics: { totalMessages: 12, activeProducts: 8, ordersToday: 3, weeklyChange: 10.5, conversionRate: 5.2 }, channels: { active: 2, total: 3 }, chartData: [], cashPosition: { inTransit: { amount: 12500, count: 7 }, atRisk: { amount: 3400, count: 2, windowDays: 30 } } }) });
         }
         if (path === '/api/dashboard/queue') return route.fulfill({ json: json(queueFor(cfg)) });
-        if (path === '/api/order/counts') return route.fulfill({ json: json({ to_confirm: 0, to_pack: 3, booked: 0, in_transit: 0, needs_action: 1, returned: 0, delivered: 0, total: 9 }) });
+        if (path === '/api/order/counts') {
+            const needsAction = cfg.needsActionCount ?? 1;
+            return route.fulfill({ json: json({ to_confirm: 0, to_pack: 3, booked: 0, in_transit: 0, needs_action: needsAction, returned: 0, delivered: 0, total: 8 + needsAction }) });
+        }
         if (path === '/api/conversation/needs-reply-count') return route.fulfill({ json: json(queueFor(cfg).needs_reply ?? { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: isoNow }) });
         if (path === '/api/product/stock-exceptions') return route.fulfill({ json: json({ outOfStock: 1, lowStock: 1, exceptions: 2, scanned: 8, cap: 1000, coverageComplete: true, generated_at: isoNow }) });
         if (path === '/api/order' && method === 'GET') {
@@ -249,6 +278,32 @@ test('D5 charges card: label, gross-UTC note, tooltip, UTC-day chip, /subscripti
     expect(state.unexpected).toEqual([]);
 });
 
+// A8 MINOR (fix-5): i18next plural forms — dayCount_one must win for one.
+test('D5 dayCount plural: a single delivered order reads "1 order", never "1 orders"', async ({ page }) => {
+    const { state } = await setupRoutes(page, { signals: 'singleOrder' });
+    await loginAndDashboard(page);
+    const charges = dash(page).getByRole('link', { name: /Recorded delivery charges today/ });
+    await expect(charges).toBeVisible();
+    await expect(charges).toContainText('2026-11-24 UTC · 1 order');
+    await expect(charges).not.toContainText('1 orders');
+    expect(state.unexpected).toEqual([]);
+});
+
+// A8 MAJOR-2 (fix-7): the hero exceptions number and the Orders nav badge
+// read the SAME exhaustive bucket count — 12 rows reported over the capped
+// 10-row sample must not make the screen show two disagreeing numbers.
+test('hero exceptions number == Orders badge count (12) over a capped 10-row sample', async ({ page }) => {
+    const { state } = await setupRoutes(page, { needsActionCount: 12, exceptionSampleRows: 10 });
+    await loginAndDashboard(page);
+    await expect(page.getByTestId('dashboard-signal')).toContainText('Delivery exceptions: 12');
+    const rail = page.locator('aside nav').first();
+    await expect(rail.getByRole('link', { name: 'Orders 12 orders need action' })).toBeVisible();
+    // Exhaustive bucket count → no lower-bound sign even though the sample
+    // was capped at 10.
+    await expect(page.getByTestId('dashboard-signal')).not.toContainText('12+');
+    expect(state.unexpected).toEqual([]);
+});
+
 test('D5 bn: charges copy + amount render in Bangla (Intl at runtime, no literal digits)', async ({ page }) => {
     await setupRoutes(page);
     await loginAndDashboard(page);
@@ -261,6 +316,20 @@ test('D5 bn: charges copy + amount render in Bangla (Intl at runtime, no literal
     expect(text).toContain('১,২৩৪.৫০');
     expect(text).not.toMatch(/1,234/);
     expect(text).toContain('UTC দিনের গ্রস লেজার এন্ট্রি');
+    // A8 MAJOR-3: the count on the chip is Bangla too (displayCount), with
+    // the plural slot still fed the raw numeric count.
+    expect(text).toContain('৪টি অর্ডার');
+    expect(text).not.toMatch(/· 4 অর্ডার/);
+
+    // Hero sentence: every interpolated count is Bangla and the draft label
+    // is translated (no English word inside Bangla).
+    const hero = dash(page).locator('p').filter({ hasText: 'যাচাই করা কাজ অপেক্ষায়' });
+    await expect(hero).toBeVisible();
+    const heroText = await hero.textContent();
+    expect(heroText).toContain('ডেলিভারি ব্যতিক্রম: ১');
+    expect(heroText).toContain('ড্রাফট অর্ডার');
+    expect(heroText).not.toMatch(/Draft/);
+    expect(heroText).not.toMatch(/[0-9]/);
 });
 
 test('needs_reply honesty on the reply card: exact, N+ lower bound, 99+ cap, Unavailable — never 0', async ({ page }) => {
@@ -317,7 +386,11 @@ test('D4 activity: capped to six rows, stored actor or System, ORDER rows deep-l
     // Product rows (user null or not) never fabricate a destination.
     await expect(section.getByRole('link', { name: /System/ })).toHaveCount(0);
     await expect(section.getByRole('link', { name: /Product stock updated/ })).toHaveCount(0);
-    // No customer PII vocabulary ever reaches the DOM.
+    // Body-regex tripwire: no customer-PII vocabulary reaches the DOM. This
+    // is the cheap E2E smoke over a MOCKED payload — the real proof that PII
+    // never reaches the projection lives in the integration lane
+    // (src/test/InboxStoragePrivacy.test.tsx + the D3 server-side field
+    // whitelist tests), so a pass here complements, never replaces, it.
     const body = await page.locator('body').innerText();
     expect(body).not.toMatch(/customer_phone|customer_name|01700\d{5}/);
     expect(state.unexpected).toEqual([]);
@@ -385,11 +458,17 @@ test('D7 ConnectionHealth meta row: verified / unverified / reconnect (real POST
     expect(state.unexpected).toEqual([]);
 });
 
-test('D7 ConnectionHealth courier row: ACTIVE, SETUP_INCOMPLETE + missing count (provider_not_active excluded), notSetUp, failed-read + retry', async ({ page }) => {
+test('D7 ConnectionHealth courier row: ACTIVE vs READY are distinct, SETUP_INCOMPLETE + missing count (provider_not_active excluded), notSetUp, failed-read + retry', async ({ page }) => {
     const { cfg, state } = await setupRoutes(page, { readiness: 'active' });
     await loginAndDashboard(page);
     const courierRow = dash(page).getByTestId('connections-courier-row');
     await expect(courierRow).toContainText('Ready');
+
+    // A8 MAJOR (fix-4): READY = configured but NOT active — it can never
+    // dispatch, so it must never borrow the healthy "Ready" verdict.
+    cfg.readiness = 'ready';
+    await page.reload();
+    await expect(courierRow).toContainText('Connected · inactive');
 
     cfg.readiness = 'setup';
     await page.reload();

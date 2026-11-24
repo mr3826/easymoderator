@@ -27,28 +27,46 @@ const isAiProduct = (product: Product): boolean =>
 
 /**
  * D2 stock-exception predicate (single definition, shared with the server
- * `GET /api/product/stock-exceptions` authority and the Products nav badge):
- * scope `track_quantity`; effective quantity = Σ ACTIVE variant quantities
- * when active variants exist (variants are the ordering authority since
- * D-P2-02), else the parent quantity. out ≤ 0; low 0 < q ≤ low_stock_threshold;
- * exceptions = out + low (disjoint by construction). Exported so the parity
- * unit test pins client and server to the same rule.
+ * `GET /api/product/stock-exceptions` authority and the Products nav badge).
+ * A8 MAJOR-1: the SERVER is the authority — the client mirrors its scope and
+ * edge semantics token-for-token so badge == list even for synthetic payloads:
+ *  - scope: `is_active` (the server scans `is_active: true` — a retired but
+ *    still-tracked product is NOT an exception: it can never sell) AND
+ *    `track_quantity`;
+ *  - effective quantity = Σ ACTIVE variant quantities when active variants
+ *    carry finite quantities (variants are the ordering authority since
+ *    D-P2-02); a non-finite variant quantity contributes NOTHING (the server
+ *    drops it), and a product whose active variants are all non-finite falls
+ *    back to the parent quantity;
+ *  - an unparseable parent stock level classifies as OUT OF STOCK (the
+ *    server's fail-toward-a-visible-exception honesty), never silent in-stock;
+ *  - out ≤ 0; low 0 < q ≤ low_stock_threshold; exceptions = out + low
+ *    (disjoint by construction). Exported so the parity unit tests pin client
+ *    and server to the same rule.
  */
 export const effectiveStockQuantity = (product: Product): number | null => {
-  const activeVariants = (product.product_variants ?? []).filter((variant) => variant?.is_active === true);
-  if (activeVariants.length > 0) {
-    return activeVariants.reduce((sum, variant) => sum + (Number.isFinite(variant.quantity) ? variant.quantity : 0), 0);
+  const variantQuantities = (product.product_variants ?? [])
+    .filter((variant) => variant?.is_active === true)
+    .map((variant) => Number(variant.quantity ?? 0))
+    .filter((quantity) => Number.isFinite(quantity));
+  if (variantQuantities.length > 0) {
+    return variantQuantities.reduce((sum, quantity) => sum + quantity, 0);
   }
-  return typeof product.quantity === 'number' && Number.isFinite(product.quantity) ? product.quantity : null;
+  // Parent fallback — null = unparseable (the predicates treat it as out).
+  const parentQuantity = Number(product.quantity ?? 0);
+  return Number.isFinite(parentQuantity) ? parentQuantity : null;
 };
 
 export const isOutOfStockProduct = (product: Product): boolean => {
+  if (product.is_active === false) return false; // server scope: is_active only
   if (product.track_quantity !== true) return false;
   const quantity = effectiveStockQuantity(product);
-  return quantity !== null && quantity <= 0;
+  // Unparseable parent stock fails toward a VISIBLE exception (server rule).
+  return quantity === null || quantity <= 0;
 };
 
 export const isLowStockProduct = (product: Product): boolean => {
+  if (product.is_active === false) return false; // server scope: is_active only
   if (product.track_quantity !== true) return false;
   const quantity = effectiveStockQuantity(product);
   return quantity !== null

@@ -81,6 +81,35 @@ describe('useNavBadges honesty', () => {
     expect(result.current).toEqual({ orders: null, inbox: null, products: null });
   });
 
+  // A9 partial-failure: honesty is PER SOURCE. One endpoint blip hides its
+  // own badge and must never blank the other sources' last-known-good
+  // readings (no cross-source cascade).
+  it('keeps healthy Orders/Products badges across a partial (inbox-only) failure', async () => {
+    vi.useFakeTimers();
+    mockSources({ orders: counts(4), inbox: reply(3), products: stock(2) });
+    const { result } = renderHook(() => useNavBadges());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.orders?.display).toBe('4');
+    expect(result.current.inbox?.display).toBe('3');
+    expect(result.current.products?.display).toBe('2');
+
+    // Next poll tick: ONLY the inbox source fails.
+    mockSources({ orders: counts(4), inbox: new Error('503'), products: stock(2) });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(result.current.orders?.display).toBe('4'); // persists
+    expect(result.current.products?.display).toBe('2'); // persists
+    expect(result.current.inbox).toBeNull(); // the failed source hides alone
+  });
+
+  it('a hanging source never blocks the healthy sources from rendering', async () => {
+    mockSources({ orders: counts(4), products: stock(2) });
+    vi.mocked(getNeedsReplyCount).mockImplementation(() => new Promise(() => {}) as never);
+    const { result } = renderHook(() => useNavBadges());
+    await waitFor(() => expect(result.current.orders).not.toBeNull());
+    expect(result.current.products?.display).toBe('2');
+    expect(result.current.inbox).toBeNull();
+  });
+
   it('renders NO badge for a true zero either (absence claims nothing)', async () => {
     mockSources({ orders: counts(0), inbox: reply(0), products: stock(0) });
     const { result } = renderHook(() => useNavBadges());

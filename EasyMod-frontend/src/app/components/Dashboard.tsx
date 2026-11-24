@@ -122,8 +122,11 @@ export default function Dashboard() {
   const coverageComplete = pulseData ? hasAllWorkSources(pulseData) : false;
   const caughtUp = pulseData ? isCaughtUp(pulseData, workItems) : false;
   const deriveInput = { phase, pulse: pulseData, workItems, caughtUp, hasAllWorkSources: coverageComplete };
-  const signal = deriveSignal(deriveInput, t);
-  const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: formatTime || undefined });
+  // A8 MAJOR-3: the hero sentence's interpolated counts go through the same
+  // locale-bound Intl formatter the chips/badges use (Bangla digits in bn) —
+  // the proven QueueSignalChips pattern, applied to derive.
+  const signal = deriveSignal(deriveInput, t, { formatCount });
+  const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: formatTime || undefined, formatCount });
 
   const primaryAction: Action = { ...derivePrimaryAction(deriveInput, t) };
   if (phase === "pulse-error") {

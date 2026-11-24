@@ -97,6 +97,9 @@ describe("deriveSignal — one dominant signal, first match wins", () => {
 
   it("ready with exceptions → attention (severity over replies/drafts)", () => {
     const pulse = basePulse({
+      // A8 MAJOR-2: fixtures are payload-consistent — the exhaustive bucket
+      // count (same field the Orders badge reads) agrees with the sample.
+      worklistNeedsActionCount: 1,
       atRiskOrders: [atRiskOrder("1")],
       replyTasks: [conversation("c1")],
       draftOrders: [draftOrder("d1")],
@@ -121,6 +124,71 @@ describe("deriveSignal — one dominant signal, first match wins", () => {
   it("ready, partial coverage and zero visible items → pending, never healthy", () => {
     const pulse = basePulse({ replyTaskCoverageComplete: false });
     expect(deriveSignal(input("ready", pulse), t).kind).toBe("pending");
+  });
+
+  // A8 MAJOR-2 — hero-number authority. The 12-row / 10-item-cap / incomplete-
+  // coverage case is the exact shape A8 saw: bucket count 12 (the number the
+  // Orders nav badge reads) over a capped 10-row queue sample. The hero and
+  // the badge must agree STRUCTURALLY (same field), and when that source
+  // failed the sample may only ever speak as a lower bound.
+  describe("hero exceptions authority (A8 MAJOR-2)", () => {
+    const cappedPulse = (overrides: Partial<PulseData> = {}) => basePulse({
+      worklistNeedsActionCount: 12,
+      atRiskOrders: Array.from({ length: 10 }, (_, i) => atRiskOrder(`cap-${i}`)),
+      exceptionCoverageComplete: false,
+      ...overrides,
+    });
+
+    it("hero number == the Orders badge bucket count (12), never the 10-row sample length", () => {
+      const pulse = cappedPulse();
+      const signal = deriveSignal(input("ready", pulse), t);
+      expect(signal.kind).toBe("attention");
+      expect(signal.reason).toBe("dashboard.pulse.signal.reason.exceptions 12");
+      expect(signal.reason).not.toContain("+"); // exhaustive count: no bound
+      const narrative = deriveNarrative(input("ready", pulse), t);
+      expect(narrative.whyHere).toContain(" 12");
+      expect(narrative.whyHere).not.toMatch(/ 10(\+| )/);
+    });
+
+    it("failed bucket source + capped sample renders the lower bound 10+", () => {
+      const pulse = cappedPulse({ worklistNeedsActionCount: null });
+      expect(deriveSignal(input("ready", pulse), t).reason).toContain("10+");
+      expect(deriveNarrative(input("ready", pulse), t).whyHere).toContain("10+");
+    });
+
+    it("an EXHAUSTIVE sample (coverage complete, under cap) falls back without a +", () => {
+      const pulse = cappedPulse({
+        worklistNeedsActionCount: null,
+        atRiskOrders: [atRiskOrder("single")],
+        exceptionCoverageComplete: true,
+      });
+      expect(deriveSignal(input("ready", pulse), t).reason).toBe(
+        "dashboard.pulse.signal.reason.exceptions 1",
+      );
+    });
+  });
+});
+
+describe("locale numeral formatting (A8 MAJOR-3)", () => {
+  const bnDigits = (value: number) => new Intl.NumberFormat("bn-BD").format(value);
+
+  it("every interpolated hero count flows through formatCount (Bangla digits, never raw Latin)", () => {
+    const pulse = basePulse({
+      worklistNeedsActionCount: 12,
+      atRiskOrders: [atRiskOrder("e1")],
+      replyTasks: [conversation("c1")],
+    });
+    const signal = deriveSignal(input("ready", pulse), t, { formatCount: bnDigits });
+    expect(signal.reason).toBe(`dashboard.pulse.signal.reason.exceptions ${bnDigits(12)}`);
+    expect(signal.reason).not.toMatch(/12/);
+
+    const reviewPulse = basePulse({ replyTasks: [conversation("c1")], draftOrders: [draftOrder("d1")] });
+    const review = deriveSignal(input("ready", reviewPulse), t, { formatCount: bnDigits });
+    expect(review.reason).toBe(`dashboard.pulse.signal.reason.work ${bnDigits(1)} ${bnDigits(1)}`);
+
+    const narrative = deriveNarrative(input("ready", pulse), t, { formatCount: bnDigits });
+    expect(narrative.whyHere).toContain(bnDigits(12));
+    expect(narrative.whyHere).not.toMatch(/12/);
   });
 });
 

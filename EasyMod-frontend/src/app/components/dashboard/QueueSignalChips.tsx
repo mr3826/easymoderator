@@ -81,9 +81,12 @@ export function QueueSignalChips({ needsReply, pendingPayment, readyToDispatch, 
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-em-success-100 text-em-success-700"><Receipt className="h-5 w-5" aria-hidden="true" /></span>
             <span className="em-tabular text-xl font-semibold text-em-text-primary">{billing === null ? t("dashboard.pulse.commerceSignals.unavailable") : formatMoney(billing.amountMinor / 100)}</span>
             <span className="text-sm font-medium text-em-text-primary">{t("dashboard.pulse.commerceSignals.charges")}</span>
-            {/* D5: count is i18next's plural option — pass the raw number and
-                keep Intl formatting on the money value above. */}
-            {billing !== null && <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.dayCount", { day: billing.dayUtc, count: billing.count })}</span>}
+            {/* D5 + A8: `count` stays the RAW number so i18next can select the
+                dayCount_one/_other plural form ("1 order" / "4 orders"), while
+                `displayCount` carries the locale-formatted (Bangla) digits the
+                string interpolates — plural grammar and digits-correct render
+                together (doc 04 §6; founder numerals rule). */}
+            {billing !== null && <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.dayCount", { day: billing.dayUtc, count: billing.count, displayCount: formatCount(billing.count) })}</span>}
             <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.chargeNote")}</span>
           </Link>
         )}

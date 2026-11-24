@@ -321,6 +321,46 @@ describe('Products', () => {
     expect(isStockExceptionProduct(stockFixture({ track_quantity: false, quantity: 0 }) as never)).toBe(false);
   });
 
+  // A8 MAJOR-1 parity — these cases mirror the exported server predicate
+  // (`classifyStockExceptions` / `computeEffectiveQuantity`, pinned in
+  // EasyMod-backend product-stock-exceptions.service.test.js) token-for-token:
+  // the nav badge (server) and the list (client) must agree even for
+  // synthetic payloads.
+  it('parity with the server scope: an INACTIVE but tracked product is never an exception', () => {
+    const retired = stockFixture({ id: 's-retired', name: 'Retired Cap', is_active: false, status: 'inactive', quantity: 0 });
+    const live = stockFixture({ id: 's-live', name: 'Live Cap', is_active: true, quantity: 0 });
+    // Server scans `is_active: true` — a retired tracked product can never
+    // sell, so it appears in neither the exception count nor the filter.
+    expect(isOutOfStockProduct(retired as never)).toBe(false);
+    expect(isLowStockProduct(retired as never)).toBe(false);
+    expect(isStockExceptionProduct(retired as never)).toBe(false);
+    // Same row, still active → out of stock (the badge/list edge holds).
+    expect(isStockExceptionProduct(live as never)).toBe(true);
+  });
+
+  it('parity with the server edge rules: unparseable parent fails toward out; non-finite variants drop', () => {
+    // Parent null/NaN → 0 → out-of_stock classification (server honesty:
+    // a visible exception, never a silent "in stock").
+    expect(isOutOfStockProduct(stockFixture({ quantity: null }) as never)).toBe(true);
+    expect(isOutOfStockProduct(stockFixture({ quantity: 'not-a-number' }) as never)).toBe(true);
+    expect(isStockExceptionProduct(stockFixture({ quantity: undefined }) as never)).toBe(true);
+    // Non-finite ACTIVE variant quantities contribute NOTHING (server drops
+    // them); when none remain finite the PARENT wins (fallback, not zero).
+    expect(effectiveStockQuantity(stockFixture({
+      quantity: 9, product_variants: [{ id: 'v1', quantity: Number.NaN, is_active: true }],
+    }) as never) as never).toBe(9);
+    expect(isStockExceptionProduct(stockFixture({
+      quantity: 9, product_variants: [{ id: 'v1', quantity: Number.NaN, is_active: true }],
+    }) as never)).toBe(false);
+    // Mixed finite + NaN: the finite sum is the effective quantity.
+    expect(effectiveStockQuantity(stockFixture({
+      quantity: 99, product_variants: [
+        { id: 'v1', quantity: Number.NaN, is_active: true },
+        { id: 'v2', quantity: 2, is_active: true },
+      ],
+    }) as never) as never).toBe(2);
+  });
+
   it('seeds ?stock=exceptions from the URL and clears back to all', async () => {
     mockProducts.splice(0, mockProducts.length,
       stockFixture({ id: 's-low', name: 'Low Variant Sum' }),

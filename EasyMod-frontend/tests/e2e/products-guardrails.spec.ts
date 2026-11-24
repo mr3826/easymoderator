@@ -24,6 +24,25 @@ const stockProducts = [
     { id: 'prod-3', name: 'Out Cap', price: 450, description: 'Cap', category: 'Apparel', sku: 'OC-1', status: 'active', is_active: true, quantity: 0, track_quantity: true, low_stock_threshold: 4, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
 ];
 
+// A8 MAJOR-1 fixture: a RETIRED but still-tracked zero-stock product. The
+// server exception scan is `is_active: true` — this row belongs in neither
+// the exception count (badge) nor the ?stock= filter (list).
+const retiredStockProducts = [
+    ...stockProducts,
+    { id: 'prod-4', name: 'Retired Cap', price: 350, description: 'Retired line', category: 'Apparel', sku: 'RC-1', status: 'inactive', is_active: false, quantity: 0, track_quantity: true, low_stock_threshold: 4, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+];
+
+interface StockExceptionPayload {
+    outOfStock: number;
+    lowStock: number;
+    exceptions: number;
+    coverageComplete: boolean;
+}
+const stockExceptionPayload = (fx?: Partial<StockExceptionPayload>) => ({
+    outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true,
+    generated_at: '2026-01-01T00:00:00.000Z', ...fx,
+});
+
 const KNOWN_PATHS = new Set([
     '/api/csrf', '/api/auth/me', '/api/auth/signin', '/api/setup/status', '/api/dashboard/metrics',
     '/api/dashboard/queue', '/api/subscription', '/api/notifications/in-app', '/api/product',
@@ -38,7 +57,7 @@ const KNOWN_PATTERNS = [
     /^\/api\/notifications\/in-app\/[\w-]+\/read$/,
 ];
 
-async function setupRoutes(page: Page, catalog: typeof products = products) {
+async function setupRoutes(page: Page, catalog: typeof products = products, exceptions?: Partial<StockExceptionPayload>) {
     const state = { signedIn: false, unexpected: [] as string[], createPayloads: [] as Record<string, unknown>[] };
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
         const request = route.request();
@@ -57,7 +76,7 @@ async function setupRoutes(page: Page, catalog: typeof products = products) {
             return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' } }) });
         }
         if (path === '/api/product/stock-exceptions' && method === 'GET') {
-            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' } }) });
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: stockExceptionPayload(exceptions) }) });
         }
         if (path === '/api/shop/delivery/readiness' && method === 'GET') {
             return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { provider: null, ready: false, connected: false, active: false, credentials_configured: false, provider_store_id: null, provider_store_count: 0, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'], status: 'SETUP_INCOMPLETE', providers: [] } }) });
@@ -215,5 +234,30 @@ test('W2 unknown ?stock= seed fails closed to the full list (mirrors Orders buck
     await loginAndGo(page, '/products?stock=bogus');
     await expect(page.getByTestId('products-stock-exceptions')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByText('Demo Hoodie')).toBeVisible();
+    expect(state.unexpected).toEqual([]);
+});
+
+// A8 MAJOR-1 badge↔list parity: the nav badge (server scan, `is_active: true`
+// scope) and the ?stock=exceptions list (client predicate) must agree — a
+// retired-but-tracked product appears in NEITHER the count nor the filter,
+// yet stays a normal catalog row.
+test('badge↔list parity: retired-but-tracked product is in neither the exception count nor the ?stock= filter', async ({ page }) => {
+    const state = await setupRoutes(page, retiredStockProducts, { outOfStock: 1, lowStock: 1, exceptions: 2, coverageComplete: true });
+    await loginAndGo(page);
+    const rail = page.locator('aside nav').first();
+
+    // Catalog truth: the retired row is still a product (visible unfiltered),
+    // but it carries no exception claim (badge stays at the server's 2).
+    await expect(page.getByText('Retired Cap')).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Products 2 products have stock exceptions' })).toBeVisible();
+
+    // Badge destination parity: the filtered list rows == the badge count.
+    await page.goto('/products?stock=exceptions');
+    await expect(page.getByText('Low Tee')).toBeVisible();
+    await expect(page.getByText('Out Cap')).toBeVisible();
+    await expect(page.getByText('Retired Cap')).toHaveCount(0);
+    await expect(page.getByText('Demo Hoodie')).toHaveCount(0);
+    const filteredRows = await page.getByRole('table').locator('tbody tr').count();
+    expect(filteredRows).toBe(2);
     expect(state.unexpected).toEqual([]);
 });

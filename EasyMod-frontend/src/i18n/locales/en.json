@@ -622,7 +622,9 @@
       "staleWarning": "Data may be out of date — the last refresh is older than usual.",
       "commerceSignals": {
         "charges": "Recorded delivery charges today",
-        "dayCount": "{{day}} UTC · {{count}} orders",
+        "dayCount": "{{day}} UTC · {{displayCount}} orders",
+        "dayCount_one": "{{day}} UTC · {{displayCount}} order",
+        "dayCount_other": "{{day}} UTC · {{displayCount}} orders",
         "chargeNote": "Gross ledger entries for the UTC day — not invoiced or collected.",
         "unavailable": "Not available",
         "activity": "Recent activity",
