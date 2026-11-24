@@ -83,6 +83,19 @@ async function setupRoutes(page: Page): Promise<FixtureState> {
             state.unexpected.push(`${method} ${path}${url.search}`);
             return route.abort();
         }
+        if (path === '/api/conversation/needs-reply-count' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' } }) });
+        }
+        if (path === '/api/product/stock-exceptions' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' } }) });
+        }
+        if (path === '/api/shop/delivery/readiness' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { provider: null, ready: false, connected: false, active: false, credentials_configured: false, provider_store_id: null, provider_store_count: 0, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'], status: 'SETUP_INCOMPLETE', providers: [] } }) });
+        }
+        if (path === '/api/channels/meta' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) });
+        }
+
         const dataset = state.shop === 'A' ? SHOP_A : SHOP_B;
 
         if (path === '/api/csrf') return route.fulfill({ json: json({ csrfToken: 'csrf-test' }) });
@@ -198,6 +211,9 @@ const KNOWN_PATHS = new Set([
     '/api/order', '/api/order/counts', '/api/payment/config', '/api/product',
     '/api/notifications/in-app', '/api/shop/agents', '/api/commercial/claims',
     '/api/public/commercial-contract', '/api/audit', '/api/customer/tags',
+
+    // A6 W3: Phase 1 shell/dashboard read sources (D1 badges, D6 chip, D7 readiness).
+    '/api/conversation/needs-reply-count', '/api/product/stock-exceptions', '/api/shop/delivery/readiness', '/api/channels/meta',
 ]);
 const KNOWN_PATTERNS = [
     /^\/api\/customer-intelligence\/customers\/[^/]+$/,

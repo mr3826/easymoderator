@@ -29,14 +29,69 @@ const metrics = {
   cashPosition: { inTransit: { amount: 12500, count: 7 }, atRisk: { amount: 3400, count: 2, windowDays: 30 } },
 };
 
+// C3 revised queue shape (doc 05 §3): predicate_version marker, needs_reply
+// object (never a bare unread_count), PII-free at_risk projection
+// {id, orderNumber, status, tracking_id, updatedAt}, corrected commerce_signals.
+// NO customer_name / customer_phone anywhere in this fixture — the projection
+// that ships must not be able to leak them (A9 attack item).
 const queue = {
-  unread_count: 2,
+  predicate_version: 'worklist-v1',
   pending_payment_count: 1,
   ready_to_dispatch_count: 3,
+  needs_reply: {
+    count: 2,
+    scanned: 2,
+    cap: 200,
+    coverageComplete: true,
+    generated_at: '2026-11-24T10:00:00.000Z',
+  },
   at_risk_orders: [
-    { id: 'order-risk-1', customer_name: 'Rina Akter', customer_phone: '01700000000', status: 'returned', tracking_id: 'TRK-1' },
+    { id: 'order-risk-1', orderNumber: 'EM-0900', status: 'returned', tracking_id: 'TRK-1', updatedAt: '2026-11-23T09:00:00.000Z' },
   ],
+  commerce_signals: {
+    deliveredCharges: { dayUtc: '2026-11-24', count: 4, amountMinor: 123450 },
+    recentActivity: [
+      {
+        id: 'act-1', action: 'ORDER_CONFIRMED', resourceType: 'order',
+        occurredAt: '2026-11-24T08:30:00.000Z', resource_id: 'order-risk-1',
+        user: { id: 'user-qa-1', full_name: 'QA User' },
+      },
+      {
+        id: 'act-2', action: 'PRODUCT_STOCK_UPDATED', resourceType: 'product',
+        occurredAt: '2026-11-24T07:15:00.000Z', resource_id: 'prod-1', user: null,
+      },
+    ],
+  },
 };
+
+// Shell/D7 sources — deterministic, all-negative so no stray badge pills or
+// optimistic chips leak into the dashboard proof surface.
+const shellMocks: Array<[string, unknown]> = [
+  [
+    '/api/order/counts',
+    { to_confirm: 0, to_pack: 3, booked: 0, in_transit: 0, needs_action: 1, returned: 0, delivered: 0, total: 9 },
+  ],
+  [
+    '/api/conversation/needs-reply-count',
+    { count: 2, scanned: 2, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' },
+  ],
+  [
+    '/api/product/stock-exceptions',
+    { outOfStock: 1, lowStock: 1, exceptions: 2, scanned: 8, cap: 1000, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' },
+  ],
+  [
+    '/api/shop/delivery/readiness',
+    {
+      provider: null, ready: false, connected: false, active: false,
+      credentials_configured: false, provider_store_id: null, provider_store_count: 0,
+      pickup_location_configured: false, pickup_enabled: false, pickup_summary: null,
+      provider_pickup_meta: {}, pickup_locations_count: 0,
+      missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'],
+      status: 'SETUP_INCOMPLETE', providers: [],
+    },
+  ],
+  ['/api/channels/meta', []],
+];
 
 const recentOrder = {
   id: 'order-recent-1',
@@ -101,6 +156,11 @@ async function setupRoutes(page: Page, options: MockOptions = {}) {
     }
     if (path === '/api/dashboard/queue' && method === 'GET') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: queue }) });
+    }
+    for (const [mockPath, body] of shellMocks) {
+      if (path === mockPath && method === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: body }) });
+      }
     }
     if (path === '/api/order' && method === 'GET') {
       const isDraft = url.searchParams.get('order_status') === 'draft';
@@ -195,8 +255,22 @@ test('dashboard answers the Core Design Test with one signal and one primary act
   await expect(page.getByText(/Task sources last checked/)).toBeVisible();
   await expect(page.getByText(/not from courier statements/i)).toBeVisible();
 
-  // Review-queue aggregates link to workflows.
-  await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toHaveAttribute('href', '/inbox');
+  // Review-queue aggregates link to the EXACT filtered workflow (D1/D3
+  // destination parity — the chip shares its predicate with the destination).
+  await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toHaveAttribute('href', '/inbox?tab=needs_review');
+  await expect(page.getByRole('link', { name: /Payment needs checking/ })).toHaveAttribute('href', '/orders?payment=pending');
+  await expect(page.getByRole('link', { name: /Ready to dispatch/ })).toHaveAttribute('href', '/orders?bucket=to_pack');
+
+  // PII-free at-risk projection: the exception row is identified by the human
+  // order number, never by a customer name/phone.
+  await expect(page.getByText('EM-0900').first()).toBeVisible();
+  await expect(page.getByText('Rina Akter')).toHaveCount(0);
+  await expect(page.getByText('01700000000')).toHaveCount(0);
+
+  // The queue answer carries the bucket-parity contract marker (D3).
+  // (Assertion on the wire, not the DOM: the fixture itself is the C3 shape;
+  // the visible consequence is the four-card grid below.)
+  await expect(page.getByRole('heading', { name: 'Queues and activity' })).toBeVisible();
 });
 
 test('keyboard Tab reaches the primary action with a visible focus ring', async ({ page }) => {
@@ -208,8 +282,11 @@ test('keyboard Tab reaches the primary action with a visible focus ring', async 
   await expect(page.getByTestId('dashboard-primary-action')).toBeVisible();
   await page.waitForTimeout(500);
 
+  // W2 grew the rail (Audit logs entry) and added the desktop AI chip link —
+  // more chrome stops before <main>. The pin (primary action reachable by pure
+  // keyboard with a visible ring) is unchanged; only the search budget grows.
   let focused = false;
-  for (let i = 0; i < 20; i += 1) {
+  for (let i = 0; i < 34; i += 1) {
     await page.keyboard.press('Tab');
     focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'dashboard-primary-action');
     if (focused) break;
@@ -227,11 +304,13 @@ test('keyboard Tab reaches the primary action with a visible focus ring', async 
   expect(parseFloat(outline.width)).toBeGreaterThan(0);
 });
 
-test('queue chip navigates to the inbox workflow', async ({ page }) => {
+test('queue chip navigates to the needs-review inbox tab (destination parity)', async ({ page }) => {
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
   await page.getByRole('link', { name: /Conversations awaiting reply/ }).click();
-  await expect(page).toHaveURL(/\/inbox$/);
+  await expect(page).toHaveURL(/\/inbox\?tab=needs_review$/);
+  // The inbox honours the seed: the "Needs your reply" tab is the active one.
+  await expect(page.getByRole('button', { name: /Needs your reply/ })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('mobile 390px keeps the primary action reachable without horizontal overflow', async ({ page }) => {
@@ -278,6 +357,61 @@ test('setup variant shows one primary action on the next incomplete task', async
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   // Completed task carries a resolved badge and no CTA.
   await expect(page.getByRole('link', { name: /Connect Facebook/ })).toHaveCount(0);
+});
+
+// ── Phase 1 W2 (mission D4/D5/D7/D8) ──────────────────────────────────────────
+test('W2 four signal cards: exact counts + D5 charges copy link to their workflows', async ({ page }) => {
+  await setupRoutes(page);
+  await loginAndGo(page, '/dashboard');
+  const cards = page.getByRole('link', { name: /Conversations awaiting reply|Payment needs checking|Ready to dispatch|Recorded delivery charges today/ });
+  await expect(cards).toHaveCount(4);
+  await expect(cards.nth(0)).toContainText('2'); // needs_reply, complete coverage → exact
+  await expect(cards.nth(1)).toContainText('1'); // pending payment
+  await expect(cards.nth(2)).toContainText('3'); // ready to dispatch == to_pack
+  // D5 recorded charges: amount ৳1,234.50 from minor units + honest gross-UTC copy.
+  const charges = page.getByRole('link', { name: /Recorded delivery charges today/ });
+  await expect(charges).toContainText('1,234.50');
+  await expect(charges).toContainText('Gross ledger entries for the UTC day — not invoiced or collected.');
+  await expect(charges).toContainText('2026-11-24 UTC · 4 orders');
+  await expect(charges).toHaveAttribute('href', '/subscription');
+  await expect(charges).toHaveAttribute('title', /Returns and cancellations recorded today reduce this total/);
+});
+
+test('W2 recent activity: stored actor or System, order rows deep-link, others unlinked', async ({ page }) => {
+  await setupRoutes(page);
+  await loginAndGo(page, '/dashboard');
+  const section = page.getByRole('region', { name: 'Recent activity' }).or(page.locator('section[aria-labelledby="dashboard-activity-heading"]'));
+  await expect(section).toBeVisible();
+  // Header link to the full evidence trail (D4).
+  await expect(section.getByRole('link', { name: 'View all activity' })).toHaveAttribute('href', '/audit-logs');
+  // Stored user row: actor name + action, ORDER row links to the verified seed.
+  const orderRow = section.getByRole('link', { name: /QA User/ });
+  await expect(orderRow).toBeVisible();
+  await expect(orderRow).toHaveAttribute('href', '/orders?orderId=order-risk-1');
+  // System row (user null): localized "System" actor, product row stays UNLINKED
+  // (no fabricated deep link) and never renders raw PII keys.
+  await expect(section.getByText('System')).toBeVisible();
+  await expect(section.getByRole('link', { name: /System/ })).toHaveCount(0);
+  // Bounded display: at most six rows + Dhaka-time note.
+  await expect(section.locator('ul > li')).toHaveCount(2);
+  await expect(section.getByText(/Dhaka time/)).toBeVisible();
+});
+
+test('W2 BusinessHealth + ConnectionHealth modules render from their authorities', async ({ page }) => {
+  await setupRoutes(page);
+  await loginAndGo(page, '/dashboard');
+  const health = page.locator('section[aria-labelledby="dashboard-business-health-heading"]');
+  await expect(health).toBeVisible();
+  await expect(health.getByRole('link', { name: /Stock exceptions/ })).toHaveAttribute('href', '/products?stock=exceptions');
+  await expect(health.getByRole('link', { name: /Delivery exceptions/ })).toHaveAttribute('href', '/orders?bucket=needs_action');
+  await expect(health.getByText('Out of stock: 1 · Low stock: 1')).toBeVisible();
+  const connections = page.locator('section[aria-labelledby="dashboard-connections-heading"]');
+  await expect(connections.getByTestId('connections-meta-row')).toBeVisible();
+  await expect(connections.getByTestId('connections-courier-row')).toBeVisible();
+  // Zero channels → honest disconnected (never green); no courier integration →
+  // "Not set up" (failed/absent reads never claim readiness, D7/D10).
+  await expect(connections.getByTestId('connections-meta-row')).toContainText('Disconnected');
+  await expect(connections.getByTestId('connections-courier-row')).toContainText('Not set up');
 });
 
 test('redesign surface has no critical or serious axe violations', async ({ page }) => {

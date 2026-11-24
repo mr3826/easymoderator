@@ -192,14 +192,32 @@ describe('A8 commercial tenant scope on PostgreSQL', () => {
 
     it('dashboard ledger and projected audit activity remain isolated on real PostgreSQL', async () => {
         const now = new Date('2026-10-05T18:30:00Z');
-        const a = await AuditLog.create({ shop_id: shopA.id, user_id: userA.id, action: 'ORDER_CONFIRM', resource_type: 'ORDER', resource_id: 'test-order-a', created_at: now, metadata: { private: 'not a dashboard field' } });
-        const b = await AuditLog.create({ shop_id: shopB.id, user_id: userB.id, action: 'ORDER_CANCEL', resource_type: 'ORDER', resource_id: 'test-order-b', created_at: now });
-        for (const [shop, event, action] of [[shopA, a, 'ORDER_CONFIRM'], [shopB, b, 'ORDER_CANCEL']]) {
-            const result = await getCommerceSignals({ shopId: shop.id, BillingLine, AuditLog, now });
+        // W2/A5 D4: the allowlist now matches the REAL audit vocabulary — the
+        // web order-confirm path is instrumented as ORDER_CONFIRMED / 'order'
+        // (the #311 fixture used ORDER_CONFIRM/ORDER_CANCEL, which the backend
+        // never writes and the allowlist now excludes).
+        const a = await AuditLog.create({ shop_id: shopA.id, user_id: userA.id, action: 'ORDER_CONFIRMED', resource_type: 'order', resource_id: 'test-order-a', created_at: now, metadata: { private: 'not a dashboard field' } });
+        const b = await AuditLog.create({ shop_id: shopB.id, user_id: userB.id, action: 'ORDER_CONFIRMED', resource_type: 'order', resource_id: 'test-order-b', created_at: now });
+        for (const [shop, owner, event] of [[shopA, userA, a], [shopB, userB, b]]) {
+            const result = await getCommerceSignals({ shopId: shop.id, BillingLine, AuditLog, User, now });
             expect(result.deliveredCharges).toEqual({ dayUtc: '2026-10-05', count: 1, amountMinor: 1000 });
-            expect(result.recentActivity).toEqual([{ id: event.id, action, resourceType: 'ORDER', occurredAt: now.toISOString() }]);
+            // Projection keys: id, action, resourceType, occurredAt + stored
+            // actor (user:{id, full_name}) + resource_id — never metadata.
+            expect(result.recentActivity).toEqual([{
+                id: event.id,
+                action: 'ORDER_CONFIRMED',
+                resourceType: 'order',
+                occurredAt: now.toISOString(),
+                resource_id: event.resource_id,
+                user: { id: owner.id, full_name: owner.full_name },
+            }]);
+            // The projection ships the audit row's own ids only; the other
+            // shop's event and every metadata/PII field are absent by scope.
+            const raw = JSON.stringify(result.recentActivity);
+            expect(raw).not.toContain(shop === shopA ? 'test-order-b' : 'test-order-a');
+            expect(raw).not.toContain('not a dashboard field');
         }
-        const next = await getCommerceSignals({ shopId: shopA.id, BillingLine, AuditLog, now: new Date('2026-10-06T00:00:00Z') });
+        const next = await getCommerceSignals({ shopId: shopA.id, BillingLine, AuditLog, User, now: new Date('2026-10-06T00:00:00Z') });
         expect(next.deliveredCharges).toEqual({ dayUtc: '2026-10-06', count: 0, amountMinor: 0 });
     });
 

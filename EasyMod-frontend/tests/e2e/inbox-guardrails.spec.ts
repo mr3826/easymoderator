@@ -73,12 +73,32 @@ const KNOWN_PATHS = new Set([
     '/api/shop/ai-settings', '/api/conversation', '/api/conversation/events', '/api/templates',
     '/api/inbox/actions', '/api/channels/meta', '/api/audit', '/api/commercial/claims',
     '/api/public/commercial-contract',
+    '/api/order/counts', '/api/conversation/needs-reply-count',
+    '/api/product/stock-exceptions', '/api/shop/delivery/readiness',
 ]);
 const KNOWN_PATTERNS = [
     /^\/api\/conversation\/[\w-]+$/,
     /^\/api\/conversation\/[\w-]+\/messages$/,
     /^\/api\/conversation\/[\w-]+\/read$/,
     /^\/api\/channels\/meta\/[\w-]+\/settings$/,
+];
+
+// Phase 1 shell read-sources (D1 badges / D6 chip / D7 readiness) — deterministic
+// zero/empty answers so nav accessible names stay plain and no optimistic state
+// leaks into the inbox proofs. needs-reply-count is claimed here BEFORE the
+// generic conversation-detail pattern would otherwise swallow it.
+const zeroNavBadgeSources: Array<[string, unknown]> = [
+    ['/api/order/counts', { to_confirm: 0, to_pack: 0, booked: 0, in_transit: 0, needs_action: 0, returned: 0, delivered: 0, total: 0 }],
+    ['/api/conversation/needs-reply-count', { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' }],
+    ['/api/product/stock-exceptions', { outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' }],
+    ['/api/shop/delivery/readiness', {
+        provider: null, ready: false, connected: false, active: false,
+        credentials_configured: false, provider_store_id: null, provider_store_count: 0,
+        pickup_location_configured: false, pickup_enabled: false, pickup_summary: null,
+        provider_pickup_meta: {}, pickup_locations_count: 0,
+        missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'],
+        status: 'SETUP_INCOMPLETE', providers: [],
+    }],
 ];
 
 interface FixtureOptions {
@@ -101,6 +121,9 @@ async function setupRoutes(page: Page, options: FixtureOptions = {}) {
         if (!known) {
             state.unexpected.push(`${method} ${path}`);
             return route.abort();
+        }
+        for (const [mockPath, body] of zeroNavBadgeSources) {
+            if (path === mockPath) return route.fulfill({ json: json(body) });
         }
         if (path === '/api/csrf') return route.fulfill({ json: json({ csrfToken: 'csrf-test' }) });
         if (path === '/api/auth/me') {
