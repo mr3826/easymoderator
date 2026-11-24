@@ -16,7 +16,24 @@ vi.mock('@/api', () => ({
     getDashboardQueue: vi.fn(),
     getOrders: vi.fn(),
     getConversations: vi.fn(),
+    getOrderCounts: vi.fn(),
   },
+}));
+
+// ── Mock the direct domain imports used by the new dashboard modules ────────
+// useDashboardData: C2 stock exceptions. ConnectionHealth: Meta channels +
+// courier readiness. Defaults are honest EMPTY reads; failure-path overrides
+// happen inside individual tests.
+vi.mock('@/api/domains/product', () => ({
+  getStockExceptions: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@/api/domains/meta-channels', () => ({
+  listMetaChannels: vi.fn().mockResolvedValue([]),
+  reconnectMetaChannel: vi.fn(),
+  pingMetaChannel: vi.fn(),
+}));
+vi.mock('@/api/domains/delivery', () => ({
+  getDeliveryReadiness: vi.fn().mockResolvedValue({ providers: [] }),
 }));
 
 // ── Mock react-i18next (t returns the key so we can match translation keys) ───
@@ -55,12 +72,23 @@ function renderDashboard() {
   );
 }
 
-// ── Shared queue / orders baseline (no cash-position data) ───────────────────
+// ── Shared queue / orders baseline (C3 shape; the legacy unread_count is
+//    deliberately absent — A4 must not read deprecated fields) ─────────────────
 const baseQueue = {
-  unread_count: 0,
+  predicate_version: 'worklist-v1',
+  needs_reply: { count: 2, scanned: 9, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' },
   pending_payment_count: 0,
   ready_to_dispatch_count: 0,
   at_risk_orders: [],
+  commerce_signals: {
+    deliveredCharges: null,
+    recentActivity: [
+      {
+        id: 'act-1', action: 'ORDER_CREATED', resourceType: 'ORDER',
+        occurredAt: '2026-11-24T09:00:00.000Z', resource_id: 'o-77', user: null,
+      },
+    ],
+  },
 };
 
 const completeSetupStatus = {
@@ -87,6 +115,7 @@ describe('Dashboard — cash position section', () => {
     vi.mocked(apiClient.getSetupStatus).mockResolvedValue(completeSetupStatus as never);
     vi.mocked(apiClient.getDashboardQueue).mockResolvedValue(baseQueue as never);
     vi.mocked(apiClient.getOrders).mockResolvedValue([] as never);
+    vi.mocked(apiClient.getOrderCounts).mockResolvedValue({ total: 0, needs_action: 0 } as never);
     vi.mocked(apiClient.getConversations).mockResolvedValue({
       data: [], total: 0, page: 1, pageSize: 100, ai_reply_mode: 'MANUAL',
     } as never);
@@ -191,5 +220,66 @@ describe('Dashboard — cash position section', () => {
       expect(screen.getByText(/cashPosition\.inTransit\b/)).toBeInTheDocument();
     });
     expect(screen.getAllByText('dashboard.pulse.cashPosition.unavailable')).toHaveLength(2);
+  });
+});
+
+describe('Dashboard — C3 queue wiring and PII-free surfaces', () => {
+  const metricsNull = {
+    metrics: { totalMessages: 0, activeProducts: 0, ordersToday: 1, ordersInPeriod: 0, conversionRate: 0, weeklyChange: 0 },
+    channels: { active: 0, total: 0 },
+    analytics: null,
+    period: 30,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    window.localStorage.setItem('easymod:business-setup:default:complete-dismissed', '1');
+    vi.mocked(apiClient.getSetupStatus).mockResolvedValue(completeSetupStatus as never);
+    vi.mocked(apiClient.getDashboardMetrics).mockResolvedValue(metricsNull as never);
+    vi.mocked(apiClient.getOrders).mockResolvedValue([] as never);
+    vi.mocked(apiClient.getOrderCounts).mockResolvedValue({ total: 0, needs_action: 0 } as never);
+    vi.mocked(apiClient.getConversations).mockResolvedValue({
+      data: [], total: 0, page: 1, pageSize: 100, ai_reply_mode: 'MANUAL',
+    } as never);
+  });
+
+  it('drives the reply chip from C3 needs_reply and ignores the deprecated unread_count', async () => {
+    vi.mocked(apiClient.getDashboardQueue).mockResolvedValue({
+      ...baseQueue,
+      // Legacy field present exactly as the current backend emits it — the
+      // redesigned page must never read it.
+      unread_count: 99,
+      needs_reply: { count: 5, scanned: 20, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' },
+    } as never);
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText('dashboard.pulse.attention.waitingForReply')).toBeInTheDocument();
+    });
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.queryByText('99')).not.toBeInTheDocument();
+    // D3 alignment: the reply chip opens the exact inbox tab predicate.
+    expect(screen.getByRole('link', { name: /waitingForReply/ })).toHaveAttribute('href', '/inbox?tab=needs_review');
+  });
+
+  it('renders BusinessHealth + ConnectionHealth between the overview and the order rows', async () => {
+    vi.mocked(apiClient.getDashboardQueue).mockResolvedValue(baseQueue as never);
+    renderDashboard();
+    await waitFor(() => {
+      expect(screen.getByText('dashboard.businessHealth.title')).toBeInTheDocument();
+    });
+    expect(screen.getByText('dashboard.connections.title')).toBeInTheDocument();
+  });
+
+  it('links the projected order activity row to the verified order seed without PII', async () => {
+    vi.mocked(apiClient.getDashboardQueue).mockResolvedValue(baseQueue as never);
+    renderDashboard();
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /ORDER_CREATED/ })).toHaveAttribute('href', '/orders?orderId=o-77');
+    });
+    // Nothing leaks customer identifiers from the deprecated projection shim.
+    expect(document.body.textContent).not.toMatch(/customer_name|customer_phone/);
   });
 });

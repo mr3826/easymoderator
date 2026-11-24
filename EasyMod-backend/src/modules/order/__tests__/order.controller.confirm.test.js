@@ -8,6 +8,11 @@ jest.mock('../order.service', () => ({
 
 jest.mock('../return.service', () => ({}));
 jest.mock('../../delivery/delivery.service', () => ({}));
+// Phase 1 D4 instrumentation: keep this suite hermetic (no real audit entity).
+// The instrumentation's own contract lives in order.controller.web-audit.test.js.
+jest.mock('../../audit/audit.service', () => ({
+    logOperation: jest.fn().mockResolvedValue(undefined),
+}));
 
 const makeReq = ({ params = {}, body = {}, shopId = 'shop-1' } = {}) => ({
     user: {

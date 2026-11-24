@@ -24,14 +24,17 @@ import {
   isCaughtUp,
 } from "./dashboard/derive";
 import { AttentionQueue } from "./dashboard/AttentionQueue";
+import { BusinessHealth } from "./dashboard/BusinessHealth";
+import { ConnectionHealth } from "./dashboard/ConnectionHealth";
 import { CourierSnapshot } from "./dashboard/CourierSnapshot";
 import { DashboardSkeleton } from "./dashboard/DashboardSkeleton";
 import { EmButton } from "./dashboard/EmButton";
 import { EvidenceFooter } from "./dashboard/EvidenceFooter";
 import { OverviewCards } from "./dashboard/OverviewCards";
 import { PageHeader } from "./dashboard/PageHeader";
-import { QueueSignalChips } from "./dashboard/QueueSignalChips";
+import { QueueSignalChips, formatAccountingDay } from "./dashboard/QueueSignalChips";
 import { RecentOrders } from "./dashboard/RecentOrders";
+import { RecentActivity } from "./dashboard/RecentActivity";
 import { ResultBanner } from "./dashboard/ResultBanner";
 import type { Action, DashboardPhase } from "./dashboard/types";
 
@@ -82,6 +85,9 @@ export default function Dashboard() {
       maximumFractionDigits: 0,
     }).format(Number.isFinite(value) ? value : 0), [locale]);
   const formatCount = useCallback((value: number) => new Intl.NumberFormat(locale).format(value), [locale]);
+  // A8 round-3 (MINOR-2): the charges card's UTC accounting day reaches the
+  // chip through the same locale-bound Intl pattern as the counts/money.
+  const formatDay = useCallback((dayUtc: string) => formatAccountingDay(dayUtc, locale), [locale]);
 
   const dismissSetupCompletion = () => {
     if (typeof window !== 'undefined') {
@@ -119,8 +125,11 @@ export default function Dashboard() {
   const coverageComplete = pulseData ? hasAllWorkSources(pulseData) : false;
   const caughtUp = pulseData ? isCaughtUp(pulseData, workItems) : false;
   const deriveInput = { phase, pulse: pulseData, workItems, caughtUp, hasAllWorkSources: coverageComplete };
-  const signal = deriveSignal(deriveInput, t);
-  const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: formatTime || undefined });
+  // A8 MAJOR-3: the hero sentence's interpolated counts go through the same
+  // locale-bound Intl formatter the chips/badges use (Bangla digits in bn) —
+  // the proven QueueSignalChips pattern, applied to derive.
+  const signal = deriveSignal(deriveInput, t, { formatCount });
+  const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: formatTime || undefined, formatCount });
 
   const primaryAction: Action = { ...derivePrimaryAction(deriveInput, t) };
   if (phase === "pulse-error") {
@@ -248,14 +257,19 @@ export default function Dashboard() {
 
             <motion.div variants={fadeUp}>
               <QueueSignalChips
-                unread={pulseData.unreadCount}
+                needsReply={pulseData.needsReply}
                 pendingPayment={pulseData.pendingPaymentCount}
                 readyToDispatch={pulseData.readyToDispatchCount}
+                billing={pulseData.commerceSignals?.deliveredCharges ?? null}
+                formatCount={formatCount}
+                formatDay={formatDay}
+                formatMoney={(amount) => new Intl.NumberFormat(locale, { style: 'currency', currency: 'BDT', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}
               />
             </motion.div>
 
-            <motion.div variants={fadeUp}>
-              <AttentionQueue groups={workGroups} hasAllWorkSources={coverageComplete} caughtUp={caughtUp} />
+            <motion.div variants={fadeUp} className="grid grid-cols-1 items-start gap-x-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <AttentionQueue groups={workGroups} hasAllWorkSources={coverageComplete} caughtUp={caughtUp} formatCount={formatCount} />
+              <RecentActivity activity={pulseData.commerceSignals?.recentActivity ?? null} locale={locale} />
             </motion.div>
 
             <motion.div variants={fadeUp}>
@@ -266,6 +280,18 @@ export default function Dashboard() {
                 formatCurrency={formatCurrency}
                 formatCount={formatCount}
               />
+            </motion.div>
+
+            {/* D7/D8 business + connection modules (overview anatomy band). */}
+            <motion.div variants={fadeUp} className="grid grid-cols-1 items-start gap-x-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <BusinessHealth
+                stockExceptions={pulseData.stockExceptions}
+                deliveryExceptionCount={pulseData.worklistNeedsActionCount}
+                cashPosition={pulseData.cashPosition}
+                formatCount={formatCount}
+                formatCurrency={formatCurrency}
+              />
+              <ConnectionHealth />
             </motion.div>
 
             <motion.div variants={fadeUp}>

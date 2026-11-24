@@ -8,7 +8,7 @@ import type { Product } from "@/api/types/product";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { authService } from "../lib/auth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { fadeUp } from "@/lib/motion";
 import { PageHeader } from "./dashboard/PageHeader";
@@ -25,13 +25,64 @@ interface Category {
 const isAiProduct = (product: Product): boolean =>
   Boolean(product.aiGenerated ?? product.ai_generated);
 
-const isLowStockProduct = (product: Product) => (
-  product.track_quantity === true
-  && typeof product.quantity === 'number'
-  && Number.isFinite(product.quantity)
-  && typeof product.low_stock_threshold === 'number'
-  && Number.isFinite(product.low_stock_threshold)
-  && product.quantity <= product.low_stock_threshold
+/**
+ * D2 stock-exception predicate (single definition, shared with the server
+ * `GET /api/product/stock-exceptions` authority and the Products nav badge).
+ * A8 MAJOR-1: the SERVER is the authority — the client mirrors its scope and
+ * edge semantics token-for-token so badge == list even for synthetic payloads:
+ *  - scope: `is_active` (the server scans `is_active: true` — a retired but
+ *    still-tracked product is NOT an exception: it can never sell) AND
+ *    `track_quantity`;
+ *  - effective quantity = Σ ACTIVE variant quantities when active variants
+ *    carry finite quantities (variants are the ordering authority since
+ *    D-P2-02); a non-finite variant quantity contributes NOTHING (the server
+ *    drops it), and a product whose active variants are all non-finite falls
+ *    back to the parent quantity;
+ *  - an unparseable parent stock level classifies as OUT OF STOCK (the
+ *    server's fail-toward-a-visible-exception honesty), never silent in-stock;
+ *  - out ≤ 0; low 0 < q ≤ low_stock_threshold; exceptions = out + low
+ *    (disjoint by construction). Exported so the parity unit tests pin client
+ *    and server to the same rule.
+ */
+export const effectiveStockQuantity = (product: Product): number | null => {
+  const variantQuantities = (product.product_variants ?? [])
+    .filter((variant) => variant?.is_active === true)
+    .map((variant) => Number(variant.quantity ?? 0))
+    .filter((quantity) => Number.isFinite(quantity));
+  if (variantQuantities.length > 0) {
+    return variantQuantities.reduce((sum, quantity) => sum + quantity, 0);
+  }
+  // Parent fallback — null = unparseable (the predicates treat it as out).
+  const parentQuantity = Number(product.quantity ?? 0);
+  return Number.isFinite(parentQuantity) ? parentQuantity : null;
+};
+
+export const isOutOfStockProduct = (product: Product): boolean => {
+  if (product.is_active === false) return false; // server scope: is_active only
+  if (product.track_quantity !== true) return false;
+  const quantity = effectiveStockQuantity(product);
+  // Unparseable parent stock fails toward a VISIBLE exception (server rule).
+  return quantity === null || quantity <= 0;
+};
+
+export const isLowStockProduct = (product: Product): boolean => {
+  if (product.is_active === false) return false; // server scope: is_active only
+  if (product.track_quantity !== true) return false;
+  const quantity = effectiveStockQuantity(product);
+  return quantity !== null
+    && quantity > 0
+    && typeof product.low_stock_threshold === 'number'
+    && Number.isFinite(product.low_stock_threshold)
+    && quantity <= product.low_stock_threshold;
+};
+
+export const isStockExceptionProduct = (product: Product): boolean =>
+  isOutOfStockProduct(product) || isLowStockProduct(product);
+
+/** Fail-closed ?stock= seed values (mirrors the Orders bucket seed). */
+export type ProductsStockFilter = 'all' | 'exceptions' | 'low' | 'out';
+const parseStockParam = (value: string | null): ProductsStockFilter => (
+  value === 'exceptions' || value === 'low' || value === 'out' ? value : 'all'
 );
 
 export default function Products() {
@@ -61,7 +112,10 @@ export default function Products() {
   // Search and Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const [lowStockOnly, setLowStockOnly] = useState(false);
+  // D2: one stock filter carries the toolbar control AND the fail-closed
+  // ?stock= seed ('exceptions' | 'out' | 'low'). Unknown seeds → 'all'.
+  const [stockFilter, setStockFilter] = useState<ProductsStockFilter>('all');
+  const [searchParams] = useSearchParams();
   const [filters, setFilters] = useState({
     category_id: '',
     is_active: '',
@@ -158,16 +212,32 @@ export default function Products() {
   // Get unique categories list
   const categoriesList = useMemo(() => categoriesData.map((c: Category) => c.name), [categoriesData]);
 
+  // Deep link (/products?stock=exceptions|low|out) from the Products nav badge
+  // and BusinessHealth: seed the existing client filter fail-closed (unknown or
+  // missing values keep 'all'), mirroring the Orders bucket-seed contract. The
+  // server owns the D2 predicate; this only selects the matching rows with the
+  // SAME predicate (parity-tested), so the badge can never advertise rows the
+  // filtered list cannot show.
+  useEffect(() => {
+    const seeded = parseStockParam(searchParams.get('stock'));
+    if (seeded !== 'all') setStockFilter(seeded);
+  // Seeds once on mount, like the Orders bucket effect it mirrors.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Client-side pagination and source filtering (backend queryParams covers category/status/price/search)
   const filteredProducts = useMemo(() => {
-    let list = lowStockOnly ? allProducts.filter(isLowStockProduct) : allProducts;
+    let list = stockFilter === 'exceptions' ? allProducts.filter(isStockExceptionProduct)
+      : stockFilter === 'out' ? allProducts.filter(isOutOfStockProduct)
+      : stockFilter === 'low' ? allProducts.filter(isLowStockProduct)
+      : allProducts;
     if (appliedFilters.source === 'ai') {
       list = list.filter(isAiProduct);
     } else if (appliedFilters.source === 'manual') {
       list = list.filter((product) => !isAiProduct(product));
     }
     return list;
-  }, [allProducts, lowStockOnly, appliedFilters.source]);
+  }, [allProducts, stockFilter, appliedFilters.source]);
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
   const products = filteredProducts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
@@ -186,7 +256,7 @@ export default function Products() {
     appliedFilters.source,
     appliedFilters.minPrice,
     appliedFilters.maxPrice,
-    lowStockOnly,
+    stockFilter,
   ]);
 
   // Pagination component
@@ -438,7 +508,7 @@ export default function Products() {
       maxPrice: '',
     });
     setSearchQuery('');
-    setLowStockOnly(false);
+    setStockFilter('all');
     setPage(1);
     setAppliedFilters({
       category_id: '',
@@ -575,18 +645,41 @@ export default function Products() {
               />
             </div>
 
-            <label className="flex min-h-11 items-center gap-2 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm font-medium text-em-text-primary">
-              <input
-                type="checkbox"
-                checked={lowStockOnly}
-                onChange={(event) => {
-                  setLowStockOnly(event.target.checked);
-                  setPage(1);
-                }}
-                className="h-4 w-4 rounded border-em-border-strong text-em-info-700 focus:ring-em-violet-600"
-              />
-              {t('products.lowStockOnly')}
-            </label>
+            {/* D2 stock filter: the low-stock toggle in variant-aware form,
+                plus the exception/out views the badge and BusinessHealth seed
+                (?stock=exceptions|low|out). Published stockFilter keys only. */}
+            <div className="flex flex-wrap items-center gap-2" data-testid="products-stock-filter">
+              {([
+                { value: 'exceptions' as const, label: t('products.stockFilter.exceptions'), aria: t('products.stockFilter.exceptionsAria') },
+                { value: 'low' as const, label: t('products.stockFilter.low'), aria: t('products.stockFilter.lowAria') },
+                { value: 'out' as const, label: t('products.stockFilter.out'), aria: undefined },
+              ]).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={stockFilter === option.value}
+                  aria-label={option.aria}
+                  data-testid={`products-stock-${option.value}`}
+                  onClick={() => {
+                    setStockFilter(stockFilter === option.value ? 'all' : option.value);
+                    setPage(1);
+                  }}
+                  className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium ${stockFilter === option.value ? 'border-em-violet-600 bg-em-violet-50 text-em-violet-700' : 'border-em-border-strong bg-em-bg-surface text-em-text-primary hover:bg-em-bg-muted'}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+              {stockFilter !== 'all' && (
+                <button
+                  type="button"
+                  data-testid="products-stock-clear"
+                  onClick={() => { setStockFilter('all'); setPage(1); }}
+                  className="flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-em-violet-700 hover:bg-em-violet-50"
+                >
+                  {t('products.stockFilter.clear')}
+                </button>
+              )}
+            </div>
 
             {/* Filter Button */}
             <div className="relative">
@@ -598,7 +691,7 @@ export default function Products() {
               >
                 <Filter className="w-5 h-5" />
                 {t('products.filter')}
-                {(lowStockOnly || appliedFilters.category_id || appliedFilters.is_active || appliedFilters.source || appliedFilters.minPrice || appliedFilters.maxPrice) && (
+                {(stockFilter !== 'all' || appliedFilters.category_id || appliedFilters.is_active || appliedFilters.source || appliedFilters.minPrice || appliedFilters.maxPrice) && (
                   <span className="w-2 h-2 bg-em-violet-600 rounded-full"></span>
                 )}
               </button>

@@ -12,7 +12,11 @@ import { deriveProductsSignal } from '../derive';
 import { useQuery } from '@tanstack/react-query';
 
 const navigate = vi.fn();
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigate,
+  // Phase-1 D2: Products now reads ?stock= once on mount (fail-closed seed).
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
+}));
 
 vi.mock('@/api', () => ({
   apiClient: {

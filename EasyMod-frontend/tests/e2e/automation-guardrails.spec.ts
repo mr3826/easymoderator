@@ -38,6 +38,9 @@ const KNOWN_PATHS = new Set([
     '/api/shop/ai/emergency-stop', '/api/shop/ai/emergency-resume', '/api/channels/meta',
     '/api/conversation/events', '/api/dashboard/metrics', '/api/dashboard/queue', '/api/order',
     '/api/templates', '/api/inbox/actions', '/api/audit',
+
+    // A6 W3: Phase 1 shell/dashboard read sources (D1 badges, D6 chip, D7 readiness).
+    '/api/order/counts', '/api/conversation/needs-reply-count', '/api/product/stock-exceptions', '/api/shop/delivery/readiness',
 ]);
 const KNOWN_PATTERNS = [
     /^\/api\/channels\/meta\/[^/]+\/settings$/,
@@ -71,6 +74,19 @@ async function setupRoutes(page: Page, opts: { role?: string; stopped?: boolean 
             state.unexpected.push(`${method} ${path}`);
             return route.abort();
         }
+        if (path === '/api/order/counts' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { to_confirm: 0, to_pack: 0, booked: 0, in_transit: 0, needs_action: 0, returned: 0, delivered: 0, total: 0 } }) });
+        }
+        if (path === '/api/conversation/needs-reply-count' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' } }) });
+        }
+        if (path === '/api/product/stock-exceptions' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' } }) });
+        }
+        if (path === '/api/shop/delivery/readiness' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { provider: null, ready: false, connected: false, active: false, credentials_configured: false, provider_store_id: null, provider_store_count: 0, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'], status: 'SETUP_INCOMPLETE', providers: [] } }) });
+        }
+
         if (path === '/api/csrf') return route.fulfill({ json: json({ csrfToken: 'csrf-test' }) });
         if (path === '/api/auth/me') {
             if (!state.signedIn) return route.fulfill({ status: 401, json: { success: false } });

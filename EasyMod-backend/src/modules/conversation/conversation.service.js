@@ -2233,3 +2233,8 @@ class ConversationService {
 }
 
 module.exports = new ConversationService();
+// Phase 1 C1 (additive, read-only): expose the module-private AUTHORITATIVE
+// workflow projection so the bounded inbox-needs-reply scan reuses the exact
+// Inbox verdict instead of re-deriving it. No restructuring, no behavior
+// change for the class instance contract.
+module.exports.deriveWorkflowProjection = deriveWorkflowProjection;

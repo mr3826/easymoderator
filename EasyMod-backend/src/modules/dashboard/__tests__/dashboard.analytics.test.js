@@ -16,7 +16,8 @@ jest.mock('../../entities', () => ({
 }));
 
 jest.mock('../../../utils/cache.service', () => ({
-    deleteForShop: jest.fn().mockResolvedValue()
+    deleteForShop: jest.fn().mockResolvedValue(),
+    deletePatternForShop: jest.fn().mockResolvedValue()
 }));
 
 const { Analytics } = require('../../entities');
@@ -139,7 +140,7 @@ describe('Dashboard Analytics', () => {
             );
         });
 
-        it('should invalidate cache after logging', async () => {
+        it('should invalidate the tenant summary cache family after logging', async () => {
             const mockRow = { id: 1 };
             Analytics.findOrCreate.mockResolvedValue([mockRow, false]);
             Analytics.increment.mockResolvedValue();
@@ -147,10 +148,26 @@ describe('Dashboard Analytics', () => {
 
             await dashboardAnalytics.logEvent(mockShopId, { event_type: 'message' });
 
-            expect(cacheService.deleteForShop).toHaveBeenCalledWith(
+            // Phase 1 D11 cache fix regression pin: the summary lives under
+            // the tenant-prefixed `dashboard:summary:{period}` family, NOT the
+            // old `dashboard:metrics` key nothing ever read.
+            expect(cacheService.deletePatternForShop).toHaveBeenCalledWith(
                 mockShopId,
-                'dashboard:metrics'
+                'dashboard:summary:*'
             );
+            expect(cacheService.deleteForShop).not.toHaveBeenCalled();
+        });
+
+        it('should still return the row when cache eviction fails', async () => {
+            const mockRow = { id: 1 };
+            Analytics.findOrCreate.mockResolvedValue([mockRow, false]);
+            Analytics.increment.mockResolvedValue();
+            Analytics.findOne.mockResolvedValue(mockRow);
+            cacheService.deletePatternForShop.mockRejectedValueOnce(new Error('redis unavailable'));
+
+            const row = await dashboardAnalytics.logEvent(mockShopId, { event_type: 'message' });
+
+            expect(row).toBe(mockRow);
         });
 
         it('should use current date when timestamp not provided', async () => {
@@ -183,7 +200,7 @@ describe('Dashboard Analytics', () => {
             expect(Analytics.findOrCreate).toHaveBeenCalled();
         });
 
-        it('should invalidate cache after logging metric', async () => {
+        it('should invalidate the tenant summary cache family after logging metric', async () => {
             const mockRow = { id: 1 };
             Analytics.findOrCreate.mockResolvedValue([mockRow, false]);
 
@@ -192,7 +209,11 @@ describe('Dashboard Analytics', () => {
                 value: 150
             });
 
-            expect(cacheService.deleteForShop).toHaveBeenCalled();
+            expect(cacheService.deletePatternForShop).toHaveBeenCalledWith(
+                mockShopId,
+                'dashboard:summary:*'
+            );
+            expect(cacheService.deleteForShop).not.toHaveBeenCalled();
         });
     });
 

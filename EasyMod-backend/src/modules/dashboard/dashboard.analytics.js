@@ -2,7 +2,12 @@ const { Analytics } = require('../entities');
 const { fn, col, Op } = require('sequelize');
 const cacheService = require('../../utils/cache.service');
 
-const METRICS_CACHE_KEY = 'dashboard:metrics';
+// Phase 1 D11 cache fix: the KPI summary is cached by dashboard.service under
+// the TENANT-scoped key `dashboard:summary:{period}` (per-period keys). The
+// old invalidation deleted `dashboard:metrics`, a key nothing ever read — so
+// logged events left stale summaries cached for the full 300 s TTL. Evict the
+// whole per-shop summary family via the tenant-prefixed SCAN pattern instead.
+const SUMMARY_CACHE_PATTERN = 'dashboard:summary:*';
 
 /**
  * Log an analytics event for a shop day-bucket.
@@ -40,8 +45,8 @@ const logEvent = async (shopId, payload) => {
         await Analytics.increment(increments, { where: { shop_id: shopId, date: dateKey } });
     }
 
-    // Invalidate cached dashboard so next read reflects the new event
-    await cacheService.deleteForShop(shopId, METRICS_CACHE_KEY).catch(() => {});
+    // Invalidate cached dashboard summary so next read reflects the new event.
+    await cacheService.deletePatternForShop(shopId, SUMMARY_CACHE_PATTERN).catch(() => {});
 
     return Analytics.findOne({ where: { shop_id: shopId, date: dateKey } });
 };
@@ -70,7 +75,7 @@ const logMetric = async (shopId, payload) => {
         // response_time metrics are stored elsewhere; placeholder for future columns
     }
 
-    await cacheService.deleteForShop(shopId, METRICS_CACHE_KEY).catch(() => {});
+    await cacheService.deletePatternForShop(shopId, SUMMARY_CACHE_PATTERN).catch(() => {});
 };
 
 /**

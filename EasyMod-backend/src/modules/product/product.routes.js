@@ -26,6 +26,12 @@ router.post('/upsells', productController.getUpsellsForCart);
 // GET /products/:productId/upsells — recommendations for a single product
 router.get('/:productId/upsells', productController.getProductUpsells);
 
+// Phase 1 C2: stock exceptions (doc 05 §2) — must be before /:id to avoid
+// param capture. Same guard chain as the siblings (router-level authenticate;
+// the global authenticated rate limiter applies; tenant scoping is the FIRST
+// predicate inside the service).
+router.get('/stock-exceptions', productController.getStockExceptions);
+
 router.get('/:id', validate(productValidator.getProductById), productController.getProductById);
 router.post('/', validate(productValidator.createProduct), productController.createProductRest);
 router.patch('/:id', validate(productValidator.updateProduct), productController.updateProductById);

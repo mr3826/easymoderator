@@ -58,6 +58,27 @@ vi.mock('../InstallPrompt', () => ({ default: () => null }));
 vi.mock('../BrandLogo', () => ({ default: () => <span>EasyModerator</span> }));
 vi.mock('../LanguageToggle', () => ({ default: () => null }));
 vi.mock('../InAppNotificationCenter', () => ({ default: () => null }));
+// Phase 1 W2: the shell now mounts the nav-badge sources and the AI status
+// chip. Default posture — every read unavailable (no badges, degraded chip),
+// which keeps the retirement assertions structural rather than data-driven.
+// PARTIAL mocks (spread actual): this file imports the route tree, which
+// evaluates the api barrel against every export of these domain modules.
+vi.mock("@/api/domains/order", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getOrderCounts: vi.fn(async () => { throw new Error("unavailable"); }),
+}));
+vi.mock("@/api/domains/conversation", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getNeedsReplyCount: vi.fn(async () => { throw new Error("unavailable"); }),
+}));
+vi.mock("@/api/domains/product", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getStockExceptions: vi.fn(async () => { throw new Error("unavailable"); }),
+}));
+vi.mock("@/api/domains/meta-channels", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  listMetaChannels: vi.fn(async () => { throw new Error("unavailable"); }),
+}));
 
 function findRoute(routes: readonly any[] | undefined, path: string): any {
   for (const route of routes ?? []) {

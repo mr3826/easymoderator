@@ -24,3 +24,6 @@ export * as addons from './addons';
 export * as adsStudio from './adsStudio';
 export * as storefront from './storefront';
 export * as publicAddons from './publicAddons';
+// Phase-1 W2 (A4): the delivery readiness domain published in W1 (doc 04 §1)
+// — additive so `@/api` consumers can reach it; direct imports stay valid.
+export * as delivery from './delivery';

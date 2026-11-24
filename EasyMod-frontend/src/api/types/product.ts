@@ -2,6 +2,20 @@
  * Product and Category types
  */
 
+/**
+ * Ordering authority for stock since D-P2-02: when a product has ACTIVE
+ * variants, Σ their quantities are the stock. Edge case (fixed in W3, matches
+ * the A4/A5 implementation + unit tests): variants PRESENT but ALL INACTIVE
+ * → fall back to the parent `quantity` — a product is never treated as
+ * tracked-with-zero-stock merely because its variants were deactivated.
+ * Carries just the D2 stock-exception fields the client predicate needs.
+ */
+export interface ProductVariantStock {
+  id: string;
+  quantity: number;
+  is_active: boolean;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -12,6 +26,13 @@ export interface Product {
   category_id?: string;
   status?: 'active' | 'inactive' | 'pending';
   variants?: unknown[];
+  /**
+   * Active-inclusive variant stock rows as serialised by the product reads
+   * (D2). Optional and additive: W1 consumers ignore it; Products.tsx's
+   * variant-aware `isLowStockProduct` (W2, A4) switches to this array,
+   * matching the server `GET /api/product/stock-exceptions` predicate.
+   */
+  product_variants?: ProductVariantStock[];
   aliases?: string[];
   aiGenerated?: boolean;
   ai_generated?: boolean;

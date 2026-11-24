@@ -37,6 +37,12 @@ router.get(
 // Bug #2: full-history search — must be before /:conversationId
 router.get('/search', conversationController.searchConversations);
 
+// Phase 1 C1: bounded needs-reply count (doc 05 §1) — must be before
+// /:conversationId to avoid param capture. Guards: the router-level
+// authenticate + verifyShopAccess chain above; shopId comes from the verified
+// JWT; global authenticated rate limiter applies.
+router.get('/needs-reply-count', conversationController.getNeedsReplyCount);
+
 // B3: Bulk status update — must be before /:conversationId to avoid param capture
 router.patch('/bulk-status', conversationController.bulkUpdateStatus);
 

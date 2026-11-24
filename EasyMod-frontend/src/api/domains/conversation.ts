@@ -4,6 +4,7 @@
 
 import { httpClient } from '@/shared/lib/http/client';
 import type { ApiResponse, PaginatedResponse } from '../types/common';
+import type { NeedsReplyCount } from '../types/dashboard';
 import type {
   AiReplyMode,
   Conversation,
@@ -82,6 +83,26 @@ export async function getConversations(
 export async function getConversation(conversationId: string): Promise<Conversation> {
   const response: AxiosResponse<ApiResponse<Conversation>> = await httpClient.get(
     `/api/conversation/${conversationId}`
+  );
+  return response.data.data;
+}
+
+/**
+ * Phase-1 C1: bounded needs-reply count from the shared server service
+ * (`GET /api/conversation/needs-reply-count`). The SAME D2/D3 predicate
+ * powers the Inbox nav badge, the dashboard queue chip and the inbox
+ * `?tab=needs_review` list, so a badge can never advertise rows the inbox
+ * cannot show. Honesty fields (scanned/cap/coverageComplete) come from the
+ * server — a capped count is shown as N+, never presented as exhaustive.
+ *
+ * Fails like every other domain call (throws on transport/HTTP error).
+ * Callers treat rejection as "source unavailable" — render no badge/chip,
+ * never zero (Phase-1 D10 restricted/disconnected states).
+ */
+export async function getNeedsReplyCount(signal?: AbortSignal): Promise<NeedsReplyCount> {
+  const response: AxiosResponse<ApiResponse<NeedsReplyCount>> = await httpClient.get(
+    '/api/conversation/needs-reply-count',
+    signal ? { signal } : undefined,
   );
   return response.data.data;
 }

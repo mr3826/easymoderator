@@ -29,6 +29,18 @@ export const validDate = (value: string | null | undefined) => {
 export const orderLabel = (order: { orderNumber?: string | null; id: string }) =>
   order.orderNumber || order.id.slice(0, 8);
 
+/**
+ * A8 round-3 (INFO): exception rows showed the raw server enum ("confirmed")
+ * inside an otherwise-Bangla UI. The order-status vocabulary already exists
+ * (`dashboard.pulse.status.*`, shared with the RecentOrders status pills) —
+ * known statuses render through it; an unknown server value passes through
+ * unchanged so the row never hides or invents data the projection carries.
+ */
+const LOCALIZED_ORDER_STATUSES = new Set([
+  "confirmed", "cancelled", "processing", "draft", "delivered", "returned",
+  "finalized", "completed", "pending", "failed",
+]);
+
 export function buildWorkItems(pulse: PulseData, t: Translate): WorkItem[] {
   const workItems: WorkItem[] = [];
   for (const conversation of pulse.replyTasks ?? []) {
@@ -67,13 +79,18 @@ export function buildWorkItems(pulse: PulseData, t: Translate): WorkItem[] {
   }
   for (const order of pulse.atRiskOrders ?? []) {
     const status = String(order.status || "").toLowerCase();
+    const statusText = status && LOCALIZED_ORDER_STATUSES.has(status)
+      ? t(`dashboard.pulse.status.${status}`)
+      : status;
     workItems.push({
       id: `exception-${order.id}`,
       kind: "exception",
-      title: order.customer_name || order.id,
-      detail: [status, order.tracking_id].filter(Boolean).join(" · ") || t("dashboard.pulse.status.unknown"),
+      // D3: PII-free projection — the row is identified by the human order
+      // number (id fallback), never by customer_name/customer_phone.
+      title: orderLabel(order),
+      detail: [statusText, order.tracking_id].filter(Boolean).join(" · ") || t("dashboard.pulse.status.unknown"),
       to: `/orders?orderId=${encodeURIComponent(order.id)}`,
-      sortAt: 0,
+      sortAt: validDate(order.updatedAt)?.getTime() ?? 0,
       icon: AlertTriangle,
       action: t("dashboard.pulse.attention.reviewOrder"),
     });
@@ -129,8 +146,48 @@ export function isCaughtUp(pulse: PulseData, workItems: WorkItem[]): boolean {
 
 const signalLabel = (kind: SignalKind, t: Translate) => t(`dashboard.pulse.signal.${kind}`);
 
+export interface DeriveCountFormat {
+  /**
+   * A8 MAJOR-3: every interpolated count reaches the locale string through
+   * this formatter (the proven QueueSignalChips pattern — Dashboard.tsx passes
+   * an Intl.NumberFormat bound to the active locale, so bn renders Bangla
+   * numerals instead of raw Latin digits). Default keeps raw numbers for the
+   * pure unit pins.
+   */
+  formatCount?: (value: number) => string;
+}
+
+/**
+ * A8 MAJOR-2 (hero-number authority): the "delivery exceptions" figure must
+ * come from the SAME exhaustive bucket count the Orders nav badge uses
+ * (`worklistNeedsActionCount` = GET /api/order/counts `needs_action`) — never
+ * from the capped 10-row sample length, which understated the true count
+ * while claiming verification. The sample is a projection: when the bucket
+ * source failed (null) the sample length is the FALLBACK, and an incomplete
+ * exception scan is then rendered as an explicit lower bound ("10+"), never
+ * as exhaustive.
+ */
+export function deliveryExceptionAuthority(pulse: PulseData | null): { count: number; lowerBound: boolean } {
+  const exact = pulse?.worklistNeedsActionCount ?? null;
+  if (exact !== null && Number.isFinite(exact) && exact >= 0) return { count: exact, lowerBound: false };
+  const sample = pulse?.atRiskOrders?.length ?? 0;
+  return { count: sample, lowerBound: pulse?.exceptionCoverageComplete === false };
+}
+
+const exceptionDisplay = (
+  pulse: PulseData | null,
+  formatCount: (value: number) => string,
+): { count: number; display: string } => {
+  const authority = deliveryExceptionAuthority(pulse);
+  return {
+    count: authority.count,
+    display: `${formatCount(authority.count)}${authority.lowerBound ? '+' : ''}`,
+  };
+};
+
 /** One dominant signal per screen (§8). First match wins; stale never changes it. */
-export function deriveSignal(input: DeriveInput, t: Translate): Signal {
+export function deriveSignal(input: DeriveInput, t: Translate, options: DeriveCountFormat = {}): Signal {
+  const formatCount = options.formatCount ?? ((value: number) => String(value));
   switch (input.phase) {
     case "setup-loading":
     case "pulse-loading":
@@ -142,21 +199,23 @@ export function deriveSignal(input: DeriveInput, t: Translate): Signal {
     case "setup-complete":
       return { kind: "resolved", label: signalLabel("resolved", t) };
     case "ready": {
-      const exceptions = input.pulse?.atRiskOrders?.length ?? 0;
+      const exceptions = exceptionDisplay(input.pulse, formatCount);
       const replies = input.pulse?.replyTasks?.length ?? 0;
       const drafts = input.pulse?.draftOrders?.length ?? 0;
-      if (exceptions > 0) {
+      if (exceptions.count > 0) {
+        // Display string in the {{count}} slot (tWithCountDisplay precedent —
+        // the key has no plural forms, so i18next interpolates, never selects).
         return {
           kind: "attention",
           label: signalLabel("attention", t),
-          reason: t("dashboard.pulse.signal.reason.exceptions", { count: exceptions }),
+          reason: t("dashboard.pulse.signal.reason.exceptions", { count: exceptions.display }),
         };
       }
       if (replies > 0 || drafts > 0) {
         return {
           kind: "review",
           label: signalLabel("review", t),
-          reason: t("dashboard.pulse.signal.reason.work", { replies, drafts }),
+          reason: t("dashboard.pulse.signal.reason.work", { replies: formatCount(replies), drafts: formatCount(drafts) }),
         };
       }
       if (input.caughtUp) {
@@ -189,7 +248,7 @@ export function derivePrimaryAction(input: DeriveInput, t: Translate): Action {
   return { label: t("dashboard.pulse.attention.openInbox"), to: "/inbox" };
 }
 
-export interface NarrativeOptions {
+export interface NarrativeOptions extends DeriveCountFormat {
   lastSyncLabel?: string;
   provenResultOverride?: string;
 }
@@ -200,9 +259,12 @@ export function deriveNarrative(
   t: Translate,
   options: NarrativeOptions = {},
 ): DashboardNarrative {
+  const formatCount = options.formatCount ?? ((value: number) => String(value));
   const replies = input.pulse?.replyTasks?.length ?? 0;
   const drafts = input.pulse?.draftOrders?.length ?? 0;
-  const exceptions = input.pulse?.atRiskOrders?.length ?? 0;
+  // Same authority as the Orders badge (A8 MAJOR-2), same Intl formatter
+  // (A8 MAJOR-3) — the hero sentence and the badge can never disagree.
+  const exceptions = exceptionDisplay(input.pulse, formatCount);
 
   let whyHere: string;
   let whereNext: string;
@@ -226,7 +288,11 @@ export function deriveNarrative(
       break;
     case "ready":
       if (input.workItems.length > 0) {
-        whyHere = t("dashboard.pulse.whyHere.work", { replies, drafts, exceptions });
+        whyHere = t("dashboard.pulse.whyHere.work", {
+          replies: formatCount(replies),
+          drafts: formatCount(drafts),
+          exceptions: exceptions.display,
+        });
         whereNext = t("dashboard.pulse.whereNext.work");
       } else if (input.caughtUp) {
         whyHere = t("dashboard.pulse.whyHere.caughtUp");

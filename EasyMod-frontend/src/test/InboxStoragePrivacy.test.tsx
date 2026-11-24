@@ -116,7 +116,14 @@ const PII = {
   agentName: "Test Owner",
 } as const;
 
-const now = "2026-11-23T06:00:00.000Z";
+// Clock-anchored fixture time: UnifiedInbox evaluates its Messenger 24h
+// window (hoursElapsed / is24hWarning / is24hExpired) against the REAL
+// Date.now(), so a pinned ISO date silently ages — past 24h it expires the
+// window and changes composer behavior (regression: this suite was green
+// pinned to 2026-11-23T06:00Z and started failing 24h later). Relativizing
+// keeps every fixture inside the fresh window forever; 2h ago is well clear
+// of both the 23h warning and 24h expiry thresholds. No fixed dates here.
+const now = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 const conv = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
   id,
   customer_id: `cust-${id}`,

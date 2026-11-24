@@ -31,7 +31,51 @@
     "workspace": "Workspace",
     "accountMenu": "Account menu",
     "account": "Account",
-    "expand": "Expand"
+    "expand": "Expand",
+    "groups": {
+      "workspace": "Workspace",
+      "businessSettings": "Business settings",
+      "accountOps": "Account & ops"
+    },
+    "badges": {
+      "orders": "{{count}} orders need action",
+      "inbox": "{{count}} messages need a reply",
+      "products": "{{count}} products have stock exceptions"
+    },
+    "aiStatus": {
+      "unavailable": {
+        "label": "Status unavailable",
+        "aria": "AI reply status could not be loaded. This is not the same as AI being off."
+      },
+      "notConnected": {
+        "label": "Not connected",
+        "aria": "No Meta channel is connected, so AI reply is off."
+      },
+      "emergencyStop": {
+        "label": "Emergency stop active",
+        "aria": "Emergency stop is active — all AI replies are paused."
+      },
+      "reconnectRequired": {
+        "label": "Reconnect required",
+        "aria": "A channel needs to be reconnected before AI or messaging can run."
+      },
+      "auto": {
+        "label": "AI auto-reply on",
+        "aria": "AI is sending replies automatically on at least one channel."
+      },
+      "draft": {
+        "label": "AI drafts replies",
+        "aria": "AI is preparing reply drafts for you to approve."
+      },
+      "manual": {
+        "label": "Manual replies",
+        "aria": "Replies are sent manually only."
+      },
+      "mixed": {
+        "label": "AI modes vary by channel",
+        "aria": "AI reply modes differ across your channels."
+      }
+    }
   },
   "addons": {
     "navTitle": "Add-ons",
@@ -417,7 +461,7 @@
         "draftDetail": "Draft order for {{customer}}",
         "reviewDraft": "Review draft",
         "openOrders": "Open orders",
-        "moreInGroup": "{{count}} more in this group",
+        "moreInGroup": "{{displayCount}} more in this group",
         "openNextConversation": "Open next conversation",
         "reviewNextOrder": "Review next order",
         "sourcesUnavailable": "Some task lists are unavailable. Retry to check what still needs attention.",
@@ -470,7 +514,9 @@
         "drafts": "Draft orders",
         "replies": "reply tasks",
         "recentOrders": "recent orders",
-        "deliveryExceptions": "delivery attempts and returns"
+        "deliveryExceptions": "delivery attempts and returns",
+        "worklistCounts": "worklist counts",
+        "stockExceptions": "stock exceptions"
       },
       "overview": {
         "title": "Business overview",
@@ -574,6 +620,63 @@
         "partial": "Check the full Inbox and Orders lists before assuming all clear."
       },
       "staleWarning": "Data may be out of date — the last refresh is older than usual.",
+      "commerceSignals": {
+        "charges": "Recorded delivery charges today",
+        "dayCount": "{{day}} UTC · {{displayCount}} orders",
+        "dayCount_one": "{{day}} UTC · {{displayCount}} order",
+        "dayCount_other": "{{day}} UTC · {{displayCount}} orders",
+        "chargeNote": "Gross ledger entries for the UTC day — not invoiced or collected.",
+        "unavailable": "Not available",
+        "activity": "Recent activity",
+        "activityUnavailable": "Activity is unavailable. Refresh to retry.",
+        "activityEmpty": "No matching audited activity yet.",
+        "activityNote": "Latest six recorded operational actions · Dhaka time.",
+        "actions": {
+          "CREATE": "Created",
+          "UPDATE": "Updated",
+          "DELETE": "Deleted",
+          "ORDER_CREATED": "Order created",
+          "ORDER_CONFIRMED": "Order confirmed",
+          "ORDER_CANCELLED": "Order cancelled",
+          "COURIER_BOOKED": "Courier booking placed",
+          "COURIER_BOOKING_AUTHORIZED": "Courier booking authorized",
+          "ORDER_CONFIDENCE_EVALUATED": "Order confidence checked",
+          "ORDER_CONFIDENCE_CHANGED": "Order confidence updated",
+          "ORDER_CONFIDENCE_APPROVED": "At-risk order approved",
+          "ORDER_CONFIDENCE_VERIFIED": "At-risk order verified",
+          "INBOX_MESSAGE_SENT": "Reply sent",
+          "PRODUCT_STOCK_UPDATED": "Product stock updated",
+          "PRODUCT_DRAFT_CREATED": "Product draft created",
+          "CONVERSATION_OWNERSHIP_UPDATE": "Conversation ownership changed",
+          "ai_draft_approved": "AI draft approved",
+          "ai_draft_dismissed": "AI draft dismissed",
+          "CHANNEL_AUTOMATION_OVERRIDE_CHANGED": "Channel automation override changed",
+          "AI_REPLY_MODE_CHANGED": "AI reply mode changed",
+          "AI_EMERGENCY_STOP_ENGAGED": "Emergency stop activated",
+          "AI_EMERGENCY_STOP_RESUMED": "Emergency stop resumed",
+          "SHOP_MEMBERSHIP_GRANTED": "Team member added",
+          "SHOP_MEMBERSHIP_REVOKED": "Team member removed",
+          "SHOP_MEMBERSHIP_ROLE_CHANGED": "Team member role changed",
+          "OPPORTUNITY_DISMISSED": "Customer opportunity dismissed"
+        },
+        "resources": {
+          "order": "Order",
+          "product": "Product",
+          "conversation": "Conversation",
+          "conversation_message": "Conversation message",
+          "conversation_ownership": "Conversation ownership",
+          "customer": "Customer",
+          "shop": "Shop",
+          "user_shop": "Team membership",
+          "meta_channel": "Meta channel",
+          "meta_channel_settings": "Channel settings",
+          "shop_settings": "Shop settings",
+          "customer_opportunity": "Customer opportunity"
+        },
+        "chargesTooltip": "Returns and cancellations recorded today reduce this total. Credits are applied at invoice time.",
+        "activitySystem": "System",
+        "viewAll": "View all activity"
+      },
       "queueChips": {
         "note": "Counts are aggregates, not verified tasks.",
         "unavailable": "Unavailable"
@@ -749,6 +852,37 @@
       },
       "error": "Error Loading Dashboard",
       "noMetrics": "Dashboard insights will appear after your first Messenger conversations and orders."
+    },
+    "businessHealth": {
+      "title": "Business health",
+      "stockExceptions": "Stock exceptions",
+      "outOfStock": "Out of stock",
+      "lowStock": "Low stock",
+      "deliveryExceptions": "Delivery exceptions",
+      "cashInTransit": "Cash in transit",
+      "cashAtRisk": "Cash at risk",
+      "channelReadiness": "Channel readiness",
+      "courierReadiness": "Courier readiness",
+      "unavailable": "Not available",
+      "viewProducts": "View products",
+      "viewOrders": "View orders"
+    },
+    "connections": {
+      "title": "Connections",
+      "metaRow": "Meta channels",
+      "courierRow": "Courier",
+      "connectedVerified": "Connected · verified",
+      "connectedUnverified": "Connected · not verified",
+      "reconnectRequired": "Reconnect required",
+      "disconnected": "Disconnected",
+      "unavailable": "Status unavailable",
+      "ready": "Ready",
+      "connectedNotActive": "Connected · inactive",
+      "setupIncomplete": "Setup incomplete",
+      "notSetUp": "Not set up",
+      "reconnect": "Reconnect",
+      "missingCount": "{{count}} steps missing",
+      "reconnectFailed": "Could not start reconnecting. The channel stays disconnected until it is reconnected — try again or open channel settings."
     }
   },
   "shell": {
@@ -1388,7 +1522,15 @@
     },
     "manageCategories": "Manage categories",
     "noLowStockMatches": "No tracked product is at or below its configured low-stock threshold.",
-    "clearLowStockFilter": "Show all products"
+    "clearLowStockFilter": "Show all products",
+    "stockFilter": {
+      "exceptions": "Stock exceptions",
+      "low": "Low stock",
+      "out": "Out of stock",
+      "exceptionsAria": "Show only products that are out of stock or low on stock",
+      "lowAria": "Show only low-stock products",
+      "clear": "Show all stock"
+    }
   },
   "categories": {
     "title": "Categories",

@@ -183,6 +183,11 @@ function isKnownApiPath(path: string): boolean {
     '/api/audit',
     '/api/commercial/claims',
     '/api/public/commercial-contract',
+    // A6 W3: Phase 1 shell/dashboard read sources (D1 badges, D6 chip, D7).
+    '/api/order/counts',
+    '/api/conversation/needs-reply-count',
+    '/api/product/stock-exceptions',
+    '/api/shop/delivery/readiness',
   ].includes(path) || isConversationMessagesPath(path) || isConversationReadPath(path) || isConversationPath(path)
     || /^\/api\/channels\/meta\/[^/]+\/settings$/.test(path);
 }
@@ -325,7 +330,28 @@ async function setupRoutes(page: Page, options: RouteOptions = {}): Promise<Rout
       }
 
       if (path === '/api/dashboard/queue' && method === 'GET') {
-        return route.fulfill(jsonResponse({ unread_count: 0, pending_payment_count: 0, at_risk_orders: [] }));
+        // C3 revised shape (doc 05 §3): needs_reply object, PII-free at_risk.
+        return route.fulfill(jsonResponse({
+          predicate_version: 'worklist-v1',
+          pending_payment_count: 0,
+          ready_to_dispatch_count: 0,
+          needs_reply: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' },
+          at_risk_orders: [],
+          commerce_signals: null,
+        }));
+      }
+      // A6 W3: deterministic zero shell sources (no badge pills, honest chip).
+      if (path === '/api/order/counts' && method === 'GET') {
+        return route.fulfill(jsonResponse({ to_confirm: 0, to_pack: 0, booked: 0, in_transit: 0, needs_action: 0, returned: 0, delivered: 0, total: 0 }));
+      }
+      if (path === '/api/conversation/needs-reply-count' && method === 'GET') {
+        return route.fulfill(jsonResponse({ count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' }));
+      }
+      if (path === '/api/product/stock-exceptions' && method === 'GET') {
+        return route.fulfill(jsonResponse({ outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' }));
+      }
+      if (path === '/api/shop/delivery/readiness' && method === 'GET') {
+        return route.fulfill(jsonResponse({ provider: null, ready: false, connected: false, active: false, credentials_configured: false, provider_store_id: null, provider_store_count: 0, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'], status: 'SETUP_INCOMPLETE', providers: [] }));
       }
 
       if (path === '/api/order' && method === 'GET') {

@@ -112,6 +112,8 @@ vi.mock('@/app/lib/auth', () => ({
 // ── Mock react-router-dom ─────────────────────────────────────────────────
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
+  // Phase-1 D2: Products now reads ?stock= once on mount (fail-closed seed).
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
 }));
 
 // ── Mock sonner ───────────────────────────────────────────────────────────
@@ -328,8 +330,8 @@ describe('Products pagination under filter changes (WP-04)', () => {
     await clickNext();
     expect(screen.getByText('Page 3 of 3')).toBeInTheDocument();
 
-    // Only products 24–25 are tracked at/below threshold.
-    fireEvent.click(screen.getByRole('checkbox', { name: 'products.lowStockOnly' }));
+    // Only products 24–25 are tracked at/below threshold (D2 low state).
+    fireEvent.click(screen.getByTestId('products-stock-low'));
 
     await waitFor(() => {
       expect(screen.getByText('Product 24')).toBeInTheDocument();

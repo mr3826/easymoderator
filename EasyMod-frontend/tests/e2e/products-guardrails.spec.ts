@@ -15,18 +15,49 @@ const products = [
     { id: 'prod-1', name: 'Demo Hoodie', price: 1299, description: 'Comfort fit demo product', category: 'Apparel', sku: 'HD-1', status: 'active', is_active: true, quantity: 12, track_quantity: true, low_stock_threshold: 5, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
 ];
 
+// D2 fixtures for the stock-filter proofs: low (0 < 3 ≤ threshold 5) and
+// out (0 ≤ 0) — disjoint by construction. The header/signal proofs keep their
+// original single-product fixture so their "Catalog ready" pin stays valid.
+const stockProducts = [
+    ...products,
+    { id: 'prod-2', name: 'Low Tee', price: 599, description: 'Basic tee', category: 'Apparel', sku: 'LT-1', status: 'active', is_active: true, quantity: 3, track_quantity: true, low_stock_threshold: 5, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'prod-3', name: 'Out Cap', price: 450, description: 'Cap', category: 'Apparel', sku: 'OC-1', status: 'active', is_active: true, quantity: 0, track_quantity: true, low_stock_threshold: 4, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+];
+
+// A8 MAJOR-1 fixture: a RETIRED but still-tracked zero-stock product. The
+// server exception scan is `is_active: true` — this row belongs in neither
+// the exception count (badge) nor the ?stock= filter (list).
+const retiredStockProducts = [
+    ...stockProducts,
+    { id: 'prod-4', name: 'Retired Cap', price: 350, description: 'Retired line', category: 'Apparel', sku: 'RC-1', status: 'inactive', is_active: false, quantity: 0, track_quantity: true, low_stock_threshold: 4, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+];
+
+interface StockExceptionPayload {
+    outOfStock: number;
+    lowStock: number;
+    exceptions: number;
+    coverageComplete: boolean;
+}
+const stockExceptionPayload = (fx?: Partial<StockExceptionPayload>) => ({
+    outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true,
+    generated_at: '2026-01-01T00:00:00.000Z', ...fx,
+});
+
 const KNOWN_PATHS = new Set([
     '/api/csrf', '/api/auth/me', '/api/auth/signin', '/api/setup/status', '/api/dashboard/metrics',
     '/api/dashboard/queue', '/api/subscription', '/api/notifications/in-app', '/api/product',
     '/api/category', '/api/order', '/api/commercial/claims', '/api/public/commercial-contract',
     '/api/product/images',
+
+    // A6 W3: Phase 1 shell/dashboard read sources (D1 badges, D6 chip, D7 readiness).
+    '/api/order/counts', '/api/conversation/needs-reply-count', '/api/product/stock-exceptions', '/api/shop/delivery/readiness', '/api/channels/meta',
 ]);
 const KNOWN_PATTERNS = [
     /^\/api\/product\/[\w-]+$/,
     /^\/api\/notifications\/in-app\/[\w-]+\/read$/,
 ];
 
-async function setupRoutes(page: Page) {
+async function setupRoutes(page: Page, catalog: typeof products = products, exceptions?: Partial<StockExceptionPayload>) {
     const state = { signedIn: false, unexpected: [] as string[], createPayloads: [] as Record<string, unknown>[] };
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
         const request = route.request();
@@ -38,6 +69,22 @@ async function setupRoutes(page: Page) {
             state.unexpected.push(`${method} ${path}`);
             return route.fulfill({ json: json([]) });
         }
+        if (path === '/api/order/counts' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { to_confirm: 0, to_pack: 0, booked: 0, in_transit: 0, needs_action: 0, returned: 0, delivered: 0, total: 0 } }) });
+        }
+        if (path === '/api/conversation/needs-reply-count' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-01-01T00:00:00.000Z' } }) });
+        }
+        if (path === '/api/product/stock-exceptions' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: stockExceptionPayload(exceptions) }) });
+        }
+        if (path === '/api/shop/delivery/readiness' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { provider: null, ready: false, connected: false, active: false, credentials_configured: false, provider_store_id: null, provider_store_count: 0, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'], status: 'SETUP_INCOMPLETE', providers: [] } }) });
+        }
+        if (path === '/api/channels/meta' && method === 'GET') {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) });
+        }
+
         if (path === '/api/csrf') return route.fulfill({ json: json({ csrfToken: 'csrf-test' }) });
         if (path === '/api/auth/me') {
             if (!state.signedIn) return route.fulfill({ status: 401, json: { success: false } });
@@ -52,7 +99,7 @@ async function setupRoutes(page: Page) {
         if (path === '/api/dashboard/queue') return route.fulfill({ json: json({}) });
         if (path === '/api/subscription') return route.fulfill({ json: json({ plan: 'MERCHANT', status: 'active', contract: 'DELIVERED_ORDER' }) });
         if (path === '/api/notifications/in-app') return route.fulfill({ json: json([]) });
-        if (path === '/api/product' && method === 'GET') return route.fulfill({ json: json(products) });
+        if (path === '/api/product' && method === 'GET') return route.fulfill({ json: json(catalog) });
         if (path === '/api/product' && method === 'POST') {
             state.createPayloads.push(request.postDataJSON());
             return route.fulfill({ status: 201, json: json({ id: 'prod-new', name: 'New Product', price: 100 }) });
@@ -145,4 +192,72 @@ test('axe: no critical or serious violations in the products surface', async ({ 
     const results = await new AxeBuilder({ page }).include('.em-products').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
     expect(bad).toEqual([]);
+});
+
+// ── Phase 1 W2 (A4) / W3 (A6): merchant-controlled stock filter (D2) ─────────
+test('W2 stock control: segmented exception toggles replace the old checkbox, seed + clear work', async ({ page }) => {
+    const state = await setupRoutes(page, stockProducts);
+    await loginAndGo(page);
+    await expect(page.getByTestId('products-signal')).toBeVisible({ timeout: 15_000 });
+    // Old parent-only checkbox vocabulary is gone (replaced by the D2 tri-state).
+    await expect(page.getByText('Low stock only')).toHaveCount(0);
+    await expect(page.locator('#lowStockOnly')).toHaveCount(0);
+    // All three D2 products start visible.
+    await expect(page.getByText('Demo Hoodie')).toBeVisible();
+    await expect(page.getByText('Low Tee')).toBeVisible();
+    await expect(page.getByText('Out Cap')).toBeVisible();
+    // ?stock=exceptions seed (badge destination parity): exceptions = low ∪ out.
+    await page.goto('/products?stock=exceptions');
+    await expect(page.getByTestId('products-stock-exceptions')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('Low Tee')).toBeVisible();
+    await expect(page.getByText('Out Cap')).toBeVisible();
+    await expect(page.getByText('Demo Hoodie')).toHaveCount(0);
+    // Narrow to out-of-stock only.
+    await page.getByTestId('products-stock-out').click();
+    await expect(page.getByText('Out Cap')).toBeVisible();
+    await expect(page.getByText('Low Tee')).toHaveCount(0);
+    // Low toggle replaces (single-select control), then clear restores all.
+    await page.getByTestId('products-stock-low').click();
+    await expect(page.getByText('Low Tee')).toBeVisible();
+    await expect(page.getByText('Out Cap')).toHaveCount(0);
+    await page.getByTestId('products-stock-clear').click();
+    await expect(page.getByText('Demo Hoodie')).toBeVisible();
+    await expect(page.getByText('Low Tee')).toBeVisible();
+    await expect(page.getByText('Out Cap')).toBeVisible();
+    // Honest aria descriptions on the exception controls.
+    await expect(page.getByTestId('products-stock-exceptions')).toHaveAttribute('aria-label', 'Show only products that are out of stock or low on stock');
+    expect(state.unexpected).toEqual([]);
+});
+
+test('W2 unknown ?stock= seed fails closed to the full list (mirrors Orders bucket seed)', async ({ page }) => {
+    const state = await setupRoutes(page);
+    await loginAndGo(page, '/products?stock=bogus');
+    await expect(page.getByTestId('products-stock-exceptions')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByText('Demo Hoodie')).toBeVisible();
+    expect(state.unexpected).toEqual([]);
+});
+
+// A8 MAJOR-1 badge↔list parity: the nav badge (server scan, `is_active: true`
+// scope) and the ?stock=exceptions list (client predicate) must agree — a
+// retired-but-tracked product appears in NEITHER the count nor the filter,
+// yet stays a normal catalog row.
+test('badge↔list parity: retired-but-tracked product is in neither the exception count nor the ?stock= filter', async ({ page }) => {
+    const state = await setupRoutes(page, retiredStockProducts, { outOfStock: 1, lowStock: 1, exceptions: 2, coverageComplete: true });
+    await loginAndGo(page);
+    const rail = page.locator('aside nav').first();
+
+    // Catalog truth: the retired row is still a product (visible unfiltered),
+    // but it carries no exception claim (badge stays at the server's 2).
+    await expect(page.getByText('Retired Cap')).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Products 2 products have stock exceptions' })).toBeVisible();
+
+    // Badge destination parity: the filtered list rows == the badge count.
+    await page.goto('/products?stock=exceptions');
+    await expect(page.getByText('Low Tee')).toBeVisible();
+    await expect(page.getByText('Out Cap')).toBeVisible();
+    await expect(page.getByText('Retired Cap')).toHaveCount(0);
+    await expect(page.getByText('Demo Hoodie')).toHaveCount(0);
+    const filteredRows = await page.getByRole('table').locator('tbody tr').count();
+    expect(filteredRows).toBe(2);
+    expect(state.unexpected).toEqual([]);
 });

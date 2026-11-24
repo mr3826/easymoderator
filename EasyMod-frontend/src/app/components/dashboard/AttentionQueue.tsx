@@ -13,9 +13,16 @@ interface AttentionQueueProps {
   groups: WorkGroup[];
   hasAllWorkSources: boolean;
   caughtUp: boolean;
+  /**
+   * A8 round-3 (MINOR-1): the hidden-count note interpolates LOCALE-FORMATTED
+   * digits (the same Intl formatter bound to the active locale that
+   * QueueSignalChips/derive already use — bn renders Bangla numerals, never
+   * raw Latin ones). Default keeps raw numbers so the pure pins stay honest.
+   */
+  formatCount?: (n: number) => string;
 }
 
-export function AttentionQueue({ groups, hasAllWorkSources, caughtUp }: AttentionQueueProps) {
+export function AttentionQueue({ groups, hasAllWorkSources, caughtUp, formatCount = String }: AttentionQueueProps) {
   const { t } = useTranslation();
 
   if (caughtUp) {
@@ -78,7 +85,7 @@ export function AttentionQueue({ groups, hasAllWorkSources, caughtUp }: Attentio
               </div>
               {group.hiddenCount > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-em-text-secondary" role="note">
-                  <span>{t("dashboard.pulse.work.moreInGroup", { count: group.hiddenCount })}</span>
+                  <span>{t("dashboard.pulse.work.moreInGroup", { count: group.hiddenCount, displayCount: formatCount(group.hiddenCount) })}</span>
                   <Link
                     to={group.items[WORK_ITEMS_PER_GROUP].to}
                     className="inline-flex min-h-11 items-center font-semibold text-em-violet-700 hover:underline"

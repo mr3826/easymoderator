@@ -380,7 +380,15 @@ async function setupRoutes(
         return route.fulfill(jsonResponse({ metrics: { totalMessages: 0, activeProducts: 0, ordersToday: 0 }, analytics: { llm_calls: 0 } }));
       }
       if (path === '/api/dashboard/queue') {
-        return route.fulfill(jsonResponse({ unread_count: 0, pending_payment_count: 0, at_risk_orders: [] }));
+        // C3 revised shape (doc 05 §3).
+        return route.fulfill(jsonResponse({
+          predicate_version: 'worklist-v1',
+          pending_payment_count: 0,
+          ready_to_dispatch_count: 0,
+          needs_reply: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' },
+          at_risk_orders: [],
+          commerce_signals: null,
+        }));
       }
       if (path === '/api/order') return route.fulfill(jsonResponse([]));
       if (path === '/api/subscription') {

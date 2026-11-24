@@ -139,7 +139,25 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
     }
     if (path === '/api/setup/status') return route.fulfill(json({ isComplete: true, completedCount: 4, totalCount: 4, progressPercent: 100, tasks: [] }));
     if (path === '/api/dashboard/metrics') return route.fulfill(json({ metrics: { totalMessages: 0, activeProducts: 0, ordersToday: 0, weeklyChange: 0, conversionRate: 0 }, analytics: { llm_calls: 0 } }));
-    if (path === '/api/dashboard/queue') return route.fulfill(json({ unread_count: 0, pending_payment_count: 0, at_risk_orders: [] }));
+    if (path === '/api/dashboard/queue') return route.fulfill(json({
+      predicate_version: 'worklist-v1',
+      pending_payment_count: 0,
+      ready_to_dispatch_count: 0,
+      needs_reply: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: iso(0) },
+      at_risk_orders: [],
+      commerce_signals: null,
+    }));
+    // A6 W3: deterministic shell read-sources — zero badge/health sources so
+    // this journey never claims counts it is not testing.
+    if (path === '/api/conversation/needs-reply-count' && method === 'GET') {
+      return route.fulfill(json({ count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: iso(0) }));
+    }
+    if (path === '/api/product/stock-exceptions' && method === 'GET') {
+      return route.fulfill(json({ outOfStock: 0, lowStock: 0, exceptions: 0, scanned: 0, cap: 1000, coverageComplete: true, generated_at: iso(0) }));
+    }
+    if (path === '/api/shop/delivery/readiness' && method === 'GET') {
+      return route.fulfill(json({ provider: null, ready: false, connected: false, active: false, credentials_configured: false, provider_store_id: null, provider_store_count: 0, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'], status: 'SETUP_INCOMPLETE', providers: [] }));
+    }
     if (path === '/api/subscription') return route.fulfill(json({
       subscription: { plan_code: 'MERCHANT', status: 'active', billing_model: 'per_order', current_period_start: iso(-86400000) },
       plan: { code: 'MERCHANT', name: 'Merchant', billing_model: 'per_order' },

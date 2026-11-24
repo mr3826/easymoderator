@@ -341,6 +341,13 @@ const updateProduct = async (productId, userId, shopId, updateData) => {
         }
     }
 
+    // Phase 1 D4: stock-change audit instrumentation needs the pre-update
+    // snapshot; captured here, used only AFTER the update persists.
+    const previousStockSnapshot = {
+        quantity: product.quantity,
+        track_quantity: product.track_quantity,
+    };
+
     const previousMediaPaths = getProductMediaPaths(product.images, product.image_url, shopId);
     const nextMediaPaths = getProductMediaPaths(
         updateData.images !== undefined ? updateData.images : product.images,
@@ -358,6 +365,34 @@ const updateProduct = async (productId, userId, shopId, updateData) => {
             await removeUnreferencedProductMedia({ shopId, images: nextMediaPaths });
         }
         throw error;
+    }
+
+    // Phase 1 D4 (doc 05 §4): ADDITIVE best-effort audit when this update
+    // touched stock (quantity/track_quantity or a variants blob). Mirrors the
+    // mobile vocabulary (PRODUCT_STOCK_UPDATED on resource 'product').
+    // Observability only — an audit failure NEVER changes the update outcome
+    // (required:false + try/catch; the update has already persisted here).
+    const stockFieldsChanged = ['quantity', 'track_quantity', 'product_variants', 'variants']
+        .some((key) => Object.prototype.hasOwnProperty.call(updateData, key));
+    if (stockFieldsChanged) {
+        try {
+            const AuditService = require('../audit/audit.service');
+            await AuditService.logOperation({
+                userId,
+                shopId,
+                action: 'PRODUCT_STOCK_UPDATED',
+                resourceType: 'product',
+                resourceId: product.id,
+                metadata: {
+                    source: 'WEB',
+                    sku: product.sku ?? null,
+                    previous_quantity: previousStockSnapshot.quantity ?? null,
+                    next_quantity: product.quantity ?? null,
+                    previous_track_quantity: previousStockSnapshot.track_quantity ?? null,
+                    next_track_quantity: product.track_quantity ?? null,
+                },
+            }, { required: false }).catch(() => {});
+        } catch (_) { /* audit is best-effort; the update already succeeded */ }
     }
 
     const removedMediaPaths = previousMediaPaths.filter((item) => !nextMediaPaths.includes(item));

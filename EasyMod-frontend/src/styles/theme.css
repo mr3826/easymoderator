@@ -445,3 +445,9 @@
 /* The ADR-0013 §9 `.ca-scope` token block was retired with its last consumer
    (/manage-shop/automation, now `.em-automation`). Every scoped surface in the
    merchant app reads the single `--em-*` ramp above. */
+
+/* Workspace navigation has a permanently dark surface, not global dark mode. */
+.em-shell .em-dark-nav :focus-visible {
+  outline: 2px solid var(--em-focus-dark) !important;
+  outline-offset: 2px !important;
+}

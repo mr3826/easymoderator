@@ -31,7 +31,51 @@
     "workspace": "শপ ব্যবস্থাপনা",
     "accountMenu": "অ্যাকাউন্ট মেনু",
     "account": "অ্যাকাউন্ট",
-    "expand": "বড় করুন"
+    "expand": "বড় করুন",
+    "groups": {
+      "workspace": "কর্মক্ষেত্র",
+      "businessSettings": "ব্যবসার সেটিংস",
+      "accountOps": "অ্যাকাউন্ট ও কার্যক্রম"
+    },
+    "badges": {
+      "orders": "{{count}}টি অর্ডারে ব্যবস্থা দরকার",
+      "inbox": "{{count}}টি মেসেজের উত্তর দরকার",
+      "products": "{{count}}টি পণ্যের স্টক অস্বাভাবিক"
+    },
+    "aiStatus": {
+      "unavailable": {
+        "label": "অবস্থা পাওয়া যায়নি",
+        "aria": "এআই উত্তরের অবস্থা লোড করা যায়নি। এটির অর্থ এআই বন্ধ নয়।"
+      },
+      "notConnected": {
+        "label": "সংযুক্ত নয়",
+        "aria": "কোনো মেটা চ্যানেল সংযুক্ত নেই, তাই এআই উত্তর বন্ধ।"
+      },
+      "emergencyStop": {
+        "label": "ইমার্জেন্সি স্টপ চালু",
+        "aria": "ইমার্জেন্সি স্টপ চালু আছে — সব এআই উত্তর সাময়িক বন্ধ।"
+      },
+      "reconnectRequired": {
+        "label": "পুনরায় সংযোগ দরকার",
+        "aria": "এআই বা মেসেজিং চালু করতে একটি চ্যানেল পুনরায় সংযোগ দেওয়া দরকার।"
+      },
+      "auto": {
+        "label": "এআই অটো-রিপ্লাই চালু",
+        "aria": "অন্তত একটি চ্যানেলে এআই স্বয়ংক্রিয়ভাবে উত্তর পাঠাচ্ছে।"
+      },
+      "draft": {
+        "label": "এআই খসড়া তৈরি করছে",
+        "aria": "এআই আপনার অনুমোদনের জন্য উত্তরের খসড়া তৈরি করছে।"
+      },
+      "manual": {
+        "label": "ম্যানুয়াল উত্তর",
+        "aria": "শুধু হাতে উত্তর পাঠানো হয়।"
+      },
+      "mixed": {
+        "label": "চ্যানেলভেদে এআই মোড আলাদা",
+        "aria": "আপনার চ্যানেলগুলোতে এআই উত্তরের মোড ভিন্ন ভিন্ন।"
+      }
+    }
   },
   "addons": {
     "navTitle": "অ্যাড-অন",
@@ -370,7 +414,7 @@
   "dashboard": {
     "pulse": {
       "title": "আজকের কাজ",
-      "subtitle": "আগে যাচাই করা উত্তর, Draft অর্ডার এবং ডেলিভারি ব্যতিক্রম দেখুন।",
+      "subtitle": "আগে যাচাই করা উত্তর, ড্রাফট অর্ডার এবং ডেলিভারি ব্যতিক্রম দেখুন।",
       "refresh": "রিফ্রেশ",
       "loading": "আজকের অবস্থা লোড হচ্ছে...",
       "errorTitle": "ড্যাশবোর্ড লোড করা যায়নি",
@@ -394,7 +438,7 @@
         "cancelled": "বাতিল",
         "processing": "পেন্ডিং",
         "paymentPending": "পেমেন্ট বাকি",
-        "draft": "Draft",
+        "draft": "ড্রাফট",
         "delivered": "ডেলিভারি হয়েছে",
         "returned": "ফেরত এসেছে",
         "finalized": "চূড়ান্ত হয়েছে",
@@ -408,20 +452,20 @@
         "subtitle": "উপলভ্য Inbox ও Order ডেটা থেকে যাচাই করা কাজই এখানে দেখানো হয়।",
         "groups": {
           "replies": "কাস্টমারের উত্তর",
-          "drafts": "Draft অর্ডার",
+          "drafts": "ড্রাফট অর্ডার",
           "exceptions": "ডেলিভারি ব্যতিক্রম"
         },
         "caughtUp": "যাচাই করা কোনো কাজ বাকি নেই। আপনি আপাতত সব কাজ শেষ করেছেন।",
         "partialEmpty": "সব কাজের উৎস যাচাই করা যায়নি, তাই সব কাজ শেষ হয়েছে বলা যাচ্ছে না।",
         "coverageNote": "কিছু কাজের উৎস অসম্পূর্ণ। সব ঠিক আছে ধরে নেওয়ার আগে সম্পূর্ণ Inbox ও Orders তালিকা দেখুন।",
-        "draftDetail": "{{customer}}-এর Draft অর্ডার",
-        "reviewDraft": "Draft যাচাই করুন",
+        "draftDetail": "{{customer}}-এর ড্রাফট অর্ডার",
+        "reviewDraft": "ড্রাফট যাচাই করুন",
         "openOrders": "Orders খুলুন",
-        "moreInGroup": "এই তালিকায় আরও {{count}}টি",
+        "moreInGroup": "এই তালিকায় আরও {{displayCount}}টি",
         "openNextConversation": "পরের কথোপকথন খুলুন",
         "reviewNextOrder": "পরের অর্ডার যাচাই করুন",
         "sourcesUnavailable": "কিছু কাজের তালিকা পাওয়া যায়নি। কী বাকি আছে দেখতে আবার চেষ্টা করুন।",
-        "draftCoverageNote": "সাম্প্রতিক সর্বোচ্চ ১০০টি Draft অর্ডার দেখানো হচ্ছে। আরও থাকতে পারে।",
+        "draftCoverageNote": "সাম্প্রতিক সর্বোচ্চ ১০০টি ড্রাফট অর্ডার দেখানো হচ্ছে। আরও থাকতে পারে।",
         "exceptionCoverageNote": "সাম্প্রতিক সর্বোচ্চ ১০টি ডেলিভারির চেষ্টা বা ফেরত আসা অর্ডার দেখানো হচ্ছে। আরও থাকতে পারে।",
         "exceptionStatuses": {
           "attempted": "ডেলিভারির চেষ্টা হয়েছে",
@@ -467,10 +511,12 @@
       "sourceNames": {
         "overview": "অর্ডার সারাংশ",
         "actionCounts": "কাজের সংখ্যা",
-        "drafts": "Draft অর্ডার",
+        "drafts": "ড্রাফট অর্ডার",
         "replies": "উত্তর দেওয়ার কাজ",
         "recentOrders": "সাম্প্রতিক অর্ডার",
-        "deliveryExceptions": "ডেলিভারির চেষ্টা ও ফেরত আসা অর্ডার"
+        "deliveryExceptions": "ডেলিভারির চেষ্টা ও ফেরত আসা অর্ডার",
+        "worklistCounts": "ওয়ার্কলিস্টের সংখ্যা",
+        "stockExceptions": "স্টকের অস্বাভাবিকতা"
       },
       "overview": {
         "title": "ব্যবসার সারাংশ",
@@ -546,13 +592,13 @@
         "pending": "অপেক্ষমাণ",
         "reason": {
           "exceptions": "ডেলিভারি ব্যতিক্রম: {{count}}",
-          "work": "উত্তর: {{replies}} · Draft: {{drafts}}",
+          "work": "উত্তর: {{replies}} · ড্রাফট: {{drafts}}",
           "partial": "সব ঠিক আছে তা নিশ্চিত করা যাচ্ছে না"
         }
       },
       "primary": {
         "reply": "কাস্টমারকে উত্তর দিন",
-        "draft": "Draft অর্ডার যাচাই করুন",
+        "draft": "ড্রাফট অর্ডার যাচাই করুন",
         "exception": "ডেলিভারি ব্যতিক্রম দেখুন"
       },
       "whyHere": {
@@ -560,7 +606,7 @@
         "error": "ড্যাশবোর্ড লোড করা যায়নি, তাই সংখ্যা ও কাজ পুরোনো হতে পারে।",
         "setup": "কথোপকথন থেকে নিশ্চিত অর্ডার করতে আপনার শপের কয়েকটি সেটআপ ধাপ বাকি।",
         "setupComplete": "সব সেটআপ ধাপ কনফিগার করা হয়েছে; লাইভ যাচাইের অবস্থা এই স্ক্রিনে দেখানো হচ্ছে।",
-        "work": "যাচাই করা কাজ অপেক্ষায় — উত্তর: {{replies}} · Draft অর্ডার: {{drafts}} · ডেলিভারি ব্যতিক্রম: {{exceptions}}।",
+        "work": "যাচাই করা কাজ অপেক্ষায় — উত্তর: {{replies}} · ড্রাফট অর্ডার: {{drafts}} · ডেলিভারি ব্যতিক্রম: {{exceptions}}।",
         "caughtUp": "যাচাই করা কোনো কাজ বাকি নেই।",
         "partial": "কিছু কাজের উৎস যাচাই করা যায়নি, তাই শুধু নিশ্চিত তথ্য দেখানো হচ্ছে।"
       },
@@ -574,6 +620,63 @@
         "partial": "সব ঠিক আছে ধরে নেওয়ার আগে সম্পূর্ণ Inbox ও Orders তালিকা দেখুন।"
       },
       "staleWarning": "তথ্য পুরোনো হতে পারে — শেষ রিফ্রেশ স্বাভাবিকের চেয়ে বেশি আগে হয়েছে।",
+      "commerceSignals": {
+        "charges": "আজকের রেকর্ডকৃত ডেলিভারি চার্জ",
+        "dayCount": "{{day}} UTC · {{displayCount}}টি অর্ডার",
+        "dayCount_one": "{{day}} UTC · {{displayCount}}টি অর্ডার",
+        "dayCount_other": "{{day}} UTC · {{displayCount}}টি অর্ডার",
+        "chargeNote": "UTC দিনের গ্রস লেজার এন্ট্রি — ইনভয়েস বা আদায়কৃত নয়।",
+        "unavailable": "পাওয়া যায়নি",
+        "activity": "সাম্প্রতিক কার্যক্রম",
+        "activityUnavailable": "কার্যক্রম পাওয়া যায়নি। আবার রিফ্রেশ করুন।",
+        "activityEmpty": "এখনও কোনো প্রাসঙ্গিক অডিট কার্যক্রম নেই।",
+        "activityNote": "সর্বশেষ ছয়টি রেকর্ডকৃত কার্যক্রম · ঢাকা সময়।",
+        "actions": {
+          "CREATE": "তৈরি হয়েছে",
+          "UPDATE": "আপডেট হয়েছে",
+          "DELETE": "মুছে ফেলা হয়েছে",
+          "ORDER_CREATED": "অর্ডার তৈরি হয়েছে",
+          "ORDER_CONFIRMED": "অর্ডার কনফার্ম হয়েছে",
+          "ORDER_CANCELLED": "অর্ডার বাতিল হয়েছে",
+          "COURIER_BOOKED": "কুরিয়ার বুকিং দেওয়া হয়েছে",
+          "COURIER_BOOKING_AUTHORIZED": "কুরিয়ার বুকিং অনুমোদন করা হয়েছে",
+          "ORDER_CONFIDENCE_EVALUATED": "অর্ডারের কনফিডেন্স যাচাই হয়েছে",
+          "ORDER_CONFIDENCE_CHANGED": "অর্ডারের কনফিডেন্স আপডেট হয়েছে",
+          "ORDER_CONFIDENCE_APPROVED": "ঝুঁকিপূর্ণ অর্ডার অনুমোদিত হয়েছে",
+          "ORDER_CONFIDENCE_VERIFIED": "ঝুঁকিপূর্ণ অর্ডার যাচাই হয়েছে",
+          "INBOX_MESSAGE_SENT": "রিপ্লাই পাঠানো হয়েছে",
+          "PRODUCT_STOCK_UPDATED": "পণ্যের স্টক আপডেট হয়েছে",
+          "PRODUCT_DRAFT_CREATED": "পণ্যের ড্রাফট তৈরি হয়েছে",
+          "CONVERSATION_OWNERSHIP_UPDATE": "কথোপকথনের দায়িত্ব বদলানো হয়েছে",
+          "ai_draft_approved": "AI খসড়া অনুমোদন করা হয়েছে",
+          "ai_draft_dismissed": "AI খসড়া বাদ দেওয়া হয়েছে",
+          "CHANNEL_AUTOMATION_OVERRIDE_CHANGED": "চ্যানেলের অটোমেশন ওভাররাইড বদলানো হয়েছে",
+          "AI_REPLY_MODE_CHANGED": "AI রিপ্লাই মোড বদলানো হয়েছে",
+          "AI_EMERGENCY_STOP_ENGAGED": "ইমার্জেন্সি স্টপ চালু করা হয়েছে",
+          "AI_EMERGENCY_STOP_RESUMED": "ইমার্জেন্সি স্টপ তুলে নেওয়া হয়েছে",
+          "SHOP_MEMBERSHIP_GRANTED": "টিমে নতুন সদস্য যোগ হয়েছে",
+          "SHOP_MEMBERSHIP_REVOKED": "টিম থেকে সদস্য সরানো হয়েছে",
+          "SHOP_MEMBERSHIP_ROLE_CHANGED": "টিম সদস্যের রোল বদলানো হয়েছে",
+          "OPPORTUNITY_DISMISSED": "কাস্টমার সুযোগ বাদ দেওয়া হয়েছে"
+        },
+        "resources": {
+          "order": "অর্ডার",
+          "product": "পণ্য",
+          "conversation": "কথোপকথন",
+          "conversation_message": "কথোপকথনের মেসেজ",
+          "conversation_ownership": "কথোপকথনের দায়িত্ব",
+          "customer": "কাস্টমার",
+          "shop": "দোকান",
+          "user_shop": "টিমের সদস্য",
+          "meta_channel": "মেটা চ্যানেল",
+          "meta_channel_settings": "চ্যানেল সেটিংস",
+          "shop_settings": "দোকানের সেটিংস",
+          "customer_opportunity": "কাস্টমার সুযোগ"
+        },
+        "chargesTooltip": "আজ রেকর্ড হওয়া রিটার্ন ও বাতিল এই মোট কমায়। ক্রেডিট ইনভয়েসের সময় প্রয়োগ হয়।",
+        "activitySystem": "সিস্টেম",
+        "viewAll": "সব কার্যক্রম দেখুন"
+      },
       "queueChips": {
         "note": "সংখ্যাগুলো মোট হিসাব, যাচাই করা কাজ নয়।",
         "unavailable": "পাওয়া যাচ্ছে না"
@@ -749,6 +852,37 @@
       },
       "error": "Dashboard লোড করতে সমস্যা হয়েছে",
       "noMetrics": "ব্যাকএন্ড থেকে Dashboard মেট্রিক্স পাওয়া যায়নি।"
+    },
+    "businessHealth": {
+      "title": "ব্যবসার স্বাস্থ্য",
+      "stockExceptions": "স্টকে অস্বাভাবিকতা",
+      "outOfStock": "স্টক শেষ",
+      "lowStock": "স্টক কম",
+      "deliveryExceptions": "ডেলিভারিতে অস্বাভাবিকতা",
+      "cashInTransit": "ট্রানজিটে থাকা টাকা",
+      "cashAtRisk": "ঝুঁকিপূর্ণ টাকা",
+      "channelReadiness": "চ্যানেল প্রস্তুতি",
+      "courierReadiness": "কুরিয়ার প্রস্তুতি",
+      "unavailable": "তথ্য পাওয়া যায়নি",
+      "viewProducts": "পণ্য দেখুন",
+      "viewOrders": "অর্ডার দেখুন"
+    },
+    "connections": {
+      "title": "সংযোগ",
+      "metaRow": "মেটা চ্যানেল",
+      "courierRow": "কুরিয়ার",
+      "connectedVerified": "সংযুক্ত · যাচাইকৃত",
+      "connectedUnverified": "সংযুক্ত · যাচাই হয়নি",
+      "reconnectRequired": "পুনরায় সংযোগ দরকার",
+      "disconnected": "সংযোগ বিচ্ছিন্ন",
+      "unavailable": "অবস্থা পাওয়া যায়নি",
+      "ready": "প্রস্তুত",
+      "connectedNotActive": "সংযুক্ত · নিষ্ক্রিয়",
+      "setupIncomplete": "সেটআপ অসম্পূর্ণ",
+      "notSetUp": "সেটআপ করা নেই",
+      "reconnect": "পুনরায় সংযোগ",
+      "missingCount": "{{count}}টি ধাপ বাকি",
+      "reconnectFailed": "পুনরায় সংযোগ শুরু করা যায়নি। সংযোগ না করা পর্যন্ত চ্যানেলটি বিচ্ছিন্নই থাকবে — আবার চেষ্টা করুন, অথবা চ্যানেল সেটিংস থেকে সংযোগ করুন।"
     }
   },
   "shell": {
@@ -1388,7 +1522,15 @@
     },
     "manageCategories": "ক্যাটাগরি পরিচালনা করুন",
     "noLowStockMatches": "কোনো স্টক-ট্র্যাক করা পণ্যের পরিমাণ নির্ধারিত সীমায় বা তার নিচে নেই।",
-    "clearLowStockFilter": "সব পণ্য দেখুন"
+    "clearLowStockFilter": "সব পণ্য দেখুন",
+    "stockFilter": {
+      "exceptions": "স্টকে অস্বাভাবিকতা",
+      "low": "স্টক কম",
+      "out": "স্টক শেষ",
+      "exceptionsAria": "শুধু যেসব পণ্যের স্টক শেষ বা কম দেখান",
+      "lowAria": "শুধু কম স্টকের পণ্য দেখান",
+      "clear": "সব স্টক দেখান"
+    }
   },
   "categories": {
     "title": "ক্যাটাগরি",
