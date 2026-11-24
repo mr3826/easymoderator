@@ -461,7 +461,7 @@
         "draftDetail": "Draft order for {{customer}}",
         "reviewDraft": "Review draft",
         "openOrders": "Open orders",
-        "moreInGroup": "{{count}} more in this group",
+        "moreInGroup": "{{displayCount}} more in this group",
         "openNextConversation": "Open next conversation",
         "reviewNextOrder": "Review next order",
         "sourcesUnavailable": "Some task lists are unavailable. Retry to check what still needs attention.",

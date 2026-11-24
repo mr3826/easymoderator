@@ -32,7 +32,7 @@ import { EmButton } from "./dashboard/EmButton";
 import { EvidenceFooter } from "./dashboard/EvidenceFooter";
 import { OverviewCards } from "./dashboard/OverviewCards";
 import { PageHeader } from "./dashboard/PageHeader";
-import { QueueSignalChips } from "./dashboard/QueueSignalChips";
+import { QueueSignalChips, formatAccountingDay } from "./dashboard/QueueSignalChips";
 import { RecentOrders } from "./dashboard/RecentOrders";
 import { RecentActivity } from "./dashboard/RecentActivity";
 import { ResultBanner } from "./dashboard/ResultBanner";
@@ -85,6 +85,9 @@ export default function Dashboard() {
       maximumFractionDigits: 0,
     }).format(Number.isFinite(value) ? value : 0), [locale]);
   const formatCount = useCallback((value: number) => new Intl.NumberFormat(locale).format(value), [locale]);
+  // A8 round-3 (MINOR-2): the charges card's UTC accounting day reaches the
+  // chip through the same locale-bound Intl pattern as the counts/money.
+  const formatDay = useCallback((dayUtc: string) => formatAccountingDay(dayUtc, locale), [locale]);
 
   const dismissSetupCompletion = () => {
     if (typeof window !== 'undefined') {
@@ -259,12 +262,13 @@ export default function Dashboard() {
                 readyToDispatch={pulseData.readyToDispatchCount}
                 billing={pulseData.commerceSignals?.deliveredCharges ?? null}
                 formatCount={formatCount}
+                formatDay={formatDay}
                 formatMoney={(amount) => new Intl.NumberFormat(locale, { style: 'currency', currency: 'BDT', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}
               />
             </motion.div>
 
             <motion.div variants={fadeUp} className="grid grid-cols-1 items-start gap-x-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-              <AttentionQueue groups={workGroups} hasAllWorkSources={coverageComplete} caughtUp={caughtUp} />
+              <AttentionQueue groups={workGroups} hasAllWorkSources={coverageComplete} caughtUp={caughtUp} formatCount={formatCount} />
               <RecentActivity activity={pulseData.commerceSignals?.recentActivity ?? null} locale={locale} />
             </motion.div>
 

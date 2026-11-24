@@ -461,7 +461,7 @@
         "draftDetail": "{{customer}}-এর ড্রাফট অর্ডার",
         "reviewDraft": "ড্রাফট যাচাই করুন",
         "openOrders": "Orders খুলুন",
-        "moreInGroup": "এই তালিকায় আরও {{count}}টি",
+        "moreInGroup": "এই তালিকায় আরও {{displayCount}}টি",
         "openNextConversation": "পরের কথোপকথন খুলুন",
         "reviewNextOrder": "পরের অর্ডার যাচাই করুন",
         "sourcesUnavailable": "কিছু কাজের তালিকা পাওয়া যায়নি। কী বাকি আছে দেখতে আবার চেষ্টা করুন।",

@@ -312,6 +312,34 @@ describe("exception rows are PII-free (D3)", () => {
     expect(exceptions?.items[0].id).toBe("exception-new");
     expect(exceptions?.items[0].sortAt).toBeGreaterThan(0);
   });
+
+  // A8 round-3 (INFO): exception rows rendered the raw server enum
+  // ("confirmed") inside an otherwise-Bangla UI. Known statuses now localize
+  // through the existing dashboard.pulse.status.* vocabulary (the one the
+  // RecentOrders pills use); unknown values pass through raw — the row never
+  // hides or invents a state the projection carries.
+  it("localizes known status enums through dashboard.pulse.status.*", () => {
+    const pulse = basePulse({
+      atRiskOrders: [atRiskOrder("e1", { status: "confirmed", tracking_id: null })],
+    });
+    const exception = buildWorkItems(pulse, t).find((item) => item.kind === "exception");
+    expect(exception?.detail).toBe("dashboard.pulse.status.confirmed");
+    expect(exception?.detail).not.toBe("confirmed");
+  });
+
+  it("keeps tracking id joined after the localized status", () => {
+    const pulse = basePulse({ atRiskOrders: [atRiskOrder("e1", { status: "returned" })] });
+    const exception = buildWorkItems(pulse, t).find((item) => item.kind === "exception");
+    expect(exception?.detail).toBe("dashboard.pulse.status.returned · TRK-e1");
+  });
+
+  it("passes an unknown server status through raw, unchanged", () => {
+    const pulse = basePulse({
+      atRiskOrders: [atRiskOrder("e2", { status: "weird_state", tracking_id: "TRK-9" })],
+    });
+    const exception = buildWorkItems(pulse, t).find((item) => item.kind === "exception");
+    expect(exception?.detail).toBe("weird_state · TRK-9");
+  });
 });
 
 describe("en/bn parity for every redesign key", () => {
@@ -327,6 +355,11 @@ describe("en/bn parity for every redesign key", () => {
     "dashboard.pulse.staleWarning",
     "dashboard.pulse.queueChips.note",
     "dashboard.pulse.queueChips.unavailable",
+    // A8 round-3 (INFO): the exception-row status vocabulary must exist in
+    // both locales — derive renders known server enums through these keys.
+    ...["confirmed", "cancelled", "processing", "draft", "delivered", "returned", "finalized", "completed", "pending", "failed"].map(
+      (k) => `dashboard.pulse.status.${k}`,
+    ),
     // Phase-1 D4–D8 dashboard surfaces (doc 04 §6 inventory).
     ...["charges", "chargeNote", "chargesTooltip", "activitySystem", "viewAll", "dayCount"].map(
       (k) => `dashboard.pulse.commerceSignals.${k}`,

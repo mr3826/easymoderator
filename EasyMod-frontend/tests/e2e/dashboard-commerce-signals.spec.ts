@@ -305,7 +305,9 @@ test('hero exceptions number == Orders badge count (12) over a capped 10-row sam
 });
 
 test('D5 bn: charges copy + amount render in Bangla (Intl at runtime, no literal digits)', async ({ page }) => {
-    await setupRoutes(page);
+    // A8 round-3: 3 exception sample rows → the AttentionQueue group note has
+    // hidden work to count, so its bn digits get pinned here too.
+    await setupRoutes(page, { exceptionSampleRows: 3 });
     await loginAndDashboard(page);
     await page.locator('header .mw-language-toggle').click();
     await page.reload();
@@ -321,6 +323,12 @@ test('D5 bn: charges copy + amount render in Bangla (Intl at runtime, no literal
     expect(text).toContain('৪টি অর্ডার');
     expect(text).not.toMatch(/· 4 অর্ডার/);
 
+    // A8 round-3 (MINOR-2): the UTC accounting DAY is Bangla too — no Latin
+    // digit survives anywhere in the card in bn, and the explicit UTC label
+    // stays (accounting-day semantics unchanged).
+    expect(text).toContain('UTC');
+    expect(text).not.toMatch(/[0-9]/);
+
     // Hero sentence: every interpolated count is Bangla and the draft label
     // is translated (no English word inside Bangla).
     const hero = dash(page).locator('p').filter({ hasText: 'যাচাই করা কাজ অপেক্ষায়' });
@@ -330,6 +338,15 @@ test('D5 bn: charges copy + amount render in Bangla (Intl at runtime, no literal
     expect(heroText).toContain('ড্রাফট অর্ডার');
     expect(heroText).not.toMatch(/Draft/);
     expect(heroText).not.toMatch(/[0-9]/);
+
+    // A8 round-2 (MINOR-1): the hidden-count note interpolates displayCount —
+    // "1 more in this group" reads ১টি in bn, never a raw Latin digit.
+    await expect(dash(page).getByText('এই তালিকায় আরও ১টি')).toBeVisible();
+
+    // A8 round-3 (INFO): exception rows localize the order-status enum through
+    // the shared dashboard.pulse.status vocabulary — no raw "returned".
+    await expect(dash(page).getByText('ফেরত এসেছে').first()).toBeVisible();
+    await expect(dash(page).getByText('returned', { exact: true })).toHaveCount(0);
 });
 
 test('needs_reply honesty on the reply card: exact, N+ lower bound, 99+ cap, Unavailable — never 0', async ({ page }) => {

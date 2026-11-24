@@ -10,7 +10,7 @@ import "@testing-library/jest-dom";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { QueueSignalChips, needsReplyDisplay } from "../QueueSignalChips";
+import { QueueSignalChips, formatAccountingDay, needsReplyDisplay } from "../QueueSignalChips";
 import type { NeedsReplyCount } from "@/api/types/dashboard";
 
 const { tMock } = vi.hoisted(() => ({
@@ -126,5 +126,33 @@ describe("QueueSignalChips", () => {
     renderChips({ needsReply: reply({ count: 3 }), pendingPayment: 0, readyToDispatch: 0 });
     expect(screen.queryByText("dashboard.pulse.overview.ordersToday")).not.toBeInTheDocument();
     expect(screen.queryByText("dashboard.pulse.attention.ordersToday")).not.toBeInTheDocument();
+  });
+
+  it("routes the accounting day through formatDay before interpolating dayCount", () => {
+    render(
+      <MemoryRouter>
+        <QueueSignalChips needsReply={reply({ count: 0 })} pendingPayment={0} readyToDispatch={0}
+          billing={{ dayUtc: "2026-11-24", count: 4, amountMinor: 1200 }}
+          formatCount={(n) => `X${n}`} formatDay={(d) => `D(${d})`} formatMoney={() => "x"} />
+      </MemoryRouter>,
+    );
+    // day slot receives the FORMATTED day; plural count stays the raw number.
+    expect(screen.getByText(/commerceSignals\.dayCount D\(2026-11-24\) 4 X4$/)).toBeInTheDocument();
+  });
+});
+
+// A8 round-3 (MINOR-2): the UTC accounting day must not leak Latin digits in
+// bn; EN keeps the ISO-ish server value and the "UTC" label is locale-side.
+describe("formatAccountingDay", () => {
+  it("bn renders the same UTC day with Bangla digits — no Latin digit survives", () => {
+    const out = formatAccountingDay("2026-11-24", "bn-BD");
+    expect(out).not.toMatch(/[0-9]/);
+    expect(out).toContain("২০২৬");
+  });
+  it("en keeps the ISO-ish server value untouched", () => {
+    expect(formatAccountingDay("2026-11-24", "en-BD")).toBe("2026-11-24");
+  });
+  it("an unparseable day passes through unchanged (never invents a date)", () => {
+    expect(formatAccountingDay("not-a-day", "bn-BD")).toBe("not-a-day");
   });
 });

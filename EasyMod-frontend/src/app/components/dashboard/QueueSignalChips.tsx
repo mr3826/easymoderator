@@ -23,6 +23,29 @@ interface QueueSignalChipsProps {
   billing?: DashboardCommerceSignals['deliveredCharges'];
   formatCount?: (n: number) => string;
   formatMoney?: (n: number) => string;
+  /** A8 round-3 (MINOR-2): locale-formatted accounting day (default keeps the raw ISO day). */
+  formatDay?: (dayUtc: string) => string;
+}
+
+/**
+ * A8 round-3 (MINOR-2): the charges card's accounting-day chip carried the
+ * raw `dayUtc` string, so a Bangla locale still saw "2026-11-24" — Latin
+ * digits. Format the SAME UTC day through Intl for bn (Bangla day/month/
+ * year), while EN keeps the ISO-ish server value (dayUtc is already
+ * YYYY-MM-DD). The explicit "UTC" label lives in the locale string, so the
+ * accounting-day semantics are unchanged — nothing here switches to local
+ * calendar days.
+ */
+export function formatAccountingDay(dayUtc: string, locale: string): string {
+  if (!locale.toLowerCase().startsWith("bn")) return dayUtc;
+  const date = new Date(`${dayUtc}T00:00:00.000Z`);
+  if (!Number.isFinite(date.getTime())) return dayUtc;
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 /**
@@ -43,7 +66,7 @@ export function needsReplyDisplay(
   return capped ? `${DISPLAY_CAP}+` : `${formatCount(needsReply.count)}+`;
 }
 
-export function QueueSignalChips({ needsReply, pendingPayment, readyToDispatch, billing, formatCount = String, formatMoney = String }: QueueSignalChipsProps) {
+export function QueueSignalChips({ needsReply, pendingPayment, readyToDispatch, billing, formatCount = String, formatMoney = String, formatDay = (dayUtc: string) => dayUtc }: QueueSignalChipsProps) {
   const { t } = useTranslation();
   const unavailable = t("dashboard.pulse.queueChips.unavailable");
   const chips = [
@@ -85,8 +108,10 @@ export function QueueSignalChips({ needsReply, pendingPayment, readyToDispatch, 
                 dayCount_one/_other plural form ("1 order" / "4 orders"), while
                 `displayCount` carries the locale-formatted (Bangla) digits the
                 string interpolates — plural grammar and digits-correct render
-                together (doc 04 §6; founder numerals rule). */}
-            {billing !== null && <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.dayCount", { day: billing.dayUtc, count: billing.count, displayCount: formatCount(billing.count) })}</span>}
+                together (doc 04 §6; founder numerals rule). A8 round-3
+                (MINOR-2): `day` likewise arrives pre-formatted — same UTC
+                day, Bangla digits in bn, ISO kept in en. */}
+            {billing !== null && <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.dayCount", { day: formatDay(billing.dayUtc), count: billing.count, displayCount: formatCount(billing.count) })}</span>}
             <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.chargeNote")}</span>
           </Link>
         )}

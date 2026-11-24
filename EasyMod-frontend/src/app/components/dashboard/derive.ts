@@ -29,6 +29,18 @@ export const validDate = (value: string | null | undefined) => {
 export const orderLabel = (order: { orderNumber?: string | null; id: string }) =>
   order.orderNumber || order.id.slice(0, 8);
 
+/**
+ * A8 round-3 (INFO): exception rows showed the raw server enum ("confirmed")
+ * inside an otherwise-Bangla UI. The order-status vocabulary already exists
+ * (`dashboard.pulse.status.*`, shared with the RecentOrders status pills) —
+ * known statuses render through it; an unknown server value passes through
+ * unchanged so the row never hides or invents data the projection carries.
+ */
+const LOCALIZED_ORDER_STATUSES = new Set([
+  "confirmed", "cancelled", "processing", "draft", "delivered", "returned",
+  "finalized", "completed", "pending", "failed",
+]);
+
 export function buildWorkItems(pulse: PulseData, t: Translate): WorkItem[] {
   const workItems: WorkItem[] = [];
   for (const conversation of pulse.replyTasks ?? []) {
@@ -67,13 +79,16 @@ export function buildWorkItems(pulse: PulseData, t: Translate): WorkItem[] {
   }
   for (const order of pulse.atRiskOrders ?? []) {
     const status = String(order.status || "").toLowerCase();
+    const statusText = status && LOCALIZED_ORDER_STATUSES.has(status)
+      ? t(`dashboard.pulse.status.${status}`)
+      : status;
     workItems.push({
       id: `exception-${order.id}`,
       kind: "exception",
       // D3: PII-free projection — the row is identified by the human order
       // number (id fallback), never by customer_name/customer_phone.
       title: orderLabel(order),
-      detail: [status, order.tracking_id].filter(Boolean).join(" · ") || t("dashboard.pulse.status.unknown"),
+      detail: [statusText, order.tracking_id].filter(Boolean).join(" · ") || t("dashboard.pulse.status.unknown"),
       to: `/orders?orderId=${encodeURIComponent(order.id)}`,
       sortAt: validDate(order.updatedAt)?.getTime() ?? 0,
       icon: AlertTriangle,
