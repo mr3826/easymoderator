@@ -1,6 +1,7 @@
 'use strict';
 
 const ShopPickupLocation = require('./shop-pickup-location.entity');
+const DeliveryIntegration = require('./delivery-integration.entity');
 const { sequelize } = require('../../utils/database/database-setup');
 const { AppError } = require('../../utils/AppError');
 const { PROVIDER_NAMES = [] } = require('./providers/provider.registry');
@@ -261,11 +262,89 @@ const updatePickupLocation = async (shopId, locationId, input) => {
     });
 };
 
-const deletePickupLocation = async (shopId, locationId) => {
+/**
+ * Safe pickup location deletion.
+ *
+ * A location is refused (409, confirm-required payload) while it is either
+ *   - the shop default, or
+ *   - the selected pickup of a connected courier integration, directly by
+ *     pickup_location_id or through the provider store row it links to.
+ *
+ * Orders and dispatches are never cascaded: courier_dispatch rows and order
+ * delivery snapshots keep their own data regardless of this row. Deleting an
+ * in-use row (only after confirm=true) leaves the integration column linked
+ * to NULL (FK SET NULL) so order/dispatch history remains intact.
+ */
+const deletePickupLocation = async (shopId, locationId, { confirm = false } = {}) => {
     if (!shopId || !locationId) throw new AppError('Shop ID and pickup location ID are required', 400, 'VALIDATION_ERROR');
-    const deleted = await ShopPickupLocation.destroy({ where: { id: locationId, shop_id: shopId } });
-    if (!deleted) throw new AppError('Pickup location not found', 404, 'PICKUP_LOCATION_NOT_FOUND');
-    return { id: locationId, deleted: true };
+
+    return sequelize.transaction(async (transaction) => {
+        const location = await ShopPickupLocation.findOne({
+            where: { id: locationId, shop_id: shopId },
+            transaction,
+            lock: transaction.LOCK?.UPDATE,
+        });
+        if (!location) throw new AppError('Pickup location not found', 404, 'PICKUP_LOCATION_NOT_FOUND');
+
+        const source = toDataValues(location);
+        const blockers = [];
+        if (source.is_default === true) {
+            blockers.push({
+                code: 'IS_SHOP_DEFAULT',
+                message: 'This is the shop default pickup location. Choose another default first.',
+            });
+        }
+
+        const referencedProviders = [];
+        if (DeliveryIntegration && typeof DeliveryIntegration.findAll === 'function') {
+            const integrations = await DeliveryIntegration.findAll({
+                where: { shop_id: shopId },
+                transaction,
+            });
+            const providerStoreId = source.provider_store_id ?? null;
+            const provider = source.provider ?? 'manual';
+            for (const integration of integrations) {
+                const values = toDataValues(integration);
+                const selectedByLocation = String(values.pickup_location_id ?? '') === String(locationId);
+                const selectedByStore = providerStoreId !== null
+                    && providerStoreId !== undefined
+                    && String(providerStoreId) !== ''
+                    && values.pickup_enabled === true
+                    && values.provider === provider
+                    && String(values.provider_store_id ?? values.pickup_store_id ?? '') === String(providerStoreId);
+                if ((selectedByLocation || selectedByStore) && values.provider) {
+                    referencedProviders.push(values.provider);
+                }
+            }
+        }
+        if (referencedProviders.length > 0) {
+            blockers.push({
+                code: 'IN_USE',
+                message: 'This pickup location is the selected pickup for a courier integration.',
+                providers: Array.from(new Set(referencedProviders)),
+            });
+        }
+
+        if (blockers.length > 0 && confirm !== true) {
+            throw new AppError(
+                'Pickup location is in use. Confirm the deletion to continue.',
+                409,
+                'PICKUP_LOCATION_DELETE_CONFIRMATION_REQUIRED',
+                {
+                    location_id: locationId,
+                    requires_confirmation: true,
+                    blockers,
+                },
+            );
+        }
+
+        await location.destroy({ transaction });
+        return {
+            id: locationId,
+            deleted: true,
+            released_providers: Array.from(new Set(referencedProviders)),
+        };
+    });
 };
 
 const syncProviderStores = async (shopId, provider, stores) => {

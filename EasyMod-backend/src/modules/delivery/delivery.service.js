@@ -6,6 +6,7 @@ const courierReadinessService = require('./courier-readiness.service');
 const { AppError } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
 const EventEmitter = require('events');
+const crypto = require('crypto');
 
 const safeProviderErrorCode = (error) => {
     const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
@@ -52,6 +53,158 @@ const providerStoreMatchesPickup = (store, location, providerMeta) => {
     const actualName = normalizedPickupValue(store?.store_name || store?.name || store?.storeName);
     return Boolean(expectedName && actualName && expectedName === actualName);
 };
+
+const firstPresent = (source, keys) => {
+    for (const key of keys) {
+        const value = source?.[key];
+        if (value !== undefined && value !== null && value !== '') return value;
+    }
+    return null;
+};
+
+const asStoreText = (value) => (
+    typeof value === 'string' || typeof value === 'number' ? String(value).trim() : null
+);
+
+const asStoreId = (value) => {
+    const text = asStoreText(value);
+    if (text === null || text === '') return null;
+    const numeric = Number(text);
+    return Number.isInteger(numeric) && numeric >= 0 ? numeric : text;
+};
+
+const nestedId = (source, group) => (
+    isPlainObject(source?.[group]) ? source[group].id ?? null : null
+);
+
+/**
+ * Canonicalize one provider pickup-store record to the shape the Delivery
+ * Settings UI links on: { store_id, id, name, address, phone, city_id,
+ * zone_id, area_id }. RedX's /pickup/stores envelope has never been
+ * confirmed against a live account (IMPLEMENTED_NOT_LIVE_VERIFIED), so the
+ * accepted field spellings are deliberately best-effort — but a record
+ * without any id-shaped field is dropped rather than guessed.
+ */
+const canonicalPickupStore = (store) => {
+    if (!isPlainObject(store)) return null;
+    const rawId = firstPresent(store, ['store_id', 'storeId', 'id', 'pickup_store_id', 'store_code']);
+    if (rawId === null) return null;
+    const storeId = String(rawId).trim();
+    return {
+        store_id: storeId,
+        id: storeId,
+        name: asStoreText(firstPresent(store, ['name', 'store_name', 'storeName', 'title'])) ?? null,
+        address: asStoreText(firstPresent(store, ['address', 'store_address', 'addr', 'line1', 'line_1'])) ?? null,
+        phone: asStoreText(firstPresent(store, ['phone', 'contact_phone', 'contact_number'])) ?? null,
+        city_id: asStoreId(firstPresent(store, ['city_id', 'cityId']) ?? nestedId(store, 'city')),
+        zone_id: asStoreId(firstPresent(store, ['zone_id', 'zoneId']) ?? nestedId(store, 'zone')),
+        area_id: asStoreId(firstPresent(store, ['area_id', 'areaId', 'delivery_area_id']) ?? nestedId(store, 'area')),
+    };
+};
+
+/**
+ * Tolerate the envelopes the adapters can return — raw array, {stores},
+ * {data:{stores}}, {data:[...]} — and map each record to the canonical
+ * shape. An envelope that cannot be understood yields [] (never a guess).
+ */
+const normalizeProviderStoreList = (raw) => {
+    let list = null;
+    if (Array.isArray(raw)) list = raw;
+    else if (isPlainObject(raw)) {
+        if (Array.isArray(raw.stores)) list = raw.stores;
+        else if (isPlainObject(raw.data) && Array.isArray(raw.data.stores)) list = raw.data.stores;
+        else if (Array.isArray(raw.data)) list = raw.data;
+    }
+    if (!Array.isArray(list)) return [];
+    return list.map((store) => canonicalPickupStore(store)).filter(Boolean);
+};
+
+/** Walk the common provider create-store envelopes for the first record with an id. */
+const firstCanonicalStoreFrom = (candidates) => {
+    for (const candidate of candidates) {
+        const canonical = canonicalPickupStore(candidate);
+        if (canonical) return canonical;
+    }
+    return null;
+};
+
+const PICKUP_MUTATION_LOCK_TTL_MS = 30 * 1000;
+const activePickupMutations = new Map();
+
+const pickupMutationLockKey = (shopId, provider) => `delivery:pickup-mutation:${shopId}:${provider}`;
+
+const redisLockClient = () => {
+    try {
+        // Lazy require keeps the module graph (and unit tests without Redis
+        // mocks) unchanged; the config module itself never connects at import.
+        const { cacheRedis } = require('../../config/redis');
+        if (!cacheRedis || typeof cacheRedis.set !== 'function') return null;
+        // The in-memory fallback is single-process: it cannot provide
+        // cross-worker exclusion, so skip it and use the in-process guard.
+        if (cacheRedis._isMemoryFallback === true) return null;
+        if (cacheRedis.status !== undefined && cacheRedis.status !== 'ready') return null;
+        return cacheRedis;
+    } catch (_) {
+        return null;
+    }
+};
+
+/**
+ * Short-lived guard for pickup mutations that touch provider state (store
+ * re-resolution and merchant-confirmed store creation). Duplicate submissions
+ * from the same worker are rejected outright; with Redis available the lock
+ * spans workers too. A Redis outage must not brick pickup setup — the
+ * in-process guard still holds, and the TTL is the recovery boundary.
+ */
+const acquirePickupMutationLock = async (shopId, provider) => {
+    const key = pickupMutationLockKey(shopId, provider);
+    const token = crypto.randomUUID();
+    const now = Date.now();
+    const held = activePickupMutations.get(key);
+    if (held && held.expiresAt > now) return null;
+
+    const client = redisLockClient();
+    if (client) {
+        try {
+            const acquired = await client.set(key, token, 'EX', Math.ceil(PICKUP_MUTATION_LOCK_TTL_MS / 1000), 'NX');
+            if (acquired !== 'OK' && acquired !== true && acquired !== 1) return null;
+        } catch (_) {
+            // Fall through to the in-process guard below.
+        }
+    }
+    activePickupMutations.set(key, { token, expiresAt: now + PICKUP_MUTATION_LOCK_TTL_MS });
+    return { key, token, redis: Boolean(client) };
+};
+
+const releasePickupMutationLock = async (lock) => {
+    if (!lock) return;
+    const held = activePickupMutations.get(lock.key);
+    if (held && held.token === lock.token) activePickupMutations.delete(lock.key);
+    if (!lock.redis) return;
+    try {
+        const client = redisLockClient();
+        if (!client) return;
+        if (typeof client.eval === 'function') {
+            await client.eval(`
+                if redis.call("get", KEYS[1]) == ARGV[1] then
+                    return redis.call("del", KEYS[1])
+                else
+                    return 0
+                end`, 1, lock.key, lock.token);
+        } else if (typeof client.get === 'function' && typeof client.del === 'function') {
+            if (await client.get(lock.key) === lock.token) await client.del(lock.key);
+        }
+    } catch (_) {
+        // The short TTL remains the recovery boundary if release fails.
+    }
+};
+
+const pickupMutationInProgressError = (provider) => new AppError(
+    'Another pickup change for this courier is still in progress. Please retry.',
+    409,
+    'DELIVERY_MUTATION_IN_PROGRESS',
+    { provider },
+);
 
 const hasAiDefaultFlag = (integration) => {
     const hasDatabaseFlag = integration
@@ -464,11 +617,16 @@ class DeliveryService extends EventEmitter {
             ?? providerPickupMeta.provider_store_id
             ?? null;
         const existingMetadata = integrationMetadata(integration);
-        const fallbackStoreId = requestedStoreId
+        // An explicit store id for this request wins; otherwise the merchant's
+        // previously selected mapping is preserved. There is deliberately NO
+        // first-cached-store auto-pick — a store is linked only when it was
+        // selected explicitly or resolved as the single geographic match by
+        // syncProviderPickup.
+        const storeId = requestedStoreId
             ?? existingMetadata.store_id
-            ?? existingMetadata.stores?.[0]?.store_id
+            ?? existingMetadata.provider_store_id
+            ?? existingMetadata.pickup_store_id
             ?? null;
-        const storeId = fallbackStoreId;
         const enabled = input.enabled ?? input.pickup_enabled ?? true;
         if (typeof enabled !== 'boolean') throw new AppError('enabled must be a boolean', 400, 'VALIDATION_ERROR');
 
@@ -476,6 +634,18 @@ class DeliveryService extends EventEmitter {
         if (locationId) location = await pickupLocationService.getPickupLocation(shopId, locationId);
         if (location && location.provider !== 'manual' && location.provider !== provider) {
             throw new AppError('Pickup location belongs to another provider', 400, 'PICKUP_LOCATION_PROVIDER_MISMATCH');
+        }
+
+        // Enabling pickup must be backed by a concrete shop-scoped source:
+        // the selected pickup location or a provider store id. This closes
+        // the "enabled with nothing configured" dishonest-state path.
+        if (enabled && !locationId && (storeId === null || storeId === undefined)) {
+            throw new AppError(
+                'Pickup can only be enabled with a pickup location or a provider store selected',
+                409,
+                'DELIVERY_PICKUP_SOURCE_REQUIRED',
+                { provider, missing: ['pickup_location', 'provider_store'] },
+            );
         }
 
         const metadata = {
@@ -514,7 +684,11 @@ class DeliveryService extends EventEmitter {
         };
     }
 
-    /** Compatibility name used by the provider-specific pickup setup route. */
+    /**
+     * Resolve/re-resolve the provider pickup store for the selected pickup
+     * (POST /:provider/pickup/sync). Reads are safe; this never creates an
+     * external store and never guesses among multiple matches.
+     */
     async syncProviderPickup(shopId, provider, input = {}) {
         const locationId = input.pickup_location_id
             ?? input.location_id
@@ -535,9 +709,14 @@ class DeliveryService extends EventEmitter {
             ...safeProviderPickupMetadata(existingMetadata.provider_pickup_meta),
             ...inputProviderMeta,
         };
-        let storeId = input.store_id
+        // Ids that were explicitly chosen in THIS request. Anything else is a
+        // previously persisted mapping, which geographic re-resolution may
+        // reuse but never guesses over.
+        const requestStoreId = input.store_id
             ?? input.storeId
             ?? input.provider_store_id
+            ?? null;
+        let storeId = requestStoreId
             ?? inputProviderMeta.pickup_store_id
             ?? inputProviderMeta.provider_store_id
             ?? location?.provider_store_id
@@ -549,44 +728,69 @@ class DeliveryService extends EventEmitter {
                 ?? existingMetadata.store_id
             ) : null)
             ?? null;
+        let storeResolution = 'UNRESOLVED';
+        if (requestStoreId !== null && requestStoreId !== undefined) {
+            storeResolution = 'LINKED';
+        } else if (storeId !== null && storeId !== undefined) {
+            storeResolution = 'PRESERVED';
+        }
 
-        if (!storeId && (provider === 'pathao' || provider === 'redx') && location) {
-            const instance = await this.getConnectedProviderInstance(shopId, provider);
-            const storePayload = {
-                name: location.display_name,
-                store_name: location.display_name,
-                contact_name: location.contact_name,
-                phone: location.phone,
-                address: location.address,
-                city_id: providerPickupMeta.city_id ?? location.city_id,
-                zone_id: providerPickupMeta.zone_id ?? location.zone_id,
-                area_id: providerPickupMeta.area_id ?? providerPickupMeta.delivery_area_id ?? location.area_id,
-            };
-            let stores = [];
-            if (provider === 'pathao' && typeof instance.getStores === 'function') {
-                stores = await instance.getStores();
-            } else if (provider === 'redx') {
-                const listStores = instance.listPickupStores || instance.getPickupStores;
-                if (typeof listStores === 'function') stores = await listStores.call(instance);
-            }
-            if (!Array.isArray(stores)) {
-                stores = stores?.stores || stores?.data?.stores || stores?.data || [];
-            }
-            const matchingStore = stores.find((store) => providerStoreMatchesPickup(store, location, providerPickupMeta));
-            storeId = matchingStore?.store_id ?? matchingStore?.id ?? null;
-            if (!storeId) {
-                const createStore = provider === 'pathao'
-                    ? instance.createStore
-                    : instance.createPickupStore;
-                if (typeof createStore !== 'function') {
-                    throw new AppError('Provider pickup store is required', 409, 'DELIVERY_PICKUP_STORE_REQUIRED');
+        // Re-resolve the provider store for the selected pickup whenever a
+        // location is chosen and the request did not carry an explicit store
+        // selection — this is also the repair path for a mapping whose
+        // provider store has since disappeared. Matching contract (mirrors
+        // courier-destination.resolveRedX AMBIGUOUS_MATCH):
+        //   exactly one geographic match -> reuse that provider store;
+        //   more than one match          -> explicit selection required (409
+        //     with candidates) — the first match is never guessed;
+        //   no match                     -> the existing mapping is preserved
+        //     and surfaced as NO_MATCH for the UI. A sync NEVER creates an
+        //     external provider store; that is the merchant-confirmed
+        //     createProviderPickupStore action.
+        if ((provider === 'pathao' || provider === 'redx') && location && (requestStoreId === null || requestStoreId === undefined)) {
+            const lock = await acquirePickupMutationLock(shopId, provider);
+            if (!lock) throw pickupMutationInProgressError(provider);
+            try {
+                const instance = await this.getConnectedProviderInstance(shopId, provider);
+                let stores = [];
+                if (provider === 'pathao' && typeof instance.getStores === 'function') {
+                    stores = await instance.getStores();
+                } else if (provider === 'redx') {
+                    const listStores = instance.listPickupStores || instance.getPickupStores;
+                    if (typeof listStores === 'function') stores = await listStores.call(instance);
                 }
-                const created = await createStore.call(instance, storePayload);
-                const createdData = created?.data && typeof created.data === 'object' ? created.data : created;
-                storeId = createdData?.store_id ?? createdData?.id ?? createdData?.pickup_store_id ?? null;
-            }
-            if (!storeId) {
-                throw new AppError('Provider did not return a pickup store', 502, 'DELIVERY_PICKUP_STORE_SYNC_FAILED');
+                const storeList = normalizeProviderStoreList(stores);
+                const matches = storeList.filter((store) => providerStoreMatchesPickup(store, location, providerPickupMeta));
+                if (matches.length > 1) {
+                    throw new AppError(
+                        'Multiple provider pickup stores match this location. Select the intended store explicitly.',
+                        409,
+                        'DELIVERY_PICKUP_AMBIGUOUS',
+                        {
+                            provider,
+                            pickup_location_id: locationId,
+                            candidates: matches.map((store) => ({
+                                store_id: store.store_id,
+                                id: store.id,
+                                name: store.name,
+                                address: store.address,
+                                city_id: store.city_id,
+                                zone_id: store.zone_id,
+                                area_id: store.area_id,
+                            })),
+                        },
+                    );
+                }
+                if (matches.length === 1) {
+                    storeId = matches[0].store_id;
+                    storeResolution = 'MATCHED';
+                } else if (storeId === null || storeId === undefined) {
+                    storeResolution = 'NO_MATCH';
+                } else {
+                    storeResolution = 'PRESERVED';
+                }
+            } finally {
+                await releasePickupMutationLock(lock);
             }
         }
 
@@ -594,12 +798,147 @@ class DeliveryService extends EventEmitter {
             providerPickupMeta.pickup_store_id = storeId;
             providerPickupMeta.provider_store_id = storeId;
         }
-        return this.setPickupConfiguration(shopId, provider, {
+        const config = await this.setPickupConfiguration(shopId, provider, {
             ...input,
             pickup_location_id: locationId,
             store_id: storeId,
             provider_pickup_meta: providerPickupMeta,
         });
+        return { ...config, store_resolution: storeResolution };
+    }
+
+    /**
+     * Create a pickup store on the courier account. This is an external,
+     * merchant-visible mutation, so it runs ONLY behind an explicit
+     * confirm=true — a sync failure never reaches it automatically. The lock
+     * keeps a double-submission from creating two provider stores.
+     */
+    async createProviderPickupStore(shopId, provider, input = {}) {
+        if (!shopId || !provider) throw new AppError('Shop ID and provider are required', 400, 'VALIDATION_ERROR');
+        if (provider === 'steadfast') {
+            throw new AppError(
+                'Steadfast does not support pickup store creation. Configure a manual pickup location instead.',
+                409,
+                'DELIVERY_PROVIDER_MANUAL_PICKUP',
+                { provider, manual_step: 'CONFIGURE_PICKUP_MANUALLY' },
+            );
+        }
+        if (!this.providers[provider]) throw new AppError('Invalid provider', 400, 'DELIVERY_PROVIDER_UNKNOWN');
+
+        const name = asStoreText(input.name);
+        const address = asStoreText(input.address);
+        if (!name || name.length > 255) {
+            throw new AppError('name is required and must be at most 255 characters', 400, 'VALIDATION_ERROR');
+        }
+        if (!address || address.length > 2000) {
+            throw new AppError('address is required and must be at most 2000 characters', 400, 'VALIDATION_ERROR');
+        }
+        const phone = input.phone === undefined || input.phone === null ? null : asStoreText(input.phone);
+        if (phone && !/^01[3-9]\d{8}$/.test(phone.replace(/[-\s().]/g, ''))) {
+            throw new AppError('phone must be a valid Bangladesh mobile number', 400, 'VALIDATION_ERROR');
+        }
+        const ids = safeProviderPickupMetadata({
+            city_id: input.city_id,
+            zone_id: input.zone_id,
+            area_id: input.area_id,
+        });
+
+        const storePayload = {
+            name,
+            store_name: name,
+            contact_name: asStoreText(input.contact_name),
+            phone,
+            address,
+            ...ids,
+        };
+
+        if (input.confirm !== true) {
+            throw new AppError(
+                `This creates a new pickup store on your ${provider} account. Send confirm=true to proceed.`,
+                409,
+                'DELIVERY_PROVIDER_STORE_CONFIRMATION_REQUIRED',
+                {
+                    provider,
+                    requires_confirmation: true,
+                    action: 'create_provider_store',
+                    store_preview: storePayload,
+                    capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+                },
+            );
+        }
+
+        const integration = await DeliveryIntegration.findOne({ where: { shop_id: shopId, provider } });
+        if (!integration) throw new AppError('Provider not found', 404, 'DELIVERY_PROVIDER_NOT_FOUND');
+        if (!integration.is_connected) {
+            throw new AppError('Provider must be connected before pickup store creation', 400, 'DELIVERY_PROVIDER_NOT_CONNECTED');
+        }
+
+        const lock = await acquirePickupMutationLock(shopId, provider);
+        if (!lock) throw pickupMutationInProgressError(provider);
+        try {
+            const instance = await this.getConnectedProviderInstance(shopId, provider);
+            const createFn = provider === 'pathao' ? instance.createStore : instance.createPickupStore;
+            if (typeof createFn !== 'function') {
+                throw new AppError(
+                    'This provider cannot create pickup stores from EasyModerator. Create it in the provider portal and link it.',
+                    409,
+                    'DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED',
+                    { provider, manual_step: 'CREATE_IN_PROVIDER_PORTAL' },
+                );
+            }
+
+            const created = await createFn.call(instance, storePayload);
+            const storeRecord = firstCanonicalStoreFrom([
+                isPlainObject(created?.data?.data) ? created.data.data : null,
+                isPlainObject(created?.data) ? created.data : null,
+                created,
+            ]);
+            if (!storeRecord) {
+                // The provider call may have succeeded on its side; without a
+                // returned id nothing is claimed and nothing is linked.
+                throw new AppError(
+                    'Provider did not return a pickup store id. Verify in the provider portal before retrying.',
+                    502,
+                    'DELIVERY_PICKUP_STORE_SYNC_FAILED',
+                    { provider },
+                );
+            }
+
+            // Persist the link: local pickup row keyed by the authoritative
+            // provider store id, plus the integration mapping. The previously
+            // selected pickup location link is preserved. A provider-echoed
+            // phone the local validator would reject (e.g. +880 format) is
+            // dropped from the synced copy rather than failing the whole
+            // request after the store was already created externally.
+            const syncRecord = storeRecord.phone && !/^01[3-9]\d{8}$/.test(String(storeRecord.phone).replace(/[-\s().]/g, ''))
+                ? { ...storeRecord, phone: null }
+                : storeRecord;
+            const syncedLocations = await pickupLocationService.syncProviderStores(shopId, provider, [syncRecord]);
+            const providerPickupMeta = {
+                ...ids,
+                pickup_store_id: storeRecord.store_id,
+                provider_store_id: storeRecord.store_id,
+            };
+            const config = await this.setPickupConfiguration(shopId, provider, {
+                pickup_location_id: integration.pickup_location_id
+                    ?? integrationMetadata(integration).pickup_location_id
+                    ?? null,
+                store_id: storeRecord.store_id,
+                provider_pickup_meta: providerPickupMeta,
+                enabled: input.enabled ?? true,
+            });
+
+            return {
+                provider,
+                created: true,
+                store: storeRecord,
+                pickup_locations: syncedLocations,
+                config,
+                capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+            };
+        } finally {
+            await releasePickupMutationLock(lock);
+        }
     }
 
     async getPickupSummary(shopId, integration) {
@@ -622,12 +961,34 @@ class DeliveryService extends EventEmitter {
         return enrichIntegrationFlags(shopId, integrations);
     }
 
-    /** Run a connected provider's store endpoint with Pathao token recovery. */
+    /**
+     * Run a connected provider's store-list endpoint. Pathao keeps its
+     * token-recovered raw listing; RedX is read through the adapter's pickup
+     * store endpoint and passed through the tolerant envelope normalizer.
+     * RedX's contract is IMPLEMENTED_NOT_LIVE_VERIFIED: the field spellings
+     * it returns are best-effort, never asserted as confirmed. Steadfast has
+     * no store API, so pickup stays a manual 409.
+     */
     async getProviderStores(shopId, provider = 'pathao') {
-        if (provider !== 'pathao') throw new AppError('Only Pathao supports store management', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');
+        if (provider === 'steadfast') {
+            throw new AppError(
+                'Steadfast does not list pickup stores. Configure a manual pickup location instead.',
+                409,
+                'DELIVERY_PROVIDER_MANUAL_PICKUP',
+                { provider, manual_step: 'CONFIGURE_PICKUP_MANUALLY' },
+            );
+        }
+        if (provider !== 'pathao' && provider !== 'redx') {
+            throw new AppError('Provider does not support store lookup', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');
+        }
         const instance = await this.getConnectedProviderInstance(shopId, provider);
-        if (typeof instance.getStores !== 'function') throw new AppError('Provider does not support store lookup', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');
-        return instance.getStores();
+        if (provider === 'pathao') {
+            if (typeof instance.getStores !== 'function') throw new AppError('Provider does not support store lookup', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');
+            return instance.getStores();
+        }
+        const listStores = instance.listPickupStores || instance.getPickupStores;
+        if (typeof listStores !== 'function') throw new AppError('Provider does not support store lookup', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');
+        return normalizeProviderStoreList(await listStores.call(instance));
     }
 
     /** Read provider area hierarchy through the same connected/token-safe path. */
@@ -874,4 +1235,17 @@ class DeliveryService extends EventEmitter {
 }
 
 // Export singleton instance
-module.exports = new DeliveryService();
+const deliveryServiceInstance = new DeliveryService();
+
+// Internal contract surface for tests: the envelope normalization and the
+// matching/lock helpers that the pickup flows depend on.
+deliveryServiceInstance._private = {
+    normalizeProviderStoreList,
+    canonicalPickupStore,
+    providerStoreMatchesPickup,
+    pickupMutationLockKey,
+    acquirePickupMutationLock,
+    releasePickupMutationLock,
+};
+
+module.exports = deliveryServiceInstance;

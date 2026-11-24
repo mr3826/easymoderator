@@ -22,6 +22,9 @@ import type {
   PickupLocation,
   PickupLocationPayload,
   ProviderPickupSyncRequest,
+  ProviderStoresResult,
+  ProviderPickupLinkResult,
+  CreateProviderStoreResult,
 } from '../types/order';
 import type { AxiosResponse } from 'axios';
 
@@ -500,6 +503,110 @@ export async function getPathaoAreas(zoneId: string | number): Promise<DeliveryL
     `/api/shop/delivery/pathao/zones/${encodeURIComponent(String(zoneId))}/areas`,
   );
   return unwrapList<DeliveryLocationOption>(response, 'areas');
+}
+
+// ---------------------------------------------------------------------------
+// Delivery Settings redesign (2026-11-25) — pickup-first workspace clients.
+// Each maps 1:1 onto a route in EasyMod-backend/src/modules/delivery.
+// ---------------------------------------------------------------------------
+
+/** Clear the shop's AI-default courier. DELETE /ai-default is shop-wide; the /:provider form is the same endpoint. */
+export async function clearAiDefault(provider?: DeliveryProvider): Promise<DeliveryProviderStatus> {
+  const path = provider
+    ? `/api/shop/delivery/${provider}/ai-default`
+    : '/api/shop/delivery/ai-default';
+  const response: AxiosResponse<ApiEnvelope<DeliveryProviderStatus>> = await httpClient.delete(path);
+  return unwrapApiData(response);
+}
+
+/** List the provider's existing pickup stores and upsert mirrored local rows. */
+export async function listProviderStores(provider: DeliveryProvider): Promise<ProviderStoresResult> {
+  const response: AxiosResponse<ApiEnvelope<ProviderStoresResult>> = await httpClient.get(
+    `/api/shop/delivery/${provider}/stores`,
+  );
+  return unwrapApiData(response);
+}
+
+/** Re-sync (import) provider stores into local pickup rows. Keyed by (shop, provider, store id) — repeated syncs never duplicate. */
+export async function importProviderStores(
+  provider: DeliveryProvider,
+  storeIds?: string[],
+): Promise<ProviderStoresResult> {
+  const response: AxiosResponse<ApiEnvelope<ProviderStoresResult>> = await httpClient.post(
+    `/api/shop/delivery/${provider}/stores/sync`,
+    storeIds?.length ? { store_ids: storeIds } : {},
+  );
+  return unwrapApiData(response);
+}
+
+/** Explicitly link an integration to a local pickup location and/or a provider store id. */
+export async function setProviderPickup(
+  provider: DeliveryProvider,
+  payload: {
+    pickup_location_id?: string | null;
+    store_id?: string;
+    provider_pickup_meta?: ProviderPickupSyncRequest['provider_pickup_meta'];
+    enabled?: boolean;
+  },
+): Promise<ProviderPickupLinkResult> {
+  const response: AxiosResponse<ApiEnvelope<ProviderPickupLinkResult>> = await httpClient.post(
+    `/api/shop/delivery/${provider}/pickup`,
+    payload,
+  );
+  return unwrapApiData(response);
+}
+
+/** Merchant-confirmed external provider store creation. UI must show a confirmation dialog first. */
+export async function createProviderStore(
+  provider: DeliveryProvider,
+  payload: {
+    name: string;
+    address: string;
+    contact_name?: string;
+    phone?: string;
+    city_id?: string | number;
+    zone_id?: string | number;
+    area_id?: string | number;
+    enabled?: boolean;
+  },
+  confirm: boolean,
+): Promise<CreateProviderStoreResult> {
+  const response: AxiosResponse<ApiEnvelope<CreateProviderStoreResult>> = await httpClient.post(
+    `/api/shop/delivery/${provider}/pickup/store`,
+    { ...payload, confirm },
+  );
+  return unwrapApiData(response);
+}
+
+/** Re-resolve a provider mapping for the selected pickup without creating anything externally. */
+export async function retryPickupSync(
+  provider: DeliveryProvider,
+  payload: ProviderPickupSyncRequest = {},
+): Promise<ProviderPickupLinkResult> {
+  const response: AxiosResponse<ApiEnvelope<ProviderPickupLinkResult>> = await httpClient.post(
+    `/api/shop/delivery/${provider}/pickup/sync`,
+    payload,
+  );
+  return unwrapApiData(response);
+}
+
+/** Mark a saved pickup location as the shop default. */
+export async function setDefaultPickupLocation(locationId: string): Promise<PickupLocation> {
+  const response: AxiosResponse<ApiEnvelope<PickupLocation>> = await httpClient.post(
+    `/api/shop/delivery/pickup-locations/${encodeURIComponent(locationId)}/default`,
+  );
+  return unwrapApiData(response);
+}
+
+/** Delete a pickup location. Without `confirm` the server answers a 409 confirmation contract when the row is the default or in use. */
+export async function deletePickupLocation(
+  locationId: string,
+  opts: { confirm?: boolean } = {},
+): Promise<{ id: string; deleted: boolean; released_providers?: string[] }> {
+  const params = opts.confirm ? { confirm: 'true' } : undefined;
+  const response: AxiosResponse<ApiEnvelope<{ id: string; deleted: boolean; released_providers?: string[] }>> =
+    await httpClient.delete(`/api/shop/delivery/pickup-locations/${encodeURIComponent(locationId)}`, { params });
+  return unwrapApiData(response);
 }
 
 

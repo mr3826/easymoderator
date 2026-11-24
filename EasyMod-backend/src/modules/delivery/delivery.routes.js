@@ -25,8 +25,10 @@ router.patch('/pickup-locations/:locationId', requireOwner, deliveryController.u
 router.put('/pickup/:locationId', requireOwner, deliveryController.updatePickupLocation);
 router.put('/pickup-locations/:locationId', requireOwner, deliveryController.updatePickupLocation);
 router.put('/pickup-locations', requireOwner, deliveryController.updatePickupLocation);
-router.delete('/pickup/:locationId', requireOwner, deliveryController.deletePickupLocation);
-router.delete('/pickup-locations/:locationId', requireOwner, deliveryController.deletePickupLocation);
+// Safe deletion: default/integration-in-use rows answer a confirm-required
+// 409 unless the confirmed client sends ?confirm=true.
+router.delete('/pickup/:locationId', requireOwner, validate({ query: deliveryValidators.pickupDeleteQuery }), deliveryController.deletePickupLocation);
+router.delete('/pickup-locations/:locationId', requireOwner, validate({ query: deliveryValidators.pickupDeleteQuery }), deliveryController.deletePickupLocation);
 router.post('/pickup/:locationId/default', requireOwner, deliveryController.setDefaultPickupLocation);
 router.post('/pickup-locations/:locationId/default', requireOwner, deliveryController.setDefaultPickupLocation);
 router.put('/pickup/:locationId/default', requireOwner, deliveryController.setDefaultPickupLocation);
@@ -50,6 +52,14 @@ router.post('/deactivate', requireOwner, deliveryController.deactivateProvider);
 router.post('/:provider/pickup', requireOwner, deliveryController.setPickupConfiguration);
 router.put('/:provider/pickup', requireOwner, deliveryController.setPickupConfiguration);
 router.post('/:provider/pickup/sync', requireOwner, deliveryController.syncProviderPickup);
+// Merchant-confirmed external pickup store creation. Without confirm=true
+// this returns the 409 confirmation contract and never calls the provider.
+router.post(
+    '/:provider/pickup/store',
+    requireOwner,
+    validate({ params: deliveryValidators.providerParams, body: deliveryValidators.createProviderStore }),
+    deliveryController.createProviderPickupStore
+);
 
 // Pathao's city -> zone -> area lookup is read-only but still bound to the
 // authenticated shop's connected integration.

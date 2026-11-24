@@ -297,6 +297,50 @@ const deliveryValidators = {
         area_name: Joi.string().trim().max(255).allow('', null).optional(),
         postal_code: Joi.string().trim().max(20).allow('', null).optional(),
         is_default: Joi.boolean().optional()
+    }),
+
+    /** Route params whitelist for every /:provider/... mutation path. */
+    providerParams: Joi.object({
+        provider: Joi.string()
+            .valid(...PROVIDER_NAMES)
+            .required()
+            .messages({
+                'any.only': `Provider must be one of: ${PROVIDER_LIST}`,
+                'any.required': 'Provider is required'
+            })
+    }),
+
+    /**
+     * Merchant-confirmed external pickup store creation. `confirm` stays
+     * optional at the schema level on purpose: without it the controller
+     * answers the 409 confirmation contract instead of a bare validation
+     * error, so the UI can show exactly what will be created.
+     */
+    createProviderStore: Joi.object({
+        confirm: Joi.boolean().optional(),
+        name: Joi.string().trim().min(2).max(255).required().messages({
+            'any.required': 'Pickup store name is required',
+            'string.min': 'Pickup store name must be at least 2 characters',
+            'string.max': 'Pickup store name must be at most 255 characters'
+        }),
+        address: Joi.string().trim().min(3).max(2000).required().messages({
+            'any.required': 'Pickup store address is required',
+            'string.min': 'Pickup store address must be at least 3 characters',
+            'string.max': 'Pickup store address must be at most 2000 characters'
+        }),
+        contact_name: Joi.string().trim().max(255).optional(),
+        phone: Joi.string().trim().max(32).allow('', null).optional().messages({
+            'string.max': 'phone must be at most 32 characters'
+        }),
+        city_id: Joi.alternatives().try(Joi.number().integer().min(0), Joi.string().max(64)).optional(),
+        zone_id: Joi.alternatives().try(Joi.number().integer().min(0), Joi.string().max(64)).optional(),
+        area_id: Joi.alternatives().try(Joi.number().integer().min(0), Joi.string().max(64)).optional(),
+        enabled: Joi.boolean().optional()
+    }),
+
+    /** DELETE /pickup-locations/:id?... — confirm=true after the 409 blockers payload. */
+    pickupDeleteQuery: Joi.object({
+        confirm: Joi.boolean().truthy('true').falsy('false').optional()
     })
 };
 
