@@ -514,7 +514,9 @@
         "drafts": "Draft orders",
         "replies": "reply tasks",
         "recentOrders": "recent orders",
-        "deliveryExceptions": "delivery attempts and returns"
+        "deliveryExceptions": "delivery attempts and returns",
+        "worklistCounts": "worklist counts",
+        "stockExceptions": "stock exceptions"
       },
       "overview": {
         "title": "Business overview",
@@ -857,7 +859,8 @@
       "setupIncomplete": "Setup incomplete",
       "notSetUp": "Not set up",
       "reconnect": "Reconnect",
-      "missingCount": "{{count}} steps missing"
+      "missingCount": "{{count}} steps missing",
+      "reconnectFailed": "Could not start reconnecting. The channel stays disconnected until it is reconnected — try again or open channel settings."
     }
   },
   "shell": {

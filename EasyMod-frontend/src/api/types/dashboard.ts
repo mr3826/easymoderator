@@ -79,10 +79,10 @@ export interface StockExceptions {
 
 /**
  * D3 PII-free queue projection for `at_risk_orders` (needs_action sample).
- * The W2 backend rewrite never serialises customer_name/customer_phone;
- * the deprecated optional fields exist only so W1 consumers still compile
- * against the revised type (A4 removes those reads in W2, then the fields
- * come out of this type).
+ * This is the complete emitted shape — customer_name/customer_phone are
+ * removed from the contract entirely (W3 cleanup, after A4 confirmed zero
+ * readers and A5 confirmed the backend no longer serialises them). Order rows
+ * carry delivery-exception state, never customer identity, at this boundary.
  */
 export interface AtRiskOrderProjection {
   id: string;
@@ -93,16 +93,6 @@ export interface AtRiskOrderProjection {
   tracking_id: string | null;
   /** ISO-8601 last update. */
   updatedAt: string;
-  /**
-   * @deprecated PII. Not emitted after the D3 rewrite; retained optional for
-   * W1 compilation only. Remove with the A4 consumer migration in W2.
-   */
-  customer_name?: string;
-  /**
-   * @deprecated PII. Not emitted after the D3 rewrite; retained optional for
-   * W1 compilation only. Remove with the A4 consumer migration in W2.
-   */
-  customer_phone?: string;
 }
 
 /** Read-only projections; null means the source could not be read. */
@@ -123,13 +113,11 @@ export interface DashboardCommerceSignals {
 export interface DashboardQueue {
   commerce_signals?: DashboardCommerceSignals;
   /**
-   * @deprecated Replaced by `needs_reply` (D3 — shared needs-reply predicate,
-   * exact parity with the inbox badge/tab). Optional so the W2 rewrite can
-   * drop it without breaking W1; current consumers treat it as possibly
-   * absent and must fall back to `needs_reply.count` when null/undefined.
+   * C1 object from the shared needs-reply service (replaces the legacy
+   * `unread_count` entirely — removed in W3 after A4 confirmed zero readers
+   * and A5 confirmed the backend no longer emits it). null = source failed
+   * (never 0); absent = pre-W2 backend.
    */
-  unread_count?: number;
-  /** C1 object from the shared service; null = source failed (never 0). */
   needs_reply?: NeedsReplyCount | null;
   /** D3 worklist predicate marker (e.g. 'worklist-v1'); pins chip↔bucket parity. */
   predicate_version?: string;

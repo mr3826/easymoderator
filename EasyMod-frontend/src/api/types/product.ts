@@ -4,9 +4,11 @@
 
 /**
  * Ordering authority for stock since D-P2-02: when a product has ACTIVE
- * variants, the variants' quantities are the stock (the parent quantity is
- * only a fallback for variant-less products). Carries just the D2
- * stock-exception fields the client predicate needs.
+ * variants, Σ their quantities are the stock. Edge case (fixed in W3, matches
+ * the A4/A5 implementation + unit tests): variants PRESENT but ALL INACTIVE
+ * → fall back to the parent `quantity` — a product is never treated as
+ * tracked-with-zero-stock merely because its variants were deactivated.
+ * Carries just the D2 stock-exception fields the client predicate needs.
  */
 export interface ProductVariantStock {
   id: string;
