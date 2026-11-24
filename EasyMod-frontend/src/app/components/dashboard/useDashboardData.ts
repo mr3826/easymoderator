@@ -92,6 +92,7 @@ export function useDashboardData(enabled: boolean) {
       const atRiskOrders = Array.isArray(queue?.at_risk_orders) ? queue.at_risk_orders : null;
 
       setPulseData({
+        commerceSignals: queue?.commerce_signals ?? null,
         ordersToday: countOrNull(metrics?.metrics?.ordersToday),
         replyTasks: conversationPage
           ? conversationPage.data.filter((conversation) => conversation.needs_merchant_reply === true)

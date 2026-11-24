@@ -131,7 +131,8 @@ test('chrome uses em tokens, keeps h-14 topbar and marks the active rail item', 
     const rail = page.locator('aside nav[aria-label="Workspace navigation"]');
     const active = rail.getByRole('link', { name: 'Inbox' });
     await expect(active).toHaveAttribute('aria-current', 'page');
-    await expect(active).toHaveClass(/bg-em-violet-50/);
+    await expect(active).toHaveClass(/bg-em-violet-700/);
+    await expect(page.locator('aside')).toHaveClass(/em-dark-nav/);
     // Shell app bar is the first header; redesigned pages render their own.
     const header = await page.locator('header').first().boundingBox();
     expect(header!.height).toBe(56);

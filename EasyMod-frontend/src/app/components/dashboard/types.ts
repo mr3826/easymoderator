@@ -3,7 +3,7 @@
  * Contracts follow EasyModerator-UI-UX-Guardrails.md §4/§24.
  */
 import type { LucideIcon } from "lucide-react";
-import type { DashboardMetrics, DashboardQueue } from "@/api/types/dashboard";
+import type { DashboardCommerceSignals, DashboardMetrics, DashboardQueue } from "@/api/types/dashboard";
 import type { Conversation } from "@/api/types/conversation";
 import type { Order } from "@/api/types/order";
 
@@ -64,6 +64,7 @@ export interface WorkGroup {
 }
 
 export interface PulseData {
+  commerceSignals?: DashboardCommerceSignals | null;
   ordersToday: number | null;
   replyTasks: Conversation[] | null;
   replyTaskCoverageComplete: boolean;

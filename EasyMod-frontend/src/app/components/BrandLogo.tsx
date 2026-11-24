@@ -10,6 +10,8 @@ interface BrandLogoProps {
   iconOnly?: boolean;
   /** Additive wordmark tone override (shell uses em ink); default unchanged. */
   wordmarkClass?: string;
+  /** Scope a supplied brand mark to a specific surface without changing public branding. */
+  markSrc?: string;
 }
 
 const sizeMap = {
@@ -36,13 +38,14 @@ export default function BrandLogo({
   animated = false,
   iconOnly = false,
   wordmarkClass,
+  markSrc,
 }: BrandLogoProps) {
   const { icon, text } = sizeMap[size];
   const textColor = variant === "light" ? "text-white" : "text-gray-900";
 
   const iconEl = (
     <img
-      src={icon >= FULL_LOGO_MIN_PX ? FULL_LOGO_SRC : MARK_SRC}
+      src={markSrc ?? (icon >= FULL_LOGO_MIN_PX ? FULL_LOGO_SRC : MARK_SRC)}
       width={icon}
       height={icon}
       alt=""

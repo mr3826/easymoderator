@@ -36,11 +36,11 @@ export function ShellNavItem({
         className={cn(
           "flex min-h-12 flex-col items-center justify-center rounded-lg px-1 text-xs font-semibold transition-colors",
           FOCUS_RING,
-          isActive ? "bg-em-violet-50 text-em-violet-700" : "text-em-text-secondary hover:bg-em-bg-muted",
+          isActive ? "bg-em-violet-700 text-white" : "text-em-midnight-200 hover:bg-em-midnight-700 hover:text-white",
         )}
       >
         <Icon className="mb-1 h-4 w-4" aria-hidden="true" />
-        <span className="leading-none">{name}</span>
+        <span className="leading-tight break-words text-center">{name}</span>
       </Link>
     );
   }
@@ -58,14 +58,14 @@ export function ShellNavItem({
         "group relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
         FOCUS_RING,
         isActive
-          ? "bg-em-violet-50 text-em-violet-700"
-          : "text-em-text-secondary hover:bg-em-bg-muted hover:text-em-text-primary",
+          ? "bg-em-violet-700 text-white"
+          : "text-em-midnight-200 hover:bg-em-midnight-700 hover:text-white",
       )}
     >
       <Icon className="w-5 h-5 shrink-0" aria-hidden="true" />
       {!collapsed && <span className="text-sm font-medium">{name}</span>}
       {isActive && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-em-violet-600 rounded-r-full" aria-hidden="true" />
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-em-sunlight-500 rounded-r-full" aria-hidden="true" />
       )}
     </Link>
   );

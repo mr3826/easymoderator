@@ -574,6 +574,38 @@
         "partial": "সব ঠিক আছে ধরে নেওয়ার আগে সম্পূর্ণ Inbox ও Orders তালিকা দেখুন।"
       },
       "staleWarning": "তথ্য পুরোনো হতে পারে — শেষ রিফ্রেশ স্বাভাবিকের চেয়ে বেশি আগে হয়েছে।",
+      "commerceSignals": {
+        "charges": "ডেলিভারড অর্ডারের রেকর্ডকৃত চার্জ",
+        "dayCount": "{{day}} UTC · {{count}} অর্ডার",
+        "chargeNote": "শুধু পজিটিভ লেজার চার্জ; ক্রেডিট বাদ দেওয়া নেট হিসাব বা আদায় নয়।",
+        "unavailable": "পাওয়া যায়নি",
+        "activity": "সাম্প্রতিক কার্যক্রম",
+        "activityUnavailable": "কার্যক্রম পাওয়া যায়নি। আবার রিফ্রেশ করুন।",
+        "activityEmpty": "এখনও কোনো প্রাসঙ্গিক অডিট কার্যক্রম নেই।",
+        "activityNote": "সর্বশেষ ছয়টি রেকর্ডকৃত কার্যক্রম · ঢাকা সময়।",
+        "actions": {
+          "CREATE": "তৈরি হয়েছে",
+          "UPDATE": "আপডেট হয়েছে",
+          "DELETE": "মুছে ফেলা হয়েছে",
+          "CHANNEL_CONNECT": "যুক্ত হয়েছে",
+          "CHANNEL_DISCONNECT": "বিচ্ছিন্ন হয়েছে",
+          "ORDER_CONFIRM": "অর্ডার কনফার্ম হয়েছে",
+          "ORDER_CANCEL": "অর্ডার বাতিল হয়েছে",
+          "PAYMENT_PROCESS": "পেমেন্ট প্রক্রিয়া করা হয়েছে",
+          "HUMAN_TAKEOVER": "মানুষের নিয়ন্ত্রণ",
+          "AI_SUGGESTION_ACCEPTED": "এআই পরামর্শ গ্রহণ",
+          "AI_SUGGESTION_REJECTED": "এআই পরামর্শ বাতিল"
+        },
+        "resources": {
+          "ORDER": "অর্ডার",
+          "CONVERSATION": "কথোপকথন",
+          "MESSAGE": "মেসেজ",
+          "CHANNEL": "চ্যানেল",
+          "PRODUCT": "পণ্য",
+          "PAYMENT": "পেমেন্ট",
+          "SHOP": "দোকান"
+        }
+      },
       "queueChips": {
         "note": "সংখ্যাগুলো মোট হিসাব, যাচাই করা কাজ নয়।",
         "unavailable": "পাওয়া যাচ্ছে না"

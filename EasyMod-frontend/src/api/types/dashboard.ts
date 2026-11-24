@@ -36,7 +36,14 @@ export interface DashboardMetrics {
   totalRevenue?: number;
 }
 
+/** Read-only projections; null means the source could not be read. */
+export interface DashboardCommerceSignals {
+  deliveredCharges: { dayUtc: string; count: number; amountMinor: number } | null;
+  recentActivity: Array<{ id: string; action: string; resourceType: string; occurredAt: string }> | null;
+}
+
 export interface DashboardQueue {
+  commerce_signals?: DashboardCommerceSignals;
   unread_count: number;
   pending_payment_count: number;
   ready_to_dispatch_count: number;

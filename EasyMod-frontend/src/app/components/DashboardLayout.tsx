@@ -110,9 +110,9 @@ export default function DashboardLayout() {
     });
   };
 
-  const sidebarW = collapsed ? 'md:w-16' : 'md:w-64';
-  const mainML = collapsed ? 'md:ml-16' : 'md:ml-64';
-  const shellVars = { '--shell-sidebar-w': collapsed ? '4rem' : '16rem' } as CSSProperties;
+  const sidebarW = collapsed ? 'md:w-16' : 'md:w-[236px]';
+  const mainML = collapsed ? 'md:ml-16' : 'md:ml-[236px]';
+  const shellVars = { '--shell-sidebar-w': collapsed ? '4rem' : '236px' } as CSSProperties;
 
   const isActivePath = (path: string) =>
     location.pathname === path ||
@@ -131,12 +131,12 @@ export default function DashboardLayout() {
 
       {/* ─── Sidebar ─────────────────────────────────────────────────── */}
       <aside
-        className={`${sidebarW} hidden md:flex bg-em-bg-surface border-r border-em-border fixed inset-y-0 left-0 flex-col transition-all duration-200 z-30`}
+        className={`${sidebarW} em-dark-nav hidden md:flex bg-gradient-to-b from-em-midnight-950 via-em-midnight-900 to-em-midnight-800 border-r border-em-midnight-700 fixed inset-y-0 left-0 flex-col transition-all duration-200 z-30`}
       >
         {/* Logo */}
-        <div className="h-14 flex items-center px-4 border-b border-em-border shrink-0">
+        <div className="h-14 flex items-center px-3 border-b border-em-midnight-700 shrink-0">
           <div className="flex items-center overflow-hidden">
-            <BrandLogo size="sm" iconOnly={collapsed} wordmarkClass="text-em-text-primary" />
+            <BrandLogo size="sm" iconOnly={collapsed} wordmarkClass="text-white" markSrc="/brand/workspace-mark-v1.svg" />
           </div>
         </div>
 
@@ -156,9 +156,9 @@ export default function DashboardLayout() {
           </div>
 
           {/* Settings section */}
-          <div className="mt-4 pt-3 border-t border-em-border">
+          <div className="mt-4 pt-3 border-t border-em-midnight-700">
             {!collapsed && (
-              <div className="px-3 pb-1.5 text-xs font-semibold text-em-text-secondary">
+              <div className="px-3 pb-1.5 text-xs font-semibold text-em-midnight-200">
                 {t('nav.settings')}
               </div>
             )}
@@ -178,7 +178,7 @@ export default function DashboardLayout() {
         </nav>
 
         {/* Billing footer: Subscription */}
-        <div className="border-t border-em-border px-2 pt-2 pb-1 shrink-0 space-y-1">
+        <div className="border-t border-em-midnight-700 px-2 pt-2 pb-1 shrink-0 space-y-1">
           <ShellNavItem
             name={subscriptionItem.name}
             path={subscriptionItem.path}
@@ -195,11 +195,10 @@ export default function DashboardLayout() {
               href={buildMarketingUrl("/privacy-policy")}
               target="_blank"
               rel="noopener noreferrer"
-              className={`inline-flex min-h-11 items-center text-xs text-em-text-secondary hover:text-em-text-primary hover:underline ${FOCUS_RING}`}
+              className={`inline-flex min-h-11 items-center text-xs text-em-midnight-200 hover:text-white hover:underline ${FOCUS_RING}`}
             >
               {t('common.privacyPolicy')}
             </a>
-            <LanguageToggle variant="workspace" />
           </div>
         )}
 
@@ -209,7 +208,7 @@ export default function DashboardLayout() {
           onClick={toggleCollapsed}
           aria-label={collapsed ? t('nav.expand', { defaultValue: 'Expand' }) : t('nav.collapse')}
           aria-expanded={!collapsed}
-          className={`shrink-0 mx-2 mb-2 flex min-h-11 items-center justify-center gap-2 py-2 rounded-lg text-em-text-secondary hover:bg-em-bg-muted hover:text-em-text-primary transition-colors text-xs ${FOCUS_RING}`}
+          className={`shrink-0 mx-2 mb-2 flex min-h-11 items-center justify-center gap-2 py-2 rounded-lg text-em-midnight-200 hover:bg-em-midnight-700 hover:text-white transition-colors text-xs ${FOCUS_RING}`}
         >
           {collapsed ? <ChevronRight className="w-4 h-4" aria-hidden="true" /> : <ChevronLeft className="w-4 h-4" aria-hidden="true" />}
           {!collapsed && <span>{t('nav.collapse')}</span>}
@@ -223,13 +222,15 @@ export default function DashboardLayout() {
       <div className={`flex-1 min-w-0 ${mainML} transition-all duration-200 flex flex-col h-screen`}>
 
         {/* ─── Sticky AppBar ─────────────────────────────────────────── */}
-        <header className="sticky top-0 z-20 h-14 bg-em-bg-surface border-b border-em-border flex items-center px-4 gap-4 shrink-0">
+        <header className="sticky top-0 z-20 h-14 bg-em-bg-surface border-b border-em-border flex items-center px-2 sm:px-4 gap-2 sm:gap-4 shrink-0">
           {/* Page title. Deliberately not a heading: every page renders its own
               <h1> in <main>; an <h1> here duplicated the document heading and
               made heading-based locators ambiguous (customer-intelligence
               journeys, release-readiness sweep). */}
-          <p className="text-sm font-semibold text-em-text-primary flex-1 truncate">{pageTitle}</p>
+          <p className="text-sm font-semibold text-em-text-primary flex-1 min-w-0 truncate">{pageTitle}</p>
 
+          {/* Language stays reachable on mobile and collapsed desktop. */}
+          <LanguageToggle variant="workspace" />
           {/* Notifications */}
           <InAppNotificationCenter />
 
@@ -250,7 +251,7 @@ export default function DashboardLayout() {
               onClick={() => setShowShopPanel(p => !p)}
               className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg border border-em-border-strong bg-em-bg-surface text-sm text-em-text-primary hover:bg-em-bg-muted transition-colors ${FOCUS_RING}`}
             >
-              <span className="font-medium truncate max-w-[140px]">{activeShopName || user?.full_name || user?.email || 'Shop'}</span>
+              <span className="font-medium truncate max-w-[76px] sm:max-w-[140px]">{activeShopName || user?.full_name || user?.email || 'Shop'}</span>
               <ChevronDown className="w-3.5 h-3.5 text-em-text-secondary shrink-0" aria-hidden="true" />
             </button>
 
@@ -320,7 +321,7 @@ export default function DashboardLayout() {
         </main>
       </div>
 
-      <nav aria-label={t('nav.workspaceNavigation')} className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-em-bg-surface border-t border-em-border px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2">
+      <nav aria-label={t('nav.workspaceNavigation')} className="em-dark-nav md:hidden fixed bottom-0 left-0 right-0 z-30 bg-em-midnight-900 border-t border-em-midnight-700 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2">
         <ul className="grid grid-cols-5 gap-1">
           {mobileNavigation.map((item) => (
             <li key={`mobile-${item.path}`}>

@@ -126,7 +126,8 @@ const getTodayQueue = async (req, res, next) => {
     try {
         const { shopId } = req.user;
         const { Op } = require('sequelize');
-        const { Order, Conversation } = require('../entities');
+        const { Order, Conversation, BillingLine, AuditLog } = require('../entities');
+        const { getCommerceSignals } = require('./dashboard-commerce-signals.service');
 
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
@@ -152,9 +153,12 @@ const getTodayQueue = async (req, res, next) => {
             order: [['updated_at', 'DESC']]
         });
 
+        const commerceSignals = await getCommerceSignals({ shopId, BillingLine, AuditLog });
+
         res.status(200).json({
             success: true,
             data: {
+                commerce_signals: commerceSignals,
                 unread_count: unreadCount,
                 pending_payment_count: pendingPaymentCount,
                 ready_to_dispatch_count: readyToDispatchCount,

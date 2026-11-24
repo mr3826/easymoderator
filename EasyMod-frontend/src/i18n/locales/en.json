@@ -574,6 +574,38 @@
         "partial": "Check the full Inbox and Orders lists before assuming all clear."
       },
       "staleWarning": "Data may be out of date — the last refresh is older than usual.",
+      "commerceSignals": {
+        "charges": "Recorded delivered-order charges",
+        "dayCount": "{{day}} UTC · {{count}} orders",
+        "chargeNote": "Positive ledger charges only; not net credits or collected money.",
+        "unavailable": "Not available",
+        "activity": "Recent activity",
+        "activityUnavailable": "Activity is unavailable. Refresh to retry.",
+        "activityEmpty": "No matching audited activity yet.",
+        "activityNote": "Latest six recorded operational actions · Dhaka time.",
+        "actions": {
+          "CREATE": "Created",
+          "UPDATE": "Updated",
+          "DELETE": "Deleted",
+          "CHANNEL_CONNECT": "Connected",
+          "CHANNEL_DISCONNECT": "Disconnected",
+          "ORDER_CONFIRM": "Order confirmed",
+          "ORDER_CANCEL": "Order cancelled",
+          "PAYMENT_PROCESS": "Payment processed",
+          "HUMAN_TAKEOVER": "Human takeover",
+          "AI_SUGGESTION_ACCEPTED": "AI suggestion accepted",
+          "AI_SUGGESTION_REJECTED": "AI suggestion rejected"
+        },
+        "resources": {
+          "ORDER": "Order",
+          "CONVERSATION": "Conversation",
+          "MESSAGE": "Message",
+          "CHANNEL": "Channel",
+          "PRODUCT": "Product",
+          "PAYMENT": "Payment",
+          "SHOP": "Shop"
+        }
+      },
       "queueChips": {
         "note": "Counts are aggregates, not verified tasks.",
         "unavailable": "Unavailable"

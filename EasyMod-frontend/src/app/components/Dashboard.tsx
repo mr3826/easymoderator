@@ -32,6 +32,7 @@ import { OverviewCards } from "./dashboard/OverviewCards";
 import { PageHeader } from "./dashboard/PageHeader";
 import { QueueSignalChips } from "./dashboard/QueueSignalChips";
 import { RecentOrders } from "./dashboard/RecentOrders";
+import { RecentActivity } from "./dashboard/RecentActivity";
 import { ResultBanner } from "./dashboard/ResultBanner";
 import type { Action, DashboardPhase } from "./dashboard/types";
 
@@ -251,11 +252,15 @@ export default function Dashboard() {
                 unread={pulseData.unreadCount}
                 pendingPayment={pulseData.pendingPaymentCount}
                 readyToDispatch={pulseData.readyToDispatchCount}
+                billing={pulseData.commerceSignals?.deliveredCharges ?? null}
+                formatCount={formatCount}
+                formatMoney={(amount) => new Intl.NumberFormat(locale, { style: 'currency', currency: 'BDT', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}
               />
             </motion.div>
 
-            <motion.div variants={fadeUp}>
+            <motion.div variants={fadeUp} className="grid grid-cols-1 items-start gap-x-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
               <AttentionQueue groups={workGroups} hasAllWorkSources={coverageComplete} caughtUp={caughtUp} />
+              <RecentActivity activity={pulseData.commerceSignals?.recentActivity ?? null} locale={locale} />
             </motion.div>
 
             <motion.div variants={fadeUp}>
