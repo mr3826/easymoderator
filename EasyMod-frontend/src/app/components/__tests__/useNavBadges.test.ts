@@ -5,6 +5,9 @@
  * this wave, so mocks are the contract here).
  */
 import { act, renderHook, waitFor } from '@testing-library/react';
+// DE-2 regression: badge strings are DERIVED at render time from the raw
+// readings the hook stores, so an EN→BN switch mid-session re-renders every
+// badge (display + aria + Intl numerals) without remount or the next poll.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 import { getOrderCounts } from '@/api/domains/order';
@@ -116,6 +119,40 @@ describe('useNavBadges honesty', () => {
       await waitFor(() => expect(result.current.orders).not.toBeNull());
       expect(result.current.orders?.display).toBe('৪');
       expect(result.current.orders?.aria).toBe('৪টি অর্ডারে ব্যবস্থা দরকার');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('re-renders display/aria strings in the new locale when the language switches mid-session (DE-2)', async () => {
+    mockSources({ orders: counts(4), inbox: reply(12, false) });
+    const { result } = renderHook(() => useNavBadges());
+    await waitFor(() => expect(result.current.orders).not.toBeNull());
+    // Strings established under EN, fetched exactly once.
+    expect(result.current.orders?.display).toBe('4');
+    expect(result.current.orders?.aria).toBe('4 orders need action');
+    expect(result.current.inbox?.display).toBe('12+');
+    const fetches = vi.mocked(getOrderCounts).mock.calls.length;
+
+    // Mid-session switch WITHOUT remount — react-i18next's languageChanged
+    // subscription re-renders the hook, which re-derives the strings.
+    await act(async () => { await i18n.changeLanguage('bn'); });
+    try {
+      // No remount, no extra poll: the badge objects are DERIVED at render
+      // time from the stored raw readings, so the active locale wins now.
+      expect(vi.mocked(getOrderCounts).mock.calls.length).toBe(fetches);
+      expect(result.current.orders?.display).toBe('৪');
+      expect(result.current.orders?.aria).toBe('৪টি অর্ডারে ব্যবস্থা দরকার');
+      expect(result.current.inbox?.display).toBe('১২+');
+      expect(result.current.inbox?.aria).toBe('১২+টি মেসেজের উত্তর দরকার');
+      // Honesty semantics are locale-independent and survive the switch.
+      expect(result.current.orders?.count).toBe(4);
+      expect(result.current.inbox?.lowerBound).toBe(true);
+
+      // Switching BACK is just as immediate (strings track either direction).
+      await act(async () => { await i18n.changeLanguage('en'); });
+      expect(result.current.orders?.display).toBe('4');
+      expect(result.current.orders?.aria).toBe('4 orders need action');
     } finally {
       await i18n.changeLanguage('en');
     }

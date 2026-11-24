@@ -21,7 +21,11 @@
  *    is rendered as a LOWER BOUND ("N+") and the aria text inherits it;
  *    (incomplete coverage with count 0 makes no positive claim → no badge);
  *  - numbers are Intl-formatted at render time (Bangla numerals in bn —
- *    pre-pilot founder rule; no hand-written digits);
+ *    pre-pilot founder rule; no hand-written digits). The hook stores only
+ *    RAW readings (count + coverage) and derives display/aria strings in a
+ *    render-time memo keyed on the active locale, so a mid-session EN↔BN
+ *    switch re-renders every badge immediately — a mid-session language
+ *    change never leaves stale-locale strings until the next poll tick (DE-2);
  *  - 60s cadence, paused while the tab is hidden (document.visibilityState),
  *    AbortController cleanup on supersede/unmount, stale-settled results
  *    dropped by a generation counter (getOrderCounts takes no signal).
@@ -30,7 +34,7 @@
  * high-frequency passive data — no enter/exit animation here or in
  * ShellNavItem; the pill updates in place.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { getOrderCounts } from '@/api/domains/order';
@@ -62,6 +66,23 @@ export interface NavBadges {
 export const EMPTY_NAV_BADGES: NavBadges = { orders: null, inbox: null, products: null };
 
 type CountReading = { count: number; coverageComplete: boolean };
+
+/**
+ * Locale-independent state kept across polls: raw server readings ONLY. The
+ * display/aria strings are derived at render time from these readings, so an
+ * EN→BN (or BN→EN) switch never surfaces stale-locale text (DE-2).
+ */
+type NavBadgeReadings = {
+  orders: CountReading | null;
+  inbox: CountReading | null;
+  products: CountReading | null;
+};
+
+const EMPTY_NAV_BADGE_READINGS: NavBadgeReadings = {
+  orders: null,
+  inbox: null,
+  products: null,
+};
 
 /**
  * The published aria templates interpolate {{count}} with the formatted
@@ -126,7 +147,11 @@ export function useShellPolling(tick: () => void, intervalMs: number): void {
 
 export function useNavBadges(): NavBadges {
   const { t, i18n } = useTranslation();
-  const [badges, setBadges] = useState<NavBadges>(EMPTY_NAV_BADGES);
+  // DE-2: state is locale-independent RAW data only (count + coverage); the
+  // display/aria strings are derived at render time below, so a mid-session
+  // language switch re-renders every badge in the active locale immediately
+  // instead of waiting for the next poll tick or a remount.
+  const [readings, setReadings] = useState<NavBadgeReadings>(EMPTY_NAV_BADGE_READINGS);
   const generationRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -137,11 +162,6 @@ export function useNavBadges(): NavBadges {
     const controller = new AbortController();
     abortRef.current = controller;
     const generation = ++generationRef.current;
-    const language = i18n?.resolvedLanguage || i18n?.language || 'en';
-    const numberFormat = new Intl.NumberFormat(
-      language.toLowerCase().startsWith('bn') ? 'bn-BD' : 'en',
-      { useGrouping: false },
-    );
 
     void Promise.allSettled([
       getOrderCounts(),
@@ -165,13 +185,14 @@ export function useNavBadges(): NavBadges {
           ? { count: stockResult.value.exceptions, coverageComplete: stockResult.value.coverageComplete }
           : null;
 
-      setBadges({
-        orders: buildNavBadge(ordersReading, 'nav.badges.orders', t, numberFormat),
-        inbox: buildNavBadge(inboxReading, 'nav.badges.inbox', t, numberFormat),
-        products: buildNavBadge(productsReading, 'nav.badges.products', t, numberFormat),
+      // Raw structured readings — no locale strings stored (DE-2).
+      setReadings({
+        orders: ordersReading,
+        inbox: inboxReading,
+        products: productsReading,
       });
     });
-  }, [i18n, t]);
+  }, []);
 
   useShellPolling(refresh, SHELL_POLL_MS);
 
@@ -180,5 +201,25 @@ export function useNavBadges(): NavBadges {
     abortRef.current?.abort();
   }, []);
 
-  return badges;
+  // DERIVE at render time: react-i18next re-renders this hook on
+  // languageChanged, so `language`/`numberFormat`/`t` all track the active
+  // locale immediately; honesty rules (null/0 → no badge, 99+/N+ caps, bn
+  // Intl numerals) live in the pure buildNavBadge mapping, unchanged.
+  const language = i18n?.resolvedLanguage || i18n?.language || 'en';
+  const numberFormat = useMemo(
+    () => new Intl.NumberFormat(
+      language.toLowerCase().startsWith('bn') ? 'bn-BD' : 'en',
+      { useGrouping: false },
+    ),
+    [language],
+  );
+
+  return useMemo<NavBadges>(
+    () => ({
+      orders: buildNavBadge(readings.orders, 'nav.badges.orders', t, numberFormat),
+      inbox: buildNavBadge(readings.inbox, 'nav.badges.inbox', t, numberFormat),
+      products: buildNavBadge(readings.products, 'nav.badges.products', t, numberFormat),
+    }),
+    [readings, t, numberFormat],
+  );
 }
