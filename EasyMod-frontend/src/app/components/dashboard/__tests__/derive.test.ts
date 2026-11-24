@@ -266,8 +266,11 @@ describe("en/bn parity for every redesign key", () => {
     ...["title", "stockExceptions", "outOfStock", "lowStock", "deliveryExceptions", "cashInTransit", "cashAtRisk", "unavailable", "viewProducts", "viewOrders"].map(
       (k) => `dashboard.businessHealth.${k}`,
     ),
-    ...["title", "metaRow", "courierRow", "connectedVerified", "connectedUnverified", "reconnectRequired", "disconnected", "unavailable", "ready", "connectedNotActive", "setupIncomplete", "notSetUp", "reconnect", "missingCount"].map(
+    ...["title", "metaRow", "courierRow", "connectedVerified", "connectedUnverified", "reconnectRequired", "disconnected", "unavailable", "ready", "connectedNotActive", "setupIncomplete", "notSetUp", "reconnect", "reconnectFailed", "missingCount"].map(
       (k) => `dashboard.connections.${k}`,
+    ),
+    ...["overview", "actionCounts", "drafts", "replies", "recentOrders", "worklistCounts", "stockExceptions"].map(
+      (k) => `dashboard.pulse.sourceNames.${k}`,
     ),
     "dashboard.pulse.evidence.title",
     "dashboard.pulse.evidence.coverageComplete",

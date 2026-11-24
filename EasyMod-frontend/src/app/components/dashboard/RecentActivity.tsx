@@ -35,7 +35,12 @@ const RowBody = ({ item }: { item: ActivityItem }) => {
         {actor} · {t("dashboard.pulse.commerceSignals.actions." + item.action, { defaultValue: item.action })}
       </span>
       <span className="block truncate text-xs text-em-text-secondary">
-        {t("dashboard.pulse.commerceSignals.resources." + item.resourceType, { defaultValue: item.resourceType })}
+        {/* Resources are looked up in the canonical lowercase vocabulary (the
+            backend feed membership-filters to these spellings), so the
+            uppercase locale aliases are removable (A2 note). Actions stay
+            RAW mixed-case by contract; an unmapped resource falls back to
+            the stored value. */}
+        {t("dashboard.pulse.commerceSignals.resources." + String(item.resourceType || "").toLowerCase(), { defaultValue: item.resourceType })}
       </span>
     </>
   );

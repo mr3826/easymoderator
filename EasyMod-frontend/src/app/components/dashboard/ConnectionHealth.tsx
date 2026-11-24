@@ -199,7 +199,7 @@ export function ConnectionHealth() {
           )}
           {reconnectFailedFor && (
             <p role="status" className="mt-2 text-xs font-medium text-em-warning-700">
-              {t("dashboard.connections.unavailable")}
+              {t("dashboard.connections.reconnectFailed")}
             </p>
           )}
         </div>

@@ -113,11 +113,11 @@ export function useDashboardData(enabled: boolean) {
         [draftsResult, "dashboard.pulse.sourceNames.drafts"],
         [conversationsResult, "dashboard.pulse.sourceNames.replies"],
         [latestOrdersResult, "dashboard.pulse.sourceNames.recentOrders"],
-        // Published-name reuse (A2 sole-writer): the worklist-counts source is
-        // the delivery-attempts/returns authority here, and the stock source is
-        // labelled by the BusinessHealth tile key. No new i18n keys needed.
-        [worklistCountsResult, "dashboard.pulse.sourceNames.deliveryExceptions"],
-        [stockExceptionsResult, "dashboard.businessHealth.stockExceptions"],
+        // Published source keys (A2, 5302cbc1): these two reads have their own
+        // pulse source names in en+bn — no longer borrowed from the
+        // deliveryExceptions/BusinessHealth labels.
+        [worklistCountsResult, "dashboard.pulse.sourceNames.worklistCounts"],
+        [stockExceptionsResult, "dashboard.pulse.sourceNames.stockExceptions"],
       ] as const;
       const nextFailedSources = failedSources
         .filter(([result]) => result.status === "rejected")

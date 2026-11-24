@@ -210,7 +210,10 @@ describe("ConnectionHealth rendering", () => {
     vi.mocked(reconnectMetaChannel).mockRejectedValue(new Error("oauth unavailable"));
     await renderHealth([channel({ id: "ch-tok", status: "REVOKED", webhookLastVerifiedAt: null })], readiness());
     await act(async () => { fireEvent.click(screen.getByTestId("connection-reconnect-ch-tok")); });
-    expect(screen.getByText("dashboard.connections.unavailable")).toBeInTheDocument();
+    // A failed reconnect attempt says so specifically — not the generic
+    // row-unavailable fallback.
+    expect(screen.getByText("dashboard.connections.reconnectFailed")).toBeInTheDocument();
+    expect(screen.queryByText("dashboard.connections.unavailable")).not.toBeInTheDocument();
     expect(assign).not.toHaveBeenCalled();
     expect(screen.getByTestId("connection-reconnect-ch-tok")).not.toBeDisabled();
   });
