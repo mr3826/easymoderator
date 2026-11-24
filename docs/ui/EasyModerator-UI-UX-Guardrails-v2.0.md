@@ -1,10 +1,15 @@
 # EasyModerator UI/UX Guardrails — v2.0
 
-Owner: Product Design  
-Applies to: Coding agent, frontend engineers, designers, QA  
-Status: Source of truth for UI/UX decisions  
-Version: 2.0  
-Updated: 2026-11-21  
+Owner: Product Design
+
+Applies to: Coding agent, frontend engineers, designers, QA
+
+Status: Source of truth for UI/UX decisions
+
+Version: 2.0
+
+Updated: 2026-11-21
+
 Supersedes: 2026-11-16 founder layout addendum
 
 ---
@@ -70,8 +75,10 @@ Rules:
 ---
 ## 3. Primary Brand Direction
 
-**Brand theme:** Midnight / Violet / Sunlight  
-**Visual concept:** Commerce Signal  
+**Brand theme:** Midnight / Violet / Sunlight
+
+**Visual concept:** Commerce Signal
+
 **Emotional direction:** Calm control, clear priority, evidence-based trust.
 
 ### Brand meaning
