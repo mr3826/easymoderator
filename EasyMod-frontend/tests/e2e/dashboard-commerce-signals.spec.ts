@@ -311,9 +311,12 @@ test('D4 activity: capped to six rows, stored actor or System, ORDER rows deep-l
     // Row 1: stored user + ORDER resource → the only verified deep link.
     const orderRow = section.getByRole('link', { name: /Signal Owner/ });
     await expect(orderRow).toHaveAttribute('href', '/orders?orderId=order-deep-1');
+    // DE-3 (57fed705): D4 actions render localized labels, never raw
+    // vocabulary — ORDER_CONFIRMED → "Order confirmed".
+    await expect(orderRow).toContainText('Order confirmed');
     // Product rows (user null or not) never fabricate a destination.
     await expect(section.getByRole('link', { name: /System/ })).toHaveCount(0);
-    await expect(section.getByRole('link', { name: /PRODUCT_STOCK_UPDATED/ })).toHaveCount(0);
+    await expect(section.getByRole('link', { name: /Product stock updated/ })).toHaveCount(0);
     // No customer PII vocabulary ever reaches the DOM.
     const body = await page.locator('body').innerText();
     expect(body).not.toMatch(/customer_phone|customer_name|01700\d{5}/);
@@ -373,7 +376,9 @@ test('D7 ConnectionHealth meta row: verified / unverified / reconnect (real POST
     await expect(metaRow).toContainText('Reconnect required');
     await expect(metaRow.getByTestId('connection-reconnect-ch-1')).toBeVisible();
     await metaRow.getByTestId('connection-reconnect-ch-1').click();
-    await expect(metaRow.getByRole('status')).toContainText('Status unavailable');
+    // 5b9423fd: a 200 without redirectUrl now renders the dedicated
+    // reconnectFailed copy (was the generic "Status unavailable" fallback).
+    await expect(metaRow.getByRole('status')).toContainText('Could not start reconnecting');
     // Exactly one reconnect attempt (the click) — the server would return the
     // real OAuth redirect URL; we never fabricate one client-side.
     expect(state.reconnectPosts).toBe(1);

@@ -368,18 +368,26 @@ describe('A6 phase-1 nav/dashboard read models on PostgreSQL', () => {
             // Positive control: the ORDER row IS present, PII-free, with keys.
             const atRisk = res.body.data.at_risk_orders;
             expect(atRisk).toHaveLength(1);
-            // KNOWN DEFECT (routed to A5, DE-5): getTodayQueue selects the
-            // attribute 'updated_at', but the Order model's timestamp key is
-            // 'updatedAt' (underscored:true only renames COLUMNS) — so the
-            // projection currently ships updatedAt:null instead of an ISO.
-            // Pinned as-is (truthfully); flip to expect.any(String) when fixed.
+            // DE-5 FIXED (ff7f900c): getTodayQueue now selects/orders/reads by
+            // the model attribute key 'updatedAt' (underscored:true renames
+            // COLUMNS only), so the projection ships the real ISO timestamp —
+            // no longer null. v6 seeds the column at insert time (the inert
+            // `updated_at` fixture key is NOT the stored value), so equality
+            // pins against the created instance, not the fixture date.
+            expect(failing.updatedAt).toBeInstanceOf(Date);
             expect(atRisk[0]).toEqual({
                 id: failing.id,
                 orderNumber: failing.order_number,
                 status: 'confirmed',
                 tracking_id: 'TRK-SEC-1',
-                updatedAt: null,
+                updatedAt: expect.any(String),
             });
+            // Non-null ISO contract (doc 05 §3) asserted explicitly so a
+            // regression to `updatedAt:null` fails loudly, not as a diff blob.
+            expect(atRisk[0].updatedAt).not.toBeNull();
+            expect(atRisk[0].updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+            // Same instant through both paths: HTTP projection == stored column.
+            expect(atRisk[0].updatedAt).toBe(new Date(failing.updatedAt).toISOString());
             const activity = res.body.data.commerce_signals.recentActivity;
             expect(activity).toEqual([{
                 id: expect.any(String),
