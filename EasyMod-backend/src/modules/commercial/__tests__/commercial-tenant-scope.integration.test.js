@@ -24,7 +24,9 @@ const {
     Invoice,
     Order,
     BillingLine,
+    AuditLog,
 } = require('../../entities');
+const { getCommerceSignals } = require('../../dashboard/dashboard-commerce-signals.service');
 const commercialRoutes = require('../commercial.routes');
 const billing = require('../delivered-order-billing.service');
 const { generateAccessToken } = require('../../../utils/jwt.util');
@@ -186,6 +188,19 @@ describe('A8 commercial tenant scope on PostgreSQL', () => {
             .expect(200);
         expect(own.body.data.lines).toHaveLength(1);
         expect(own.body.data.lines[0].invoiceId).toBe(invoiceB.id);
+    });
+
+    it('dashboard ledger and projected audit activity remain isolated on real PostgreSQL', async () => {
+        const now = new Date('2026-10-05T18:30:00Z');
+        const a = await AuditLog.create({ shop_id: shopA.id, user_id: userA.id, action: 'ORDER_CONFIRM', resource_type: 'ORDER', resource_id: 'test-order-a', created_at: now, metadata: { private: 'not a dashboard field' } });
+        const b = await AuditLog.create({ shop_id: shopB.id, user_id: userB.id, action: 'ORDER_CANCEL', resource_type: 'ORDER', resource_id: 'test-order-b', created_at: now });
+        for (const [shop, event, action] of [[shopA, a, 'ORDER_CONFIRM'], [shopB, b, 'ORDER_CANCEL']]) {
+            const result = await getCommerceSignals({ shopId: shop.id, BillingLine, AuditLog, now });
+            expect(result.deliveredCharges).toEqual({ dayUtc: '2026-10-05', count: 1, amountMinor: 1000 });
+            expect(result.recentActivity).toEqual([{ id: event.id, action, resourceType: 'ORDER', occurredAt: now.toISOString() }]);
+        }
+        const next = await getCommerceSignals({ shopId: shopA.id, BillingLine, AuditLog, now: new Date('2026-10-06T00:00:00Z') });
+        expect(next.deliveredCharges).toEqual({ dayUtc: '2026-10-06', count: 0, amountMinor: 0 });
     });
 
     it('X-Shop-ID cannot widen tenant scope and shop-B still cannot read shop-A', async () => {

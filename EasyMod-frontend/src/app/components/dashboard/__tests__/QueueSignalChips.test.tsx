@@ -39,6 +39,17 @@ describe("QueueSignalChips", () => {
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
+  it("shows real ledger minor units and links to billing, without inferring fees", () => {
+    render(<MemoryRouter><QueueSignalChips unread={0} pendingPayment={1} readyToDispatch={2}
+      billing={{ dayUtc: "2026-11-24", count: 3, amountMinor: 2875 }} formatMoney={n => "BDT " + n.toFixed(2)} /></MemoryRouter>);
+    expect(screen.getByText("BDT 28.75")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /commerceSignals.charges/ })).toHaveAttribute("href", "/subscription");
+  });
+  it("does not render a zero charge if the ledger is unavailable", () => {
+    render(<MemoryRouter><QueueSignalChips unread={1} pendingPayment={1} readyToDispatch={2} billing={null} /></MemoryRouter>);
+    expect(screen.getByText("dashboard.pulse.commerceSignals.unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
   it("does not render a second Orders today label", () => {
     renderChips({ unread: 3, pendingPayment: 0, readyToDispatch: 0 });
     expect(screen.queryByText("dashboard.pulse.overview.ordersToday")).not.toBeInTheDocument();

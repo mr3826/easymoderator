@@ -226,8 +226,13 @@ test('390px: five mobile destinations, no horizontal overflow, sidebar hidden', 
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
     await expect(mobile.getByRole('link')).toHaveCount(5);
     await expect(page.locator('aside')).toBeHidden();
+    await expect(page.locator('header .mw-language-toggle')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
+    await page.setViewportSize({ width: 360, height: 800 });
+    await expect(mobile.getByRole('link')).toHaveCount(5);
+    await expect(page.locator('header .mw-language-toggle')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 });
 
 test('Add-ons, Reports and Team users are hidden: no nav entry, and retired paths redirect to the dashboard', async ({ page }) => {
