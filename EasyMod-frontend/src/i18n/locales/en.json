@@ -31,7 +31,51 @@
     "workspace": "Workspace",
     "accountMenu": "Account menu",
     "account": "Account",
-    "expand": "Expand"
+    "expand": "Expand",
+    "groups": {
+      "workspace": "Workspace",
+      "businessSettings": "Business settings",
+      "accountOps": "Account & ops"
+    },
+    "badges": {
+      "orders": "{{count}} orders need action",
+      "inbox": "{{count}} messages need a reply",
+      "products": "{{count}} products have stock exceptions"
+    },
+    "aiStatus": {
+      "unavailable": {
+        "label": "Status unavailable",
+        "aria": "AI reply status could not be loaded. This is not the same as AI being off."
+      },
+      "notConnected": {
+        "label": "Not connected",
+        "aria": "No Meta channel is connected, so AI reply is off."
+      },
+      "emergencyStop": {
+        "label": "Emergency stop active",
+        "aria": "Emergency stop is active — all AI replies are paused."
+      },
+      "reconnectRequired": {
+        "label": "Reconnect required",
+        "aria": "A channel needs to be reconnected before AI or messaging can run."
+      },
+      "auto": {
+        "label": "AI auto-reply on",
+        "aria": "AI is sending replies automatically on at least one channel."
+      },
+      "draft": {
+        "label": "AI drafts replies",
+        "aria": "AI is preparing reply drafts for you to approve."
+      },
+      "manual": {
+        "label": "Manual replies",
+        "aria": "Replies are sent manually only."
+      },
+      "mixed": {
+        "label": "AI modes vary by channel",
+        "aria": "AI reply modes differ across your channels."
+      }
+    }
   },
   "addons": {
     "navTitle": "Add-ons",
@@ -575,9 +619,9 @@
       },
       "staleWarning": "Data may be out of date — the last refresh is older than usual.",
       "commerceSignals": {
-        "charges": "Recorded delivered-order charges",
+        "charges": "Recorded delivery charges today",
         "dayCount": "{{day}} UTC · {{count}} orders",
-        "chargeNote": "Positive ledger charges only; not net credits or collected money.",
+        "chargeNote": "Gross ledger entries for the UTC day — not invoiced or collected.",
         "unavailable": "Not available",
         "activity": "Recent activity",
         "activityUnavailable": "Activity is unavailable. Refresh to retry.",
@@ -604,7 +648,10 @@
           "PRODUCT": "Product",
           "PAYMENT": "Payment",
           "SHOP": "Shop"
-        }
+        },
+        "chargesTooltip": "Returns and cancellations recorded today reduce this total. Credits are applied at invoice time.",
+        "activitySystem": "System",
+        "viewAll": "View all activity"
       },
       "queueChips": {
         "note": "Counts are aggregates, not verified tasks.",
@@ -781,6 +828,36 @@
       },
       "error": "Error Loading Dashboard",
       "noMetrics": "Dashboard insights will appear after your first Messenger conversations and orders."
+    },
+    "businessHealth": {
+      "title": "Business health",
+      "stockExceptions": "Stock exceptions",
+      "outOfStock": "Out of stock",
+      "lowStock": "Low stock",
+      "deliveryExceptions": "Delivery exceptions",
+      "cashInTransit": "Cash in transit",
+      "cashAtRisk": "Cash at risk",
+      "channelReadiness": "Channel readiness",
+      "courierReadiness": "Courier readiness",
+      "unavailable": "Not available",
+      "viewProducts": "View products",
+      "viewOrders": "View orders"
+    },
+    "connections": {
+      "title": "Connections",
+      "metaRow": "Meta channels",
+      "courierRow": "Courier",
+      "connectedVerified": "Connected · verified",
+      "connectedUnverified": "Connected · not verified",
+      "reconnectRequired": "Reconnect required",
+      "disconnected": "Disconnected",
+      "unavailable": "Status unavailable",
+      "ready": "Ready",
+      "connectedNotActive": "Connected · inactive",
+      "setupIncomplete": "Setup incomplete",
+      "notSetUp": "Not set up",
+      "reconnect": "Reconnect",
+      "missingCount": "{{count}} steps missing"
     }
   },
   "shell": {
@@ -1420,7 +1497,15 @@
     },
     "manageCategories": "Manage categories",
     "noLowStockMatches": "No tracked product is at or below its configured low-stock threshold.",
-    "clearLowStockFilter": "Show all products"
+    "clearLowStockFilter": "Show all products",
+    "stockFilter": {
+      "exceptions": "Stock exceptions",
+      "low": "Low stock",
+      "out": "Out of stock",
+      "exceptionsAria": "Show only products that are out of stock or low on stock",
+      "lowAria": "Show only low-stock products",
+      "clear": "Show all stock"
+    }
   },
   "categories": {
     "title": "Categories",

@@ -52,7 +52,10 @@ export default function LanguageToggle({ variant = 'dark' }: LanguageToggleProps
   const activeSegment = variant === 'light'
     ? 'bg-white/25'
     : variant === 'public' || variant === 'workspace'
-      ? 'bg-[#5D49BB] text-white'
+      // Guardrails v2 §7/§31: token utility, not the near-miss literal
+      // #5D49BB (the real --em-violet-700 is #5D49BE). White-on-violet-700
+      // contrast is pinned in src/styles/__tests__/themeTokens.test.ts.
+      ? 'bg-em-violet-700 text-white'
       : 'bg-emerald-600 text-white';
   const inactiveSegment = variant === 'public' ? 'text-[#46506A]' : 'opacity-60';
 

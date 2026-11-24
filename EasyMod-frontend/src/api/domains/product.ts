@@ -4,6 +4,7 @@
 
 import { httpClient } from '@/shared/lib/http/client';
 import type { ApiResponse } from '../types/common';
+import type { StockExceptions } from '../types/dashboard';
 import type {
   Product,
   Category,
@@ -147,6 +148,27 @@ export async function extractProductsFromUpload(
   const response: AxiosResponse<ApiResponse<ProductExtractResult>> = await httpClient.post(
     '/api/product/ai-extract',
     payload
+  );
+  return response.data.data;
+}
+
+/**
+ * Phase-1 C2: bounded stock-exception counts
+ * (`GET /api/product/stock-exceptions`, D2 predicate).
+ *
+ * Single server-side definition — scope `shop_id, is_active, track_quantity`;
+ * effective quantity = Σ ACTIVE variant quantities when variants exist, else
+ * the parent quantity; out ≤ 0; low 0 < q ≤ low_stock_threshold;
+ * exceptions = out + low. The Products page seeds `?stock=exceptions` with
+ * the same rule, so the badge count and the filtered list can't drift.
+ *
+ * Fails like every other domain call (throws on transport/HTTP error).
+ * Callers treat rejection as "source unavailable" — no badge/zero, per D10.
+ */
+export async function getStockExceptions(signal?: AbortSignal): Promise<StockExceptions> {
+  const response: AxiosResponse<ApiResponse<StockExceptions>> = await httpClient.get(
+    '/api/product/stock-exceptions',
+    signal ? { signal } : undefined,
   );
   return response.data.data;
 }

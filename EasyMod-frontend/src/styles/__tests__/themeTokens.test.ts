@@ -104,6 +104,33 @@ describe("theme tokens (Guardrails v2 §7/§18/§31)", () => {
     expect(ratio(tok("focus-dark"), tok("midnight-950"))).toBeGreaterThanOrEqual(3.0);
   });
 
+  // Phase-1 shell (Midnight nav): every text/indicator combination that ships
+  // on the permanently-dark sidebar/top bar is pinned here with the same
+  // independent WCAG 2.2 math as the light-surface pins above. Measured at
+  // 2026-11-24 (see evidence doc 04): white/violet-700 6.64, midnight-200/
+  // midnight-900 10.41, midnight-200/midnight-950 12.30, sunlight-500/
+  // midnight-900 9.65, sunlight-500/midnight-950 11.40.
+  it("white meets AA 4.5:1 on violet-700 (active nav item, #311 Midnight rail)", () => {
+    expect(ratio("#FFFFFF", tok("violet-700")), "white on violet-700").toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("midnight-200 nav ink meets AA 4.5:1 on both midnight rail stops", () => {
+    expect(ratio(tok("midnight-200"), tok("midnight-900")), "midnight-200 on midnight-900").toBeGreaterThanOrEqual(4.5);
+    expect(ratio(tok("midnight-200"), tok("midnight-950")), "midnight-200 on midnight-950").toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("sunlight-500 active indicator meets non-text 3:1 on the midnight rail", () => {
+    expect(ratio(tok("sunlight-500"), tok("midnight-900")), "sunlight-500 on midnight-900").toBeGreaterThanOrEqual(3.0);
+  });
+
+  it("focus-dark (sunlight-500) meets non-text 3:1 on the darkest rail stop", () => {
+    // Duplicate of the focus-dark pin above, restated for the shell: the
+    // #311 dark-nav focus rule (.em-shell .em-dark-nav) draws on
+    // midnight-950/900 gradients, so both stops must carry the ring.
+    expect(tok("focus-dark")).toBe(tok("sunlight-500"));
+    expect(ratio(tok("focus-dark"), tok("midnight-950")), "focus-dark on midnight-950").toBeGreaterThanOrEqual(3.0);
+  });
+
   it("ships a .dark-scoped :focus-visible rule using --em-focus-dark", () => {
     expect(css).toMatch(/\.dark\s+\.em-[a-z]+\s+:focus-visible/);
     expect(css).toMatch(/\.dark[\s\S]*?outline:\s*2px solid var\(--em-focus-dark\)/);
