@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DashboardLayout from '../DashboardLayout'
+import { getStockExceptions } from '@/api/domains/product'
 
 vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>()
@@ -23,9 +24,16 @@ vi.mock('react-i18next', async (importOriginal) => {
         'nav.faqs': 'FAQs',
         'nav.settings': 'Settings',
         'nav.subscription': 'Subscription',
+        'nav.auditLogs': 'Audit logs',
         'nav.shopSettings': 'Shop settings',
         'nav.collapse': 'Collapse',
         'nav.workspaceNavigation': 'Workspace navigation',
+        'nav.groups.workspace': 'Workspace',
+        'nav.groups.businessSettings': 'Business settings',
+        'nav.groups.accountOps': 'Account & ops',
+        'nav.badges.products': '{{count}} products have stock exceptions',
+        'nav.aiStatus.unavailable.label': 'Status unavailable',
+        'nav.aiStatus.unavailable.aria': 'AI reply status could not be loaded. This is not the same as AI being off.',
         'common.privacyPolicy': 'Privacy policy',
         'dashboard.logoutTitle': 'Sign out',
         };
@@ -48,6 +56,12 @@ vi.mock('../InstallPrompt', () => ({ default: () => null }))
 vi.mock('../BrandLogo', () => ({ default: () => <span>EasyModerator</span> }))
 vi.mock('../LanguageToggle', () => ({ default: () => null }))
 vi.mock('../InAppNotificationCenter', () => ({ default: () => null }))
+// Shell read-models (D1/D6): default posture = every source unavailable, so
+// the structural pins below see the honest no-badge shell.
+vi.mock('@/api/domains/order', () => ({ getOrderCounts: vi.fn(async () => { throw new Error('unavailable'); }) }))
+vi.mock('@/api/domains/conversation', () => ({ getNeedsReplyCount: vi.fn(async () => { throw new Error('unavailable'); }) }))
+vi.mock('@/api/domains/product', () => ({ getStockExceptions: vi.fn() }))
+vi.mock('@/api/domains/meta-channels', () => ({ listMetaChannels: vi.fn(async () => { throw new Error('unavailable'); }) }))
 
 function renderLayout(pathname = '/dashboard') {
   return render(
@@ -60,6 +74,12 @@ function renderLayout(pathname = '/dashboard') {
     </MemoryRouter>,
   )
 }
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  localStorage.clear()
+  vi.mocked(getStockExceptions).mockRejectedValue(new Error('unavailable'))
+})
 
 describe('DashboardLayout navigation', () => {
   it('keeps five direct mobile destinations and leaves Settings in the account menu', () => {
@@ -98,5 +118,31 @@ describe('DashboardLayout navigation', () => {
     const { unmount } = renderLayout('/manage-shop/business-info')
     expect(screen.getByRole('link', { name: /Chat settings/i })).not.toHaveAttribute('aria-current')
     unmount()
+  })
+
+  it('promotes Audit logs to the Account & ops rail group (D9) and titles the page', () => {
+    renderLayout('/audit-logs')
+    const rail = screen.getAllByRole('navigation', { name: 'Workspace navigation' })[0]
+    const audit = within(rail).getByRole('link', { name: 'Audit logs' })
+    expect(audit).toHaveAttribute('href', '/audit-logs')
+    expect(audit).toHaveAttribute('aria-current', 'page')
+    expect(within(rail).getByText('Account & ops')).toBeInTheDocument()
+  })
+
+  it('routes the Products badge to its filtered destination and stays clean without one (D1)', async () => {
+    const { unmount } = renderLayout('/dashboard')
+    const plain = screen.getAllByRole('navigation', { name: 'Workspace navigation' })[0]
+    expect(within(plain).getByRole('link', { name: 'Products' })).toHaveAttribute('href', '/products')
+    unmount()
+
+    vi.mocked(getStockExceptions).mockResolvedValue({
+      outOfStock: 3, lowStock: 0, exceptions: 3, scanned: 10, cap: 1000,
+      coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z',
+    })
+    renderLayout('/dashboard')
+    const badgeRail = screen.getAllByRole('navigation', { name: 'Workspace navigation' })[0]
+    await waitFor(() =>
+      expect(within(badgeRail).getByRole('link', { name: /stock exceptions/i })).toHaveAttribute('href', '/products?stock=exceptions'),
+    )
   })
 })
