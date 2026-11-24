@@ -335,13 +335,19 @@ describe('Dashboard Controller', () => {
         });
 
         it('samples the authoritative needs_action bucket with a PII-free projection', async () => {
+            // DE-5 regression guard: a real Sequelize instance on the
+            // underscored:true Order model keys the timestamp as `updatedAt`
+            // (the attribute), never `updated_at` (the column) — so the
+            // fixture must carry ONLY the attribute key. The old `updated_at`
+            // fixture shape matched the buggy read and masked the defect:
+            // against real rows it shipped updatedAt:null.
             Order.findAll.mockResolvedValue([
                 {
                     id: 'order-1',
                     order_number: 'ORD-042',
                     order_status: 'confirmed',
                     delivery_tracking_code: 'TRACK123',
-                    updated_at: new Date('2026-11-24T09:30:00Z'),
+                    updatedAt: new Date('2026-11-24T09:30:00Z'),
                     // Fields a loose SELECT might still return — the projection must drop them:
                     customer_name: 'Rahim Uddin',
                     customer_phone: '01711111111'
@@ -354,11 +360,15 @@ describe('Dashboard Controller', () => {
             expect(options.where).toEqual({
                 [Op.and]: [{ shop_id: mockShopId }, buildBucketWhere('needs_action')]
             });
-            expect(options.attributes).toEqual(['id', 'order_number', 'order_status', 'delivery_tracking_code', 'updated_at']);
+            // DE-5: the timestamp must be selected by its MODEL attribute key
+            // (`updatedAt`), not the column name (`updated_at`) — the latter
+            // is what made real instances return no value.
+            expect(options.attributes).toEqual(['id', 'order_number', 'order_status', 'delivery_tracking_code', 'updatedAt']);
+            expect(options.attributes).not.toContain('updated_at');
             expect(options.attributes).not.toContain('customer_name');
             expect(options.attributes).not.toContain('customer_phone');
             expect(options.limit).toBe(10);
-            expect(options.order).toEqual([['updated_at', 'DESC']]);
+            expect(options.order).toEqual([['updatedAt', 'DESC']]);
 
             const payload = mockRes.json.mock.calls[0][0];
             expect(payload.data.at_risk_orders).toEqual([
@@ -370,6 +380,12 @@ describe('Dashboard Controller', () => {
                     updatedAt: '2026-11-24T09:30:00.000Z'
                 }
             ]);
+            // doc 05 §3 contract: at_risk_orders[].updatedAt is a non-null
+            // ISO string through the projection path (DE-5 shipped null).
+            expect(payload.data.at_risk_orders[0].updatedAt).toEqual(expect.any(String));
+            expect(payload.data.at_risk_orders[0].updatedAt).not.toBeNull();
+            expect(new Date(payload.data.at_risk_orders[0].updatedAt).toISOString())
+                .toBe('2026-11-24T09:30:00.000Z');
             const serialized = JSON.stringify(payload);
             expect(serialized).not.toContain('customer_name');
             expect(serialized).not.toContain('customer_phone');
@@ -379,7 +395,9 @@ describe('Dashboard Controller', () => {
 
         it('falls back orderNumber to the id and keeps tracking null-safe', async () => {
             Order.findAll.mockResolvedValue([
-                { id: 'order-9', order_status: 'processing', delivery_tracking_code: null, updated_at: null }
+                // Attribute-key form (DE-5): real instances expose `updatedAt`;
+                // a null there must still project null, never "null"/Invalid Date.
+                { id: 'order-9', order_status: 'processing', delivery_tracking_code: null, updatedAt: null }
             ]);
 
             await dashboardController.getTodayQueue(mockReq, mockRes, mockNext);

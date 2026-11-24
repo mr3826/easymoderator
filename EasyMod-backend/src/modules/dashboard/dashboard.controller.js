@@ -131,6 +131,13 @@ const getDashboardChart = async (req, res, next) => {
  * projects customer_name/customer_phone (PII defect — projection is
  * {id, orderNumber, status, tracking_id, updatedAt} only). `unread_count` is
  * deprecated and no longer computed (doc 05 §3).
+ *
+ * DE-5: the Order model declares `underscored: true`, which only renames the
+ * COLUMNS — the timestamp attribute key on instances stays `updatedAt`
+ * (backed by the `updated_at` column). Selecting/ordering/reading by the raw
+ * column name shipped `updatedAt: null` over HTTP; the attribute name is the
+ * form that round-trips through Sequelize instances, so the projection emits
+ * the real ISO timestamp.
  */
 const getTodayQueue = async (req, res, next) => {
     try {
@@ -157,11 +164,15 @@ const getTodayQueue = async (req, res, next) => {
             // badge source). Sub-source failure never 5xxes the whole queue.
             getNeedsReplyCount({ shopId }).catch(() => null),
             // At-risk rows = the authoritative `needs_action` bucket sample.
+            // Timestamp/attribute keys are the MODEL's keys (`updatedAt`), not
+            // the column fields (`updated_at`) — underscored:true renames only
+            // the DB columns, so selecting `updated_at` would return no value
+            // and ship updatedAt:null (DE-5).
             Order.findAll({
                 where: { [Op.and]: [{ shop_id: shopId }, buildBucketWhere('needs_action')] },
-                attributes: ['id', 'order_number', 'order_status', 'delivery_tracking_code', 'updated_at'],
+                attributes: ['id', 'order_number', 'order_status', 'delivery_tracking_code', 'updatedAt'],
                 limit: 10,
-                order: [['updated_at', 'DESC']]
+                order: [['updatedAt', 'DESC']]
             }),
             // Each sub-source is independently null-on-failure (allSettled inside).
             getCommerceSignals({ shopId, BillingLine, AuditLog, User }),
@@ -180,7 +191,7 @@ const getTodayQueue = async (req, res, next) => {
                     orderNumber: o.order_number ?? o.id,
                     status: o.order_status,
                     tracking_id: o.delivery_tracking_code ?? null,
-                    updatedAt: o.updated_at ? new Date(o.updated_at).toISOString() : null
+                    updatedAt: o.updatedAt ? new Date(o.updatedAt).toISOString() : null
                 }))
             }
         });
