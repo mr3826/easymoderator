@@ -140,9 +140,9 @@ export function OverviewCards({ ordersToday, cashPosition, chartData, formatCurr
           formatCurrency={formatCurrency}
         />
       </div>
-      <p role="note" className="mt-3 text-xs text-em-text-secondary">
-        {t("dashboard.pulse.cashPosition.derivationNote")}
-      </p>
+      {/* The cash-derivation honesty note moved with the figures' primary
+          home in Phase-1 D8: BusinessHealth renders it once below its cash
+          tiles (single explanation per page — guardrails §5.2). */}
     </section>
   );
 }

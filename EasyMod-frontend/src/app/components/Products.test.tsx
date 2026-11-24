@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
-import Products from './Products';
+import Products, { effectiveStockQuantity, isLowStockProduct, isOutOfStockProduct, isStockExceptionProduct } from './Products';
 
 // ── Hoist mock functions ──────────────────────────────────────────────────
 const {
@@ -109,8 +109,12 @@ vi.mock('@/app/lib/auth', () => ({
 
 // ── Mock react-router-dom ─────────────────────────────────────────────────
 const mockNavigate = vi.fn();
+// Mutable holder so seed tests can set ?stock= before mount (the component
+// seeds once on mount, mirroring the Orders bucket-seed contract).
+const mockSearchParams = { current: new URLSearchParams() };
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
+  useSearchParams: () => [mockSearchParams.current, vi.fn()],
 }));
 
 // ── Mock sonner ───────────────────────────────────────────────────────────
@@ -179,6 +183,7 @@ describe('Products', () => {
     }]);
     mockCreateProduct.mockReset().mockResolvedValue({ id: 'new-1', name: 'AI Product', price: 150 });
     mockNavigate.mockReset();
+    mockSearchParams.current = new URLSearchParams();
   });
 
   // ── Basic render ─────────────────────────────────────────────────────
@@ -259,7 +264,7 @@ describe('Products', () => {
     expect(searchInput).toBeTruthy();
   });
 
-  it('filters only tracked stock at or below a finite threshold and restores products when cleared', async () => {
+  it('filters only tracked low stock and restores products when cleared', async () => {
     mockProducts.splice(0, mockProducts.length,
       { ...baselineMockProducts[0], id: 'tracked-low', name: 'Tracked at threshold', track_quantity: true, quantity: 3, low_stock_threshold: 3 },
       { ...baselineMockProducts[0], id: 'tracked-below', name: 'Tracked below threshold', track_quantity: true, quantity: 1, low_stock_threshold: 4 },
@@ -269,8 +274,8 @@ describe('Products', () => {
     );
     await renderComponent();
 
-    const lowStockFilter = screen.getByRole('checkbox', { name: 'products.lowStockOnly' });
-    fireEvent.click(lowStockFilter);
+    // D2: the low state excludes out-of-stock rows (disjoint by construction).
+    fireEvent.click(screen.getByTestId('products-stock-low'));
 
     await waitFor(() => {
       expect(screen.getByText('Tracked at threshold')).toBeInTheDocument();
@@ -280,8 +285,95 @@ describe('Products', () => {
       expect(screen.queryByText('Missing threshold')).not.toBeInTheDocument();
     });
 
-    fireEvent.click(lowStockFilter);
+    fireEvent.click(screen.getByTestId('products-stock-low'));
     await waitFor(() => expect(screen.getByText('Tracked above threshold')).toBeInTheDocument());
+  });
+
+  // ── D2 stock predicate parity + ?stock= fail-closed seed ─────────────────
+  // Default = a LOW product (3 of 10 ≤ threshold 5); out/healthy via overrides.
+  const stockFixture = (overrides: Record<string, unknown>) => ({
+    ...baselineMockProducts[0], track_quantity: true, quantity: 3, low_stock_threshold: 5, ...overrides,
+  }) as unknown as ProductFixture;
+
+  it('effective quantity prefers active variants, falls back to parent', () => {
+    expect(effectiveStockQuantity(stockFixture({
+      quantity: 50,
+      product_variants: [{ id: 'v1', quantity: 2, is_active: true }, { id: 'v2', quantity: 0, is_active: false }],
+    } as never) as never)).toBe(2);
+    expect(effectiveStockQuantity(stockFixture({ quantity: 7 }) as never)).toBe(7);
+    expect(effectiveStockQuantity(stockFixture({ quantity: 7, product_variants: [] }) as never)).toBe(7);
+    // Inactive-only variant sets fall back to the parent quantity (contract B).
+    expect(effectiveStockQuantity(stockFixture({
+      quantity: 7, product_variants: [{ id: 'v1', quantity: 0, is_active: false }],
+    }) as never)).toBe(7);
+  });
+
+  it('classifies out/low as disjoint (out ≤ 0; low 0 < q ≤ threshold)', () => {
+    const out = stockFixture({ quantity: 50, product_variants: [{ id: 'v1', quantity: 0, is_active: true }] });
+    const low = stockFixture({ quantity: 50, product_variants: [{ id: 'v1', quantity: 3, is_active: true }] });
+    const ok = stockFixture({ quantity: 50, product_variants: [{ id: 'v1', quantity: 9, is_active: true }] });
+    expect(isOutOfStockProduct(out as never)).toBe(true);
+    expect(isLowStockProduct(out as never)).toBe(false);
+    expect(isLowStockProduct(low as never)).toBe(true);
+    expect(isOutOfStockProduct(low as never)).toBe(false);
+    expect(isStockExceptionProduct(ok as never)).toBe(false);
+    // track_quantity scope: untracked products never count.
+    expect(isStockExceptionProduct(stockFixture({ track_quantity: false, quantity: 0 }) as never)).toBe(false);
+  });
+
+  it('seeds ?stock=exceptions from the URL and clears back to all', async () => {
+    mockProducts.splice(0, mockProducts.length,
+      stockFixture({ id: 's-low', name: 'Low Variant Sum' }),
+      stockFixture({ id: 's-out', name: 'Zero Variant Sum', product_variants: [{ id: 'v', quantity: 0, is_active: true }] }),
+      stockFixture({ id: 's-ok', name: 'Healthy Stock', product_variants: [{ id: 'v', quantity: 9, is_active: true }] }),
+    );
+    mockSearchParams.current = new URLSearchParams('stock=exceptions');
+    await renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText('Low Variant Sum')).toBeInTheDocument();
+      expect(screen.getByText('Zero Variant Sum')).toBeInTheDocument();
+      expect(screen.queryByText('Healthy Stock')).not.toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('products-stock-clear'));
+    await waitFor(() => expect(screen.getByText('Healthy Stock')).toBeInTheDocument());
+  });
+
+  it('seeds ?stock=out', async () => {
+    mockProducts.splice(0, mockProducts.length,
+      stockFixture({ id: 's-low', name: 'Low Variant Sum' }),
+      stockFixture({ id: 's-out', name: 'Zero Variant Sum', product_variants: [{ id: 'v', quantity: 0, is_active: true }] }),
+    );
+    mockSearchParams.current = new URLSearchParams('stock=out');
+    await renderComponent();
+    await waitFor(() => {
+      expect(screen.getByText('Zero Variant Sum')).toBeInTheDocument();
+      expect(screen.queryByText('Low Variant Sum')).not.toBeInTheDocument();
+    });
+  });
+
+  it('seeds ?stock=low onto the same control the toolbar exposes', async () => {
+    mockProducts.splice(0, mockProducts.length,
+      stockFixture({ id: 's-low', name: 'Low Variant Sum' }),
+      stockFixture({ id: 's-ok', name: 'Healthy Stock', product_variants: [{ id: 'v', quantity: 9, is_active: true }] }),
+    );
+    mockSearchParams.current = new URLSearchParams('stock=low');
+    await renderComponent();
+    await waitFor(() => {
+      expect(screen.getByText('Low Variant Sum')).toBeInTheDocument();
+      expect(screen.queryByText('Healthy Stock')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('products-stock-low')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('fails closed on unknown ?stock= values (unknown seed → unfiltered)', async () => {
+    mockProducts.splice(0, mockProducts.length,
+      stockFixture({ id: 's-ok', name: 'Healthy Stock', product_variants: [{ id: 'v', quantity: 9, is_active: true }] }),
+    );
+    mockSearchParams.current = new URLSearchParams('stock=totally-bogus');
+    await renderComponent();
+    await waitFor(() => expect(screen.getByText('Healthy Stock')).toBeInTheDocument());
+    expect(screen.queryByTestId('products-stock-clear')).not.toBeInTheDocument();
   });
 
   it('debounces search input (does not query immediately on keystroke)', async () => {
@@ -304,10 +396,9 @@ describe('Products', () => {
 
   it('renders filter panel toggle button', async () => {
     await renderComponent();
-    const filterBtn = screen.queryByRole('button', { name: /filter/i }) ||
-                      Array.from(document.querySelectorAll('button')).find(
-                        btn => btn.textContent?.toLowerCase().includes('filter')
-                      );
+    // Exact name: the D2 stock buttons' aria-labels also contain "filter"
+    // (products.stockFilter.*) in key-rendered tests.
+    const filterBtn = screen.getByRole('button', { name: 'products.filter' });
     expect(filterBtn).toBeTruthy();
   });
 

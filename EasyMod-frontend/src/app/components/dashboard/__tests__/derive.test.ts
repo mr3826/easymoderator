@@ -35,9 +35,12 @@ const basePulse = (overrides: Partial<PulseData> = {}): PulseData => ({
   exceptionCoverageComplete: true,
   lastFiveOrders: [],
   cashPosition: null,
-  unreadCount: 0,
+  needsReply: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: "2026-11-15T10:00:00.000Z" },
   pendingPaymentCount: 0,
   readyToDispatchCount: 0,
+  predicateVersion: "worklist-v1",
+  worklistNeedsActionCount: 0,
+  stockExceptions: null,
   chartData: null,
   ...overrides,
 });
@@ -70,11 +73,15 @@ const draftOrder = (id: string) => ({
   createdAt: "2026-11-15T08:00:00.000Z",
 }) as never;
 
-const atRiskOrder = (id: string) => ({
+// D3 PII-free projection: order number + timestamps only. The worklist row is
+// identified by orderNumber (id fallback) — never customer_name/customer_phone.
+const atRiskOrder = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
-  customer_name: "Exception customer",
+  orderNumber: `ORD-${id}`,
   status: "returned",
   tracking_id: `TRK-${id}`,
+  updatedAt: "2026-11-15T10:30:00.000Z",
+  ...overrides,
 }) as never;
 
 describe("deriveSignal — one dominant signal, first match wins", () => {
@@ -207,6 +214,38 @@ describe("coverage honesty", () => {
   });
 });
 
+describe("exception rows are PII-free (D3)", () => {
+  it("titles exception items with the human order number, never customer fields", () => {
+    const pulse = basePulse({
+      atRiskOrders: [atRiskOrder("e1", { customer_name: "LEAKED", customer_phone: "01700000000" })],
+    });
+    const items = buildWorkItems(pulse, t);
+    const exception = items.find((item) => item.kind === "exception");
+    expect(exception?.title).toBe("ORD-e1");
+    expect(JSON.stringify(exception)).not.toMatch(/LEAKED|01700000000/);
+    expect(JSON.stringify(items)).not.toMatch(/customer_name|customer_phone/);
+  });
+
+  it("falls back to the id prefix when the order number is absent", () => {
+    const pulse = basePulse({ atRiskOrders: [atRiskOrder("abcdef123456", { orderNumber: "" })] });
+    const exception = buildWorkItems(pulse, t).find((item) => item.kind === "exception");
+    expect(exception?.title).toBe("abcdef12");
+  });
+
+  it("sorts exceptions by the projected updatedAt", () => {
+    const pulse = basePulse({
+      atRiskOrders: [
+        atRiskOrder("old", { updatedAt: "2026-11-10T00:00:00.000Z" }),
+        atRiskOrder("new", { updatedAt: "2026-11-15T00:00:00.000Z" }),
+      ],
+    });
+    const groups = buildWorkGroups(buildWorkItems(pulse, t), t);
+    const exceptions = groups.find((group) => group.kind === "exception");
+    expect(exceptions?.items[0].id).toBe("exception-new");
+    expect(exceptions?.items[0].sortAt).toBeGreaterThan(0);
+  });
+});
+
 describe("en/bn parity for every redesign key", () => {
   const get = (obj: unknown, path: string): unknown =>
     path.split(".").reduce<unknown>((acc, part) => (acc && typeof acc === "object" ? (acc as Record<string, unknown>)[part] : undefined), obj);
@@ -220,6 +259,16 @@ describe("en/bn parity for every redesign key", () => {
     "dashboard.pulse.staleWarning",
     "dashboard.pulse.queueChips.note",
     "dashboard.pulse.queueChips.unavailable",
+    // Phase-1 D4–D8 dashboard surfaces (doc 04 §6 inventory).
+    ...["charges", "chargeNote", "chargesTooltip", "activitySystem", "viewAll", "dayCount"].map(
+      (k) => `dashboard.pulse.commerceSignals.${k}`,
+    ),
+    ...["title", "stockExceptions", "outOfStock", "lowStock", "deliveryExceptions", "cashInTransit", "cashAtRisk", "unavailable", "viewProducts", "viewOrders"].map(
+      (k) => `dashboard.businessHealth.${k}`,
+    ),
+    ...["title", "metaRow", "courierRow", "connectedVerified", "connectedUnverified", "reconnectRequired", "disconnected", "unavailable", "ready", "connectedNotActive", "setupIncomplete", "notSetUp", "reconnect", "missingCount"].map(
+      (k) => `dashboard.connections.${k}`,
+    ),
     "dashboard.pulse.evidence.title",
     "dashboard.pulse.evidence.coverageComplete",
     "dashboard.pulse.evidence.auditLog",

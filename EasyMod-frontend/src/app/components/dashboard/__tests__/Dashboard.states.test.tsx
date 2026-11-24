@@ -9,6 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "../../Dashboard";
 import { apiClient } from "@/api";
+import { getStockExceptions } from "@/api/domains/product";
 
 vi.mock("@/api", () => ({
   apiClient: {
@@ -17,7 +18,22 @@ vi.mock("@/api", () => ({
     getDashboardQueue: vi.fn(),
     getOrders: vi.fn(),
     getConversations: vi.fn(),
+    getOrderCounts: vi.fn(),
   },
+}));
+
+// New dashboard read sources (doc 04 §5) — honest empty reads by default so
+// state tests exercise page behavior, not module wiring.
+vi.mock("@/api/domains/product", () => ({
+  getStockExceptions: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("@/api/domains/meta-channels", () => ({
+  listMetaChannels: vi.fn().mockResolvedValue([]),
+  reconnectMetaChannel: vi.fn(),
+  pingMetaChannel: vi.fn(),
+}));
+vi.mock("@/api/domains/delivery", () => ({
+  getDeliveryReadiness: vi.fn().mockResolvedValue({ providers: [] }),
 }));
 
 const { tMock } = vi.hoisted(() => ({
@@ -48,7 +64,13 @@ const completeSetupStatus = {
 };
 
 const metrics = { metrics: { ordersToday: 2 }, cashPosition: null };
-const queue = { unread_count: 0, pending_payment_count: 0, ready_to_dispatch_count: 0, at_risk_orders: [] };
+const queue = {
+  predicate_version: "worklist-v1",
+  needs_reply: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: "2026-11-24T10:00:00.000Z" },
+  pending_payment_count: 0,
+  ready_to_dispatch_count: 0,
+  at_risk_orders: [],
+};
 const conversations = { data: [], total: 0, page: 1, pageSize: 100, ai_reply_mode: "MANUAL" };
 
 const pending = () => new Promise(() => {});
@@ -69,6 +91,7 @@ beforeEach(() => {
   vi.mocked(apiClient.getDashboardMetrics).mockResolvedValue(metrics as never);
   vi.mocked(apiClient.getDashboardQueue).mockResolvedValue(queue as never);
   vi.mocked(apiClient.getOrders).mockResolvedValue([] as never);
+  vi.mocked(apiClient.getOrderCounts).mockResolvedValue({ total: 0, needs_action: 0 } as never);
   vi.mocked(apiClient.getConversations).mockResolvedValue(conversations as never);
 });
 
@@ -89,6 +112,10 @@ describe("Dashboard states", () => {
     vi.mocked(apiClient.getDashboardQueue).mockRejectedValue(new Error("boom"));
     vi.mocked(apiClient.getOrders).mockRejectedValue(new Error("boom"));
     vi.mocked(apiClient.getConversations).mockRejectedValue(new Error("boom"));
+    // Full-fail only when every fan-out source — including the Phase-1
+    // bounded reads — is down.
+    vi.mocked(apiClient.getOrderCounts).mockRejectedValue(new Error("boom"));
+    vi.mocked(getStockExceptions).mockRejectedValue(new Error("boom"));
     renderDashboard();
 
     await waitFor(() => {

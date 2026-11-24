@@ -1,16 +1,23 @@
 /**
- * Review-queue aggregates (guardrails §21.1) — the real counts the baseline
- * fetched but dropped. Each chip links to its workflow. null = source failed:
- * shows "Unavailable", never an invented 0. Aggregates are not verified tasks;
- * the note says so.
+ * Review-queue signal cards (guardrails §21.1, mission D3/D5) — four real
+ * aggregates, each linking to the exact filtered workflow it shares a
+ * predicate with (needs_reply == inbox tab == badge via C1; to_pack/needs_action
+ * via order-worklist buckets; payment via the unchanged pending query). null =
+ * source failed: shows "Unavailable", never an invented 0. Aggregates are not
+ * verified tasks; the note says so. A capped/incomplete needs-reply scan renders
+ * as `N+` (D1/D10 honesty) and is never presented as exhaustive.
  */
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { MessageCircle, CreditCard, Truck, Receipt } from "lucide-react";
-import type { DashboardCommerceSignals } from "@/api/types/dashboard";
+import type { DashboardCommerceSignals, NeedsReplyCount } from "@/api/types/dashboard";
+
+/** D1 display cap — larger values render "99+", never a bare big number. */
+const DISPLAY_CAP = 99;
 
 interface QueueSignalChipsProps {
-  unread: number | null;
+  /** C1 object from the shared needs-reply service; null = failed (never 0). */
+  needsReply: NeedsReplyCount | null;
   pendingPayment: number | null;
   readyToDispatch: number | null;
   billing?: DashboardCommerceSignals['deliveredCharges'];
@@ -18,16 +25,31 @@ interface QueueSignalChipsProps {
   formatMoney?: (n: number) => string;
 }
 
-export function QueueSignalChips({ unread, pendingPayment, readyToDispatch, billing, formatCount = String, formatMoney = String }: QueueSignalChipsProps) {
+/**
+ * Reply-count display: exact when the server scan covered every open
+ * conversation; a lower bound (`N+`, capped at 99+) otherwise — a number from
+ * a truncated scan must never look exhaustive.
+ */
+export function needsReplyDisplay(
+  needsReply: NeedsReplyCount | null,
+  formatCount: (n: number) => string,
+  unavailableLabel: string,
+): string {
+  if (needsReply === null) return unavailableLabel;
+  const capped = needsReply.count > DISPLAY_CAP;
+  if (needsReply.coverageComplete) {
+    return capped ? `${DISPLAY_CAP}+` : formatCount(needsReply.count);
+  }
+  return capped ? `${DISPLAY_CAP}+` : `${formatCount(needsReply.count)}+`;
+}
+
+export function QueueSignalChips({ needsReply, pendingPayment, readyToDispatch, billing, formatCount = String, formatMoney = String }: QueueSignalChipsProps) {
   const { t } = useTranslation();
-  // Dashboard aggregates use payment/fulfillment predicates that differ from the
-  // worklist bucket predicates, so a chip count and the bucket count it opens can
-  // differ. The links select the closest bucket / exact payment filter and never
-  // adjust or fabricate counts (the "aggregates are not verified tasks" note stands).
+  const unavailable = t("dashboard.pulse.queueChips.unavailable");
   const chips = [
-    { label: t("dashboard.pulse.attention.waitingForReply"), count: unread, to: "/inbox", icon: MessageCircle, tone: "border-l-em-sunlight-500", iconTone: "bg-em-sunlight-100 text-em-sunlight-700" },
-    { label: t("dashboard.pulse.attention.pendingPayment"), count: pendingPayment, to: "/orders?payment=pending", icon: CreditCard, tone: "border-l-em-violet-700", iconTone: "bg-em-violet-100 text-em-violet-700" },
-    { label: t("dashboard.pulse.attention.readyToDispatch"), count: readyToDispatch, to: "/orders?bucket=to_pack", icon: Truck, tone: "border-l-em-info-700", iconTone: "bg-em-info-100 text-em-info-700" },
+    { label: t("dashboard.pulse.attention.waitingForReply"), display: needsReplyDisplay(needsReply, formatCount, unavailable), to: "/inbox?tab=needs_review", icon: MessageCircle, tone: "border-l-em-sunlight-500", iconTone: "bg-em-sunlight-100 text-em-sunlight-700" },
+    { label: t("dashboard.pulse.attention.pendingPayment"), display: pendingPayment === null ? unavailable : formatCount(pendingPayment), to: "/orders?payment=pending", icon: CreditCard, tone: "border-l-em-violet-700", iconTone: "bg-em-violet-100 text-em-violet-700" },
+    { label: t("dashboard.pulse.attention.readyToDispatch"), display: readyToDispatch === null ? unavailable : formatCount(readyToDispatch), to: "/orders?bucket=to_pack", icon: Truck, tone: "border-l-em-info-700", iconTone: "bg-em-info-100 text-em-info-700" },
   ];
 
   return (
@@ -46,18 +68,22 @@ export function QueueSignalChips({ unread, pendingPayment, readyToDispatch, bill
             className={`flex min-h-28 flex-col items-start gap-2 rounded-xl border border-em-border border-l-4 bg-em-bg-surface p-4 shadow-sm hover:bg-em-violet-50 ${chip.tone}`}
           >
             <span className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${chip.iconTone}`}><chip.icon className="h-5 w-5" aria-hidden="true" /></span>
-            <span className="em-tabular text-xl font-semibold text-em-text-primary">
-              {chip.count === null ? t("dashboard.pulse.queueChips.unavailable") : formatCount(chip.count)}
-            </span>
+            <span className="em-tabular text-xl font-semibold text-em-text-primary">{chip.display}</span>
             <span className="text-sm font-medium text-em-text-primary">{chip.label}</span>
           </Link>
         ))}
         {billing !== undefined && (
-          <Link to="/subscription" className="flex min-h-28 flex-col items-start gap-2 rounded-xl border border-em-border border-l-4 border-l-em-success-700 bg-em-bg-surface p-4 shadow-sm hover:bg-em-violet-50">
+          <Link
+            to="/subscription"
+            title={t("dashboard.pulse.commerceSignals.chargesTooltip")}
+            className="flex min-h-28 flex-col items-start gap-2 rounded-xl border border-em-border border-l-4 border-l-em-success-700 bg-em-bg-surface p-4 shadow-sm hover:bg-em-violet-50"
+          >
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-em-success-100 text-em-success-700"><Receipt className="h-5 w-5" aria-hidden="true" /></span>
             <span className="em-tabular text-xl font-semibold text-em-text-primary">{billing === null ? t("dashboard.pulse.commerceSignals.unavailable") : formatMoney(billing.amountMinor / 100)}</span>
             <span className="text-sm font-medium text-em-text-primary">{t("dashboard.pulse.commerceSignals.charges")}</span>
-            {billing !== null && <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.dayCount", { day: billing.dayUtc, count: formatCount(billing.count) })}</span>}
+            {/* D5: count is i18next's plural option — pass the raw number and
+                keep Intl formatting on the money value above. */}
+            {billing !== null && <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.dayCount", { day: billing.dayUtc, count: billing.count })}</span>}
             <span className="text-xs text-em-text-secondary">{t("dashboard.pulse.commerceSignals.chargeNote")}</span>
           </Link>
         )}

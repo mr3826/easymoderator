@@ -70,10 +70,12 @@ export function buildWorkItems(pulse: PulseData, t: Translate): WorkItem[] {
     workItems.push({
       id: `exception-${order.id}`,
       kind: "exception",
-      title: order.customer_name || order.id,
+      // D3: PII-free projection — the row is identified by the human order
+      // number (id fallback), never by customer_name/customer_phone.
+      title: orderLabel(order),
       detail: [status, order.tracking_id].filter(Boolean).join(" · ") || t("dashboard.pulse.status.unknown"),
       to: `/orders?orderId=${encodeURIComponent(order.id)}`,
-      sortAt: 0,
+      sortAt: validDate(order.updatedAt)?.getTime() ?? 0,
       icon: AlertTriangle,
       action: t("dashboard.pulse.attention.reviewOrder"),
     });

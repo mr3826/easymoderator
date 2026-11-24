@@ -24,6 +24,8 @@ import {
   isCaughtUp,
 } from "./dashboard/derive";
 import { AttentionQueue } from "./dashboard/AttentionQueue";
+import { BusinessHealth } from "./dashboard/BusinessHealth";
+import { ConnectionHealth } from "./dashboard/ConnectionHealth";
 import { CourierSnapshot } from "./dashboard/CourierSnapshot";
 import { DashboardSkeleton } from "./dashboard/DashboardSkeleton";
 import { EmButton } from "./dashboard/EmButton";
@@ -249,7 +251,7 @@ export default function Dashboard() {
 
             <motion.div variants={fadeUp}>
               <QueueSignalChips
-                unread={pulseData.unreadCount}
+                needsReply={pulseData.needsReply}
                 pendingPayment={pulseData.pendingPaymentCount}
                 readyToDispatch={pulseData.readyToDispatchCount}
                 billing={pulseData.commerceSignals?.deliveredCharges ?? null}
@@ -271,6 +273,18 @@ export default function Dashboard() {
                 formatCurrency={formatCurrency}
                 formatCount={formatCount}
               />
+            </motion.div>
+
+            {/* D7/D8 business + connection modules (overview anatomy band). */}
+            <motion.div variants={fadeUp} className="grid grid-cols-1 items-start gap-x-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <BusinessHealth
+                stockExceptions={pulseData.stockExceptions}
+                deliveryExceptionCount={pulseData.worklistNeedsActionCount}
+                cashPosition={pulseData.cashPosition}
+                formatCount={formatCount}
+                formatCurrency={formatCurrency}
+              />
+              <ConnectionHealth />
             </motion.div>
 
             <motion.div variants={fadeUp}>

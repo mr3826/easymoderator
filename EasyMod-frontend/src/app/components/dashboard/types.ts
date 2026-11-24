@@ -3,7 +3,13 @@
  * Contracts follow EasyModerator-UI-UX-Guardrails.md §4/§24.
  */
 import type { LucideIcon } from "lucide-react";
-import type { DashboardCommerceSignals, DashboardMetrics, DashboardQueue } from "@/api/types/dashboard";
+import type {
+  DashboardCommerceSignals,
+  DashboardMetrics,
+  DashboardQueue,
+  NeedsReplyCount,
+  StockExceptions,
+} from "@/api/types/dashboard";
 import type { Conversation } from "@/api/types/conversation";
 import type { Order } from "@/api/types/order";
 
@@ -74,10 +80,24 @@ export interface PulseData {
   exceptionCoverageComplete: boolean;
   lastFiveOrders: Order[] | null;
   cashPosition: CashPosition | null;
-  /** Real queue aggregates (§21.1 Review queue). null = source failed, never 0. */
-  unreadCount: number | null;
+  /**
+   * C1/C3 needs-reply object from the shared service — the D3 replacement for
+   * the legacy `unread_count` (no longer read anywhere). null = source failed
+   * or predates the contract: the chip renders Unavailable, never 0.
+   */
+  needsReply: NeedsReplyCount | null;
   pendingPaymentCount: number | null;
   readyToDispatchCount: number | null;
+  /** D3 worklist predicate marker ('worklist-v1'); null = old backend payload. */
+  predicateVersion: string | null;
+  /**
+   * D8: `needs_action` bucket count from the shared worklist counts source
+   * (the same authority as the Orders nav badge and the queue sample).
+   * null = source failed, never 0.
+   */
+  worklistNeedsActionCount: number | null;
+  /** D2/C2 bounded stock-exception scan; null = source failed, never 0. */
+  stockExceptions: StockExceptions | null;
   /** Already present in the metrics payload; optional 30-day trend. */
   chartData: unknown;
 }
