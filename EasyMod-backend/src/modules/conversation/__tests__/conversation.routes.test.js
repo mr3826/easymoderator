@@ -16,6 +16,10 @@ const mockController = {
     getHistory: jest.fn((_req, res) => res.status(200).json({ success: true, data: [] })),
     getEventStream: jest.fn((_req, res) => res.status(204).end()),
     searchConversations: jest.fn((_req, res) => res.status(200).json({ success: true, data: [] })),
+    getNeedsReplyCount: jest.fn((_req, res) => res.status(200).json({
+        success: true,
+        data: { count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z' },
+    })),
     bulkUpdateStatus: jest.fn((_req, res) => res.status(200).json({ success: true })),
     checkDuplicate: jest.fn((_req, res) => res.status(200).json({ success: true })),
     createConversation: jest.fn((_req, res) => res.status(201).json({ success: true })),
@@ -91,6 +95,19 @@ describe('conversation.routes', () => {
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual(expect.objectContaining({ success: true }));
+    });
+
+    it('registers needs-reply-count BEFORE /:conversationId (Phase 1 C1)', async () => {
+        const res = await request(app).get('/api/conversation/needs-reply-count');
+
+        expect(res.status).toBe(200);
+        expect(res.body.data).toEqual({
+            count: 0, scanned: 0, cap: 200, coverageComplete: true, generated_at: '2026-11-24T10:00:00.000Z',
+        });
+        expect(mockController.getNeedsReplyCount).toHaveBeenCalledTimes(1);
+        expect(mockController.getConversationById).not.toHaveBeenCalled();
+        expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+        expect(mockVerifyShopAccess).toHaveBeenCalledTimes(1);
     });
 
     it.each(['missing-conversation', 'shop-b-conversation'])(

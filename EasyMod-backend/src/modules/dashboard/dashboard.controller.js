@@ -117,57 +117,70 @@ const getDashboardChart = async (req, res, next) => {
 };
 
 /**
- * GET /api/dashboard/queue
- * Real-time today's action queue for BD F-commerce shop owners.
- * Returns counts for: unread conversations, orders awaiting payment,
- * orders ready to dispatch, and at-risk (RTO) deliveries.
+ * GET /api/dashboard/queue — Phase 1 C3/D3 rewrite (doc 05 §3).
+ *
+ * Every number here has ONE authority and the queue ALIGNS with it (not a
+ * relabel): dispatch + at-risk counts use the authoritative
+ * order-worklist.buckets.js predicates (`delivery_status` vocabulary) that
+ * GET /api/order/counts and the Orders list use, so chip == bucket == list is
+ * provable on the same fixtures; `needs_reply` comes from the shared C1
+ * bounded service (same predicate as the Inbox badge); `pending_payment_count`
+ * keeps its UNCHANGED predicate (destination /orders?payment=pending, #301
+ * continuity). The stale `Conversation.status='unanswered'` count and the
+ * dead local `startOfToday` are removed, and `at_risk_orders` no longer
+ * projects customer_name/customer_phone (PII defect — projection is
+ * {id, orderNumber, status, tracking_id, updatedAt} only). `unread_count` is
+ * deprecated and no longer computed (doc 05 §3).
  */
 const getTodayQueue = async (req, res, next) => {
     try {
         const { shopId } = req.user;
         const { Op } = require('sequelize');
-        const { Order, Conversation, BillingLine, AuditLog } = require('../entities');
+        const { Order, BillingLine, AuditLog, User } = require('../entities');
         const { getCommerceSignals } = require('./dashboard-commerce-signals.service');
+        const { buildBucketWhere } = require('../order/order-worklist.buckets');
+        const { getNeedsReplyCount } = require('../inbox/inbox-needs-reply.service');
 
-        const startOfToday = new Date();
-        startOfToday.setHours(0, 0, 0, 0);
-
-        const [unreadCount, pendingPaymentCount, readyToDispatchCount] = await Promise.all([
-            // Unanswered conversations (customer waiting for reply)
-            Conversation.count({ where: { shop_id: shopId, status: 'unanswered' } }),
-            // Orders placed but payment not confirmed yet
+        const [
+            pendingPaymentCount,
+            readyToDispatchCount,
+            needsReply,
+            atRiskOrders,
+            commerceSignals,
+        ] = await Promise.all([
+            // Orders placed but payment not confirmed yet — UNCHANGED predicate.
             Order.count({ where: { shop_id: shopId, payment_status: 'pending', order_status: { [Op.notIn]: ['cancelled', 'refunded'] } } }),
-            // Orders confirmed/paid but not yet dispatched
-            Order.count({ where: { shop_id: shopId, order_status: { [Op.in]: ['placed', 'confirmed'] }, fulfillment_status: { [Op.notIn]: ['dispatched', 'shipped', 'delivered'] } } })
+            // Dispatch chip = the authoritative `to_pack` bucket.
+            Order.count({ where: { [Op.and]: [{ shop_id: shopId }, buildBucketWhere('to_pack')] } }),
+            // Inbox chip = the shared C1 service object; null when that source
+            // failed (never 0 — the queue must not answer for an unavailable
+            // badge source). Sub-source failure never 5xxes the whole queue.
+            getNeedsReplyCount({ shopId }).catch(() => null),
+            // At-risk rows = the authoritative `needs_action` bucket sample.
+            Order.findAll({
+                where: { [Op.and]: [{ shop_id: shopId }, buildBucketWhere('needs_action')] },
+                attributes: ['id', 'order_number', 'order_status', 'delivery_tracking_code', 'updated_at'],
+                limit: 10,
+                order: [['updated_at', 'DESC']]
+            }),
+            // Each sub-source is independently null-on-failure (allSettled inside).
+            getCommerceSignals({ shopId, BillingLine, AuditLog, User }),
         ]);
-
-        // At-risk orders: today's orders where courier hasn't picked up yet (use fulfilled orders with no tracking update)
-        const atRiskOrders = await Order.findAll({
-            where: {
-                shop_id: shopId,
-                order_status: 'fulfilled',
-                fulfillment_status: { [Op.in]: ['attempted', 'returned'] }
-            },
-            attributes: ['id', 'customer_name', 'customer_phone', 'fulfillment_status', 'delivery_tracking_code'],
-            limit: 10,
-            order: [['updated_at', 'DESC']]
-        });
-
-        const commerceSignals = await getCommerceSignals({ shopId, BillingLine, AuditLog });
 
         res.status(200).json({
             success: true,
             data: {
                 commerce_signals: commerceSignals,
-                unread_count: unreadCount,
+                needs_reply: needsReply,
+                predicate_version: 'worklist-v1',
                 pending_payment_count: pendingPaymentCount,
                 ready_to_dispatch_count: readyToDispatchCount,
                 at_risk_orders: atRiskOrders.map(o => ({
                     id: o.id,
-                    customer_name: o.customer_name,
-                    customer_phone: o.customer_phone,
-                    status: o.fulfillment_status,
-                    tracking_id: o.delivery_tracking_code
+                    orderNumber: o.order_number ?? o.id,
+                    status: o.order_status,
+                    tracking_id: o.delivery_tracking_code ?? null,
+                    updatedAt: o.updated_at ? new Date(o.updated_at).toISOString() : null
                 }))
             }
         });

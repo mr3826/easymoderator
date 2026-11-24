@@ -9,6 +9,35 @@ const {
     trackingUnavailableMessage,
 } = require('../delivery/tracking-identity');
 
+/**
+ * Phase 1 D4 (doc 05 §4): bounded ADDITIVE audit instrumentation for the web
+ * order confirm/cancel paths, using the mobile-matched vocabulary
+ * (ORDER_CONFIRMED / ORDER_CANCELLED on resource_type 'order') so the
+ * dashboard RecentActivity feed is populated for web merchants too.
+ *
+ * This is OBSERVABILITY ONLY — no new endpoint, no new scope, no new write
+ * authority over business entities. `required: false` plus the defensive
+ * try/catch/.catch() below guarantee that an audit failure — module load,
+ * DB connection, insert — NEVER changes the operation outcome or response.
+ */
+const recordWebOrderAudit = (req, order, action, extraMetadata = null) => {
+    try {
+        const AuditService = require('../audit/audit.service');
+        const metadata = { source: 'WEB', order_number: order?.order_number ?? null };
+        if (extraMetadata) Object.assign(metadata, extraMetadata);
+        return AuditService.logOperation({
+            userId: req.user?.userId ?? null,
+            shopId: req.user?.shopId ?? null,
+            action,
+            resourceType: 'order',
+            resourceId: order?.id ?? null,
+            metadata,
+        }, { required: false }).catch(() => {});
+    } catch (_) {
+        return Promise.resolve();
+    }
+};
+
 const getIdempotencyKey = (req) => {
     const value = req.get?.('Idempotency-Key') ?? req.headers?.['idempotency-key'];
     if (value === undefined) return null;
@@ -225,6 +254,9 @@ const confirmOrder = async (req, res, next) => {
             shopId
         );
 
+        // Additive observability only (see recordWebOrderAudit) — never fails the confirm.
+        await recordWebOrderAudit(req, order, 'ORDER_CONFIRMED');
+
         res.status(200).json({
             success: true,
             data: order
@@ -381,6 +413,9 @@ const cancelOrder = async (req, res, next) => {
             reason,
             customer_id
         );
+
+        // Additive observability only (see recordWebOrderAudit) — never fails the cancel.
+        await recordWebOrderAudit(req, order, 'ORDER_CANCELLED', { reason: reason ?? null });
 
         res.status(200).json({
             success: true,

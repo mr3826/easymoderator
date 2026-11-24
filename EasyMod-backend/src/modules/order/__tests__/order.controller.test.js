@@ -9,6 +9,11 @@ const { AppError } = require('../../../utils/AppError');
 
 // Mock the order service
 jest.mock('../order.service');
+// Phase 1 D4 web-audit instrumentation — keep this suite hermetic (no real
+// audit entity/DB writes). Its contract is pinned in web-audit.test.js.
+jest.mock('../../audit/audit.service', () => ({
+    logOperation: jest.fn().mockResolvedValue(undefined),
+}));
 
 describe('Order Controller', () => {
     let mockReq;

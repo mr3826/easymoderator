@@ -21,6 +21,7 @@ const { getProvider } = require('../channel-providers/provider.registry');
 const conversationLockService = require('./conversation-lock.service');
 const policyEngine = require('../policy/policy.engine');
 const { getEffectiveAiReplyMode } = require('../shop/ai-reply-mode');
+const inboxNeedsReplyService = require('../inbox/inbox-needs-reply.service');
 const {
     MESSAGE_DELIVERY_STATES,
     SUGGESTION_VISIBILITY,
@@ -845,6 +846,31 @@ class ConversationController {
             const result = await conversationService.getConversations(shopId, options);
 
             res.json({ success: true, data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * GET /api/conversation/needs-reply-count (Phase 1 C1, doc 05 §1).
+     * Bounded honest needs-reply scan — ONE predicate shared with the Inbox
+     * nav badge and the dashboard queue chip. Read failures flow to the
+     * error handler (5xx) so the client maps null and renders NO badge —
+     * never a fake zero.
+     */
+    async getNeedsReplyCount(req, res, next) {
+        try {
+            const shopId = req.user?.shopId;
+
+            if (!shopId) {
+                return res.status(400).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'Shop ID is required' }
+                });
+            }
+
+            const data = await inboxNeedsReplyService.getNeedsReplyCount({ shopId });
+            res.json({ success: true, data });
         } catch (error) {
             next(error);
         }

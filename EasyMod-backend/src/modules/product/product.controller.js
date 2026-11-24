@@ -1,6 +1,7 @@
 const productService = require('./product.service');
 const productLinkService = require('./product-link.service');
 const upsellService = require('./product-upsell.service');
+const stockExceptionsService = require('./product-stock-exceptions.service');
 const { HTTP_STATUS } = require('../../constants/http-status');
 const { publicBaseUrl } = require('../../utils/image-upload.service');
 const { storeProductImage } = require('./product-media.service');
@@ -50,6 +51,27 @@ const getProducts = async (req, res, next) => {
             success: true,
             data: result
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * GET /api/product/stock-exceptions (Phase 1 C2, doc 05 §2).
+ * Bounded, honest stock-exception counts for the nav badge, the BusinessHealth
+ * tile and the /products?stock=exceptions seed. Read failures flow to the
+ * error handler (5xx) so clients map null — never a fake zero.
+ */
+const getStockExceptions = async (req, res, next) => {
+    try {
+        const { shopId } = req.user;
+        if (!shopId) {
+            return res.status(HTTP_STATUS.BAD_REQUEST).json(getNoShopError());
+        }
+
+        const data = await stockExceptionsService.getStockExceptions({ shopId });
+
+        res.status(HTTP_STATUS.OK).json({ success: true, data });
     } catch (error) {
         next(error);
     }
@@ -477,6 +499,7 @@ module.exports = {
     bulkUpdateProducts,
     getProductUpsells,
     getUpsellsForCart,
+    getStockExceptions,
     // Legacy methods (for backward compatibility)
     createProduct,
     updateProduct,
