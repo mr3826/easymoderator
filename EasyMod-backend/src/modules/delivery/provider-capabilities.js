@@ -52,6 +52,9 @@ const PROVIDER_CAPABILITIES = Object.freeze({
         // Phase 1 (ADR-0011): Pathao exposes no payout/reconciliation API to
         // this integration; merchants reconcile COD in the Pathao portal.
         settlement: unsupported('NO_PAYOUT_API', 'RECONCILE_IN_PROVIDER_PORTAL'),
+        // pathao.provider.js implements getStores()/createStore(); unit-tested
+        // against mocks only — never exercised with a live merchant account.
+        pickup_store: notImplemented('PICKUP_STORE_DIRECTORY', null),
         last_verified_at: null,
     }),
     steadfast: Object.freeze({
@@ -68,6 +71,9 @@ const PROVIDER_CAPABILITIES = Object.freeze({
         // steadfast.provider.js exposes GET /payments, but COD settlement has
         // never been exercised against a live account.
         settlement: notImplemented(),
+        // steadfast.provider.js has no store endpoints (listStoresHook: null);
+        // pickup for Steadfast is always a manual location.
+        pickup_store: unsupported('NO_PICKUP_STORE_API', 'CONFIGURE_PICKUP_MANUALLY'),
         last_verified_at: null,
     }),
     redx: Object.freeze({
@@ -83,6 +89,14 @@ const PROVIDER_CAPABILITIES = Object.freeze({
         settlement: level('UNKNOWN', {
             reason_code: 'PAID_STATUS_DISCARDED',
             manual_step_code: 'RECONCILE_IN_PROVIDER_PORTAL',
+        }),
+        // redx.provider.js implements getPickupStores()/createPickupStore(),
+        // but the /pickup/stores envelope has never been confirmed against a
+        // live account: reads are defensively normalized and the create path
+        // is gated behind explicit merchant confirmation. Live verification
+        // is the founder UAT leg.
+        pickup_store: level('IMPLEMENTED_NOT_LIVE_VERIFIED', {
+            reason_code: 'ADAPTER_CONTRACT_UNVERIFIED',
         }),
         last_verified_at: null,
     }),

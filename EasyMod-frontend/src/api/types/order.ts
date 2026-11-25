@@ -150,7 +150,45 @@ export interface PickupLocationPayload {
 
 export interface ProviderPickupSyncRequest {
   pickup_location_id?: string | null;
+  /** Explicit provider store id for a merchant-chosen link/resolve. */
+  store_id?: string;
   provider_pickup_meta?: ProviderPickupMetadata;
+}
+
+/** Canonical provider pickup-store row (tolerant of per-provider shapes). */
+export interface DeliveryProviderStore {
+  store_id?: string;
+  id?: string | number;
+  store_name?: string;
+  name?: string;
+  address?: string;
+  phone?: string;
+  city_id?: string | number | null;
+  zone_id?: string | number | null;
+  area_id?: string | number | null;
+}
+
+/** GET/POST /:provider/stores(/sync) envelope. */
+export interface ProviderStoresResult {
+  provider?: DeliveryProvider;
+  stores?: DeliveryProviderStore[];
+  pickup_locations?: PickupLocation[];
+  capability?: string;
+}
+
+/** POST /:provider/pickup/store (confirmed external create) envelope. */
+export interface CreateProviderStoreResult {
+  provider?: DeliveryProvider;
+  created?: boolean;
+  store?: DeliveryProviderStore;
+  pickup_locations?: PickupLocation[];
+  config?: DeliveryProviderStatus;
+  capability?: string;
+}
+
+/** POST /:provider/pickup link/import response adds store_resolution. */
+export interface ProviderPickupLinkResult extends DeliveryProviderStatus {
+  store_resolution?: 'MATCHED' | 'LINKED' | 'PRESERVED' | 'NO_MATCH' | 'UNRESOLVED' | string;
 }
 
 export interface DeliveryLocationOption {
@@ -232,6 +270,11 @@ export interface DeliveryProviderStatus {
   pickup_enabled?: boolean;
   pickup_location_id?: string | null;
   pickup_store_id?: string | null;
+  /** Merchant-facing mapping honesty: is the provider store link still backed by a live listing? */
+  pickup_mapping_status?: 'confirmed' | 'stale' | 'unknown' | null;
+  pickup_stores_synced_at?: string | null;
+  /** Resolution of the latest provider-store sync for this integration. */
+  store_resolution?: string;
   setup_complete?: boolean;
   metadata?: Record<string, unknown>;
   capabilities?: DeliveryProviderCapabilities | null;

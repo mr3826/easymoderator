@@ -396,7 +396,7 @@ describe('courier readiness and pickup sync contracts', () => {
         });
     });
 
-    test('matches an existing provider store to the selected pickup before reusing it', async () => {
+    test('reuses the single matching provider store for the selected pickup', async () => {
         await jest.isolateModulesAsync(async () => {
             const provider = {
                 getStores: jest.fn().mockResolvedValue([
@@ -448,7 +448,7 @@ describe('courier readiness and pickup sync contracts', () => {
             }));
 
             const deliveryService = require('../delivery.service');
-            await deliveryService.syncProviderPickup('shop-1', 'pathao', {
+            const result = await deliveryService.syncProviderPickup('shop-1', 'pathao', {
                 pickup_location_id: 'pickup-new',
                 provider_pickup_meta: { city_id: 1, zone_id: 2, area_id: 3 },
             });
@@ -456,6 +456,206 @@ describe('courier readiness and pickup sync contracts', () => {
             expect(provider.getStores).toHaveBeenCalledTimes(1);
             expect(provider.createStore).not.toHaveBeenCalled();
             expect(integration.provider_store_id).toBe('store-selected');
+            expect(result.store_resolution).toBe('MATCHED');
+        });
+    });
+
+    test('requires explicit selection and returns candidates when multiple stores match', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const provider = {
+                getStores: jest.fn().mockResolvedValue([
+                    { store_id: 'store-a', store_name: 'Warehouse A', city_id: 1, zone_id: 2, area_id: 3 },
+                    { store_id: 'store-b', store_name: 'Warehouse B', city_id: 1, zone_id: 2, area_id: 3 },
+                    { store_id: 'store-c', store_name: 'Elsewhere', city_id: 7, zone_id: 8, area_id: 9 },
+                ]),
+                createStore: jest.fn(),
+            };
+            const integration = {
+                id: 'integration-ambiguous',
+                provider: 'pathao',
+                is_connected: true,
+                is_active: false,
+                pickup_location_id: null,
+                provider_store_id: null,
+                pickup_store_id: null,
+                pickup_enabled: false,
+                metadata: {},
+                save: jest.fn().mockResolvedValue(true),
+            };
+            const DeliveryIntegration = {
+                findOne: jest.fn().mockResolvedValue(integration),
+                sequelize: { query: jest.fn().mockResolvedValue([]) },
+            };
+            const pickupLocationService = {
+                getPickupLocation: jest.fn().mockResolvedValue({
+                    id: 'pickup-amb',
+                    shop_id: 'shop-1',
+                    provider: 'manual',
+                    provider_store_id: null,
+                    display_name: 'Shared-area pickup',
+                    address: 'House 2, Dhaka',
+                    area_name: 'Dhanmondi',
+                    city_id: 1,
+                    zone_id: 2,
+                    area_id: 3,
+                }),
+                serializePickupLocation: jest.fn((location) => location),
+            };
+
+            jest.doMock('../delivery-integration.entity', () => DeliveryIntegration);
+            jest.doMock('../../entities', () => ({ DeliveryIntegration, ShopPickupLocation: {} }));
+            jest.doMock('../pickup-location.service', () => pickupLocationService);
+            jest.doMock('../pathao-token.service', () => ({ createProvider: jest.fn().mockResolvedValue(provider) }));
+            jest.doMock('../providers/provider.registry', () => ({
+                COURIER_REGISTRY: { pathao: { Provider: class FakePathaoProvider {} } },
+            }));
+
+            const deliveryService = require('../delivery.service');
+            let captured;
+            try {
+                await deliveryService.syncProviderPickup('shop-1', 'pathao', {
+                    pickup_location_id: 'pickup-amb',
+                    provider_pickup_meta: { city_id: 1, zone_id: 2, area_id: 3 },
+                });
+            } catch (error) {
+                captured = error;
+            }
+
+            expect(captured).toMatchObject({
+                name: 'AppError',
+                status: 409,
+                code: 'DELIVERY_PICKUP_AMBIGUOUS',
+            });
+            expect(captured.details.candidates.map((candidate) => candidate.store_id)).toEqual(['store-a', 'store-b']);
+            expect(captured.details.candidates[0]).toMatchObject({
+                store_id: 'store-a',
+                id: 'store-a',
+                name: 'Warehouse A',
+                city_id: 1,
+                zone_id: 2,
+                area_id: 3,
+            });
+            expect(provider.createStore).not.toHaveBeenCalled();
+            // Round-2 contract: an AMBIGUOUS sync still READ the provider
+            // listing, so the store cache is refreshed with exactly what the
+            // provider has right now — but the mapping itself is not
+            // confirmed (no store is wired; the merchant must pick a
+            // candidate), so pickup wiring stays untouched.
+            expect(integration.save).toHaveBeenCalledTimes(1);
+            expect(integration.metadata.stores.map((store) => store.store_id))
+                .toEqual(['store-a', 'store-b', 'store-c']);
+            expect(typeof integration.metadata.stores_synced_at).toBe('string');
+            expect(integration.metadata.stores.some((store) => store.source === 'link')).toBe(false);
+            expect(integration.provider_store_id).toBeNull();
+            expect(integration.pickup_store_id).toBeNull();
+            expect(integration.pickup_enabled).toBe(false);
+        });
+    });
+
+    test('never auto-creates a provider store when nothing matches and preserves the old mapping', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const provider = {
+                getStores: jest.fn().mockResolvedValue([
+                    { store_id: 'store-elsewhere', store_name: 'Other City Hub', city_id: 9, zone_id: 9, area_id: 9 },
+                ]),
+                createStore: jest.fn(),
+            };
+            const integration = {
+                id: 'integration-no-match',
+                provider: 'pathao',
+                is_connected: true,
+                is_active: false,
+                pickup_location_id: 'pickup-moved',
+                provider_store_id: 'store-old',
+                pickup_store_id: 'store-old',
+                pickup_enabled: true,
+                metadata: { provider_store_id: 'store-old', pickup_location_id: 'pickup-moved' },
+                save: jest.fn().mockResolvedValue(true),
+            };
+            const DeliveryIntegration = {
+                findOne: jest.fn().mockResolvedValue(integration),
+                sequelize: { query: jest.fn().mockResolvedValue([]) },
+            };
+            const pickupLocationService = {
+                getPickupLocation: jest.fn().mockResolvedValue({
+                    id: 'pickup-moved',
+                    shop_id: 'shop-1',
+                    provider: 'manual',
+                    provider_store_id: null,
+                    display_name: 'Moved pickup',
+                    address: 'House 3, Dhaka',
+                    area_name: 'Uttara',
+                    city_id: 1,
+                    zone_id: 2,
+                    area_id: 3,
+                }),
+                serializePickupLocation: jest.fn((location) => location),
+            };
+
+            jest.doMock('../delivery-integration.entity', () => DeliveryIntegration);
+            jest.doMock('../../entities', () => ({ DeliveryIntegration, ShopPickupLocation: {} }));
+            jest.doMock('../pickup-location.service', () => pickupLocationService);
+            jest.doMock('../pathao-token.service', () => ({ createProvider: jest.fn().mockResolvedValue(provider) }));
+            jest.doMock('../providers/provider.registry', () => ({
+                COURIER_REGISTRY: { pathao: { Provider: class FakePathaoProvider {} } },
+            }));
+
+            const deliveryService = require('../delivery.service');
+            const result = await deliveryService.syncProviderPickup('shop-1', 'pathao', {
+                pickup_location_id: 'pickup-moved',
+                provider_pickup_meta: { city_id: 1, zone_id: 2, area_id: 3 },
+            });
+
+            // No external store is created just because the sync found no
+            // geographic match, and the explicit old selection is preserved.
+            expect(provider.createStore).not.toHaveBeenCalled();
+            expect(result.store_resolution).toBe('NO_MATCH');
+            expect(result.pickup_store_id).toBe('store-old');
+            expect(integration.provider_store_id).toBe('store-old');
+            expect(integration.pickup_location_id).toBe('pickup-moved');
+        });
+    });
+
+    test('refuses to enable pickup without a location or provider store selected', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = {
+                id: 'integration-empty',
+                provider: 'pathao',
+                is_connected: true,
+                is_active: false,
+                pickup_location_id: null,
+                provider_store_id: null,
+                pickup_store_id: null,
+                pickup_enabled: false,
+                metadata: {},
+                save: jest.fn().mockResolvedValue(true),
+            };
+            const DeliveryIntegration = {
+                findOne: jest.fn().mockResolvedValue(integration),
+                sequelize: { query: jest.fn().mockResolvedValue([]) },
+            };
+
+            jest.doMock('../delivery-integration.entity', () => DeliveryIntegration);
+            jest.doMock('../../entities', () => ({ DeliveryIntegration, ShopPickupLocation: {} }));
+            jest.doMock('../pickup-location.service', () => ({
+                getPickupLocation: jest.fn(),
+                serializePickupLocation: jest.fn((location) => location),
+            }));
+            jest.doMock('../pathao-token.service', () => ({ createProvider: jest.fn() }));
+            jest.doMock('../providers/provider.registry', () => ({
+                COURIER_REGISTRY: { pathao: { Provider: class FakePathaoProvider {} } },
+            }));
+
+            const deliveryService = require('../delivery.service');
+            // details.missing mirrors the DELIVERY_NOT_READY contract so the
+            // UI's getConflictMissing path reads it unchanged.
+            await expect(deliveryService.setPickupConfiguration('shop-1', 'pathao', {}))
+                .rejects.toMatchObject({
+                    status: 409,
+                    code: 'DELIVERY_PICKUP_SOURCE_REQUIRED',
+                    details: { provider: 'pathao', missing: ['pickup_location', 'provider_store'] },
+                });
+            expect(integration.save).not.toHaveBeenCalled();
         });
     });
 

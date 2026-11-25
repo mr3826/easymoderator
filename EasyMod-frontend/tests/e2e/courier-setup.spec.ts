@@ -365,12 +365,36 @@ class DeliverySettingsPage {
         });
     }
 
-    activateButton() {
-        return this.page.getByRole('button', { name: /^Activate$/i });
+    // Tabbed shell (2026-11-25): lifecycle actions live in the contextual
+    // management drawer; the card keeps the Connect/Manage entry point.
+    async openDrawer(provider: 'pathao' | 'steadfast' | 'redx') {
+        const displayName = provider === 'redx' ? 'RedX Courier' : `${provider.charAt(0).toUpperCase()}${provider.slice(1)} Courier`;
+        await this.page.getByTestId(`manage-${provider}`).click();
+        await expect(this.page.getByRole('dialog', { name: `Manage ${displayName}` })).toBeVisible();
     }
 
-    setDefaultButton() {
-        return this.page.getByRole('button', { name: 'Set as AI default', exact: true });
+    async closeDrawer() {
+        const close = this.page.getByRole('button', { name: 'Close', exact: true });
+        if (await close.count() > 0) {
+            await close.first().click();
+            await expect(this.page.getByRole('dialog')).toHaveCount(0);
+        }
+    }
+
+    activateButton() {
+        return this.page.getByTestId('drawer-activate-pathao');
+    }
+
+    setDefaultButton(provider: 'pathao' | 'steadfast' = 'pathao') {
+        return this.page.getByTestId(`drawer-set-ai-${provider}`);
+    }
+
+    pickupTab() {
+        return this.page.getByTestId('delivery-tab-pickup');
+    }
+
+    providersTab() {
+        return this.page.getByTestId('delivery-tab-providers');
     }
 }
 
@@ -385,7 +409,7 @@ function requestsFor(requests: CapturedRequest[], method: string, path: string) 
     return requests.filter((request) => request.method === method && request.path === path);
 }
 
-test('incomplete courier activation collects pickup details, validates, activates, and sets the AI default', async ({ page }) => {
+test('incomplete courier activation routes to the pickup tab, validates, then activates and sets the AI default', async ({ page }) => {
     const fixture = await setupRoutes(page, {
         providers: [
             providerStatus('pathao', {
@@ -404,7 +428,9 @@ test('incomplete courier activation collects pickup details, validates, activate
     const deliveryPage = await loginAndGoToDelivery(page);
 
     await expect(page.getByText('Setup incomplete', { exact: true })).toBeVisible();
-    await expect(deliveryPage.activateButton()).toHaveCount(1);
+    // Drawer-first: the Activate action lives in the contextual management drawer.
+    await deliveryPage.openDrawer('pathao');
+    await expect(deliveryPage.activateButton()).toBeVisible();
 
     const activationRequest = page.waitForRequest((request) => {
         const url = new URL(request.url());
@@ -420,23 +446,26 @@ test('incomplete courier activation collects pickup details, validates, activate
     expect((await activationRequest).postDataJSON()).toEqual({ provider: 'pathao' });
     expect((await activationResponse).status()).toBe(409);
 
-    const pickupDialog = page.getByRole('dialog');
-    await expect(pickupDialog).toBeVisible();
-    await expect(pickupDialog.getByRole('heading', { name: 'Pickup details', exact: true })).toBeVisible();
+    // The redesign routes the merchant to the Pickup TAB (no modal in the wired
+    // shell) with the create form focused for the provider that blocked.
+    await expect(deliveryPage.pickupTab()).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'New Pathao pickup location' })).toBeVisible();
 
-    await pickupDialog.getByRole('textbox', { name: /^Pickup name/i }).fill('Test Owner');
-    await pickupDialog.getByRole('textbox', { name: /^Pickup phone/i }).fill('01711000000');
-    await pickupDialog.getByRole('textbox', { name: /^Pickup address/i }).fill('House 10, Road 2, Dhanmondi, Dhaka');
-    const citySelect = pickupDialog.getByRole('combobox', { name: 'City', exact: true });
-    const zoneSelect = pickupDialog.getByRole('combobox', { name: 'Zone', exact: true });
-    const areaSelect = pickupDialog.getByRole('combobox', { name: 'Area', exact: true });
+    const pickupForm = page.getByTestId('pickup-form');
+    await pickupForm.getByTestId('pickup-form-name').fill('Test Owner');
+    await pickupForm.getByLabel(/^Pickup phone/i).fill('01711000000');
+    await pickupForm.getByTestId('pickup-form-address').fill('House 10, Road 2, Dhanmondi, Dhaka');
+    const citySelect = pickupForm.getByRole('combobox', { name: 'City', exact: true });
+    const zoneSelect = pickupForm.getByRole('combobox', { name: 'Zone', exact: true });
+    const areaSelect = pickupForm.getByRole('combobox', { name: 'Area', exact: true });
     await citySelect.selectOption('1');
     await expect(zoneSelect).toBeEnabled();
     await zoneSelect.selectOption('10');
     await expect(areaSelect).toBeEnabled();
     await areaSelect.selectOption('100');
 
-    await pickupDialog.getByRole('button', { name: 'Save & validate', exact: true }).click();
+    await pickupForm.getByTestId('pickup-form-save').click();
 
     await expect.poll(() => requestsFor(
         fixture.requests,
@@ -448,11 +477,6 @@ test('incomplete courier activation collects pickup details, validates, activate
         'POST',
         '/api/shop/delivery/pathao/pickup/sync',
     ).length).toBe(1);
-    await expect.poll(() => requestsFor(
-        fixture.requests,
-        'POST',
-        '/api/shop/delivery/activate',
-    ).length).toBe(2);
 
     const pickupRequest = requestsFor(fixture.requests, 'POST', '/api/shop/delivery/pickup-locations')[0];
     expect(pickupRequest.body).toEqual({
@@ -475,15 +499,30 @@ test('incomplete courier activation collects pickup details, validates, activate
         },
     });
 
+    // Sync alone never activates (§"separate actions, never conflate").
+    expect(requestsFor(fixture.requests, 'POST', '/api/shop/delivery/activate').length).toBe(1);
+
+    // The merchant explicitly returns and activates.
+    await deliveryPage.providersTab().click();
+    await deliveryPage.openDrawer('pathao');
+    await deliveryPage.activateButton().click();
+    await expect.poll(() => requestsFor(
+        fixture.requests,
+        'POST',
+        '/api/shop/delivery/activate',
+    ).length).toBe(2);
+
     const finalActivationRequest = requestsFor(fixture.requests, 'POST', '/api/shop/delivery/activate')[1];
     expect(finalActivationRequest.body).toEqual({ provider: 'pathao' });
-    await expect(page.getByText('Active', { exact: true })).toBeVisible();
-    await expect(page.getByText('Setup incomplete', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('activation-status-pathao')).toContainText('Active');
+    await expect(page.getByTestId('activation-status-pathao')).not.toContainText('Setup incomplete');
 
     const defaultRequest = page.waitForRequest((request) => {
         const url = new URL(request.url());
         return url.pathname === '/api/shop/delivery/ai-default' && request.method() === 'POST';
     });
+    // Drawer is still open after activation — the AI-default control is now eligible.
+    await expect(deliveryPage.setDefaultButton()).toBeVisible();
     await deliveryPage.setDefaultButton().click();
 
     expect((await defaultRequest).postDataJSON()).toEqual({ provider: 'pathao' });
@@ -545,15 +584,23 @@ test('switches the AI default between two active courier providers', async ({ pa
     await expect(steadfastHeading).toBeVisible();
     await expect(page.getByText('Active', { exact: true })).toHaveCount(2);
     await expect(pathaoHeading.locator('..').getByText('AI Default', { exact: true })).toBeVisible();
-    await expect(deliveryPage.setDefaultButton()).toHaveCount(1);
+    // Drawer-first: the set/clear affordance lives in the management drawer of
+    // the target provider, never loose on the card.
+    await expect(deliveryPage.setDefaultButton()).toHaveCount(0);
 
-    await deliveryPage.setDefaultButton().click();
+    await deliveryPage.openDrawer('steadfast');
+    await expect(deliveryPage.setDefaultButton('steadfast')).toBeVisible();
+    await expect(deliveryPage.setDefaultButton('steadfast')).toHaveCount(1);
+
+    await deliveryPage.setDefaultButton('steadfast').click();
     await expect.poll(() => requestsFor(fixture.requests, 'POST', '/api/shop/delivery/ai-default').length).toBe(1);
     expect(requestsFor(fixture.requests, 'POST', '/api/shop/delivery/ai-default')[0].body).toEqual({ provider: 'steadfast' });
     await expect(steadfastHeading.locator('..').getByText('AI Default', { exact: true })).toBeVisible();
     await expect(pathaoHeading.locator('..').getByText('AI Default', { exact: true })).toHaveCount(0);
 
-    await deliveryPage.setDefaultButton().click();
+    await deliveryPage.closeDrawer();
+    await deliveryPage.openDrawer('pathao');
+    await deliveryPage.setDefaultButton('pathao').click();
     await expect.poll(() => requestsFor(fixture.requests, 'POST', '/api/shop/delivery/ai-default').length).toBe(2);
     expect(requestsFor(fixture.requests, 'POST', '/api/shop/delivery/ai-default')[1].body).toEqual({ provider: 'pathao' });
     await expect(pathaoHeading.locator('..').getByText('AI Default', { exact: true })).toBeVisible();

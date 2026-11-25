@@ -67,13 +67,51 @@ const applyDeliveryDefaults = (settings = {}) => {
     };
 };
 
+const isPlainObject = (value) => (
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
 const serializeStore = (store) => {
     if (!store || typeof store !== 'object') return null;
     const safe = {};
-    for (const key of ['store_id', 'store_name', 'city_id', 'zone_id', 'area_id']) {
+    for (const key of ['store_id', 'id', 'store_name', 'name', 'address', 'phone', 'city_id', 'zone_id', 'area_id', 'source']) {
         if (store[key] !== undefined) safe[key] = store[key];
     }
     return safe;
+};
+
+/**
+ * Interactive pickup errors carry a structured payload the merchant UI acts
+ * on (candidate stores, confirmation preview, blockers, manual steps). The
+ * global error serializer only whitelists details for a few legacy codes, so
+ * these are answered directly instead of falling through to `next`.
+ * DELIVERY_PROVIDER_MANUAL_PICKUP promises details.manual_step,
+ * DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED promises
+ * details.manual_step='CREATE_IN_PROVIDER_PORTAL', and
+ * DELIVERY_PICKUP_SOURCE_REQUIRED mirrors DELIVERY_NOT_READY's details.missing
+ * — all three must keep their details through the controller layer.
+ */
+const STRUCTURED_PICKUP_ERROR_CODES = new Set([
+    'DELIVERY_PICKUP_AMBIGUOUS',
+    'DELIVERY_PROVIDER_STORE_CONFIRMATION_REQUIRED',
+    'PICKUP_LOCATION_DELETE_CONFIRMATION_REQUIRED',
+    'DELIVERY_MUTATION_IN_PROGRESS',
+    'DELIVERY_STORE_IDS_UNMATCHED',
+    'DELIVERY_PROVIDER_MANUAL_PICKUP',
+    'DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED',
+    'DELIVERY_PICKUP_SOURCE_REQUIRED',
+]);
+
+const respondStructuredPickupError = (res, error) => {
+    if (!error || typeof error.code !== 'string' || !STRUCTURED_PICKUP_ERROR_CODES.has(error.code)) return false;
+    if (!Number.isInteger(error.status)) return false;
+    res.status(error.status).json({
+        success: false,
+        message: error.message,
+        code: error.code,
+        details: error.details || {},
+    });
+    return true;
 };
 
 const serializeProviderMetadata = (metadata = {}) => {
@@ -88,6 +126,7 @@ const serializeProviderMetadata = (metadata = {}) => {
         'pickup_enabled',
         'ai_default',
         'is_ai_default',
+        'stores_synced_at',
     ]) {
         if (metadata[key] !== undefined) safe[key] = metadata[key];
     }
@@ -167,11 +206,39 @@ const providerPickupState = (integration) => {
         ?? providerMeta.pickup_store_id
         ?? metadata.store_id
         ?? null;
+    // Staleness of the stored provider store mapping against the cached
+    // listing in integration.metadata.stores. Writers of that cache (see
+    // delivery.service withLinkedStore): the explicit
+    // POST /:provider/stores/sync import, the initial Pathao connect, an
+    // explicit pickup LINK (POST /:provider/pickup with a top-level store
+    // id upserts a { store_id, source:'link' } entry — the provider accepted
+    // configuration for that id, which is live evidence it exists), and a
+    // pickup sync whose listing read MATCHED (or answered AMBIGUOUS). GET
+    // /:provider/stores is a pure read and never re-caches. So
+    // 'confirmed' means the wired store id appears in the cache we most
+    // recently refreshed — via a full listing or via link evidence — and
+    // 'stale' means it does not; the age of that refresh is surfaced
+    // honestly as pickup_stores_synced_at below. Confirmed is NEVER derived
+    // from wiring alone, and 'unknown' means we have neither a cached
+    // listing nor link evidence to compare against.
+    const storesCache = Array.isArray(metadata.stores)
+        ? metadata.stores.filter((store) => isPlainObject(store))
+        : [];
+    let pickup_mapping_status = null;
+    if (providerStoreId !== null && providerStoreId !== undefined && providerStoreId !== '') {
+        pickup_mapping_status = storesCache.length > 0
+            ? (storesCache.some((store) => String(store.store_id ?? store.id ?? '') === String(providerStoreId))
+                ? 'confirmed'
+                : 'stale')
+            : 'unknown';
+    }
     return {
         pickup_enabled: integration?.pickup_enabled ?? metadata.pickup_enabled ?? false,
         pickup_location_id: integration?.pickup_location_id ?? metadata.pickup_location_id ?? null,
         pickup_store_id: providerStoreId,
         provider_store_id: providerStoreId,
+        pickup_mapping_status,
+        pickup_stores_synced_at: typeof metadata.stores_synced_at === 'string' ? metadata.stores_synced_at : null,
         provider_pickup_meta: {
             ...providerMeta,
             ...['city_id', 'zone_id', 'area_id', 'delivery_area_id', 'pickup_store_id']
@@ -647,55 +714,152 @@ class DeliveryController {
     }
 
     /**
-     * Get provider stores (Pathao only)
+     * Provider pickup store listing and import.
+     *
+     * GET /:provider/stores and GET /:provider/stores/sync are PURE READS:
+     * they fetch the provider listing through the same adapter/normalizer
+     * path, return canonical store records, and persist NOTHING — no pickup
+     * rows, no metadata, no integration.save, no stores_synced_at. The UI's
+     * "Fetch stores" action must never silently import the whole catalog;
+     * the response deliberately omits pickup_locations entirely.
+     *
+     * POST /:provider/stores/sync remains the explicit Import action with
+     * today's full behavior: read the listing, upsert local pickup rows
+     * (optionally filtered by store_ids), cache the listing +
+     * stores_synced_at into integration metadata, and return the imported
+     * stores with their pickup_locations. That cache is what
+     * pickup_mapping_status staleness in GET /settings is computed against.
+     * Besides this import (and the Pathao connect), the pickup LINK and
+     * listing-reading sync flows in delivery.service legitimately extend or
+     * refresh the same cache — but only when the provider call itself proved
+     * the store — so staleness reflects the last moment provider truth was
+     * observed, never wiring alone.
+     *
+     * Steadfast has no store API and stays a manual 409 with manual_step.
      */
     async getProviderStores(req, res, next) {
         try {
             const shopId = req.user.shopId;
             const { provider } = req.params;
 
-            if (provider !== 'pathao') {
-                throw new AppError('Only Pathao supports store management', 400);
+            if (provider !== 'pathao' && provider !== 'redx') {
+                if (provider === 'steadfast') {
+                    throw new AppError(
+                        'Steadfast does not list pickup stores. Configure a manual pickup location instead.',
+                        409,
+                        'DELIVERY_PROVIDER_MANUAL_PICKUP',
+                        { provider, manual_step: 'CONFIGURE_PICKUP_MANUALLY' },
+                    );
+                }
+                throw new AppError('Provider does not support store management', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');
             }
 
             const integration = await DeliveryIntegration.findOne({
                 where: {
                     shop_id: shopId,
-                    provider: 'pathao'
+                    provider
                 }
             });
 
             if (!integration || !integration.is_connected) {
-                throw new AppError('Pathao not connected', 400);
+                throw new AppError(`${provider} is not connected`, 400, 'DELIVERY_PROVIDER_NOT_CONNECTED');
             }
 
-            const stores = await deliveryService.getProviderStores(shopId, 'pathao');
+            const isImport = req.method === 'POST';
+            // The pure read asks the service to canonicalize the Pathao raw
+            // listing into the same { store_id, id, name, address, phone,
+            // city_id, zone_id, area_id } shape RedX's normalized envelope
+            // returns. POST/sync keeps the raw token-recovered listing and
+            // today's exact persistence path.
+            const stores = await deliveryService.getProviderStores(shopId, provider, { canonical: !isImport });
             const safeStores = (Array.isArray(stores) ? stores : []).map(serializeStore).filter(Boolean);
+
+            if (!isImport) {
+                return res.json({
+                    success: true,
+                    data: {
+                        provider,
+                        stores: safeStores,
+                        // Listing reads are mocked-tested only; no live provider
+                        // account has been exercised for either provider here.
+                        capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+                    },
+                });
+            }
+
+            // Selective import (POST /:provider/stores/sync with store_ids):
+            // mirror only the named stores. An id the provider did not return
+            // is a conflict the UI must surface, never a silent drop. An
+            // absent/empty store_ids keeps the full-listing sync.
+            let storesToSync = safeStores;
+            const requestedIds = Array.isArray(req.body?.store_ids)
+                ? req.body.store_ids
+                : null;
+            if (requestedIds && requestedIds.length > 0) {
+                const normalizeStoreId = (value) => String(value ?? '').trim().toLowerCase();
+                const available = new Map();
+                for (const store of safeStores) {
+                    const canonicalId = store.store_id ?? store.id;
+                    if (canonicalId !== undefined && canonicalId !== null) {
+                        available.set(normalizeStoreId(canonicalId), store);
+                    }
+                }
+                const seen = new Set();
+                const requested = [];
+                for (const raw of requestedIds) {
+                    const norm = normalizeStoreId(raw);
+                    if (!norm || seen.has(norm)) continue;
+                    seen.add(norm);
+                    requested.push({ raw: String(raw).trim(), norm });
+                }
+                const unmatched = requested.filter((entry) => !available.has(entry.norm)).map((entry) => entry.raw);
+                if (unmatched.length > 0) {
+                    throw new AppError(
+                        'Some requested store ids were not found at the provider',
+                        409,
+                        'DELIVERY_STORE_IDS_UNMATCHED',
+                        { provider, unmatched_store_ids: unmatched },
+                    );
+                }
+                storesToSync = requested.map((entry) => available.get(entry.norm));
+            }
 
             let pickupLocations = [];
             try {
-                pickupLocations = await pickupLocationService.syncProviderStores(shopId, 'pathao', safeStores);
+                pickupLocations = await pickupLocationService.syncProviderStores(shopId, provider, storesToSync);
             } catch (syncError) {
                 throw new AppError('Provider stores were read but could not be synchronized', 503, 'DELIVERY_STORE_SYNC_FAILED', {
                     cause: syncError?.code || syncError?.name || 'unknown',
                 });
             }
 
-            // Update metadata with latest stores
+            // Cache the listing and the time it was read so the settings
+            // payload can distinguish a stale mapping from an unverified
+            // one. Besides this import (and the Pathao connect), the service
+            // extends/refreshes the same cache when a pickup LINK or a
+            // listing-reading sync produces live provider evidence; GET store
+            // reads stay pure and never refresh it, so stores_synced_at is
+            // always the last moment provider store truth was observed.
             integration.metadata = {
                 ...serializeProviderMetadata(integration.metadata),
-                stores: safeStores
+                stores: safeStores,
+                stores_synced_at: new Date().toISOString(),
             };
             await integration.save();
 
             res.json({
                 success: true,
                 data: {
-                    stores: safeStores,
+                    provider,
+                    stores: storesToSync,
                     pickup_locations: pickupLocations,
+                    // Listing reads are mocked-tested only; no live provider
+                    // account has been exercised for either provider here.
+                    capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
                 }
             });
         } catch (error) {
+            if (respondStructuredPickupError(res, error)) return;
             forwardSafeProviderError(next, error, 'Delivery provider store lookup failed');
         }
     }
@@ -767,6 +931,10 @@ class DeliveryController {
             );
             res.json({ success: true, data });
         } catch (error) {
+            // DELIVERY_PICKUP_SOURCE_REQUIRED carries the same details.missing
+            // contract as DELIVERY_NOT_READY; it must survive this layer
+            // instead of losing details to the global serializer whitelist.
+            if (respondStructuredPickupError(res, error)) return;
             next(error);
         }
     }
@@ -781,6 +949,27 @@ class DeliveryController {
             );
             res.json({ success: true, data });
         } catch (error) {
+            if (respondStructuredPickupError(res, error)) return;
+            next(error);
+        }
+    }
+
+    /**
+     * Merchant-confirmed external pickup store creation. Without confirm=true
+     * this never touches the provider; it answers with the preview the UI
+     * must show.
+     */
+    async createProviderPickupStore(req, res, next) {
+        try {
+            const provider = req.params.provider || req.body?.provider;
+            const data = await deliveryService.createProviderPickupStore(
+                req.user.shopId,
+                provider,
+                req.body || {},
+            );
+            res.status(201).json({ success: true, data });
+        } catch (error) {
+            if (respondStructuredPickupError(res, error)) return;
             next(error);
         }
     }
@@ -829,9 +1018,16 @@ class DeliveryController {
 
     async deletePickupLocation(req, res, next) {
         try {
-            const data = await pickupLocationService.deletePickupLocation(req.user.shopId, req.params.locationId);
+            const confirm = req.query?.confirm === true || req.query?.confirm === 'true'
+                || req.body?.confirm === true;
+            const data = await pickupLocationService.deletePickupLocation(
+                req.user.shopId,
+                req.params.locationId,
+                { confirm },
+            );
             res.json({ success: true, data });
         } catch (error) {
+            if (respondStructuredPickupError(res, error)) return;
             next(error);
         }
     }
@@ -912,8 +1108,23 @@ class DeliveryController {
                 ...integration.metadata,
                 ...metadata
             });
-            if (metadata?.store_id !== undefined) {
-                integration.pickup_store_id = String(metadata.store_id);
+            const storeSelector = metadata?.store_id ?? metadata?.pickup_store_id ?? metadata?.provider_store_id;
+            if (storeSelector !== undefined && String(storeSelector).trim() !== '') {
+                // Closing the metadata bypass: enabling pickup through this
+                // path must pass the same readiness gate /activate enforces
+                // (activation itself is not required here).
+                const readiness = await courierReadinessService.getReadiness(shopId, provider);
+                const missing = (readiness?.missing || []).filter((item) => item !== 'provider_not_active');
+                if (missing.length > 0) {
+                    throw new AppError(
+                        'Courier is not ready for activation',
+                        409,
+                        'DELIVERY_NOT_READY',
+                        { provider, missing, reason: 'pickup_setup_incomplete' },
+                    );
+                }
+                integration.pickup_store_id = String(storeSelector);
+                integration.provider_store_id = String(storeSelector);
                 integration.pickup_enabled = true;
             }
             await integration.save();
