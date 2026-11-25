@@ -144,7 +144,11 @@ export default function DeliverySettings() {
       const data = await orderApi.getDeliverySettings();
       setProviders(data.providers);
       if (!dirtyRef.current) {
-        setDeliverySettings(applyDefaults(data.settings));
+        const persisted = applyDefaults(data.settings);
+        setDeliverySettings(persisted);
+        // A freshly loaded page IS the saved state — the snapshot seeds here so
+        // the unsaved indicator never lies before the merchant has edited.
+        setSavedChargesSnapshot(JSON.stringify(persisted));
       }
       if (Array.isArray(data.pickup_locations)) {
         setPickupLocations(data.pickup_locations);
