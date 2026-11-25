@@ -2886,9 +2886,9 @@
         "unmatchedStores": "The courier did not return these store ids: {{ids}}.",
         "returnToProviders": "Pickup saved — return to Courier Providers to Activate.",
         "synced_one": "{{formatted}} store available",
-        "synced_other": "{{formatted}} store available",
+        "synced_other": "{{formatted}} stores available",
         "syncedCounts_one": "{{formatted}} store",
-        "syncedCounts_other": "{{formatted}} store",
+        "syncedCounts_other": "{{formatted}} stores",
         "synced": "{{formatted}} stores available",
         "syncedCounts": "{{formatted}} stores"
       },
