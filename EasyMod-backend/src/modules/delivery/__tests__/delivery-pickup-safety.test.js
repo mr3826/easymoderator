@@ -289,13 +289,43 @@ describe('RedX pickup store listing (mocked adapter contract only)', () => {
         });
     });
 
-    test('steadfast pickup store listing stays a manual 409', async () => {
+    test('the pure-read flag canonicalizes the raw Pathao listing; the import path keeps it raw', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const raw = [
+                { store_id: 101, store_name: 'Gulshan Hub', address: 'House 1', phone: '01700000000', city_id: 1, zone_id: 2, area_id: 3 },
+                { name: 'Ghost With No Id' },
+            ];
+            const provider = { getStores: jest.fn().mockResolvedValue(raw) };
+            serviceMocks({ provider, integration: fakeIntegration({ provider: 'pathao' }) });
+            const deliveryService = require('../delivery.service');
+
+            // GET /:provider/stores passes through the same tolerant
+            // normalizer RedX uses.
+            await expect(deliveryService.getProviderStores('shop-1', 'pathao', { canonical: true }))
+                .resolves.toEqual([
+                    {
+                        store_id: '101', id: '101', name: 'Gulshan Hub', address: 'House 1',
+                        phone: '01700000000', city_id: 1, zone_id: 2, area_id: 3,
+                    },
+                ]);
+
+            // POST/sync (no flag) keeps today's raw token-recovered listing.
+            provider.getStores.mockResolvedValueOnce(raw);
+            await expect(deliveryService.getProviderStores('shop-1', 'pathao')).resolves.toBe(raw);
+        });
+    });
+
+    test('steadfast pickup store listing stays a manual 409 with manual guidance details', async () => {
         await jest.isolateModulesAsync(async () => {
             serviceMocks({ provider: {}, integration: fakeIntegration({ provider: 'steadfast' }) });
             const deliveryService = require('../delivery.service');
 
             await expect(deliveryService.getProviderStores('shop-1', 'steadfast'))
-                .rejects.toMatchObject({ status: 409, code: 'DELIVERY_PROVIDER_MANUAL_PICKUP' });
+                .rejects.toMatchObject({
+                    status: 409,
+                    code: 'DELIVERY_PROVIDER_MANUAL_PICKUP',
+                    details: { provider: 'steadfast', manual_step: 'CONFIGURE_PICKUP_MANUALLY' },
+                });
         });
     });
 });
@@ -451,7 +481,31 @@ describe('merchant-confirmed external pickup store creation', () => {
 
             await expect(deliveryService.createProviderPickupStore('shop-1', 'steadfast', {
                 confirm: true, name: 'Hub', address: 'House 9, Dhaka',
-            })).rejects.toMatchObject({ status: 409, code: 'DELIVERY_PROVIDER_MANUAL_PICKUP' });
+            })).rejects.toMatchObject({
+                status: 409,
+                code: 'DELIVERY_PROVIDER_MANUAL_PICKUP',
+                details: { provider: 'steadfast', manual_step: 'CONFIGURE_PICKUP_MANUALLY' },
+            });
+        });
+    });
+
+    test('a provider without a create-store hook answers CREATE_UNSUPPORTED and promises the portal step', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const provider = {}; // adapter exposes no createStore/createPickupStore hook
+            const integration = fakeIntegration();
+            const pickupLocationService = manualLocationService();
+            createMocks({ provider, integration, pickupLocationService });
+            const deliveryService = require('../delivery.service');
+
+            await expect(deliveryService.createProviderPickupStore('shop-1', 'pathao', {
+                confirm: true, name: 'Hub', address: 'House 9, Dhaka',
+            })).rejects.toMatchObject({
+                status: 409,
+                code: 'DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED',
+                details: { provider: 'pathao', manual_step: 'CREATE_IN_PROVIDER_PORTAL' },
+            });
+            expect(provider.createStore).toBeUndefined();
+            expect(pickupLocationService.syncProviderStores).not.toHaveBeenCalled();
         });
     });
 
@@ -506,9 +560,15 @@ describe('merchant-confirmed external pickup store creation', () => {
 });
 
 describe('delivery controller structured pickup endpoints', () => {
-    test('answers GET /:provider/stores for RedX with normalized stores and a sync timestamp', async () => {
+    test('GET /:provider/stores is a PURE READ: canonical stores, zero writes, no pickup_locations', async () => {
         await jest.isolateModulesAsync(async () => {
-            const integration = fakeIntegration({ provider: 'redx' });
+            // Metadata pre-seeded by an earlier explicit import: a GET must
+            // leave the cached listing and timestamp untouched.
+            const cached = { store_id: '77', store_name: 'Old cache' };
+            const integration = fakeIntegration({
+                provider: 'redx',
+                metadata: { stores: [cached], stores_synced_at: '2026-01-01T00:00:00.000Z' },
+            });
             const canonical = {
                 store_id: '77', id: '77', name: 'Dhanmondi Hub', address: 'House 1',
                 phone: null, city_id: 2, zone_id: 4, area_id: 9,
@@ -532,35 +592,105 @@ describe('delivery controller structured pickup endpoints', () => {
             const next = jest.fn();
 
             await controller.getProviderStores(
-                { user: { shopId: 'shop-1' }, params: { provider: 'redx' } },
+                { user: { shopId: 'shop-1' }, params: { provider: 'redx' }, method: 'GET' },
                 res,
                 next,
             );
 
             expect(next).not.toHaveBeenCalled();
-            expect(pickupLocationService.syncProviderStores).toHaveBeenCalledWith('shop-1', 'redx', [
-                expect.objectContaining({ store_id: '77', name: 'Dhanmondi Hub' }),
-            ]);
-            expect(typeof integration.metadata.stores_synced_at).toBe('string');
-            expect(json).toHaveBeenCalledWith(expect.objectContaining({
+            expect(res.status).not.toHaveBeenCalled();
+            // The read asks the service for the canonical listing shape.
+            expect(deliveryService.getProviderStores).toHaveBeenCalledWith('shop-1', 'redx', { canonical: true });
+            // Pure read: no pickup rows are upserted, nothing is saved, and
+            // the cached listing / stores_synced_at are unchanged.
+            expect(pickupLocationService.syncProviderStores).not.toHaveBeenCalled();
+            expect(integration.save).not.toHaveBeenCalled();
+            expect(integration.metadata).toEqual({
+                stores: [cached],
+                stores_synced_at: '2026-01-01T00:00:00.000Z',
+            });
+            const body = json.mock.calls[0][0];
+            expect(body).toMatchObject({
                 success: true,
-                data: expect.objectContaining({
+                data: {
                     provider: 'redx',
+                    stores: [canonical],
                     capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
-                    pickup_locations: [{ id: 'row-1' }],
+                },
+            });
+            // GET must OMIT pickup_locations entirely (A6 mocks this delta).
+            expect(body.data).not.toHaveProperty('pickup_locations');
+            expect(JSON.stringify(body)).not.toContain('fake-key-not-secret');
+
+            // Steadfast stays the structured manual 409 WITH its guidance
+            // details intact through the controller layer.
+            const json2 = jest.fn();
+            const res2 = { json: json2, status: jest.fn(() => res2) };
+            const next2 = jest.fn();
+            await controller.getProviderStores(
+                { user: { shopId: 'shop-1' }, params: { provider: 'steadfast' }, method: 'GET' },
+                res2,
+                next2,
+            );
+            expect(next2).not.toHaveBeenCalled();
+            expect(res2.status).toHaveBeenCalledWith(409);
+            expect(json2).toHaveBeenCalledWith(expect.objectContaining({
+                success: false,
+                code: 'DELIVERY_PROVIDER_MANUAL_PICKUP',
+                details: expect.objectContaining({
+                    provider: 'steadfast',
+                    manual_step: 'CONFIGURE_PICKUP_MANUALLY',
                 }),
             }));
-            expect(JSON.stringify(json.mock.calls[0][0])).not.toContain('fake-key-not-secret');
+        });
+    });
+
+    test('GET /:provider/stores on a connected Pathao shop persists nothing (zero new pickup rows, metadata unchanged)', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration({ provider: 'pathao' });
+            // The raw token-recovered Pathao listing (serializeStore keeps
+            // these whitelisted fields when the mocked service bypasses the
+            // real canonicalizer; the service-layer canonicalization is
+            // asserted separately).
+            const rawStores = [
+                { store_id: 101, store_name: 'Gulshan Hub', address: 'House 1, Dhaka' },
+                { store_id: 102, store_name: 'Mirpur Hub' },
+            ];
+            const deliveryService = { getProviderStores: jest.fn().mockResolvedValue(rawStores) };
+            const pickupLocationService = { syncProviderStores: jest.fn().mockResolvedValue([]) };
+
+            jest.doMock('../delivery-integration.entity', () => ({ findOne: jest.fn().mockResolvedValue(integration) }));
+            jest.doMock('../../entities', () => ({ Shop: { findByPk: jest.fn() } }));
+            jest.doMock('../delivery.service', () => deliveryService);
+            jest.doMock('../pickup-location.service', () => pickupLocationService);
+            jest.doMock('../courier-readiness.service', () => ({ getReadiness: jest.fn() }));
+            jest.doMock('../../../utils/shop-settings-cache', () => ({ invalidateShopSettingsCaches: jest.fn() }));
+            jest.doMock('../providers/provider.registry', () => ({
+                COURIER_REGISTRY: { pathao: { label: 'Pathao' } },
+            }));
+
+            const controller = require('../delivery.controller');
+            const json = jest.fn();
+            const res = { json, status: jest.fn(() => res) };
+            const next = jest.fn();
 
             await controller.getProviderStores(
-                { user: { shopId: 'shop-1' }, params: { provider: 'steadfast' } },
+                { user: { shopId: 'shop-1' }, params: { provider: 'pathao' }, method: 'GET' },
                 res,
                 next,
             );
-            expect(next).toHaveBeenCalledWith(expect.objectContaining({
-                status: 409,
-                code: 'DELIVERY_PROVIDER_MANUAL_PICKUP',
-            }));
+
+            expect(next).not.toHaveBeenCalled();
+            // Row upserts happen only through syncProviderStores — a GET must
+            // not invoke it at all, and the integration row is not saved.
+            expect(pickupLocationService.syncProviderStores).not.toHaveBeenCalled();
+            expect(integration.save).not.toHaveBeenCalled();
+            expect(integration.metadata).toEqual({});
+            expect(deliveryService.getProviderStores).toHaveBeenCalledWith('shop-1', 'pathao', { canonical: true });
+            const body = json.mock.calls[0][0];
+            expect(body.success).toBe(true);
+            expect(body.data.stores.map((store) => store.store_id)).toEqual([101, 102]);
+            expect(body.data).not.toHaveProperty('pickup_locations');
         });
     });
 
@@ -840,7 +970,7 @@ describe('selective provider store import (POST /:provider/stores/sync store_ids
         });
     });
 
-    test('absent or empty store_ids keeps the full-listing sync; GET ignores any body', async () => {
+    test('absent or empty store_ids keeps the full-listing sync; a GET never imports even with a body', async () => {
         await jest.isolateModulesAsync(async () => {
             const integration = fakeIntegration();
             const stores = [canonicalStore('77', 'Dhanmondi Hub'), canonicalStore('88', 'Uttara Hub')];
@@ -859,11 +989,36 @@ describe('selective provider store import (POST /:provider/stores/sync store_ids
                 expect.objectContaining({ store_id: '88' }),
             ]);
 
-            await call(controller, { method: 'GET', body: { store_ids: ['77'] } });
-            expect(pickupLocationService.syncProviderStores).toHaveBeenLastCalledWith('shop-1', 'pathao', [
-                expect.objectContaining({ store_id: '77' }),
-                expect.objectContaining({ store_id: '88' }),
-            ]);
+            // GET is a pure read now: an ignored body must not trigger the
+            // import path — zero row upserts, zero saves, unchanged cache.
+            pickupLocationService.syncProviderStores.mockClear();
+            integration.save.mockClear();
+            const cacheBeforeGet = JSON.parse(JSON.stringify(integration.metadata));
+            const { json, next } = await call(controller, { method: 'GET', body: { store_ids: ['77'] } });
+            expect(next).not.toHaveBeenCalled();
+            expect(pickupLocationService.syncProviderStores).not.toHaveBeenCalled();
+            expect(integration.save).not.toHaveBeenCalled();
+            // The cached listing written by the earlier POSTs survives a GET
+            // byte-identical: staleness keeps reflecting the last IMPORT.
+            expect(integration.metadata).toEqual(cacheBeforeGet);
+            const body = json.mock.calls[0][0];
+            expect(body.data.stores.map((store) => store.store_id)).toEqual(['77', '88']);
+            expect(body.data).not.toHaveProperty('pickup_locations');
+        });
+    });
+
+    test('the POST import path still reads the provider listing without the canonical flag', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration();
+            const stores = [canonicalStore('77', 'Dhanmondi Hub')];
+            const { deliveryService } = controllerMocks({ stores, integration, syncResult: [{ id: 'row-77' }] });
+            const controller = require('../delivery.controller');
+
+            const { next } = await call(controller, { body: { store_ids: ['77'] } });
+            expect(next).not.toHaveBeenCalled();
+            expect(deliveryService.getProviderStores).toHaveBeenCalledWith('shop-1', 'pathao', { canonical: false });
+            expect(integration.save).toHaveBeenCalledTimes(1);
+            expect(typeof integration.metadata.stores_synced_at).toBe('string');
         });
     });
 
@@ -884,6 +1039,95 @@ describe('selective provider store import (POST /:provider/stores/sync store_ids
             ]);
             expect(DeliveryIntegration.findOne.mock.calls[0][0].where.shop_id).toBe('shop-2');
             expect(pickupLocationService.syncProviderStores.mock.calls[0][0]).toBe('shop-2');
+        });
+    });
+});
+
+describe('structured pickup error details survive the controller layer', () => {
+    const wireController = ({ createError, configureError }) => {
+        const deliveryService = {
+            createProviderPickupStore: jest.fn().mockRejectedValue(createError),
+            setPickupConfiguration: jest.fn().mockRejectedValue(configureError),
+        };
+        jest.doMock('../delivery-integration.entity', () => ({ findOne: jest.fn() }));
+        jest.doMock('../../entities', () => ({ Shop: { findByPk: jest.fn() } }));
+        jest.doMock('../delivery.service', () => deliveryService);
+        jest.doMock('../pickup-location.service', () => ({ listPickupLocations: jest.fn() }));
+        jest.doMock('../courier-readiness.service', () => ({ getReadiness: jest.fn() }));
+        jest.doMock('../../../utils/shop-settings-cache', () => ({ invalidateShopSettingsCaches: jest.fn() }));
+        jest.doMock('../providers/provider.registry', () => ({
+            COURIER_REGISTRY: { pathao: { label: 'Pathao' }, steadfast: { label: 'Steadfast' } },
+        }));
+        return deliveryService;
+    };
+
+    test('DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED answers with manual_step guidance, not a stripped 409', async () => {
+        await jest.isolateModulesAsync(async () => {
+            wireController({
+                createError: new AppError(
+                    'This provider cannot create pickup stores from EasyModerator. Create it in the provider portal and link it.',
+                    409,
+                    'DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED',
+                    { provider: 'pathao', manual_step: 'CREATE_IN_PROVIDER_PORTAL' },
+                ),
+            });
+            const controller = require('../delivery.controller');
+            const json = jest.fn();
+            const res = { json, status: jest.fn(() => res) };
+            const next = jest.fn();
+
+            await controller.createProviderPickupStore(
+                { user: { shopId: 'shop-1' }, params: { provider: 'pathao' }, body: { confirm: true, name: 'Hub', address: 'House 9, Dhaka' } },
+                res,
+                next,
+            );
+
+            expect(next).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(409);
+            expect(json).toHaveBeenCalledWith(expect.objectContaining({
+                success: false,
+                code: 'DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED',
+                details: expect.objectContaining({
+                    provider: 'pathao',
+                    manual_step: 'CREATE_IN_PROVIDER_PORTAL',
+                }),
+            }));
+        });
+    });
+
+    test('DELIVERY_PICKUP_SOURCE_REQUIRED answers through the pickup-configuration route with missing[]', async () => {
+        await jest.isolateModulesAsync(async () => {
+            wireController({
+                configureError: new AppError(
+                    'Pickup can only be enabled with a pickup location or a provider store selected',
+                    409,
+                    'DELIVERY_PICKUP_SOURCE_REQUIRED',
+                    { provider: 'pathao', missing: ['pickup_location', 'provider_store'] },
+                ),
+            });
+            const controller = require('../delivery.controller');
+            const json = jest.fn();
+            const res = { json, status: jest.fn(() => res) };
+            const next = jest.fn();
+
+            await controller.setPickupConfiguration(
+                { user: { shopId: 'shop-1' }, params: { provider: 'pathao' }, body: { enabled: true } },
+                res,
+                next,
+            );
+
+            expect(next).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(409);
+            expect(json).toHaveBeenCalledWith(expect.objectContaining({
+                success: false,
+                code: 'DELIVERY_PICKUP_SOURCE_REQUIRED',
+                // Mirrors DELIVERY_NOT_READY's missing[] so the existing
+                // getConflictMissing path in the UI reads it.
+                details: expect.objectContaining({
+                    provider: 'pathao',
+                    missing: ['pickup_location', 'provider_store'],
+                }),
+            }));
         });
     });
 });

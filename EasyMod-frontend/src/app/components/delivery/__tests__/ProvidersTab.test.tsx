@@ -5,7 +5,7 @@
  * label map; PickupDetailsModal is stubbed to a dialog.
  */
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProvidersTab from '../ProvidersTab';
 import type { DeliveryProviderStatus } from '@/api/types/order';
@@ -78,6 +78,11 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.capabilities.operation.coverage': 'Destination coverage check',
         'manageShop.deliverySettings.capabilities.operation.rate_quote': 'Delivery charge quote',
         'manageShop.deliverySettings.capabilities.operation.create_parcel': 'Create parcel',
+        'manageShop.deliverySettings.capabilities.operation.pickup_store': 'Pickup store management',
+        'manageShop.deliverySettings.capabilities.reason.PICKUP_STORE_DIRECTORY': "Stores come from the courier's own directory.",
+        'manageShop.deliverySettings.capabilities.reason.NO_PICKUP_STORE_API': 'This courier has no pickup-store API.',
+        'manageShop.deliverySettings.capabilities.reason.ADAPTER_CONTRACT_UNVERIFIED': 'The store contract is not confirmed against a live account.',
+        'manageShop.deliverySettings.capabilities.manualStep.CONFIGURE_PICKUP_MANUALLY': 'Set the pickup location manually in Pickup details.',
         'manageShop.deliverySettings.success.connected': `${values?.provider || 'Provider'} connected`,
         'manageShop.deliverySettings.success.testSuccess': `${values?.provider || 'Provider'} tested`,
         'manageShop.deliverySettings.success.activated': `${values?.provider || 'Provider'} activated`,
@@ -95,6 +100,7 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.providers.notTested': 'Not tested yet',
         'manageShop.deliverySettings.providers.pendingTest': `Testing ${values?.provider || 'provider'}…`,
         'manageShop.deliverySettings.providers.environmentProduction': 'Production',
+        'manageShop.deliverySettings.providers.environmentSandbox': 'Sandbox',
         'manageShop.deliverySettings.providers.steadfastNoSandbox': 'Steadfast connects to its live account only — there is no sandbox.',
         'manageShop.deliverySettings.providers.activateNeedsPickup': 'Complete pickup details to activate this courier.',
         'manageShop.deliverySettings.providers.credentialsTitle': 'Credentials',
@@ -119,6 +125,8 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// Base capability fixture WITHOUT pickup_store — also used verbatim to prove
+// the renderer stays tolerant of older payloads that do not declare it.
 const capabilities = {
   version: 1,
   ceiling: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
@@ -130,6 +138,18 @@ const capabilities = {
   edit: { level: 'UNSUPPORTED', reason_code: 'NO_PROVIDER_API', manual_step_code: 'EDIT_IN_PROVIDER_PORTAL' },
   last_verified_at: null,
 };
+
+// Mirrors backend provider-capabilities.js: pathao/redx implement pickup-store
+// work but were never live-verified; steadfast declares NO_PICKUP_STORE_API
+// with a manual configuration step.
+const capabilitiesFor = (provider: 'pathao' | 'steadfast' | 'redx') => ({
+  ...capabilities,
+  pickup_store: provider === 'steadfast'
+    ? { level: 'UNSUPPORTED', reason_code: 'NO_PICKUP_STORE_API', manual_step_code: 'CONFIGURE_PICKUP_MANUALLY' }
+    : provider === 'redx'
+      ? { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED', reason_code: 'ADAPTER_CONTRACT_UNVERIFIED' }
+      : { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED', reason_code: 'PICKUP_STORE_DIRECTORY' },
+});
 
 const status = (
   provider: 'pathao' | 'steadfast' | 'redx',
@@ -143,7 +163,7 @@ const status = (
   metadata: {},
   last_validated_at: null,
   connected_at: null,
-  capabilities,
+  capabilities: capabilitiesFor(provider),
   ...overrides,
 } as DeliveryProviderStatus);
 
@@ -200,6 +220,40 @@ describe('ProvidersTab — cards', () => {
     expect(screen.getByTestId('capability-steadfast-coverage')).toHaveTextContent('Cannot be checked');
     expect(panel.textContent).toContain('Implemented, not live-verified');
     expect(screen.queryByText('Live-verified', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('renders the pickup_store row with the honest per-provider ceiling', () => {
+    renderTab([
+      status('pathao', { is_connected: true }),
+      status('steadfast', { is_connected: true }),
+      status('redx', { is_connected: true }),
+    ]);
+    expect(screen.getByTestId('capability-pathao-pickup_store')).toHaveTextContent('Implemented, not live-verified');
+    expect(screen.getByTestId('capability-redx-pickup_store')).toHaveTextContent('Implemented, not live-verified');
+    expect(screen.getByTestId('capability-redx-pickup_store').closest('dd'))
+      .toHaveTextContent('The store contract is not confirmed against a live account.');
+    const steadfastRow = screen.getByTestId('capability-steadfast-pickup_store');
+    expect(steadfastRow).toHaveTextContent('Not supported');
+    expect(steadfastRow.closest('dd')).toHaveTextContent('This courier has no pickup-store API.');
+    expect(steadfastRow.closest('dd')).toHaveTextContent('Set the pickup location manually in Pickup details.');
+    expect(screen.getAllByText('Pickup store management')).toHaveLength(3);
+  });
+
+  it('skips the pickup_store row for older payloads that do not declare it', () => {
+    renderTab([status('pathao', { is_connected: true, capabilities })]);
+    expect(screen.queryByTestId('capability-pathao-pickup_store')).not.toBeInTheDocument();
+    expect(screen.getByTestId('capability-pathao-tracking')).toBeInTheDocument();
+    expect(screen.getByTestId('capability-pathao-cancel')).toBeInTheDocument();
+  });
+
+  it('renders Pathao/RedX environment chips from translated values', () => {
+    const { rerender } = renderTab([status('redx', { is_connected: true, is_sandbox: true })]);
+    expect(screen.getByTestId('redx-environment')).toHaveTextContent('Sandbox');
+    rerender(<ProvidersTab
+      providers={[status('redx', { is_connected: true, is_sandbox: false })]}
+      onMutate={vi.fn()}
+    />);
+    expect(screen.getByTestId('redx-environment')).toHaveTextContent('Production');
   });
 
   it('exposes one primary action: Connect when idle, Manage when connected', () => {
@@ -266,6 +320,24 @@ describe('ProvidersTab — drawer actions', () => {
     // The pickup surface is opened and a Complete-pickup affordance stays reachable.
     expect(await screen.findByRole('dialog', { name: 'Pickup details' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Complete pickup details' }).length).toBeGreaterThan(0);
+  });
+
+  it('surfaces a failed connect INSIDE the open drawer, not only on the card behind the scrim', async () => {
+    mocks.connectDeliveryProvider.mockRejectedValueOnce(new Error('Invalid Pathao credentials'));
+    renderTab([status('pathao')]);
+    fireEvent.click(screen.getByTestId('connect-pathao'));
+    const dialog = await screen.findByRole('dialog', { name: /Manage Pathao Courier/ });
+    fireEvent.change(screen.getByPlaceholderText('Enter your Pathao Client ID'), { target: { value: 'client' } });
+    fireEvent.change(screen.getByPlaceholderText('Enter your Pathao Client Secret'), { target: { value: 'secret' } });
+    fireEvent.change(screen.getByPlaceholderText('merchant@example.com'), { target: { value: 'm@e.com' } });
+    fireEvent.change(screen.getByPlaceholderText('Enter your Pathao account password'), { target: { value: 'pw' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('drawer-save-connect-pathao'));
+    });
+    await waitFor(() => expect(mocks.connectDeliveryProvider).toHaveBeenCalled());
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Invalid Pathao credentials');
+    // The card keeps its secondary copy for when the drawer closes.
+    expect(screen.getByTestId('provider-feedback-pathao')).toHaveTextContent('Invalid Pathao credentials');
   });
 
   it('gates the AI default action on an ACTIVE connection: set when not default, clear when default', async () => {

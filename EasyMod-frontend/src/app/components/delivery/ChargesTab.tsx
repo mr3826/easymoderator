@@ -26,6 +26,13 @@
  * - Empty area/weight lists fall back to the platform defaults on save (frozen
  *   server behaviour — preserved, not "fixed"); the cards say so honestly and
  *   name the real default values via the shell's `applyDefaults`.
+ * - Zero-charge honesty (A3-fix): the bot's zone-charge reader (frozen server
+ *   behaviour, `Number(z.charge) || DEFAULT`) treats a persisted 0 like a
+ *   missing value and still quotes the platform default. The default-charge
+ *   field and the area section therefore disclose, in place and only when a 0
+ *   is present, that the 0 is saved/honored for records and checkout display
+ *   but not for the assistant's quoted charge — zero does not yet mean free.
+ *   Settings semantics, validation and the PUT are untouched.
  * - Motion: intentionally none inside this tab (§19 — static utility text gets
  *   no mount animation; state changes are label + icon, never colour-only).
  *   Everything stays inside the `.em-delivery` scope and uses `--em-*` tokens.
@@ -282,6 +289,16 @@ export function ChargesTab({
     [applyDefaults, numberFormat],
   );
 
+  // Zero-charge disclosure (A3-fix): the frozen bot reader coerces
+  // Number(z.charge) || DEFAULT, so a persisted 0 (here or on an area row)
+  // still quotes the platform default. Disclose in place when it is present;
+  // nothing about the value, validation or the PUT changes.
+  const zeroDefaultCharge = settings.default_delivery_charge === 0;
+  const hasZeroAreaCharge = useMemo(
+    () => settings.area_pricing.some((area) => area.charge === 0),
+    [settings.area_pricing],
+  );
+
   // ---- Shared status + save affordance -------------------------------------
   // General, area and weight all live in one settings object behind one PUT, so
   // every pricing card carries the same save affordance where the merchant
@@ -411,8 +428,13 @@ export function ChargesTab({
               aria-label={t('manageShop.deliverySettings.defaultCharge')}
               value={settings.default_delivery_charge}
               onChange={(event) => patch({ default_delivery_charge: Number(event.target.value) || 0 })}
+              aria-describedby={zeroDefaultCharge ? 'delivery-default-charge-zero-note' : undefined}
               className={INPUT_CLASSES}
             />
+            {zeroDefaultCharge && honestyHelper(
+              t('manageShop.deliverySettings.charges.zeroChargeNoteDefault'),
+              'delivery-default-charge-zero-note',
+            )}
           </div>
 
           <div>
@@ -575,6 +597,11 @@ export function ChargesTab({
             </p>
           )}
         </div>
+
+        {hasZeroAreaCharge && honestyHelper(
+          t('manageShop.deliverySettings.charges.zeroChargeNoteAreas'),
+          'delivery-area-charge-zero-note',
+        )}
 
         {settings.area_pricing.length > 0 &&
           honestyHelper(t('manageShop.deliverySettings.charges.areaCodRecorded'))}

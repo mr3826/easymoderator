@@ -133,8 +133,9 @@ router.post(
 );
 
 /**
- * GET /shop/delivery/:provider/stores
- * Get stores for a provider (Pathao only)
+ * GET /shop/delivery/:provider/stores — PURE READ. Lists the provider's
+ * pickup stores (canonical shape) and persists nothing: no pickup rows,
+ * no metadata, no stores_synced_at. "Fetch stores" never imports.
  */
 router.get(
     '/:provider/stores',
@@ -142,6 +143,13 @@ router.get(
     deliveryController.getProviderStores
 );
 
+/**
+ * POST /shop/delivery/:provider/stores/sync — the explicit Import action.
+ * Upserts local pickup rows (optional store_ids filter, unmatched ids answer
+ * the structured 409) and caches the listing + stores_synced_at, which is
+ * what pickup_mapping_status staleness reflects. GET on the same path stays
+ * a pure read for compatibility.
+ */
 router.post(
     '/:provider/stores/sync',
     requireOwner,

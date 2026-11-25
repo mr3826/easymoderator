@@ -6,7 +6,15 @@
  *
  * Covers the task's required behaviours:
  *   existing-store list + link · ambiguous → explicit selection (no first-match)
- *   · confirm-before-external-create · safe-delete blocked (default/in-use)
+ *   · confirm-before-external-create · safe-delete ALWAYS confirms first (labeled
+ *     Delete opens the dialog; DELETE fires only with confirm:true; cancel deletes
+ *     nothing; server-confirmed success notice; late 409 re-surfaces blockers)
+ *   · Fetch stores is a PURE READ (never consumes envelope pickup_locations) ·
+ *     selective import 409 DELIVERY_STORE_IDS_UNMATCHED names the ids
+ *   · stale mapping stays attention through Fetch; only LINK / MATCHED|LINKED
+ *     override locally, and only until reload; PRESERVED/NO_MATCH = attention+hint
+ *   · focusProvider opens once per prop-driven open + onFocusConsumed · deep-link
+ *     save shows the return-to-Providers WHERE-NEXT pointer
  *   · retry after failed sync · steadfast manual-only · create-then-sync is NOT a
  *     link/activate (separate actions).
  */
@@ -123,8 +131,15 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.pickup.external.confirmAction': `Create at ${values?.provider ?? ''}`,
         'manageShop.deliverySettings.pickup.statusPills.review': 'Review',
         'manageShop.deliverySettings.pickup.statusPills.pending': 'Pending',
+        'manageShop.deliverySettings.pickup.statusPills.blocked': 'Attention needed',
         'manageShop.deliverySettings.pickup.storeCreateSyncing': 'Refreshing stores…',
+        'manageShop.deliverySettings.pickup.deleted': `Deleted ${values?.name ?? ''}.`,
+        'manageShop.deliverySettings.pickup.staleStoreHint': 'Your wired store is no longer listed — Link a store.',
+        'manageShop.deliverySettings.pickup.unmatchedStores': `Not listed by courier: ${values?.ids ?? ''}`,
+        'manageShop.deliverySettings.pickup.returnToProviders': 'Pickup saved — return to Courier Providers to Activate.',
         'manageShop.deliverySettings.errors.updateDefaultFailed': 'Could not update default',
+        'manageShop.deliverySettings.pickup.errors.importFailed': 'Could not import these stores.',
+        'manageShop.deliverySettings.pickup.errors.deleteBlocked': 'This location can’t be deleted.',
       };
       if (key in labels) return labels[key];
       if (typeof values?.defaultValue === 'string') return values.defaultValue;
@@ -279,40 +294,80 @@ describe('PickupTab — external store create requires explicit confirmation', (
   });
 });
 
-describe('PickupTab — safe delete', () => {
-  it('surfaces default + in-use blockers and re-deletes only after confirm', async () => {
-    // Backend: a bare DELETE is blocked (confirm required); the forced delete with
-    // ?confirm=true succeeds. Order/dispatch history is never cascaded.
-    mocks.deletePickupLocation.mockImplementation((id: string, opts?: { confirm?: boolean }) => (
-      opts?.confirm
-        ? Promise.resolve({ id, deleted: true, released_providers: ['pathao'] })
-        : Promise.reject(conflict409('PICKUP_LOCATION_DELETE_CONFIRMATION_REQUIRED', {
-          location_id: id,
-          requires_confirmation: true,
-          blockers: [
-            { code: 'IS_SHOP_DEFAULT', message: 'is default' },
-            { code: 'IN_USE', message: 'in use', providers: ['pathao'] },
-          ],
-        }))
-    ));
+describe('PickupTab — safe delete (§12 confirm-first)', () => {
+  it('labeled Delete always opens the dialog FIRST — no DELETE fires before the confirm click', async () => {
+    mocks.getPickupLocations.mockResolvedValue([location('loc2')]);
     renderTab([status('pathao')]);
+    const rowButton = await screen.findByTestId('pickup-delete-loc2');
+    // Visible label, not an icon-only affordance (§12).
+    expect(rowButton).toHaveTextContent('Delete');
+
+    fireEvent.click(rowButton);
+    expect(await screen.findByText('Delete Hub loc2?')).toBeInTheDocument();
+    // A clean row would have been destroyed server-side by an unconfirmed call —
+    // nothing may hit DELETE before the merchant confirms.
+    expect(mocks.deletePickupLocation).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('pickup-delete-confirm'));
+    await waitFor(() => expect(mocks.deletePickupLocation).toHaveBeenCalledTimes(1));
+    expect(mocks.deletePickupLocation).toHaveBeenCalledWith('loc2', { confirm: true });
+    // Server-confirmed success → inline role=status feedback naming the row.
+    const notice = await screen.findByTestId('pickup-delete-status');
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent('Deleted Hub loc2.');
+    expect(screen.queryByText('Delete Hub loc2?')).not.toBeInTheDocument();
+  });
+
+  it('cancel deletes nothing and keeps the row', async () => {
+    mocks.getPickupLocations.mockResolvedValue([location('loc2')]);
+    renderTab([status('pathao')]);
+    fireEvent.click(await screen.findByTestId('pickup-delete-loc2'));
+    expect(await screen.findByText('Delete Hub loc2?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('pickup-delete-cancel'));
+    await waitFor(() => expect(screen.queryByText('Delete Hub loc2?')).not.toBeInTheDocument());
+    expect(mocks.deletePickupLocation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('pickup-location-row-loc2')).toBeInTheDocument();
+    expect(screen.queryByTestId('pickup-delete-status')).not.toBeInTheDocument();
+  });
+
+  it('enriches the dialog from LOCAL data: default star + provider wiring warn BEFORE any call', async () => {
+    // loc1 is the shop default AND pathao's row references it via pickup_location_id.
+    renderTab([status('pathao', { pickup_location_id: 'loc1' })]);
     fireEvent.click(await screen.findByTestId('pickup-delete-loc1'));
     expect(await screen.findByText('Delete Hub loc1?')).toBeInTheDocument();
     expect(screen.getByTestId('pickup-delete-blockers')).toHaveTextContent('This is your default pickup location.');
     expect(screen.getByTestId('pickup-delete-blockers')).toHaveTextContent('In use by: pathao');
+    expect(mocks.deletePickupLocation).not.toHaveBeenCalled();
+  });
 
-    // Cancel does NOT delete.
-    fireEvent.click(screen.getByTestId('pickup-delete-cancel'));
-    await waitFor(() => expect(screen.queryByText('Delete Hub loc1?')).not.toBeInTheDocument());
-    expect(mocks.deletePickupLocation).toHaveBeenCalledTimes(1);
-    expect(mocks.deletePickupLocation).toHaveBeenLastCalledWith('loc1');
-
-    // Re-open and confirm → forced delete with confirm=true.
-    fireEvent.click(screen.getByTestId('pickup-delete-loc1'));
-    await screen.findByText('Delete Hub loc1?');
+  it('a late server 409 on the confirmed delete re-surfaces its blockers in the open dialog', async () => {
+    mocks.getPickupLocations.mockResolvedValue([location('loc2')]);
+    mocks.deletePickupLocation.mockRejectedValue(
+      conflict409('PICKUP_LOCATION_IN_USE', { blockers: [{ code: 'IN_USE', providers: ['redx'] }] }),
+    );
+    renderTab([status('pathao')]);
+    fireEvent.click(await screen.findByTestId('pickup-delete-loc2'));
+    await screen.findByText('Delete Hub loc2?');
     fireEvent.click(screen.getByTestId('pickup-delete-confirm'));
-    await waitFor(() => expect(mocks.deletePickupLocation).toHaveBeenLastCalledWith('loc1', { confirm: true }));
-    expect(mocks.deletePickupLocation).toHaveBeenCalledTimes(3);
+
+    // Only the confirmed call was made; the dialog stays OPEN with the SERVER blockers.
+    await waitFor(() => expect(mocks.deletePickupLocation).toHaveBeenCalledWith('loc2', { confirm: true }));
+    expect(mocks.deletePickupLocation).toHaveBeenCalledTimes(1);
+    expect(await screen.findByTestId('pickup-delete-blockers')).toHaveTextContent('In use by: redx');
+    expect(screen.getByText('Delete Hub loc2?')).toBeInTheDocument();
+    expect(screen.queryByTestId('pickup-delete-status')).not.toBeInTheDocument();
+  });
+
+  it('a 409 without structured blockers shows the server message inside the dialog', async () => {
+    mocks.getPickupLocations.mockResolvedValue([location('loc2')]);
+    mocks.deletePickupLocation.mockRejectedValue(conflict409('PICKUP_LOCATION_DELETE_BLOCKED', {}));
+    renderTab([status('pathao')]);
+    fireEvent.click(await screen.findByTestId('pickup-delete-loc2'));
+    await screen.findByText('Delete Hub loc2?');
+    fireEvent.click(screen.getByTestId('pickup-delete-confirm'));
+    expect(await screen.findByTestId('pickup-delete-error')).toHaveTextContent('This location can’t be deleted.');
+    expect(screen.getByText('Delete Hub loc2?')).toBeInTheDocument();
   });
 });
 
@@ -356,5 +411,181 @@ describe('PickupTab — Steadfast is manual-only', () => {
     expect(panel).toHaveTextContent('Steadfast Courier pickup is set up manually.');
     expect(screen.queryByTestId('pickup-fetch-stores-steadfast')).not.toBeInTheDocument();
     expect(mocks.listProviderStores).not.toHaveBeenCalledWith('steadfast');
+  });
+});
+
+describe('PickupTab — Fetch is a pure read (§A8)', () => {
+  it('never swaps envelope pickup_locations into the local list', async () => {
+    mocks.listProviderStores.mockResolvedValueOnce({
+      provider: 'pathao',
+      stores: [{ store_id: 's1', store_name: 'Real Hub' }],
+      // Legacy shape a pre-change server might still echo — must be ignored.
+      pickup_locations: [{ id: 'phantom', display_name: 'Phantom Row', phone: '01700000000', address: 'x', area_name: 'y', is_default: false }],
+    });
+    renderTab([status('pathao')]);
+    fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
+    expect(await screen.findByTestId('pickup-store-row-pathao-s1')).toBeInTheDocument();
+    // The saved-locations list is owned by GET /pickup-locations (mount fetch),
+    // never overwritten by the stores listing.
+    expect(screen.queryByText('Phantom Row')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pickup-location-row-loc1')).toBeInTheDocument();
+    expect(mocks.getPickupLocations).toHaveBeenCalledTimes(1); // mount only
+  });
+
+  it('a selective import the courier cannot match blocks with a pill naming the missing ids', async () => {
+    mocks.listProviderStores.mockResolvedValueOnce({
+      provider: 'pathao',
+      stores: [{ store_id: 's1', store_name: 'Dhanmondi Hub' }],
+    });
+    mocks.importProviderStores.mockRejectedValueOnce(
+      conflict409('DELIVERY_STORE_IDS_UNMATCHED', { unmatched_store_ids: ['s7'] }),
+    );
+    renderTab([status('pathao')]);
+    fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
+    fireEvent.click(await screen.findByTestId('pickup-store-import-pathao-s1'));
+    await waitFor(() => expect(mocks.importProviderStores).toHaveBeenCalledWith('pathao', ['s1']));
+    const message = await screen.findByTestId('pickup-message-pathao');
+    expect(message).toHaveTextContent('Not listed by courier: s7');
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Not listed by courier: s7');
+    expect(mocks.importProviderStores).not.toHaveBeenCalledWith('pathao', undefined);
+  });
+});
+
+describe('PickupTab — stale mapping honesty (§A8)', () => {
+  const staleStatus = status('pathao', {
+    pickup_mapping_status: 'stale',
+    provider_store_id: 's9',
+    pickup_enabled: true,
+  });
+
+  it('a successful Fetch whose listing lacks the wired store keeps the pill at attention', async () => {
+    mocks.listProviderStores.mockResolvedValueOnce({
+      provider: 'pathao',
+      stores: [{ store_id: 's1', store_name: 'Dhanmondi Hub' }],
+    });
+    renderTab([staleStatus]);
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review');
+    fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
+    expect(await screen.findByTestId('pickup-store-row-pathao-s1')).toBeInTheDocument();
+    // Fetch success ≠ mapping healthy: the stale flag stays until Link/sync resolves it.
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review');
+    expect(mocks.setProviderPickup).not.toHaveBeenCalled();
+  });
+
+  it('retry resolving PRESERVED renders ATTENTION with the wired-store hint, not healthy green', async () => {
+    mocks.retryPickupSync.mockResolvedValueOnce({ provider: 'pathao', store_resolution: 'PRESERVED' });
+    renderTab([staleStatus]);
+    const retry = screen.getByTestId('pickup-retry-pathao');
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.retryPickupSync).toHaveBeenCalled());
+    const message = await screen.findByTestId('pickup-message-pathao');
+    expect(message).toHaveTextContent('Your wired store is no longer listed — Link a store.');
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Your wired store is no longer listed');
+  });
+
+  it('retry resolving NO_MATCH renders ATTENTION with the wired-store hint', async () => {
+    mocks.retryPickupSync.mockResolvedValueOnce({ provider: 'pathao', store_resolution: 'NO_MATCH' });
+    renderTab([staleStatus]);
+    fireEvent.click(screen.getByTestId('pickup-retry-pathao'));
+    const message = await screen.findByTestId('pickup-message-pathao');
+    expect(message).toHaveTextContent('Link a store.');
+    expect(screen.getByTestId('pickup-sync-status-pathao')).not.toHaveTextContent('Linked & confirmed');
+  });
+
+  it('an explicit LINK flips the pill healthy LOCALLY, and the next reload restores server truth', async () => {
+    let releaseReload: (() => void) | undefined;
+    const onMutate = vi.fn(() => new Promise<void>((resolve) => { releaseReload = resolve; }));
+    mocks.listProviderStores.mockResolvedValueOnce({
+      provider: 'pathao',
+      stores: [{ store_id: 's1', store_name: 'Dhanmondi Hub' }],
+    });
+    mocks.setProviderPickup.mockResolvedValueOnce({ store_resolution: 'LINKED', pickup_enabled: true });
+    render(<PickupTab providers={[staleStatus]} onMutate={onMutate} />);
+    fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
+    fireEvent.click(await screen.findByTestId('pickup-store-link-pathao-s1'));
+    await waitFor(() => expect(mocks.setProviderPickup).toHaveBeenCalled());
+
+    // Override window: explicit LINK result may show healthy despite stale mapping.
+    expect(await screen.findByTestId('pickup-sync-status-pathao')).toHaveTextContent('Linked to Dhanmondi Hub');
+    // Reload lands → server mapping (still stale in this fixture) is authority again.
+    expect(releaseReload).toBeDefined();
+    releaseReload?.();
+    await waitFor(() => expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review'));
+  });
+
+  it('retry resolving MATCHED shows healthy until the reload restores the stale server state', async () => {
+    let releaseReload: (() => void) | undefined;
+    const onMutate = vi.fn(() => new Promise<void>((resolve) => { releaseReload = resolve; }));
+    mocks.retryPickupSync.mockResolvedValueOnce({ provider: 'pathao', store_resolution: 'MATCHED' });
+    render(<PickupTab providers={[staleStatus]} onMutate={onMutate} />);
+    fireEvent.click(screen.getByTestId('pickup-retry-pathao'));
+    await waitFor(() => expect(mocks.retryPickupSync).toHaveBeenCalled());
+    // MATCHED is a permitted override → pill may read healthy (resolutions label / synced count).
+    const pill = screen.getByTestId('pickup-sync-status-pathao');
+    expect(pill).not.toHaveTextContent('Mapping needs review');
+    releaseReload?.();
+    await waitFor(() => expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review'));
+  });
+});
+
+describe('PickupTab — 409 deep-link focus (focusProvider) (§A8)', () => {
+  it('opens the create form once per prop-driven open and reports consumption exactly once', async () => {
+    const onFocusConsumed = vi.fn();
+    const view = render(
+      <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="pathao" onFocusConsumed={onFocusConsumed} />,
+    );
+    expect(await screen.findByTestId('stub-form-provider')).toHaveTextContent('pathao');
+    expect(onFocusConsumed).toHaveBeenCalledTimes(1);
+
+    // A re-render with the same deep-link must NOT re-open or re-report.
+    view.rerender(
+      <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="pathao" onFocusConsumed={onFocusConsumed} />,
+    );
+    expect(onFocusConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it('a fresh deep-link after the shell cleared it opens again and reports once more', async () => {
+    const onFocusConsumed = vi.fn();
+    const view = render(
+      <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="pathao" onFocusConsumed={onFocusConsumed} />,
+    );
+    await screen.findByTestId('stub-form-provider');
+    expect(onFocusConsumed).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider={null} onFocusConsumed={onFocusConsumed} />,
+    );
+    expect(onFocusConsumed).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="redx" onFocusConsumed={onFocusConsumed} />,
+    );
+    expect(onFocusConsumed).toHaveBeenCalledTimes(2);
+  });
+
+  it('without focusProvider the create form stays closed', () => {
+    renderTab([status('pathao')]);
+    expect(screen.queryByTestId('stub-form-provider')).not.toBeInTheDocument();
+  });
+
+  it('after the focus-driven save+sync shows the WHERE-NEXT pointer back to Providers', async () => {
+    render(
+      <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="pathao" />,
+    );
+    fireEvent.click(await screen.findByTestId('stub-form-save'));
+    await waitFor(() => expect(mocks.syncProviderPickup).toHaveBeenCalled());
+    const pointer = await screen.findByTestId('pickup-next-step');
+    expect(pointer).toHaveAttribute('role', 'status');
+    expect(pointer).toHaveTextContent('Pickup saved — return to Courier Providers to Activate.');
+  });
+
+  it('no pointer on a plain save (not entered via deep-link), even when the sync leg runs', async () => {
+    renderTab([status('pathao')]);
+    // Edit the pathao-owned row so the save also runs the provider SYNC leg —
+    // the WHERE-NEXT pointer must stay silent without the 409 deep-link context.
+    fireEvent.click(await screen.findByTestId('pickup-edit-loc1'));
+    fireEvent.click(await screen.findByTestId('stub-form-save'));
+    await waitFor(() => expect(mocks.syncProviderPickup).toHaveBeenCalled());
+    expect(screen.queryByTestId('pickup-next-step')).not.toBeInTheDocument();
   });
 });

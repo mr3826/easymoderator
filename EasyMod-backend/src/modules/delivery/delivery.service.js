@@ -128,7 +128,13 @@ const firstCanonicalStoreFrom = (candidates) => {
     return null;
 };
 
-const PICKUP_MUTATION_LOCK_TTL_MS = 30 * 1000;
+// The create/re-resolve paths hold this lock across multiple external
+// provider round-trips (store listing, store creation, then pickup config
+// persistence). A 30s budget was tighter than a slow-but-successful provider
+// call, so the lock could expire mid-flight and admit a duplicate create.
+// 90s comfortably covers two sequential provider round-trips plus DB writes;
+// it stays the crash-recovery boundary (release remains in finally).
+const PICKUP_MUTATION_LOCK_TTL_MS = 90 * 1000;
 const activePickupMutations = new Map();
 
 const pickupMutationLockKey = (shopId, provider) => `delivery:pickup-mutation:${shopId}:${provider}`;
@@ -968,8 +974,14 @@ class DeliveryService extends EventEmitter {
      * RedX's contract is IMPLEMENTED_NOT_LIVE_VERIFIED: the field spellings
      * it returns are best-effort, never asserted as confirmed. Steadfast has
      * no store API, so pickup stays a manual 409.
+     *
+     * `{ canonical: true }` is the pure-read GET contract: the raw Pathao
+     * listing is passed through the same tolerant envelope normalizer RedX
+     * already uses, so the merchant UI sees one stable store shape. The
+     * POST import path and the sync/create internals call without the flag
+     * and keep the raw listing exactly as before.
      */
-    async getProviderStores(shopId, provider = 'pathao') {
+    async getProviderStores(shopId, provider = 'pathao', { canonical = false } = {}) {
         if (provider === 'steadfast') {
             throw new AppError(
                 'Steadfast does not list pickup stores. Configure a manual pickup location instead.',
@@ -984,7 +996,8 @@ class DeliveryService extends EventEmitter {
         const instance = await this.getConnectedProviderInstance(shopId, provider);
         if (provider === 'pathao') {
             if (typeof instance.getStores !== 'function') throw new AppError('Provider does not support store lookup', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');
-            return instance.getStores();
+            const rawStores = await instance.getStores();
+            return canonical ? normalizeProviderStoreList(rawStores) : rawStores;
         }
         const listStores = instance.listPickupStores || instance.getPickupStores;
         if (typeof listStores !== 'function') throw new AppError('Provider does not support store lookup', 400, 'DELIVERY_PROVIDER_UNSUPPORTED');

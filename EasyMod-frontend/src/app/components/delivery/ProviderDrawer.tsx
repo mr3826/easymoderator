@@ -14,6 +14,11 @@
  * pickup testids never collide with anything here) and traps + restores focus
  * via {@link useDialogFocus}. Slide is 200–300ms on transform only; reduced
  * motion and unit tests collapse it (`initial={false}` when `!ANIMATE`).
+ *
+ * Because every provider mutation launches from inside this dialog, the tab's
+ * current action `feedback` is passed in and rendered HERE (role=alert on
+ * failure, role=status announced politely on success) — never only on the
+ * card behind the aria-modal scrim (§17 inline-first inside dialogs, A8).
  */
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -37,7 +42,7 @@ import type {
 } from '@/api/types/order';
 import { EmButton } from '../dashboard/EmButton';
 import { useDialogFocus } from '../inbox/useDialogFocus';
-import type { ActionKind, ProviderConfig } from './ProvidersTab';
+import type { ActionFeedback, ActionKind, ProviderConfig } from './ProvidersTab';
 
 const ANIMATE = import.meta.env.MODE !== 'test';
 
@@ -70,6 +75,13 @@ export interface ProviderDrawerProps {
   missing: string[];
   pickupSummary: PickupLocationSummary | null;
   pending: ActionKind | null;
+  /**
+   * Current action result for THIS provider (A8): connect/test/activate/AI/
+   * disconnect all launch from inside this dialog, so their success/error copy
+   * must render here — near the action area, not on the card behind the
+   * aria-modal scrim. The card keeps a secondary copy for card-scope flows.
+   */
+  feedback?: ActionFeedback | null;
   onClose: () => void;
   onConnect: (payload: ProviderDrawerPayload) => void | Promise<void>;
   onTest: (provider: DeliveryProvider) => void | Promise<void>;
@@ -89,6 +101,7 @@ export default function ProviderDrawer({
   missing,
   pickupSummary,
   pending,
+  feedback = null,
   onClose,
   onConnect,
   onTest,
@@ -197,6 +210,25 @@ export default function ProviderDrawer({
 
           {/* Drawer body */}
           <div className="flex-1 space-y-4 overflow-y-auto p-5">
+            {/* Action feedback (A8): the reply to the merchant's last drawer
+                action renders here, inside the dialog — error as role=alert,
+                success as role=status announced politely via aria-live. */}
+            {feedback && (
+              <p
+                role={feedback.kind === 'error' ? 'alert' : 'status'}
+                aria-live={feedback.kind === 'error' ? undefined : 'polite'}
+                className={`flex items-start gap-1.5 rounded-lg px-3 py-2 text-sm ${
+                  feedback.kind === 'error' ? 'bg-em-danger-100/60 text-em-danger-700' : 'bg-em-success-100 text-em-success-700'
+                }`}
+                data-testid="drawer-action-feedback"
+              >
+                {feedback.kind === 'error'
+                  ? <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+                <span>{feedback.text}</span>
+              </p>
+            )}
+
             {/* Credentials — masked view never exposes stored secrets; form is for entry only. */}
             <section className={sectionClass} aria-labelledby={`drawer-creds-${config.provider}`}>
               <h3 id={`drawer-creds-${config.provider}`} className={headingClass}>

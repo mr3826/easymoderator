@@ -635,8 +635,14 @@ describe('courier readiness and pickup sync contracts', () => {
             }));
 
             const deliveryService = require('../delivery.service');
+            // details.missing mirrors the DELIVERY_NOT_READY contract so the
+            // UI's getConflictMissing path reads it unchanged.
             await expect(deliveryService.setPickupConfiguration('shop-1', 'pathao', {}))
-                .rejects.toMatchObject({ status: 409, code: 'DELIVERY_PICKUP_SOURCE_REQUIRED' });
+                .rejects.toMatchObject({
+                    status: 409,
+                    code: 'DELIVERY_PICKUP_SOURCE_REQUIRED',
+                    details: { provider: 'pathao', missing: ['pickup_location', 'provider_store'] },
+                });
             expect(integration.save).not.toHaveBeenCalled();
         });
     });

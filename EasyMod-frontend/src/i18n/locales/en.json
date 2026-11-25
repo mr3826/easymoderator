@@ -2694,16 +2694,21 @@
           "create_parcel": "Create parcel",
           "tracking": "Tracking updates",
           "cancel": "Cancel parcel",
-          "edit": "Edit parcel"
+          "edit": "Edit parcel",
+          "pickup_store": "Pickup store management"
         },
         "reason": {
           "NO_PROVIDER_API": "The courier has no API for this.",
-          "TEXT_ONLY_COVERAGE": "This courier books by text address and publishes no area list to check against."
+          "TEXT_ONLY_COVERAGE": "This courier books by text address and publishes no area list to check against.",
+          "PICKUP_STORE_DIRECTORY": "Stores are managed in the courier's own store directory.",
+          "NO_PICKUP_STORE_API": "This courier has no API for pickup stores.",
+          "ADAPTER_CONTRACT_UNVERIFIED": "The courier's store-list contract has not been confirmed with a live account."
         },
         "manualStep": {
           "CANCEL_IN_PROVIDER_PORTAL": "Cancel it in the courier's own merchant portal.",
           "EDIT_IN_PROVIDER_PORTAL": "Edit it in the courier's own merchant portal.",
-          "RATE_SHOWN_AFTER_BOOKING": "The charge is shown after the parcel is created."
+          "RATE_SHOWN_AFTER_BOOKING": "The charge is shown after the parcel is created.",
+          "CONFIGURE_PICKUP_MANUALLY": "Add your pickup location manually in the Pickup tab."
         }
       },
       "removeArea": "Remove area",
@@ -2736,7 +2741,8 @@
         "typeToConfirm": "Type {{provider}} to confirm.",
         "activateNeedsPickup": "Complete pickup details to activate this courier.",
         "environmentProduction": "Production",
-        "steadfastNoSandbox": "Steadfast connects to its live account only — there is no sandbox."
+        "steadfastNoSandbox": "Steadfast connects to its live account only — there is no sandbox.",
+        "environmentSandbox": "Sandbox"
       },
       "charges": {
         "unsavedChanges": "Unsaved changes",
@@ -2759,7 +2765,9 @@
         "tierCount_one": "{{formatted}} weight range",
         "tierCount_other": "{{formatted}} weight ranges",
         "areaCount": "{{formatted}} areas priced",
-        "tierCount": "{{formatted}} weight ranges"
+        "tierCount": "{{formatted}} weight ranges",
+        "zeroChargeNoteDefault": "A charge of 0 is saved for your records and checkout display, but the assistant still quotes the platform default delivery charge — 0 does not yet mean free delivery.",
+        "zeroChargeNoteAreas": "A charge of 0 is saved for your records and checkout display, but the assistant falls back to the platform default for that area — 0 does not yet mean free delivery."
       },
       "pickup": {
         "title": "Pickup locations",
@@ -2868,7 +2876,11 @@
           "redx": "RedX",
           "steadfast": "Steadfast",
           "manual": "Manual"
-        }
+        },
+        "deleted": "Pickup location “{{name}}” was deleted.",
+        "staleStoreHint": "Your wired store is no longer listed — Link a store.",
+        "unmatchedStores": "The courier did not return these store ids: {{ids}}.",
+        "returnToProviders": "Pickup saved — return to Courier Providers to Activate."
       },
       "tabs": {
         "label": "Delivery settings sections",

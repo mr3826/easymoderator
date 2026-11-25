@@ -30,8 +30,10 @@ import {
 } from 'lucide-react';
 import * as orderApi from '@/api/domains/order';
 import type {
+  CourierCapabilityEntry,
   DeliveryActivationStatus,
   DeliveryProvider,
+  DeliveryProviderCapabilities,
   DeliveryProviderStatus,
   DeliveryShopSettings,
   PathaoCredentials,
@@ -103,8 +105,22 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
 ];
 
 // Capability display order — the server owns the values; the client only lists
-// them so an unavailable action is never hidden silently.
-const CAPABILITY_OPERATIONS = ['coverage', 'rate_quote', 'create_parcel', 'tracking', 'cancel', 'edit'] as const;
+// them so an unavailable action is never hidden silently. `pickup_store` is
+// declared per provider by the backend (pathao/redx IMPLEMENTED_NOT_LIVE_VERIFIED,
+// steadfast UNSUPPORTED with a manual pickup step), so it must render here.
+const CAPABILITY_OPERATIONS = ['coverage', 'rate_quote', 'create_parcel', 'tracking', 'cancel', 'edit', 'pickup_store'] as const;
+
+// Tolerant read: older payloads (and the shared client type) may not carry an
+// operation the server has since started declaring — a missing row is skipped,
+// never rendered as a fabricated entry.
+const getCapabilityEntry = (
+  capabilities: DeliveryProviderCapabilities | null | undefined,
+  operation: string,
+): CourierCapabilityEntry | undefined => {
+  const value = (capabilities as unknown as Record<string, unknown> | undefined)?.[operation];
+  return value && typeof value === 'object' ? value as CourierCapabilityEntry : undefined;
+};
+
 const CAPABILITY_LEVEL_KEYS: Record<string, string> = {
   UNSUPPORTED: 'unsupported',
   UNKNOWN: 'unknown',
@@ -220,10 +236,18 @@ const getConflictMissing = (error: unknown, fallback: string[]): string[] => {
 
 export type ActionKind = 'connect' | 'test' | 'toggle' | 'ai-set' | 'ai-clear' | 'disconnect';
 
-interface InlineFeedback {
-  provider: DeliveryProvider;
+/**
+ * Current action result without the provider scope — handed to the open drawer
+ * so feedback for drawer-launched actions (connect/test/activate/AI/disconnect)
+ * renders INSIDE the dialog instead of only on the card behind the scrim (A8).
+ */
+export interface ActionFeedback {
   kind: 'success' | 'error';
   text: string;
+}
+
+interface InlineFeedback extends ActionFeedback {
+  provider: DeliveryProvider;
 }
 
 interface PickupTarget {
@@ -527,7 +551,9 @@ export default function ProvidersTab({ providers, onMutate, onCompletePickup }: 
                         )}
                         {(config.provider === 'pathao' || config.provider === 'redx') ? (
                           <span data-testid={`${config.provider}-environment`} className="text-xs font-medium text-em-violet-700">
-                            {providerStatus?.is_sandbox ? 'Sandbox' : 'Production'}
+                            {t(providerStatus?.is_sandbox
+                              ? 'manageShop.deliverySettings.providers.environmentSandbox'
+                              : 'manageShop.deliverySettings.providers.environmentProduction')}
                           </span>
                         ) : (
                           <span
@@ -610,7 +636,7 @@ export default function ProvidersTab({ providers, onMutate, onCompletePickup }: 
                   </summary>
                   <dl className="mt-3 space-y-2">
                     {CAPABILITY_OPERATIONS.map((operation) => {
-                      const entry = providerStatus.capabilities?.[operation];
+                      const entry = getCapabilityEntry(providerStatus.capabilities, operation);
                       if (!entry) return null;
                       const tone = entry.level === 'UNSUPPORTED'
                         ? 'text-em-danger-700'
@@ -693,6 +719,9 @@ export default function ProvidersTab({ providers, onMutate, onCompletePickup }: 
               missing={getProviderMissing(status)}
               pickupSummary={getPickupSummary(status)}
               pending={pending && pending.provider === drawerFor ? pending.kind : null}
+              feedback={feedback && feedback.provider === drawerFor
+                ? { kind: feedback.kind, text: feedback.text }
+                : null}
               onClose={() => setDrawerFor(null)}
               onConnect={handleConnect}
               onTest={handleTest}

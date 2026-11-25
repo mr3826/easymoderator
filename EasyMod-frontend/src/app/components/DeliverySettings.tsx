@@ -203,12 +203,14 @@ export default function DeliverySettings() {
   }, []);
 
   const moveTabFocus = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % TABS.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + TABS.length) % TABS.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = TABS.length - 1;
+    if (nextIndex === null) return;
     event.preventDefault();
-    const delta = event.key === 'ArrowRight' ? 1 : -1;
-    const nextIndex = (index + delta + TABS.length) % TABS.length;
-    const nextId = `delivery-tab-${TABS[nextIndex].id}`;
-    document.getElementById(nextId)?.focus();
+    document.getElementById(`delivery-tab-${TABS[nextIndex].id}`)?.focus();
     setActiveTab(TABS[nextIndex].id);
   };
 
@@ -348,6 +350,7 @@ export default function DeliverySettings() {
                 locations={pickupLocations}
                 onMutate={loadDeliverySettings}
                 focusProvider={pickupFocus}
+                onFocusConsumed={() => setPickupFocus(null)}
               />
             </div>
           )}

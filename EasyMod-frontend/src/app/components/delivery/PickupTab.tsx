@@ -3,17 +3,28 @@
  * Guardrails §5.6/§8/§11/§12/§16/§17/§18/§19. Preservation §C rows C1–C16.
  *
  * Provider-first flow (never silently touches the outside world):
- *  1. Read the courier's OWN pickup stores (listProviderStores — Pathao live,
- *     RedX honest, Steadfast manual-only).
+ *  1. Read the courier's OWN pickup stores (listProviderStores is a PURE READ —
+ *     Pathao live, RedX honest, Steadfast manual-only). The import lives in
+ *     POST /:provider/stores/sync (importProviderStores) only.
  *  2. IMPORT them as local rows, and LINK a chosen store to a location via
  *     setProviderPickup (the provider store id is the authoritative identity).
  *     IMPORT / LINK / CREATE(local) / UPDATE are SEPARATE actions — never conflated.
+ *     A selective import that the courier cannot match answers 409
+ *     DELIVERY_STORE_IDS_UNMATCHED — surfaced as a blocked pill naming the ids.
  *  3. Any EXTERNAL store create is merchant-confirmed first (createProviderStore
  *     only fires after an explicit confirm) — no auto-create on sync miss.
  *  4. Multiple matching stores never guess: a 409 DELIVERY_PICKUP_AMBIGUOUS with
  *     candidates opens an EXPLICIT selection dialog; the merchant must choose.
- *  5. Safe delete surfaces the backend confirm-required / in-use blockers and
- *     re-deletes only after a danger confirm; dispatch/order history is untouched.
+ *  5. Safe delete (§12): the labeled Delete ALWAYS opens the confirm dialog FIRST
+ *     (enriched from local data — default star + provider rows referencing the
+ *     location). No DELETE fires without a merchant confirm; the confirmed call
+ *     sends confirm:true, and a late server 409 (another tab changed state)
+ *     re-surfaces the blockers inside the open dialog. Success shows an inline
+ *     role=status notice ONLY after the server confirms (§8).
+ *  6. Stale-mapping honesty: while the server flags pickup_mapping_status ===
+ *     'stale' the pill stays attention — a successful store Fetch never flips it
+ *     green; only an explicit LINK result or a sync resolution MATCHED/LINKED may
+ *     override locally, and only until the next server reload.
  *
  * Status is Pending while in flight and only flips to a confirmed label once the
  * server replies (§8); sync/link failures keep every entered value (§C5) and
@@ -99,6 +110,12 @@ interface ProviderStoreView {
 interface ProviderStoresEnvelope {
   provider?: DeliveryProvider;
   stores?: ProviderStoreView[];
+  /**
+   * LEGACY: the backend change landing in parallel makes GET /:provider/stores a
+   * pure read that no longer upserts rows or returns pickup_locations — the
+   * import (POST /:provider/stores/sync) owns row creation. The field is kept for
+   * a tolerant read only and is NEVER consumed to overwrite the local list.
+   */
   pickup_locations?: PickupLocation[];
   capability?: string;
   stores_synced_at?: string | null;
@@ -138,7 +155,10 @@ interface AmbiguousState {
 }
 interface DeleteState {
   location: PickupLocation;
+  /** Blockers — seeded from LOCAL data on open, replaced by server blockers on a late 409. */
   blockers: DeleteBlocker[];
+  /** Server message shown inside the dialog when a confirm-time 409 carries no structured blockers. */
+  note?: string | null;
 }
 interface EditingState {
   mode: 'create' | 'edit';
@@ -274,14 +294,28 @@ export interface PickupTabProps {
   onMutate?: () => void | Promise<void>;
   /** Deep-link from Tab 1's "Complete pickup" — pre-opens the create form for a provider. */
   focusProvider?: DeliveryProvider | null;
+  /**
+   * Fired ONCE per prop-driven deep-link open, right after the create form opens,
+   * so the shell can clear its pickupFocus flag (the form must not re-open on every
+   * remount). Optional until A0 wires it — safe when absent (§A8).
+   */
+  onFocusConsumed?: () => void;
 }
 
-export default function PickupTab({ providers, locations, onMutate, focusProvider }: PickupTabProps) {
+export default function PickupTab({ providers, locations, onMutate, focusProvider, onFocusConsumed }: PickupTabProps) {
   const { t, i18n } = useTranslation();
 
   const [list, setList] = useState<PickupLocation[]>(locations ?? []);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [locationsError, setLocationsError] = useState<string | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
+  const [nextStep, setNextStep] = useState<string | null>(null);
+  /**
+   * Local permission to show a stale-mapped provider as healthy — set ONLY by an
+   * explicit LINK result or a sync resolution MATCHED/LINKED, and dropped on every
+   * server reload so the fresh mapping status is the authority again (§A8).
+   */
+  const [staleOverride, setStaleOverride] = useState<Partial<Record<DeliveryProvider, boolean>>>({});
 
   const [storesByProvider, setStoresByProvider] = useState<Partial<Record<DeliveryProvider, ProviderStoreView[]>>>({});
   const [storesLoading, setStoresLoading] = useState<Partial<Record<DeliveryProvider, boolean>>>({});
@@ -324,19 +358,36 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     void loadLocations();
   }, []);
 
+  // Deep-link open (§A8): open the create form ONCE per prop-driven open and tell
+  // the shell it was consumed (re-opening on every remount is the shell's job to
+  // prevent by clearing pickupFocus; the ref guard pins once-per-open here).
+  const focusHandledRef = useRef<string | null>(null);
+  const enteredViaFocusRef = useRef(Boolean(focusProvider));
   useEffect(() => {
-    if (focusProvider) {
-      setEditing((current) => current ?? { mode: 'create', provider: focusProvider });
+    if (!focusProvider) {
+      focusHandledRef.current = null;
+      return;
     }
-  }, [focusProvider]);
+    if (focusHandledRef.current === focusProvider) return;
+    focusHandledRef.current = focusProvider;
+    setEditing((current) => current ?? { mode: 'create', provider: focusProvider });
+    onFocusConsumed?.();
+  }, [focusProvider, onFocusConsumed]);
 
   const reload = useCallback(async () => {
     try {
       await onMutate?.();
     } catch {
       // Shell owns the load-error surface; keep last known state on a failed reload.
+    } finally {
+      // Server is truth after a reload — every local stale-override expires (§A8).
+      setStaleOverride({});
     }
   }, [onMutate]);
+
+  const markStaleResolved = useCallback((provider: DeliveryProvider) => {
+    setStaleOverride((prev) => ({ ...prev, [provider]: true }));
+  }, []);
 
   const setProviderStatus = (provider: DeliveryProvider, kind: PillKind, message?: string | null) => {
     setSyncStatus((prev) => ({ ...prev, [provider]: kind }));
@@ -348,11 +399,14 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     setStoresError((prev) => ({ ...prev, [provider]: null }));
     setProviderStatus(provider, 'pending', t('manageShop.deliverySettings.pickup.syncing'));
     try {
+      // PURE READ (§A8): GET /:provider/stores now returns only the courier
+      // listing — it never upserts local rows, so result.pickup_locations is NOT
+      // consumed here. The local list refreshes via loadLocations() after an
+      // IMPORT (sync) only.
       const result = await api.listProviderStores(provider);
       if (!alive.current) return;
       const stores = Array.isArray(result?.stores) ? result.stores : [];
       setStoresByProvider((prev) => ({ ...prev, [provider]: stores }));
-      if (Array.isArray(result?.pickup_locations)) setList(result.pickup_locations);
       setProviderStatus(
         provider,
         stores.length > 0 ? 'healthy' : 'review',
@@ -379,6 +433,9 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     }
   };
 
+  // IMPORT lives here only (POST /:provider/stores/sync). Per-row passes the
+  // selected store's id (selective import); bulk omits ids. A structured 409
+  // DELIVERY_STORE_IDS_UNMATCHED names the missing ids in a blocked pill (§A8).
   const handleImportStores = async (provider: DeliveryProvider, ids?: string[]) => {
     const key = `import:${provider}:${ids?.length ?? 'all'}`;
     setPending(key);
@@ -391,8 +448,20 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       await reload();
     } catch (err) {
       if (alive.current) {
-        setProviderStatus(provider, 'blocked', t('manageShop.deliverySettings.pickup.errors.importFailed'));
-        setSyncMessage((prev) => ({ ...prev, [provider]: getErrorMessage(err, t('manageShop.deliverySettings.pickup.errors.importFailed')) }));
+        if (getErrorCode(err) === 'DELIVERY_STORE_IDS_UNMATCHED') {
+          const rawIds = getErrorDetails(err).unmatched_store_ids;
+          const idList = Array.isArray(rawIds) ? rawIds.map((value) => String(value)).filter(Boolean).join(', ') : '';
+          setProviderStatus(
+            provider,
+            'blocked',
+            idList
+              ? t('manageShop.deliverySettings.pickup.unmatchedStores', { ids: idList })
+              : t('manageShop.deliverySettings.pickup.errors.importFailed'),
+          );
+        } else {
+          setProviderStatus(provider, 'blocked', t('manageShop.deliverySettings.pickup.errors.importFailed'));
+          setSyncMessage((prev) => ({ ...prev, [provider]: getErrorMessage(err, t('manageShop.deliverySettings.pickup.errors.importFailed')) }));
+        }
       }
     } finally {
       if (alive.current) setPending(null);
@@ -426,6 +495,9 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       });
       const resolution = result?.store_resolution;
       if (alive.current) {
+        // An explicit LINK result may show healthy even while the server still
+        // flags the old mapping stale — the override lives until the next reload.
+        if (resolution === 'LINKED' || resolution === 'MATCHED') markStaleResolved(provider);
         setProviderStatus(
           provider,
           'healthy',
@@ -467,6 +539,9 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       } as never);
       if (!alive.current) return;
       setAmbiguous(null);
+      // Merchant-explicit store choice + successful re-sync = resolved mapping;
+      // healthy locally until the server reload confirms (§A8).
+      markStaleResolved(provider);
       setProviderStatus(provider, 'healthy', t('manageShop.deliverySettings.pickup.linked', { store: storeTitle(store) }));
       await loadLocations();
       await reload();
@@ -489,11 +564,19 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       });
       const resolution = (result as unknown as { store_resolution?: string })?.store_resolution;
       if (alive.current) {
-        setProviderStatus(
-          provider,
-          'healthy',
-          t(`manageShop.deliverySettings.pickup.resolutions.${resolution ?? 'MATCHED'}`, { defaultValue: t('manageShop.deliverySettings.pickup.syncedCounts', { n: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }) }),
-        );
+        if (resolution === 'MATCHED' || resolution === 'LINKED') {
+          markStaleResolved(provider);
+          setProviderStatus(
+            provider,
+            'healthy',
+            t(`manageShop.deliverySettings.pickup.resolutions.${resolution}`, { defaultValue: t('manageShop.deliverySettings.pickup.syncedCounts', { n: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }) }),
+          );
+        } else {
+          // PRESERVED / NO_MATCH / anything unresolved: the wiring is NOT proven —
+          // the previously wired store is likely no longer listed. Show ATTENTION
+          // with the next step, never healthy green (§A8).
+          setProviderStatus(provider, 'attention', t('manageShop.deliverySettings.pickup.staleStoreHint'));
+        }
       }
       await loadLocations();
       await reload();
@@ -523,42 +606,50 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     }
   };
 
-  const handleRequestDelete = async (location: PickupLocation) => {
+  // §12 dangerous action: the backend DELETES a clean row immediately on an
+  // unconfirmed call, so no DELETE may ever fire from the row itself. The labeled
+  // Delete ALWAYS opens the confirm dialog first, pre-enriched from LOCAL data:
+  // the shop-default star and any provider row wired to this location
+  // (providers[].pickup_location_id) surface as in-use warnings up front.
+  const openDeleteDialog = (location: PickupLocation) => {
     if (!location.id) return;
-    setPending(`delete:${location.id}`);
-    try {
-      await api.deletePickupLocation(location.id);
-      if (alive.current) setLocationsError(null);
-      await loadLocations();
-      await reload();
-    } catch (err) {
-      if (!alive.current) return;
-      const code = getErrorCode(err);
-      if (isConflictError(err) && (code === 'PICKUP_LOCATION_DELETE_CONFIRMATION_REQUIRED' || code === undefined)) {
-        const details = getErrorDetails(err);
-        setDeleteState({ location, blockers: readBlockers(details) });
-      } else {
-        setLocationsError(getErrorMessage(err, t('manageShop.deliverySettings.pickup.errors.deleteBlocked')));
-      }
-    } finally {
-      if (alive.current) setPending(null);
-    }
+    const blockers: DeleteBlocker[] = [];
+    if (location.is_default) blockers.push({ code: 'IS_SHOP_DEFAULT' });
+    const referencedBy = providers
+      .filter((item) => item.pickup_location_id != null && String(item.pickup_location_id) === String(location.id))
+      .map((item) => item.provider);
+    if (referencedBy.length > 0) blockers.push({ code: 'IN_USE', providers: referencedBy });
+    setDeleteNotice(null);
+    setDeleteState({ location, blockers });
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteState?.location.id) return;
     const id = deleteState.location.id;
+    const name = deleteState.location.display_name;
     setPending(`confirm-delete:${id}`);
     try {
-      await api.deletePickupLocation(id, { confirm: true });
-      if (alive.current) {
+      const result = await api.deletePickupLocation(id, { confirm: true });
+      if (alive.current && result?.deleted !== false) {
         setDeleteState(null);
         setLocationsError(null);
+        // Honest success (§8): the notice renders only after the server confirmed.
+        setDeleteNotice(t('manageShop.deliverySettings.pickup.deleted', { name }));
       }
       await loadLocations();
       await reload();
     } catch (err) {
-      if (alive.current) {
+      if (!alive.current) return;
+      if (isConflictError(err)) {
+        // Another tab changed state since the dialog opened: keep it OPEN and
+        // surface the server's blockers (or its message) inside the dialog.
+        const serverBlockers = readBlockers(getErrorDetails(err));
+        setDeleteState((prev) => (prev ? {
+          ...prev,
+          blockers: serverBlockers.length > 0 ? serverBlockers : prev.blockers,
+          note: serverBlockers.length > 0 ? null : getErrorMessage(err, t('manageShop.deliverySettings.pickup.errors.deleteBlocked')),
+        } : prev));
+      } else {
         setDeleteState(null);
         setLocationsError(getErrorMessage(err, t('manageShop.deliverySettings.pickup.errors.deleteFailed')));
       }
@@ -585,6 +676,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
         if (!alive.current) return;
         const resolution = (res as unknown as { store_resolution?: string })?.store_resolution;
         const confirmed = Boolean(location?.provider_store_id) || resolution === 'MATCHED' || resolution === 'LINKED';
+        if (confirmed) markStaleResolved(provider);
         setProviderStatus(
           provider,
           confirmed ? 'healthy' : 'review',
@@ -594,6 +686,11 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
             })
             : t('manageShop.deliverySettings.pickup.syncedCounts', { n: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }),
         );
+        // Deep-link (409 "Complete pickup") WHERE-NEXT: once the row is saved and
+        // server-confirmed synced, point back to Providers to finish activation (§A8).
+        if (confirmed && enteredViaFocusRef.current && location?.id) {
+          setNextStep(t('manageShop.deliverySettings.pickup.returnToProviders'));
+        }
       } catch (err) {
         if (!alive.current) return;
         if (isConflictError(err) && runAmbiguous(provider, getErrorDetails(err), location?.id ?? null)) {
@@ -602,6 +699,10 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
           setProviderStatus(provider, 'blocked', getErrorMessage(err, t('manageShop.deliverySettings.pickup.errors.syncFailed')));
         }
       }
+    } else if (enteredViaFocusRef.current && location?.id) {
+      // Manual/Steadfast rows carry no provider sync — a persisted row alone
+      // completes the 409 pickup step.
+      setNextStep(t('manageShop.deliverySettings.pickup.returnToProviders'));
     }
     await reload();
   };
@@ -627,12 +728,21 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       return { kind: 'review', label: t('manageShop.deliverySettings.pickup.manualOnlyShort') };
     }
     const stored = syncStatus[provider];
+    const msg = syncMessage[provider];
+    const mapping = mappingStatus(provider);
+    // Server-flagged STALE outranks local optimistic state (§A8): a successful
+    // store Fetch never flips it green. Only an explicit LINK result or a sync
+    // resolution MATCHED/LINKED (markStaleResolved) may show healthy, and only
+    // until the next reload restores the server mapping as the authority.
+    if (mapping === 'stale' && !staleOverride[provider]) {
+      if (stored === 'pending') return { kind: 'pending', label: msg ?? t('manageShop.deliverySettings.pickup.statusPills.pending') };
+      if (stored === 'blocked') return { kind: 'blocked', label: msg ?? t('manageShop.deliverySettings.pickup.statusPills.blocked') };
+      if (stored === 'attention') return { kind: 'attention', label: msg ?? t('manageShop.deliverySettings.pickup.mapping.stale') };
+      return { kind: 'attention', label: t('manageShop.deliverySettings.pickup.mapping.stale') };
+    }
     if (stored) {
-      const msg = syncMessage[provider];
       return { kind: stored, label: msg ?? t(`manageShop.deliverySettings.pickup.statusPills.${stored}`) };
     }
-    const mapping = mappingStatus(provider);
-    if (mapping === 'stale') return { kind: 'attention', label: t('manageShop.deliverySettings.pickup.mapping.stale') };
     if (status.pickup_enabled && status.provider_store_id) return { kind: 'healthy', label: t('manageShop.deliverySettings.pickup.mapping.confirmed') };
     if (mapping === 'confirmed') return { kind: 'healthy', label: t('manageShop.deliverySettings.pickup.mapping.confirmed') };
     return { kind: 'review', label: t('manageShop.deliverySettings.pickup.mapping.unknown') };
@@ -850,6 +960,30 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
             </p>
           )}
 
+          {/* Server-confirmed delete feedback (§17 inline first). */}
+          {deleteNotice && (
+            <p
+              role="status"
+              data-testid="pickup-delete-status"
+              className="flex items-center gap-1.5 rounded-lg border border-em-success-700/20 bg-em-success-100 px-3 py-2 text-sm text-em-success-700"
+            >
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{deleteNotice}</span>
+            </p>
+          )}
+
+          {/* WHERE-NEXT pointer for the 409 "Complete pickup" deep-link flow (§A8). */}
+          {nextStep && (
+            <p
+              role="status"
+              data-testid="pickup-next-step"
+              className="flex items-center gap-1.5 rounded-lg border border-em-success-700/20 bg-em-success-100 px-3 py-2 text-sm text-em-success-700"
+            >
+              <Check className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{nextStep}</span>
+            </p>
+          )}
+
           {editing && (
             <PickupForm
               provider={editing.provider}
@@ -958,13 +1092,12 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                         <EmButton
                           variant="danger"
                           className="min-h-11 px-3 text-sm gap-1.5"
-                          onClick={() => void handleRequestDelete(location)}
-                          loading={pending === `delete:${location.id}`}
+                          onClick={() => openDeleteDialog(location)}
                           disabled={pending !== null}
                           data-testid={`pickup-delete-${location.id}`}
                         >
                           <Trash2 className="h-4 w-4" aria-hidden="true" />
-                          <span className="sr-only">{t('manageShop.deliverySettings.pickup.delete')}</span>
+                          {t('manageShop.deliverySettings.pickup.delete')}
                         </EmButton>
                       </div>
                     </div>
@@ -1102,9 +1235,12 @@ function AmbiguousDialog({ state, pending, onClose, onChoose }: AmbiguousDialogP
 }
 
 /* ------------------------------------------------------------------ *
- * Danger confirm for a safe-delete that the backend blocked (§C9/C12).
- * Cancel is the focused/safe default; the destructive action needs a
- * deliberate confirm and re-sends DELETE with ?confirm=true.
+ * Danger confirm for EVERY delete (§C9/C12, §12). The row's labeled
+ * Delete always opens this dialog — pre-enriched from local data (shop
+ * default / provider rows wired to the location) — and the DELETE fires
+ * only after a deliberate confirm, with ?confirm=true. Cancel is the
+ * focused/safe default; a late server 409 keeps the dialog open and
+ * re-surfaces its blockers.
  * ------------------------------------------------------------------ */
 interface DeleteConfirmDialogProps {
   state: DeleteState;
@@ -1159,6 +1295,13 @@ function DeleteConfirmDialog({ state, pending, onCancel, onConfirm }: DeleteConf
               </li>
             ))}
           </ul>
+        )}
+
+        {state.note && (
+          <p role="alert" data-testid="pickup-delete-error" className="mt-3 flex items-start gap-1.5 text-sm text-em-danger-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{state.note}</span>
+          </p>
         )}
 
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

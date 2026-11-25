@@ -69,6 +69,10 @@ const LABELS: Record<string, string> = {
     'This note is saved for your records. Whether the assistant offers cash on delivery follows Payment Settings.',
   'manageShop.deliverySettings.charges.areaCodRecorded':
     'These COD toggles are saved for your records; the assistant COD offer still comes from Payment Settings.',
+  'manageShop.deliverySettings.charges.zeroChargeNoteDefault':
+    'A charge of 0 is saved for your records and checkout display, but the assistant still quotes the platform default delivery charge — 0 does not yet mean free delivery.',
+  'manageShop.deliverySettings.charges.zeroChargeNoteAreas':
+    'A charge of 0 is saved for your records and checkout display, but the assistant falls back to the platform default for that area — 0 does not yet mean free delivery.',
   'manageShop.deliverySettings.charges.areasRevertNote':
     'With no area rows, the default pricing returns on save:',
   'manageShop.deliverySettings.charges.tiersRevertNote':
@@ -240,6 +244,34 @@ describe('ChargesTab — pricing forms', () => {
     expect(harness.onSave.mock.calls[1][0]).toEqual(expect.objectContaining({
       area_pricing: expect.arrayContaining([expect.objectContaining({ charge: 0 })]),
     }));
+  });
+
+  it('discloses that a zero charge is saved but the assistant still quotes the platform default', () => {
+    setupHarness();
+
+    const defaultNote = LABELS['manageShop.deliverySettings.charges.zeroChargeNoteDefault'];
+    const areaNote = LABELS['manageShop.deliverySettings.charges.zeroChargeNoteAreas'];
+
+    // All charges positive at rest: no zero-charge disclosure anywhere.
+    expect(screen.queryByText(defaultNote)).not.toBeInTheDocument();
+    expect(screen.queryByText(areaNote)).not.toBeInTheDocument();
+
+    // Default charge = 0 → note appears under the field, linked as its
+    // description; area note stays hidden (no zero area yet).
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Default charge' }), { target: { value: '0' } });
+    expect(screen.getByText(defaultNote)).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: 'Default charge' })).toHaveAccessibleDescription(defaultNote);
+    expect(screen.queryByText(areaNote)).not.toBeInTheDocument();
+
+    // Any area charge = 0 → the area section gets its own note too.
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Delivery charge 2' }), { target: { value: '0' } });
+    expect(screen.getByText(areaNote)).toBeInTheDocument();
+
+    // Positive charges clear both disclosures again (conditional, not noise).
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Default charge' }), { target: { value: '60' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Delivery charge 2' }), { target: { value: '80' } });
+    expect(screen.queryByText(defaultNote)).not.toBeInTheDocument();
+    expect(screen.queryByText(areaNote)).not.toBeInTheDocument();
   });
 
   it('rejects a negative area charge before onSave (Joi min(0) mirror)', () => {

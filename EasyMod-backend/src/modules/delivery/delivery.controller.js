@@ -82,9 +82,14 @@ const serializeStore = (store) => {
 
 /**
  * Interactive pickup errors carry a structured payload the merchant UI acts
- * on (candidate stores, confirmation preview, blockers). The global error
- * serializer only whitelists details for a few legacy codes, so these are
- * answered directly instead of falling through to `next`.
+ * on (candidate stores, confirmation preview, blockers, manual steps). The
+ * global error serializer only whitelists details for a few legacy codes, so
+ * these are answered directly instead of falling through to `next`.
+ * DELIVERY_PROVIDER_MANUAL_PICKUP promises details.manual_step,
+ * DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED promises
+ * details.manual_step='CREATE_IN_PROVIDER_PORTAL', and
+ * DELIVERY_PICKUP_SOURCE_REQUIRED mirrors DELIVERY_NOT_READY's details.missing
+ * — all three must keep their details through the controller layer.
  */
 const STRUCTURED_PICKUP_ERROR_CODES = new Set([
     'DELIVERY_PICKUP_AMBIGUOUS',
@@ -92,6 +97,9 @@ const STRUCTURED_PICKUP_ERROR_CODES = new Set([
     'PICKUP_LOCATION_DELETE_CONFIRMATION_REQUIRED',
     'DELIVERY_MUTATION_IN_PROGRESS',
     'DELIVERY_STORE_IDS_UNMATCHED',
+    'DELIVERY_PROVIDER_MANUAL_PICKUP',
+    'DELIVERY_PICKUP_STORE_CREATE_UNSUPPORTED',
+    'DELIVERY_PICKUP_SOURCE_REQUIRED',
 ]);
 
 const respondStructuredPickupError = (res, error) => {
@@ -199,8 +207,13 @@ const providerPickupState = (integration) => {
         ?? metadata.store_id
         ?? null;
     // Staleness of the stored provider store mapping against the last store
-    // listing we actually read from the provider. 'unknown' means we have no
-    // cached listing to compare against — it is never reported as confirmed.
+    // listing we actually cached. The cache is refreshed ONLY by the explicit
+    // POST /:provider/stores/sync import (and the initial Pathao connect);
+    // GET /:provider/stores is a pure read and never re-caches, so
+    // 'confirmed'/'stale' mean agreement/disagreement with the last explicit
+    // import — the age of that import is surfaced honestly as
+    // pickup_stores_synced_at below. 'unknown' means we have no cached
+    // listing to compare against — it is never reported as confirmed.
     const storesCache = Array.isArray(metadata.stores)
         ? metadata.stores.filter((store) => isPlainObject(store))
         : [];
@@ -694,9 +707,25 @@ class DeliveryController {
     }
 
     /**
-     * Get provider pickup stores (Pathao raw listing; RedX normalized,
-     * IMPLEMENTED_NOT_LIVE_VERIFIED). Steadfast has no store API and stays
-     * a manual 409.
+     * Provider pickup store listing and import.
+     *
+     * GET /:provider/stores and GET /:provider/stores/sync are PURE READS:
+     * they fetch the provider listing through the same adapter/normalizer
+     * path, return canonical store records, and persist NOTHING — no pickup
+     * rows, no metadata, no integration.save, no stores_synced_at. The UI's
+     * "Fetch stores" action must never silently import the whole catalog;
+     * the response deliberately omits pickup_locations entirely.
+     *
+     * POST /:provider/stores/sync remains the explicit Import action with
+     * today's full behavior: read the listing, upsert local pickup rows
+     * (optionally filtered by store_ids), cache the listing +
+     * stores_synced_at into integration metadata, and return the imported
+     * stores with their pickup_locations. That cache is what
+     * pickup_mapping_status staleness in GET /settings is computed against,
+     * so staleness now reflects the last explicit sync — capability honesty
+     * preserved via metadata.stores / pickup_stores_synced_at.
+     *
+     * Steadfast has no store API and stays a manual 409 with manual_step.
      */
     async getProviderStores(req, res, next) {
         try {
@@ -726,15 +755,34 @@ class DeliveryController {
                 throw new AppError(`${provider} is not connected`, 400, 'DELIVERY_PROVIDER_NOT_CONNECTED');
             }
 
-            const stores = await deliveryService.getProviderStores(shopId, provider);
+            const isImport = req.method === 'POST';
+            // The pure read asks the service to canonicalize the Pathao raw
+            // listing into the same { store_id, id, name, address, phone,
+            // city_id, zone_id, area_id } shape RedX's normalized envelope
+            // returns. POST/sync keeps the raw token-recovered listing and
+            // today's exact persistence path.
+            const stores = await deliveryService.getProviderStores(shopId, provider, { canonical: !isImport });
             const safeStores = (Array.isArray(stores) ? stores : []).map(serializeStore).filter(Boolean);
+
+            if (!isImport) {
+                return res.json({
+                    success: true,
+                    data: {
+                        provider,
+                        stores: safeStores,
+                        // Listing reads are mocked-tested only; no live provider
+                        // account has been exercised for either provider here.
+                        capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+                    },
+                });
+            }
 
             // Selective import (POST /:provider/stores/sync with store_ids):
             // mirror only the named stores. An id the provider did not return
-            // is a conflict the UI must surface, never a silent drop. GET, and
-            // an absent/empty store_ids, keep the full-listing sync.
+            // is a conflict the UI must surface, never a silent drop. An
+            // absent/empty store_ids keeps the full-listing sync.
             let storesToSync = safeStores;
-            const requestedIds = req.method === 'POST' && Array.isArray(req.body?.store_ids)
+            const requestedIds = Array.isArray(req.body?.store_ids)
                 ? req.body.store_ids
                 : null;
             if (requestedIds && requestedIds.length > 0) {
@@ -776,7 +824,10 @@ class DeliveryController {
             }
 
             // Cache the listing and the time it was read so the settings
-            // payload can distinguish a stale mapping from an unverified one.
+            // payload can distinguish a stale mapping from an unverified
+            // one. This import (and the Pathao connect) is now the ONLY
+            // writer of this cache — GET store reads are pure and never
+            // refresh it, so stores_synced_at is the last explicit sync.
             integration.metadata = {
                 ...serializeProviderMetadata(integration.metadata),
                 stores: safeStores,
@@ -868,6 +919,10 @@ class DeliveryController {
             );
             res.json({ success: true, data });
         } catch (error) {
+            // DELIVERY_PICKUP_SOURCE_REQUIRED carries the same details.missing
+            // contract as DELIVERY_NOT_READY; it must survive this layer
+            // instead of losing details to the global serializer whitelist.
+            if (respondStructuredPickupError(res, error)) return;
             next(error);
         }
     }

@@ -6,7 +6,7 @@
  * order-domain mock is needed — react-i18next is the sole stub.
  */
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ProviderDrawer, { type ProviderDrawerProps } from '../ProviderDrawer';
 import type { DeliveryProviderStatus } from '@/api/types/order';
@@ -193,6 +193,31 @@ describe('ProviderDrawer — danger disconnect', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByTestId('delivery-disconnect-confirm')).not.toBeInTheDocument();
     expect(props.onDisconnect).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProviderDrawer — in-drawer action feedback', () => {
+  it('surfaces the current action result inside the dialog, never only on the card behind the scrim', () => {
+    // This is what ProvidersTab passes after a failed onConnect for this provider.
+    renderDrawer({ feedback: { kind: 'error', text: 'Connect failed: invalid credentials' } });
+    const dialog = screen.getByRole('dialog');
+    const alert = within(dialog).getByRole('alert');
+    expect(alert).toHaveTextContent('Connect failed: invalid credentials');
+    expect(alert.getAttribute('aria-live')).not.toBe('polite'); // alert is assertive by role
+  });
+
+  it('renders a success result as polite live status inside the dialog', () => {
+    renderDrawer({ feedback: { kind: 'success', text: 'Pathao Courier tested' } });
+    const dialog = screen.getByRole('dialog');
+    const status = within(dialog).getByRole('status');
+    expect(status).toHaveTextContent('Pathao Courier tested');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('renders no feedback block when there is no current result', () => {
+    renderDrawer({ feedback: null });
+    expect(screen.queryByTestId('drawer-action-feedback')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 

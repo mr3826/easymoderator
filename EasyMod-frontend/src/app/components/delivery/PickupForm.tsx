@@ -144,31 +144,52 @@ export default function PickupForm({
   };
 
   // Hydrate the directory for the provider context (Pathao cascade, RedX areas).
+  // On EDIT the cascade is chained for the PERSISTED ids (city→zone→area) so the
+  // zone AND area selects show the stored values instead of blank placeholders;
+  // interactive city/zone changes keep the existing reset-cascade behaviour (§A8).
   useEffect(() => {
     let mounted = true;
     if (showPathaoCascade) {
       if (!orderApi.getPathaoCities) return () => { mounted = false; };
       setLoadingLocations(true);
       setLocationError(null);
-      void orderApi.getPathaoCities()
-        .then((nextCities) => {
+      void (async () => {
+        try {
+          const nextCities = await orderApi.getPathaoCities();
           if (!mounted) return;
           setCities(nextCities);
           const selected = nextCities.find((option) => optionId(option, 'city') === cityId)
             ?? nextCities.find((option) => optionLabel(option, i18n?.language) === cityName);
-          if (selected) {
-            const selectedId = optionId(selected, 'city');
-            setCityId(selectedId);
-            setCityName(optionLabel(selected, i18n?.language));
-            void loadPathaoZones(selectedId);
+          if (!selected) return;
+          const selectedCityId = optionId(selected, 'city');
+          setCityId(selectedCityId);
+          setCityName(optionLabel(selected, i18n?.language));
+          if (!zoneId || !orderApi.getPathaoZones) return;
+          const nextZones = await orderApi.getPathaoZones(providerId(selectedCityId));
+          if (!mounted) return;
+          setZones(nextZones);
+          const zoneMatch = nextZones.find((option) => optionId(option, 'zone') === zoneId)
+            ?? nextZones.find((option) => optionLabel(option, i18n?.language) === zoneName);
+          if (!zoneMatch) return;
+          const hydratedZoneId = optionId(zoneMatch, 'zone');
+          setZoneId(hydratedZoneId);
+          setZoneName(optionLabel(zoneMatch, i18n?.language));
+          if (!areaId || !orderApi.getPathaoAreas) return;
+          const nextAreas = await orderApi.getPathaoAreas(providerId(hydratedZoneId));
+          if (!mounted) return;
+          setAreas(nextAreas);
+          const areaMatch = nextAreas.find((option) => optionId(option, 'area') === areaId)
+            ?? nextAreas.find((option) => optionLabel(option, i18n?.language) === areaName);
+          if (areaMatch) {
+            setAreaId(optionId(areaMatch, 'area'));
+            setAreaName(optionLabel(areaMatch, i18n?.language));
           }
-        })
-        .catch((err) => {
+        } catch (err) {
           if (mounted) setLocationError(getErrorMessage(err, t('courier.pickup.errors.locationsLoadFailed')));
-        })
-        .finally(() => {
+        } finally {
           if (mounted) setLoadingLocations(false);
-        });
+        }
+      })();
     } else if (showRedxAreas) {
       if (!orderApi.getProviderAreas) return () => { mounted = false; };
       setLoadingLocations(true);

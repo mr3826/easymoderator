@@ -201,4 +201,63 @@ describe('PickupForm — edit mode', () => {
     await waitFor(() => expect(mocks.updatePickupLocation).toHaveBeenCalledWith('loc1', expect.objectContaining({ display_name: 'Renamed Hub' })));
     expect(mocks.createPickupLocation).not.toHaveBeenCalled();
   });
+
+  it('edit hydration chains city→zone→AREA so the Area select shows the persisted area (§A8)', async () => {
+    const onSaved = vi.fn();
+    const initial: PickupLocation = {
+      id: 'loc1', display_name: 'Existing Hub', phone: '01799999999', address: 'Old address',
+      area_name: 'Kallyanpur', city_name: 'Dhaka', zone_name: 'Mirpur', is_default: true,
+    };
+    render(<PickupForm provider="pathao" mode="edit" initial={initial} initialMeta={{ city_id: 1, zone_id: 2, area_id: 3 }} onCancel={vi.fn()} onSaved={onSaved} />);
+    // Loading cities for the persisted city must CASCADE to zones AND areas.
+    await waitFor(() => expect(mocks.getPathaoZones).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(mocks.getPathaoAreas).toHaveBeenCalledWith(2));
+    const areaSelect = screen.getByTestId('pickup-form-area') as HTMLSelectElement;
+    await waitFor(() => expect(areaSelect.value).toBe('3'));
+    // The stored area is a real, selected option — not a blank placeholder.
+    expect(Array.from(areaSelect.options).map((o) => o.textContent)).toContain('Kallyanpur');
+    expect(areaSelect.options[areaSelect.selectedIndex]?.textContent).toContain('Kallyanpur');
+
+    // Saving the edit keeps the hydrated ids on the way back to the parent.
+    fireEvent.click(screen.getByTestId('pickup-form-save'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({
+      providerMeta: { city_id: 1, zone_id: 2, area_id: 3 },
+    })));
+  });
+
+  it('interactive city change after hydration still resets the zone/area cascade', async () => {
+    const onSaved = vi.fn();
+    const initial: PickupLocation = {
+      id: 'loc1', display_name: 'Existing Hub', phone: '01799999999', address: 'Old address',
+      area_name: 'Kallyanpur', city_name: 'Dhaka', zone_name: 'Mirpur', is_default: true,
+    };
+    render(<PickupForm provider="pathao" mode="edit" initial={initial} initialMeta={{ city_id: 1, zone_id: 2, area_id: 3 }} onCancel={vi.fn()} onSaved={onSaved} />);
+    const areaSelect = screen.getByTestId('pickup-form-area') as HTMLSelectElement;
+    await waitFor(() => expect(areaSelect.value).toBe('3'));
+    const zoneSelect = screen.getByTestId('pickup-form-zone') as HTMLSelectElement;
+    expect(zoneSelect.value).toBe('2');
+
+    // Clearing the city must wipe zone + area selections (unchanged reset rule).
+    fireEvent.change(screen.getByLabelText('City'), { target: { value: '' } });
+    await waitFor(() => {
+      expect((screen.getByTestId('pickup-form-zone') as HTMLSelectElement).value).toBe('');
+      expect((screen.getByTestId('pickup-form-area') as HTMLSelectElement).value).toBe('');
+    });
+  });
+
+  it('a wrong persisted zone id leaves the zone/area blank instead of guessing', async () => {
+    const onSaved = vi.fn();
+    const initial: PickupLocation = {
+      id: 'loc1', display_name: 'Existing Hub', phone: '01799999999', address: 'Old address',
+      area_name: 'Kallyanpur', city_name: 'Dhaka', is_default: true,
+    };
+    mocks.getPathaoZones.mockResolvedValueOnce([{ id: '8', zone_id: 8, name: 'Uttara' }]);
+    render(<PickupForm provider="pathao" mode="edit" initial={initial} initialMeta={{ city_id: 1, zone_id: 2, area_id: 3 }} onCancel={vi.fn()} onSaved={onSaved} />);
+    await waitFor(() => expect(mocks.getPathaoZones).toHaveBeenCalledWith(1));
+    // Zone '2' is not in the directory — the select stays BLANK (no auto-guess of
+    // '8') and the areas leg is never fired.
+    await waitFor(() => expect(screen.getByTestId('pickup-form-zone')).toBeInTheDocument());
+    expect((screen.getByTestId('pickup-form-zone') as HTMLSelectElement).value).toBe('');
+    expect(mocks.getPathaoAreas).not.toHaveBeenCalled();
+  });
 });
