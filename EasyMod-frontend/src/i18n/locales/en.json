@@ -2742,7 +2742,10 @@
         "activateNeedsPickup": "Complete pickup details to activate this courier.",
         "environmentProduction": "Production",
         "steadfastNoSandbox": "Steadfast connects to its live account only — there is no sandbox.",
-        "environmentSandbox": "Sandbox"
+        "environmentSandbox": "Sandbox",
+        "descPathao": "Fast and reliable delivery across Bangladesh",
+        "descSteadfast": "Trusted delivery partner for e-commerce",
+        "descRedx": "Nationwide delivery support with RedX tracking"
       },
       "charges": {
         "unsavedChanges": "Unsaved changes",

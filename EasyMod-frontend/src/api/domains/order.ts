@@ -519,7 +519,7 @@ export async function clearAiDefault(provider?: DeliveryProvider): Promise<Deliv
   return unwrapApiData(response);
 }
 
-/** List the provider's existing pickup stores and upsert mirrored local rows. */
+/** PURE READ: lists the courier's existing pickup stores and persists nothing — Import (POST /:provider/stores/sync) owns local rows and the listing cache. */
 export async function listProviderStores(provider: DeliveryProvider): Promise<ProviderStoresResult> {
   const response: AxiosResponse<ApiEnvelope<ProviderStoresResult>> = await httpClient.get(
     `/api/shop/delivery/${provider}/stores`,

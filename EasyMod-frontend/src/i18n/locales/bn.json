@@ -2742,7 +2742,10 @@
         "activateNeedsPickup": "এই কুরিয়ার সক্রিয় করতে পিকআপের বিবরণ পূরণ করুন।",
         "environmentProduction": "প্রোডাকশন",
         "steadfastNoSandbox": "Steadfast শুধুমাত্র এর লাইভ অ্যাকাউন্টে সংযুক্ত হয় — কোনো স্যান্ডবক্স নেই।",
-        "environmentSandbox": "স্যান্ডবক্স"
+        "environmentSandbox": "স্যান্ডবক্স",
+        "descPathao": "বাংলাদেশজুড়ে দ্রুত ও নির্ভরযোগ্য ডেলিভারি",
+        "descSteadfast": "ই-কমার্সের জন্য নির্ভরযোগ্য ডেলিভারি পার্টনার",
+        "descRedx": "RedX ট্র্যাকিংসহ সারাদেশে ডেলিভারি সক্ষমতা"
       },
       "charges": {
         "unsavedChanges": "অসংরক্ষিত পরিবর্তন",

@@ -59,6 +59,7 @@ export interface ProviderConfig {
   provider: DeliveryProvider;
   display_name: string;
   description: string;
+  descriptionKey: string;
   logo: string;
   fields: {
     name: keyof PathaoCredentials | keyof SteadfastCredentials | keyof RedxCredentials;
@@ -75,6 +76,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
     provider: 'pathao',
     display_name: 'Pathao Courier',
     description: 'Fast and reliable delivery across Bangladesh',
+    descriptionKey: 'manageShop.deliverySettings.providers.descPathao',
     logo: '🚚',
     fields: [
       { name: 'client_id', label: 'Client ID', type: 'text', placeholder: 'Enter your Pathao Client ID', required: true },
@@ -87,6 +89,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
     provider: 'steadfast',
     display_name: 'Steadfast Courier',
     description: 'Trusted delivery partner for e-commerce',
+    descriptionKey: 'manageShop.deliverySettings.providers.descSteadfast',
     logo: '📦',
     fields: [
       { name: 'api_key', label: 'API Key', type: 'text', placeholder: 'Enter your Steadfast API Key', required: true },
@@ -97,6 +100,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
     provider: 'redx',
     display_name: 'RedX Courier',
     description: 'Nationwide delivery support with RedX tracking',
+    descriptionKey: 'manageShop.deliverySettings.providers.descRedx',
     logo: '📍',
     fields: [
       { name: 'api_key', label: 'API Key', type: 'password', placeholder: 'Enter your RedX API Key', required: true },
@@ -552,7 +556,7 @@ export default function ProvidersTab({ providers, onMutate, onCompletePickup }: 
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-sm text-em-text-secondary">{config.description}</p>
+                    <p className="mt-1 text-sm text-em-text-secondary">{t(config.descriptionKey, { defaultValue: config.description })}</p>
                     {isConnected && (
                       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
                         <span className="inline-flex items-center gap-1.5 text-xs text-em-text-secondary">

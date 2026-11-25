@@ -45,6 +45,7 @@ import {
   CheckCircle2,
   CircleDashed,
   Download,
+  Info,
   Link2,
   Loader2,
   MapPin,
@@ -308,12 +309,12 @@ const storeMeta = (store: ProviderStoreView): string => {
 };
 
 // Small label+icon signal pill (§8: never colour alone).
-function SignalPill({ kind, label, testId }: { kind: PillKind; label: string; testId?: string }) {
+function SignalPill({ kind, label, testId, wrap }: { kind: PillKind; label: string; testId?: string; wrap?: boolean }) {
   const Icon = kind === 'healthy' ? CheckCircle2 : kind === 'blocked' ? TriangleAlert : kind === 'pending' ? CircleDashed : kind === 'attention' ? AlertCircle : MapPin;
   return (
     <span
       data-testid={testId}
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${PILL_CLASSES[kind]}`}
+      className={`inline-flex items-center gap-1 ${wrap ? 'whitespace-normal break-words' : 'whitespace-nowrap'} rounded-full px-2.5 py-0.5 text-xs font-medium ${PILL_CLASSES[kind]}`}
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
       {label}
@@ -880,10 +881,11 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                   key={provider}
                   data-testid={`pickup-provider-panel-${provider}`}
                   aria-label={t(PROVIDER_LABEL_KEYS[provider])}
-                  className="rounded-xl border border-em-border bg-em-bg-surface p-4 sm:p-5"
+                  className="min-w-0 rounded-xl border border-em-border bg-em-bg-surface p-4 sm:p-5"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
+                  {/* flex-wrap + wrapping pill: honest long stale/unknown labels must never force horizontal overflow at 360/390 (§A8c/A9c). */}
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                    <div className="flex min-w-0 items-start gap-3">
                       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-em-violet-100 text-em-violet-700">
                         <Store className="h-5 w-5" aria-hidden="true" />
                       </span>
@@ -898,7 +900,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                         )}
                       </div>
                     </div>
-                    <SignalPill kind={pill.kind} label={pill.label} testId={`pickup-sync-status-${provider}`} />
+                    <SignalPill kind={pill.kind} label={pill.label} testId={`pickup-sync-status-${provider}`} wrap />
                   </div>
 
                   {/* Steadfast: honest manual-only. Unconnected: connect-first hint. */}
@@ -977,22 +979,32 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                         </p>
                       )}
 
-                      {(storesError[provider] || syncMessage[provider]) && (
-                        <p
-                          role={syncStatus[provider] === 'healthy' ? 'status' : 'alert'}
-                          data-testid={`pickup-message-${provider}`}
-                          className={`mt-3 flex items-start gap-1.5 text-sm ${
-                            syncStatus[provider] === 'healthy' ? 'text-em-success-700' : syncStatus[provider] === 'pending' ? 'text-em-info-700' : 'text-em-danger-700'
-                          }`}
-                        >
-                          {storesLoading[provider] || syncStatus[provider] === 'pending'
-                            ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-                            : syncStatus[provider] === 'healthy'
-                              ? <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                              : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
-                          <span>{storesError[provider] ?? syncMessage[provider]}</span>
-                        </p>
-                      )}
+                      {(storesError[provider] || syncMessage[provider]) && (() => {
+                        const isError = Boolean(storesError[provider]) || syncStatus[provider] === 'blocked';
+                        const tone = isError ? 'blocked' : syncStatus[provider] ?? 'review';
+                        return (
+                          <p
+                            role={isError ? 'alert' : 'status'}
+                            data-testid={`pickup-message-${provider}`}
+                            className={`mt-3 flex items-start gap-1.5 text-sm ${
+                              tone === 'blocked' ? 'text-em-danger-700'
+                                : tone === 'healthy' ? 'text-em-success-700'
+                                  : tone === 'pending' ? 'text-em-info-700'
+                                    : tone === 'attention' ? 'text-em-sunlight-700'
+                                      : 'text-em-text-secondary'
+                            }`}
+                          >
+                            {storesLoading[provider] || tone === 'pending'
+                              ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+                                : tone === 'healthy'
+                                  ? <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                  : tone === 'blocked' || tone === 'attention'
+                                    ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                    : <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+                            <span>{storesError[provider] ?? syncMessage[provider]}</span>
+                          </p>
+                        );
+                      })()}
 
                       {/* Provider store list — Import + Link per store (§C11). */}
                       <ul className="mt-3 space-y-2">

@@ -620,6 +620,23 @@ describe('PickupTab — unknown mapping is never "confirmed" (§A9)', () => {
     expect(screen.getByTestId('pickup-unverified-hint-pathao')).toBeInTheDocument();
   });
 
+  it('renders a successful pure-fetch message on a stale mapping as neutral status, never an error alert (§A8c)', async () => {
+    mocks.listProviderStores.mockResolvedValueOnce({
+      provider: 'pathao',
+      stores: [{ store_id: 's9', store_name: 'Main Store' }],
+      capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+    });
+    renderTab([status('pathao', { pickup_mapping_status: 'stale', provider_store_id: 's9', pickup_enabled: true })]);
+    fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
+    const message = await screen.findByTestId('pickup-message-pathao');
+    expect(message).toHaveAttribute('role', 'status');
+    expect(message.className).not.toContain('text-em-danger-700');
+    expect(message).toHaveTextContent('1 stores available');
+    const pill = screen.getByTestId('pickup-sync-status-pathao');
+    expect(pill).toHaveTextContent('Mapping needs review');
+    expect(pill.className).toContain('break-words');
+  });
+
   it('keeps green derived state reserved for a server-confirmed mapping', () => {
     renderTab([status('pathao', { pickup_mapping_status: 'confirmed', provider_store_id: 's9', pickup_enabled: true })]);
     expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Linked & confirmed');
