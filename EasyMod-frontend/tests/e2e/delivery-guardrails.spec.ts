@@ -27,6 +27,9 @@ const capabilities = {
     tracking: { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED' },
     cancel: { level: 'UNSUPPORTED', reason_code: 'NO_PROVIDER_API', manual_step_code: 'CANCEL_IN_PROVIDER_PORTAL' },
     edit: { level: 'UNSUPPORTED', reason_code: 'NO_PROVIDER_API', manual_step_code: 'EDIT_IN_PROVIDER_PORTAL' },
+    // Honest pickup-store capability declared at the ceiling (A5 declares it in
+    // provider-capabilities.js; never above IMPLEMENTED_NOT_LIVE_VERIFIED).
+    pickup_store: { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED' },
     last_verified_at: null,
 };
 
@@ -97,8 +100,13 @@ type RouteState = Awaited<ReturnType<typeof setupRoutes>>;
 async function setupRoutes(page: Page, options: {
     providers?: unknown[];
     locations?: unknown[];
+    settings?: Record<string, unknown>;
     /** 'explicit' → POST /:provider/pickup succeeds; 'ambiguous' → 409 with candidates. */
     linkMode?: 'explicit' | 'ambiguous';
+    /** 'unmatched' → POST /:provider/stores/sync answers 409 DELIVERY_STORE_IDS_UNMATCHED. */
+    syncMode?: 'ok' | 'unmatched';
+    /** true → a CONFIRMED delete (default/in-use rows) still answers 409: the open dialog must keep blockers. */
+    deleteBlockAfterConfirm?: boolean;
 } = {}) {
     const state = {
         signedIn: false,
@@ -118,8 +126,11 @@ async function setupRoutes(page: Page, options: {
         defaultPosts: [] as string[],
         settingsPuts: [] as Record<string, unknown>[],
         linkMode: options.linkMode ?? 'explicit',
+        syncMode: options.syncMode ?? 'ok',
+        deleteBlockAfterConfirm: options.deleteBlockAfterConfirm ?? false,
         providers: options.providers ?? [providerStatus('pathao'), providerStatus('steadfast'), providerStatus('redx')],
         locations: (options.locations ?? defaultLocations()) as Record<string, unknown>[],
+        settings: options.settings ?? settings,
     };
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
         const request = route.request();
@@ -173,7 +184,7 @@ async function setupRoutes(page: Page, options: {
                 state.settingsPuts.push(body);
                 return ok(body);
             }
-            return ok({ providers: state.providers, settings, pickup_locations: state.locations });
+            return ok({ providers: state.providers, settings: state.settings, pickup_locations: state.locations });
         }
         if (path === '/api/shop/delivery/activate' && method === 'POST') {
             state.activates += 1;
@@ -246,7 +257,8 @@ async function setupRoutes(page: Page, options: {
             const confirmed = url.searchParams.get('confirm') === 'true';
             state.deleteAttempts.push({ path, confirmed });
             if (!confirmed) {
-                // Safe-delete guard: blocked until the merchant confirms through the dialog.
+                // Defensive only: the redesign UI NEVER fires DELETE without the
+                // merchant confirming in the dialog (every call carries ?confirm=true).
                 return route.fulfill({
                     status: 409,
                     contentType: 'application/json',
@@ -265,27 +277,78 @@ async function setupRoutes(page: Page, options: {
                     }),
                 });
             }
+            if (state.deleteBlockAfterConfirm && locationMatch[1] === 'loc-a') {
+                // Late conflict: state changed since the dialog opened.
+                return route.fulfill({
+                    status: 409,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: false,
+                        message: 'Pickup location is in use. Confirm the deletion to continue.',
+                        code: 'PICKUP_LOCATION_DELETE_CONFIRMATION_REQUIRED',
+                        details: {
+                            location_id: locationMatch[1],
+                            requires_confirmation: true,
+                            blockers: [
+                                { code: 'IS_SHOP_DEFAULT', message: 'This is the shop default pickup location. Choose another default first.' },
+                                { code: 'IN_USE', message: 'This pickup location is the selected pickup for a courier integration.', providers: ['redx'] },
+                            ],
+                        },
+                    }),
+                });
+            }
             state.locations = state.locations.filter((l) => l.id !== locationMatch[1]);
             return ok({ id: locationMatch[1], deleted: true, released_providers: ['pathao'] });
         }
-        // Provider store workspace.
+        // Provider store workspace. GET is a PURE READ (§A8 contract round 2):
+        // only the courier listing + capability — no pickup_locations, no upsert.
+        const knownStores = (provider: string) => (provider === 'pathao'
+            // Two SAME-AREA stores: the UI must let the merchant choose — never first-match.
+            ? [
+                { store_id: 's1', store_name: 'Dhanmondi Hub A', city_id: 1, zone_id: 10, area_id: 100 },
+                { store_id: 's2', store_name: 'Dhanmondi Hub B', city_id: 1, zone_id: 10, area_id: 100 },
+            ]
+            : [{ store_id: 'r1', store_name: 'RedX Gulshan Point', city_id: 7, area_id: 9 }]);
         const storesMatch = /^\/api\/shop\/delivery\/([\w-]+)\/stores$/.exec(path);
         if (storesMatch && method === 'GET') {
             state.storesGets.push(storesMatch[1]);
-            const provider = storesMatch[1];
-            const stores = provider === 'pathao'
-                // Two SAME-AREA stores: the UI must let the merchant choose — never first-match.
-                ? [
-                    { store_id: 's1', store_name: 'Dhanmondi Hub A', city_id: 1, zone_id: 10, area_id: 100 },
-                    { store_id: 's2', store_name: 'Dhanmondi Hub B', city_id: 1, zone_id: 10, area_id: 100 },
-                ]
-                : [{ store_id: 'r1', store_name: 'RedX Gulshan Point', city_id: 7, area_id: 9 }];
-            return ok({ provider, stores, pickup_locations: state.locations, capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED' });
+            return ok({ provider: storesMatch[1], stores: knownStores(storesMatch[1]), capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED' });
         }
         const storesSyncMatch = /^\/api\/shop\/delivery\/([\w-]+)\/stores\/sync$/.exec(path);
         if (storesSyncMatch && (method === 'POST' || method === 'GET')) {
             state.storesSyncs.push({ provider: storesSyncMatch[1], ...body });
-            return ok({ provider: storesSyncMatch[1], stores: [], pickup_locations: state.locations });
+            const provider = storesSyncMatch[1];
+            const listing = knownStores(provider);
+            const requested = Array.isArray(body.store_ids) ? body.store_ids.map((v: unknown) => String(v)) : null;
+            if (requested) {
+                const unmatched = requested.filter((id: string) => !listing.some((s) => s.store_id === id));
+                if (state.syncMode === 'unmatched' || unmatched.length > 0) {
+                    return route.fulfill({
+                        status: 409,
+                        contentType: 'application/json',
+                        body: JSON.stringify({
+                            success: false,
+                            message: 'The courier did not return all requested store ids.',
+                            code: 'DELIVERY_STORE_IDS_UNMATCHED',
+                            details: { provider, unmatched_store_ids: state.syncMode === 'unmatched' ? requested : unmatched },
+                        }),
+                    });
+                }
+            }
+            // Import upserts mirrored rows keyed by (shop, provider, store id) —
+            // repeated imports never duplicate. Returns the refreshed local list.
+            const toImport = requested ? listing.filter((s) => requested.includes(s.store_id)) : listing;
+            for (const store of toImport) {
+                const rowId = `loc-${store.store_id}`;
+                if (!state.locations.some((l) => l.id === rowId)) {
+                    state.locations = [...state.locations, {
+                        id: rowId, display_name: store.store_name ?? store.store_id, phone: '01711000002',
+                        address: store.address ?? 'Provider address', area_name: 'Dhanmondi', provider,
+                        provider_store_id: store.store_id, is_active: true, is_default: false, metadata: { synced_from_provider: true },
+                    }];
+                }
+            }
+            return ok({ provider, stores: toImport, pickup_locations: state.locations, capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED' });
         }
         const storeCreateMatch = /^\/api\/shop\/delivery\/([\w-]+)\/pickup\/store$/.exec(path);
         if (storeCreateMatch && method === 'POST') {
@@ -316,6 +379,16 @@ async function setupRoutes(page: Page, options: {
             }
             // Mirrors delivery.service setPickupConfiguration's real return
             // shape: store_resolution is a SYNC-only field, not present here.
+            // The integration row flips to the chosen store + confirmed mapping,
+            // so the post-action reload keeps an honest healthy pill (the local
+            // stale override would otherwise expire).
+            const linked = (state.providers as Record<string, unknown>[]).find((p) => p.provider === pickupLinkMatch[1]);
+            if (linked) {
+                linked.pickup_enabled = true;
+                linked.provider_store_id = body.store_id ?? linked.provider_store_id ?? null;
+                linked.pickup_location_id = body.pickup_location_id ?? linked.pickup_location_id ?? null;
+                linked.pickup_mapping_status = 'confirmed';
+            }
             return ok({ provider: pickupLinkMatch[1], pickup_enabled: true, pickup_store_id: body.store_id ?? null, pickup_location_id: body.pickup_location_id ?? null });
         }
         const syncMatch = /^\/api\/shop\/delivery\/([\w-]+)\/pickup\/sync$/.test(path);
@@ -325,7 +398,19 @@ async function setupRoutes(page: Page, options: {
             const target = state.providers.find((p) => (p as { provider: string }).provider === body.provider) as Record<string, unknown>
                 ?? state.providers.find((p) => path.includes(`/${(p as { provider: string }).provider}/`)) as Record<string, unknown>;
             if (target) target.setup_complete = true;
-            return ok({ store_resolution: body.store_id ? 'LINKED' : 'MATCHED', pickup_enabled: true });
+            // Mirror the backend contract (syncProviderPickup):
+            //  explicit store_id → LINKED; persisted mapping that no longer
+            //  matches (stale) → PRESERVED; clean single match → MATCHED.
+            const mapping = (target as Record<string, unknown> | undefined)?.pickup_mapping_status;
+            const resolution = body.store_id
+                ? 'LINKED'
+                : (mapping === 'stale' || (target && (target as Record<string, unknown>).provider_store_id))
+                    ? 'PRESERVED'
+                    : 'MATCHED';
+            if (resolution === 'LINKED' || resolution === 'MATCHED') {
+                if (target) { (target as Record<string, unknown>).pickup_mapping_status = 'confirmed'; }
+            }
+            return ok({ store_resolution: resolution, pickup_enabled: true });
         }
         if (path === '/api/shop/delivery/pathao/cities') {
             return ok({ cities: [{ id: 1, name: 'Dhaka' }] });
@@ -396,6 +481,14 @@ test('tab shell: three tabs, single mounted panel, arrow-key roving focus', asyn
     await page.getByTestId('delivery-tab-providers').focus();
     await page.keyboard.press('ArrowRight');
     await expect(page.getByTestId('delivery-tab-pickup')).toHaveAttribute('aria-selected', 'true');
+
+    // Home/End (§18 roving tablist): End → last tab focused+selected, Home → first.
+    await page.keyboard.press('End');
+    await expect(page.getByTestId('delivery-tab-charges')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('delivery-tab-charges')).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(page.getByTestId('delivery-tab-providers')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('delivery-tab-providers')).toBeFocused();
     expect(state.unexpected).toEqual([]);
 });
 
@@ -436,12 +529,25 @@ test('activation 409 from the drawer routes to the Pickup tab, then create → s
     expect(state.syncBodies[0]).toEqual(expect.objectContaining({ pickup_location_id: 'pickup-new' }));
     expect(state.syncBodies[0].provider_pickup_meta).toEqual({ city_id: 1, zone_id: 10, area_id: 100 });
 
+    // WHERE-NEXT: once the deep-link pickup step is server-confirmed, the tab
+    // points back to Providers to finish activation (§A8 round 2).
+    await expect(page.getByTestId('pickup-next-step')).toContainText('Pickup saved — return to Courier Providers to Activate.');
+
     // Activation is now a SEPARATE explicit merchant action (§ "never conflate").
     await openTab(page, 'providers');
     await page.getByTestId('manage-pathao').click();
     await page.getByTestId('drawer-activate-pathao').click();
     await expect.poll(() => state.activates).toBe(2);
     await expect(page.getByTestId('activation-status-pathao')).toContainText('Active');
+
+    // Close the drawer (success feedback rendered inside it), then re-visit
+    // Pickup — the deep-link was CONSUMED: without a new 409 the create form
+    // must NOT auto-open again (shell clears pickupFocus via onFocusConsumed).
+    await page.getByRole('dialog', { name: 'Manage Pathao Courier' }).getByRole('button', { name: 'Close' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await openTab(page, 'pickup');
+    await expect(page.getByTestId('pickup-add-location')).toBeVisible();
+    await expect(page.getByTestId('pickup-form')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
 
@@ -458,6 +564,12 @@ test('pickup stores: explicit link of a chosen store — the first match is neve
     // Listing alone must not create anything external or link anything.
     expect(state.createStoreBodies).toHaveLength(0);
     expect(state.linkBodies).toHaveLength(0);
+    // PURE READ: GET /:provider/stores never mirrors rows — the saved list is
+    // untouched by a Fetch (the pickup_locations field is not even returned).
+    expect(state.storesSyncs).toHaveLength(0);
+    await expect(page.getByTestId('pickup-location-row-loc-a')).toBeVisible();
+    await expect(page.getByTestId('pickup-location-row-loc-b')).toBeVisible();
+    await expect(page.getByTestId('pickup-location-row-loc-s1')).toHaveCount(0);
 
     // Both stores share one area (#1 · 10 · 100): the merchant picks the SECOND.
     await expect(page.getByTestId('pickup-store-row-pathao-s1').getByText('#1 · 10 · 100')).toBeVisible();
@@ -473,6 +585,61 @@ test('pickup stores: explicit link of a chosen store — the first match is neve
     // resolution absent on the wire → UI resolves the real `resolutions.LINKED`
     // key ("Linked to the selected store."), never a guessed first store.
     await expect(page.getByTestId('pickup-message-pathao')).toContainText('Linked to the selected store.');
+    expect(state.createStoreBodies).toHaveLength(0);
+
+    // IMPORT is a separate explicit action: the per-row Import sends THIS id
+    // only, and only then does a mirrored local row appear.
+    await page.getByTestId('pickup-store-import-pathao-s1').click();
+    await expect.poll(() => state.storesSyncs.length).toBe(1);
+    expect(state.storesSyncs[0]).toEqual(expect.objectContaining({ provider: 'pathao', store_ids: ['s1'] }));
+    await expect(page.getByTestId('pickup-location-row-loc-s1')).toBeVisible();
+    expect(state.unexpected).toEqual([]);
+});
+
+test('selective import names the store ids the courier did not return (409 DELIVERY_STORE_IDS_UNMATCHED)', async ({ page }) => {
+    const state = await setupRoutes(page, {
+        providers: [providerStatus('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true })],
+        syncMode: 'unmatched',
+    });
+    await loginAndGo(page);
+    await openTab(page, 'pickup');
+    await page.getByTestId('pickup-fetch-stores-pathao').click();
+    await page.getByTestId('pickup-store-import-pathao-s2').click();
+    await expect.poll(() => state.storesSyncs.length).toBe(1);
+    // Blocked pill quotes the missing ids honestly instead of a fake success.
+    await expect(page.getByTestId('pickup-message-pathao')).toContainText('The courier did not return these store ids: s2.');
+    await expect(page.getByTestId('pickup-location-row-loc-s2')).toHaveCount(0);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('stale mapping stays honest: Fetch does not green it, unresolved Retry says link-a-store, an explicit Link does', async ({ page }) => {
+    const state = await setupRoutes(page, {
+        providers: [providerStatus('pathao', {
+            is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true,
+            pickup_enabled: true, provider_store_id: 's999', pickup_mapping_status: 'stale', pickup_location_id: 'loc-a',
+        })],
+    });
+    await loginAndGo(page);
+    await openTab(page, 'pickup');
+
+    // Server-flagged stale renders ATTENTION from the first paint…
+    await expect(page.getByTestId('pickup-sync-status-pathao')).toContainText('Mapping needs review');
+    // …a successful pure store Fetch never flips it green…
+    await page.getByTestId('pickup-fetch-stores-pathao').click();
+    await expect(page.getByTestId('pickup-store-row-pathao-s2')).toBeVisible();
+    await expect(page.getByTestId('pickup-sync-status-pathao')).toContainText('Mapping needs review');
+    // …and a Retry whose sync cannot prove the wiring (PRESERVED) shows the
+    // honest next step, not a fake success.
+    await page.getByTestId('pickup-retry-pathao').click();
+    await expect.poll(() => state.syncs).toBe(1);
+    await expect(page.getByTestId('pickup-message-pathao')).toContainText('Your wired store is no longer listed — Link a store.');
+    // Only an explicit LINK of a chosen store resolves it…
+    await page.getByTestId('pickup-store-link-pathao-s2').click();
+    await expect.poll(() => state.linkBodies.length).toBe(1);
+    // …and after the server reload the mapping is no longer stale: the pill
+    // flips to a healthy "Linked…" state and never says "Mapping needs review".
+    await expect(page.getByTestId('pickup-sync-status-pathao')).toContainText('Linked');
+    expect(await page.getByTestId('pickup-sync-status-pathao').textContent()).not.toContain('Mapping needs review');
     expect(state.createStoreBodies).toHaveLength(0);
     expect(state.unexpected).toEqual([]);
 });
@@ -538,9 +705,11 @@ test('external store create only fires after the explicit confirm step, with con
     expect(state.unexpected).toEqual([]);
 });
 
-test('safe delete: blocked round shows the server blockers, cancel does not delete, confirm re-issues with ?confirm=true', async ({ page }) => {
+test('safe delete: labeled Delete always confirms first, nothing fires without confirm, success only after server reply', async ({ page }) => {
     const state = await setupRoutes(page, {
-        providers: [providerStatus('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true })],
+        // pathao integration is wired to loc-a: the dialog must surface that
+        // IN_USE blocker from LOCAL data BEFORE any DELETE (§12).
+        providers: [providerStatus('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true, pickup_enabled: true, pickup_location_id: 'loc-a', provider_store_id: 's1', pickup_mapping_status: 'confirmed' })],
     });
     await loginAndGo(page);
     await openTab(page, 'pickup');
@@ -551,15 +720,43 @@ test('safe delete: blocked round shows the server blockers, cancel does not dele
     await expect(dialog).toContainText('Delete “HQ Warehouse”?');
     await expect(page.getByTestId('pickup-delete-blockers')).toContainText('This is your default pickup location.');
     await expect(page.getByTestId('pickup-delete-blockers')).toContainText('In use by: pathao');
+    // §12: the dialog is a GATE — zero DELETE calls exist at this point.
+    expect(state.deleteAttempts).toHaveLength(0);
+
     await dialog.getByTestId('pickup-delete-cancel').click();
     await expect(dialog).toHaveCount(0);
-    expect(state.deleteAttempts.every((a) => !a.confirmed)).toBe(true);
+    expect(state.deleteAttempts).toHaveLength(0);
+    await expect(page.getByTestId('pickup-location-row-loc-a')).toBeVisible();
 
+    // Confirm → exactly one DELETE, always with ?confirm=true; success is the
+    // server's, never claimed before the reply (§8).
     await page.getByTestId('pickup-delete-loc-a').click();
     await page.getByTestId('pickup-delete-confirm').click();
-    await expect.poll(() => state.deleteAttempts.filter((a) => a.confirmed).length).toBe(1);
+    await expect.poll(() => state.deleteAttempts.length).toBe(1);
+    expect(state.deleteAttempts[0].confirmed).toBe(true);
     await expect(page.getByTestId('pickup-location-row-loc-a')).toHaveCount(0);
-    await expect(page.getByTestId('pickup-location-row-loc-b')).toBeVisible();
+    await expect(page.getByTestId('pickup-delete-status')).toContainText('Pickup location “HQ Warehouse” was deleted.');
+    expect(state.unexpected).toEqual([]);
+});
+
+test('safe delete — late server conflict keeps the dialog open with the server blockers', async ({ page }) => {
+    const state = await setupRoutes(page, {
+        providers: [providerStatus('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true })],
+        deleteBlockAfterConfirm: true,
+    });
+    await loginAndGo(page);
+    await openTab(page, 'pickup');
+    await page.getByTestId('pickup-delete-loc-a').click();
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await page.getByTestId('pickup-delete-confirm').click();
+    // The confirmed DELETE 409s (another tab changed state): dialog STAYS open,
+    // the server's blockers replace the local ones, nothing was deleted.
+    await expect.poll(() => state.deleteAttempts.length).toBe(1);
+    await expect(dialog).toBeVisible();
+    await expect(page.getByTestId('pickup-delete-blockers')).toContainText('In use by: redx');
+    await expect(page.getByTestId('pickup-location-row-loc-a')).toBeVisible();
+    await expect(page.getByTestId('pickup-delete-status')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
 
@@ -596,6 +793,34 @@ test('charges tab: identical save affordance saves all six keys in one PUT with 
     expect(state.unexpected).toEqual([]);
 });
 
+test('charges tab: a zero charge is accepted, persisted as 0, and honestly explained (round 2 notes)', async ({ page }) => {
+    const state = await setupRoutes(page, {
+        settings: {
+            ...settings,
+            default_delivery_charge: 0,
+            area_pricing: [{ zone: 'inside_dhaka', charge: 0, cod_enabled: false }],
+        },
+    });
+    await loginAndGo(page);
+    await openTab(page, 'charges');
+
+    // Clean load of persisted zeros renders as zero (hydration pin) with the
+    // honest "0 ≠ free delivery" notes — never a silent fallback to 60.
+    await expect(page.getByRole('spinbutton', { name: 'Default Delivery Charge' })).toHaveValue('0');
+    await expect(page.getByText('A charge of 0 is saved for your records and checkout display, but the assistant still quotes the platform default delivery charge')).toBeVisible();
+    await expect(page.getByText('A charge of 0 is saved for your records and checkout display, but the assistant falls back to the platform default for that area')).toBeVisible();
+
+    // Saving an unrelated edit persists the zeros verbatim (PUT carries 0, not
+    // a silent default-to-60) — a checkbox flip makes the row legitimately dirty.
+    await expect(page.getByTestId('area-pricing-save')).toBeDisabled();
+    await page.getByRole('checkbox', { name: 'COD Allowed' }).click();
+    await page.getByTestId('area-pricing-save').click();
+    await expect.poll(() => state.settingsPuts.length).toBe(1);
+    expect(state.settingsPuts[0]).toEqual(expect.objectContaining({ default_delivery_charge: 0 }));
+    expect((state.settingsPuts[0] as { area_pricing: { charge: number }[] }).area_pricing[0].charge).toBe(0);
+    expect(state.unexpected).toEqual([]);
+});
+
 test('AI default election moves the badge between active providers; clear removes it', async ({ page }) => {
     const state = await setupRoutes(page, {
         providers: [
@@ -614,12 +839,18 @@ test('AI default election moves the badge between active providers; clear remove
     const steadfastHeading = page.getByRole('heading', { name: 'Steadfast Courier', exact: true });
     await expect(steadfastHeading.locator('..').getByText('AI Default', { exact: true })).toBeVisible();
     await expect(pathaoHeading.locator('..').getByText('AI Default', { exact: true })).toHaveCount(0);
+    // §17 inline-first: action feedback renders INSIDE the open drawer dialog,
+    // only after the server reply (§8), with role=status for success.
+    const drawer = page.getByRole('dialog', { name: 'Manage Steadfast Courier' });
+    await expect(drawer.getByTestId('drawer-action-feedback')).toContainText('Steadfast Courier is now the AI default courier');
+    await expect(drawer.getByTestId('drawer-action-feedback')).toHaveAttribute('role', 'status');
 
     // Clear (NEW-UI over the existing DELETE route). The drawer stays open after
     // the set action, so the clear affordance is right there in the same drawer.
     await page.getByTestId('drawer-clear-ai-steadfast').click();
     await expect.poll(() => state.aiDefaultClears).toBe(1);
     await expect(steadfastHeading.locator('..').getByText('AI Default', { exact: true })).toHaveCount(0);
+    await expect(drawer.getByTestId('drawer-action-feedback')).toContainText('no longer the AI default courier');
     expect(state.unexpected).toEqual([]);
 });
 
@@ -632,6 +863,9 @@ test('capability truth stays below the live-verification ceiling', async ({ page
     await expect(page.getByTestId('capability-steadfast-rate_quote')).toHaveText('Not supported');
     await expect(page.getByTestId('capability-steadfast-coverage')).toHaveText('Cannot be checked');
     await expect(page.getByTestId('capability-steadfast-create_parcel')).toHaveText('Implemented, not live-verified');
+    // Round 2: the honest pickup-store capability row is declared too — still
+    // at the ceiling, never above it.
+    await expect(page.getByTestId('capability-steadfast-pickup_store')).toHaveText('Implemented, not live-verified');
     await expect(steadfast).toContainText('Cancel it in the courier');
     await expect(page.getByText('Live-verified', { exact: true })).toHaveCount(0);
 });
