@@ -879,14 +879,21 @@ test('unknown state: a wired store never compared to the courier listing is "not
     await expect(page.getByTestId('pickup-provider-panel-pathao')).toContainText('Not synced yet');
 
     // Fetch is a PURE READ — it lists stores but proves nothing about the
-    // mapping: NO cache write, and the never-verified hint must stay visible
-    // (the pill may carry the fetch's honest store-count message as transient
-    // action feedback; it never says "Linked & confirmed" while unverified).
+    // mapping: NO cache write, the never-verified hint stays authoritative,
+    // and (§A9b false-green gate, b2794483) the read renders in the NEUTRAL
+    // review tone — pill and message never success-styled while unverified.
     await page.getByTestId('pickup-fetch-stores-pathao').click();
     await expect(page.getByTestId('pickup-store-row-pathao-s1')).toBeVisible();
     expect(state.storesCache.pathao).toBeUndefined();
     await expect(page.getByTestId('pickup-unverified-hint-pathao')).toBeVisible();
     expect(await pill.textContent()).not.toContain('Linked & confirmed');
+    await expect(pill).not.toHaveClass(/bg-em-success-100/);
+    await expect(pill).toContainText('2 stores available');
+    await expect(pill).toHaveClass(/bg-em-bg-muted/);
+    const message = page.getByTestId('pickup-message-pathao');
+    await expect(message).toHaveAttribute('role', 'status');
+    await expect(message).toHaveClass(/text-em-text-secondary/);
+    await expect(message).not.toHaveClass(/text-em-danger-700|text-em-success-700/);
     // §A9 round-3 hardening: the read may carry the honest store-count message,
     // but the pill must NEVER be success-styled while unverified.
     await expect(pill).not.toHaveClass(/bg-em-success-100/);
@@ -1233,28 +1240,72 @@ test('disconnect requires a type-to-confirm danger dialog inside the provider dr
     expect(state.unexpected).toEqual([]);
 });
 
-test('390px: no horizontal overflow and five mobile destinations', async ({ page }) => {
+// §A8c/§A9c round-4 fixtures: the mobile lanes must carry the TWO LONG honest
+// pills — pathao STALE (wired 's999' absent from the seeded cache → 'Mapping
+// needs review') and redx UNKNOWN-WIRED (pickup_enabled + 'rx-55', cache never
+// written → 'Linked — not verified against the courier's store list'). At
+// 390/360 these wrap (SignalPill break-words + flex-wrap header, commit
+// b2794483) instead of forcing horizontal overflow.
+const longPillProviders = () => [
+    providerStatus('pathao', {
+        is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true,
+        pickup_enabled: true, provider_store_id: 's999', pickup_location_id: 'loc-a',
+    }),
+    providerStatus('steadfast'),
+    providerStatus('redx', {
+        is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true,
+        pickup_enabled: true, provider_store_id: 'rx-55',
+    }),
+];
+
+test('390px: no horizontal overflow + five mobile destinations + wrapped long honest pills', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await setupRoutes(page);
+    const state = await setupRoutes(page, {
+        providers: longPillProviders(),
+        cache: { pathao: ['s1', 's2'] },
+    });
     await loginAndGo(page);
     await expect(page.getByTestId('delivery-signal')).toBeVisible();
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
     await expect(mobile.getByRole('link')).toHaveCount(5);
     await expectNoOverflow(page);
+
+    // The long attention labels render in full on the Pickup tab at 390.
+    await openTab(page, 'pickup');
+    const stalePill = page.getByTestId('pickup-sync-status-pathao');
+    await expect(stalePill).toBeVisible();
+    await expect(stalePill).toContainText('Mapping needs review');
+    const unknownPill = page.getByTestId('pickup-sync-status-redx');
+    await expect(unknownPill).toBeVisible();
+    await expect(unknownPill).toContainText('Linked — not verified against the courier’s store list');
+    await expectNoOverflow(page);
+    expect(state.unexpected).toEqual([]);
 });
 
-test('360px pickup tab: store workspace and forms reflow without horizontal overflow', async ({ page }) => {
+test('360px pickup tab: wrapped store workspace, honest pills and forms reflow without horizontal overflow', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 800 });
-    await setupRoutes(page, {
-        providers: [providerStatus('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true })],
+    const state = await setupRoutes(page, {
+        providers: longPillProviders(),
+        cache: { pathao: ['s1', 's2'] },
     });
     await loginAndGo(page);
     await openTab(page, 'pickup');
     await expect(page.getByTestId('pickup-provider-panel-pathao')).toBeVisible();
+    await expect(page.getByTestId('pickup-provider-panel-redx')).toBeVisible();
     await expect(page.getByTestId('pickup-location-row-loc-a')).toBeVisible();
+    // Full pill text present + visible (wrapping, never clipped by overflow).
+    const stalePill = page.getByTestId('pickup-sync-status-pathao');
+    await expect(stalePill).toBeVisible();
+    await expect(stalePill).toContainText('Mapping needs review');
+    const unknownPill = page.getByTestId('pickup-sync-status-redx');
+    await expect(unknownPill).toBeVisible();
+    await expect(unknownPill).toContainText('Linked — not verified against the courier’s store list');
+    await expect(page.getByTestId('pickup-unverified-hint-redx')).toBeVisible();
+    await expectNoOverflow(page);
     await page.getByTestId('pickup-add-location').click();
     await expect(page.getByTestId('pickup-form')).toBeVisible();
     await expectNoOverflow(page);
+    expect(state.unexpected).toEqual([]);
 });
 
 test('axe: no critical or serious violations in the delivery surface across all three tabs', async ({ page }) => {
