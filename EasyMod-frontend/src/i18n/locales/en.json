@@ -2757,7 +2757,9 @@
         "areaCount_one": "{{formatted}} area priced",
         "areaCount_other": "{{formatted}} areas priced",
         "tierCount_one": "{{formatted}} weight range",
-        "tierCount_other": "{{formatted}} weight ranges"
+        "tierCount_other": "{{formatted}} weight ranges",
+        "areaCount": "{{formatted}} areas priced",
+        "tierCount": "{{formatted}} weight ranges"
       },
       "pickup": {
         "title": "Pickup locations",

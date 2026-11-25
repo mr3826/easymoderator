@@ -120,6 +120,11 @@ export default function DeliverySettings() {
   // Server reloads must never clobber unsaved charges edits (Guardrails §2:
   // preserve draft content when work continues).
   const dirtyRef = useRef(false);
+  // The FIRST successful load must hydrate persisted charges unconditionally —
+  // nothing of the merchant's can be dirty yet, and refusing to hydrate there
+  // would silently show defaults and let a save PUT them over real config
+  // (A6 BLOCK-2). Draft-preservation applies to BACKGROUND refreshes only.
+  const firstLoadRef = useRef(true);
   useEffect(() => {
     dirtyRef.current = chargesDirty;
   }, [chargesDirty]);
@@ -143,7 +148,7 @@ export default function DeliverySettings() {
       setError(null);
       const data = await orderApi.getDeliverySettings();
       setProviders(data.providers);
-      if (!dirtyRef.current) {
+      if (firstLoadRef.current || !dirtyRef.current) {
         const persisted = applyDefaults(data.settings);
         setDeliverySettings(persisted);
         // A freshly loaded page IS the saved state — the snapshot seeds here so
@@ -157,6 +162,7 @@ export default function DeliverySettings() {
       setError(getErrorMessage(err, t('manageShop.deliverySettings.errors.loadFailed')));
       console.error('Failed to load delivery settings:', err);
     } finally {
+      firstLoadRef.current = false;
       setLoading(false);
       setBooted(true);
     }

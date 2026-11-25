@@ -1,3 +1,14 @@
+/**
+ * PickupDetailsModal — preserved-component contracts (tabbed-shell era).
+ *
+ * The redesign moved the primary pickup workspace to the Pickup TAB
+ * (`delivery/PickupTab.tsx` + `delivery/PickupForm.tsx`), but the modal is kept
+ * verbatim as the ProvidersTab fallback whenever the shell has not wired tab
+ * routing (see DeliveryGuardrails.test.tsx "still falls back to the legacy
+ * PickupDetailsModal…"). These tests pin the modal's own preserved behaviour:
+ * §C5 value-preservation on sync failure and the RedX `delivery_area_id`
+ * metadata chain — the same guarantees PickupForm/PickupTab now carry in-tab.
+ */
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

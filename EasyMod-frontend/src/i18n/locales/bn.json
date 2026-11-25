@@ -2757,7 +2757,9 @@
         "areaCount_one": "{{formatted}}টি এলাকার মূল্য নির্ধারিত",
         "areaCount_other": "{{formatted}}টি এলাকার মূল্য নির্ধারিত",
         "tierCount_one": "{{formatted}}টি ওজন রেঞ্জ",
-        "tierCount_other": "{{formatted}}টি ওজন রেঞ্জ"
+        "tierCount_other": "{{formatted}}টি ওজন রেঞ্জ",
+        "areaCount": "{{formatted}}টি এলাকার মূল্য নির্ধারিত",
+        "tierCount": "{{formatted}}টি ওজন রেঞ্জ"
       },
       "pickup": {
         "title": "পিকআপ স্থান",
