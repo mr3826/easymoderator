@@ -254,6 +254,22 @@ describe('PickupTab — provider-first store list + link', () => {
     expect(mocks.setProviderPickup).not.toHaveBeenCalled();
   });
 
+  it('a successful pure Fetch on an unknown-wired mapping never paints the pill success-green (§A9)', async () => {
+    mocks.listProviderStores.mockResolvedValueOnce({
+      provider: 'pathao',
+      stores: [{ store_id: 's9', store_name: 'Main Store' }],
+      capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+    });
+    renderTab([status('pathao', { pickup_mapping_status: 'unknown', provider_store_id: 's9', pickup_enabled: true })]);
+    fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
+    expect(await screen.findByTestId('pickup-store-row-pathao-s9')).toBeInTheDocument();
+    const pill = screen.getByTestId('pickup-sync-status-pathao');
+    // A listing read proves readability, NOT that the wired store matches:
+    // success-green is reserved for a server-confirmed mapping (A6r3 defect pin).
+    expect(pill.className).not.toContain('bg-em-success-100');
+    expect(screen.getByTestId('pickup-unverified-hint-pathao')).toBeInTheDocument();
+  });
+
   it('links a chosen store to the selected location with the authoritative id', async () => {
     mocks.listProviderStores.mockResolvedValueOnce({
       provider: 'pathao',

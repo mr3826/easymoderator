@@ -460,9 +460,15 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       if (!alive.current) return;
       const stores = Array.isArray(result?.stores) ? result.stores : [];
       setStoresByProvider((prev) => ({ ...prev, [provider]: stores }));
+      // §A9 false-green gate: a PURE listing read proves the listing is
+      // readable, NOT that the wired store matches it. Success-green after a
+      // read is only honest when the server already reports 'confirmed';
+      // otherwise this is informational (the unknown-wired attention pill and
+      // the unverified hint stay authoritative).
+      const readConfirmed = mappingStatus(provider) === 'confirmed';
       setProviderStatus(
         provider,
-        stores.length > 0 ? 'healthy' : 'review',
+        stores.length > 0 && readConfirmed ? 'healthy' : 'review',
         stores.length > 0
           ? t('manageShop.deliverySettings.pickup.synced', { n: formatCount(stores.length, i18n?.language) })
           : t('manageShop.deliverySettings.pickup.noStores'),

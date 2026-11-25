@@ -2,11 +2,18 @@
  * Delivery-settings guardrails proof (mock-only, CI subset). Three-tab
  * Configuration/editor surface (§5.6/§5.9/§29): execution header with no CTA,
  * tablist contract, provider lifecycle with the activation-409 → Pickup-TAB
- * routing, provider-first pickup stores (explicit link, never first-match),
+ * routing (EDIT when the provider already has a row, CREATE only when none),
+ * provider-first pickup stores (explicit link, never first-match),
  * DELIVERY_PICKUP_AMBIGUOUS explicit candidate selection, merchant-confirmed
- * external store create, safe-delete confirm round, charges save in-tab,
- * AI-default election + clear, type-to-confirm disconnect, capability honesty
- * ceiling. Allowlist+abort discipline: invented backend calls fail here; courier
+ * external store create, safe-delete confirm round with LOCALIZED blocker
+ * names, cache-derived mapping honesty (round 3): pickup_mapping_status is
+ * derived from the server's cached store listing — an explicit LINK extends it
+ * ({store_id, source:'link'} + stamp), a MATCHED/AMBIGUOUS sync or an Import
+ * replaces it with the listing read, PRESERVED/NO_MATCH claim nothing, and a
+ * wired store with NO cache at all is 'unknown' — never green, never silently
+ * 'confirmed'. Charges save in-tab, AI-default election + clear,
+ * type-to-confirm disconnect, per-provider capability honesty mirroring
+ * EasyMod-backend/src/modules/delivery/provider-capabilities.js exactly. Allowlist+abort discipline: invented backend calls fail here; courier
  * provider hosts are always aborted. Responsive: 390px + 360px (pickup tab)
  * no-horizontal-overflow + five bottom-nav links; axe on `.em-delivery` across
  * all three tabs under reducedMotion.
@@ -18,19 +25,61 @@ const mockUser = { id: 'user-1', full_name: 'Test Owner', email: 'owner@shop.bd'
 const mockShop = { id: 'shop-1', unique_code: 'SHOP1', shop_name: 'My BD Shop', role: 'owner' };
 const json = (data: unknown) => ({ success: true, data });
 
-const capabilities = {
-    version: 1,
-    ceiling: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
-    coverage: { level: 'UNKNOWN', reason_code: 'TEXT_ONLY_COVERAGE' },
-    rate_quote: { level: 'UNSUPPORTED', reason_code: 'NO_PROVIDER_API', manual_step_code: 'RATE_SHOWN_AFTER_BOOKING' },
-    create_parcel: { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED' },
-    tracking: { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED' },
-    cancel: { level: 'UNSUPPORTED', reason_code: 'NO_PROVIDER_API', manual_step_code: 'CANCEL_IN_PROVIDER_PORTAL' },
-    edit: { level: 'UNSUPPORTED', reason_code: 'NO_PROVIDER_API', manual_step_code: 'EDIT_IN_PROVIDER_PORTAL' },
-    // Honest pickup-store capability declared at the ceiling (A5 declares it in
-    // provider-capabilities.js; never above IMPLEMENTED_NOT_LIVE_VERIFIED).
-    pickup_store: { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED' },
-    last_verified_at: null,
+// Fixed stamp for every server cache write (deterministic Intl rendering).
+const SYNC_STAMP = '2026-11-25T10:00:00.000Z';
+
+// Round 3 (§A9): the capability table is PER PROVIDER — mirror
+// EasyMod-backend/src/modules/delivery/provider-capabilities.js exactly. The
+// shipped truth differs per courier; a shared fixture would lie.
+const impl = () => ({ level: 'IMPLEMENTED_NOT_LIVE_VERIFIED' });
+const unsupported = (reason: string, manual: string) => ({ level: 'UNSUPPORTED', reason_code: reason, manual_step_code: manual });
+const capabilitiesFor = (provider: string) => {
+    if (provider === 'steadfast') {
+        return {
+            version: 1,
+            ceiling: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+            // Steadfast books by text address — coverage cannot be answered.
+            coverage: { level: 'UNKNOWN', reason_code: 'TEXT_ONLY_COVERAGE', manual_step_code: null },
+            rate_quote: unsupported('NO_PROVIDER_API', 'RATE_SHOWN_AFTER_BOOKING'),
+            create_parcel: impl(),
+            tracking: impl(),
+            cancel: unsupported('NO_PROVIDER_API', 'CANCEL_IN_PROVIDER_PORTAL'),
+            edit: unsupported('NO_PROVIDER_API', 'EDIT_IN_PROVIDER_PORTAL'),
+            settlement: impl(),
+            // No store endpoints at all: pickup is always manual.
+            pickup_store: unsupported('NO_PICKUP_STORE_API', 'CONFIGURE_PICKUP_MANUALLY'),
+            last_verified_at: null,
+        };
+    }
+    if (provider === 'redx') {
+        return {
+            version: 1,
+            ceiling: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+            coverage: impl(),
+            rate_quote: impl(),
+            create_parcel: impl(),
+            tracking: impl(),
+            cancel: impl(),
+            edit: impl(),
+            settlement: { level: 'UNKNOWN', reason_code: 'PAID_STATUS_DISCARDED', manual_step_code: 'RECONCILE_IN_PROVIDER_PORTAL' },
+            pickup_store: { level: 'IMPLEMENTED_NOT_LIVE_VERIFIED', reason_code: 'ADAPTER_CONTRACT_UNVERIFIED' },
+            last_verified_at: null,
+        };
+    }
+    // pathao
+    return {
+        version: 1,
+        ceiling: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+        coverage: impl(),
+        rate_quote: impl(),
+        create_parcel: impl(),
+        tracking: impl(),
+        cancel: unsupported('NO_PROVIDER_API', 'CANCEL_IN_PROVIDER_PORTAL'),
+        edit: unsupported('NO_PROVIDER_API', 'EDIT_IN_PROVIDER_PORTAL'),
+        settlement: unsupported('NO_PAYOUT_API', 'RECONCILE_IN_PROVIDER_PORTAL'),
+        pickup_store: impl(),
+        last_verified_at: null,
+    };
 };
 
 const providerStatus = (provider: string, overrides: Record<string, unknown> = {}) => ({
@@ -42,7 +91,7 @@ const providerStatus = (provider: string, overrides: Record<string, unknown> = {
     metadata: {},
     last_validated_at: null,
     connected_at: null,
-    capabilities,
+    capabilities: capabilitiesFor(provider),
     ...overrides,
 });
 
@@ -107,6 +156,15 @@ async function setupRoutes(page: Page, options: {
     syncMode?: 'ok' | 'unmatched';
     /** true → a CONFIRMED delete (default/in-use rows) still answers 409: the open dialog must keep blockers. */
     deleteBlockAfterConfirm?: boolean;
+    /** Per-provider override of the courier's live store listing (default: two SAME-AREA pathao stores). */
+    stores?: Record<string, Array<{ store_id: string; store_name?: string; address?: string; city_id?: number; zone_id?: number; area_id?: number }>>;
+    /**
+     * Round 3 (§A9): seed of integration.metadata.stores — the SERVER-side cached
+     * listing pickup_mapping_status is computed against on GET /settings. Seeded
+     * ids arrive as full-listing entries (no 'link' source). Absent = never
+     * cached → a wired store derives 'unknown', NEVER confirmed/stale.
+     */
+    cache?: Record<string, string[]>;
 } = {}) {
     const state = {
         signedIn: false,
@@ -116,13 +174,26 @@ async function setupRoutes(page: Page, options: {
         aiDefaults: 0,
         aiDefaultClears: 0,
         pickupPosts: 0,
+        pickupPuts: 0,
+        pickupPutBodies: [] as Record<string, unknown>[],
         syncs: 0,
         syncBodies: [] as Record<string, unknown>[],
         linkBodies: [] as Record<string, unknown>[],
         storesGets: [] as string[],
         storesSyncs: [] as Record<string, unknown>[],
         createStoreBodies: [] as Record<string, unknown>[],
-        deleteAttempts: [] as { path: string; confirmed: boolean }[],
+        deleteAttempts: [] as { path: string; search: string; confirmed: boolean }[],
+        // Round 3 (§A9): the cached store listing is the authority for
+        // pickup_mapping_status — empty/absent = NEVER cached → 'unknown'.
+        // Entry shape mirrors integration.metadata.stores:
+        // { store_id, source?: 'link' } (source:'link' = proved by an explicit
+        // LINK / store-explicit sync; no source = came from a listing read).
+        storesCache: Object.fromEntries(
+            Object.entries(options.cache ?? {}).map(([provider, ids]) => [provider, ids.map((store_id) => ({ store_id }))]),
+        ) as Record<string, Array<{ store_id: string; source?: string }>>,
+        // Per-provider stamp of the last cache write (surfaces as
+        // pickup_stores_synced_at on GET /settings).
+        syncedAt: {} as Record<string, string>,
         defaultPosts: [] as string[],
         settingsPuts: [] as Record<string, unknown>[],
         linkMode: options.linkMode ?? 'explicit',
@@ -131,6 +202,33 @@ async function setupRoutes(page: Page, options: {
         providers: options.providers ?? [providerStatus('pathao'), providerStatus('steadfast'), providerStatus('redx')],
         locations: (options.locations ?? defaultLocations()) as Record<string, unknown>[],
         settings: options.settings ?? settings,
+    };
+    // --- Round 3 (§A9) cache simulator (mirrors delivery.service writers of
+    // integration.metadata.stores). GET /:provider/stores NEVER calls these. ---
+    const upsertCache = (provider: string, storeId: string, source?: 'link') => {
+        const existing = state.storesCache[provider] ?? [];
+        if (!existing.some((store) => store.store_id === storeId)) {
+            existing.push(source ? { store_id: storeId, source } : { store_id: storeId });
+        }
+        state.storesCache[provider] = existing;
+        state.syncedAt[provider] = SYNC_STAMP;
+    };
+    const replaceCache = (provider: string, listing: Array<{ store_id: string }>) => {
+        state.storesCache[provider] = listing.map((store) => ({ store_id: store.store_id }));
+        state.syncedAt[provider] = SYNC_STAMP;
+    };
+    /**
+     * The controller's GET /settings derivation: a wired store with an EMPTY
+     * cache is 'unknown' (no comparison possible); with a cache it is
+     * 'confirmed' iff the id is in it, else 'stale'. Unwired → null. NEVER
+     * derived from wiring alone.
+     */
+    const derivedMapping = (p: Record<string, unknown>): string | null => {
+        const wired = p.provider_store_id;
+        if (wired === undefined || wired === null || String(wired) === '') return null;
+        const cache = state.storesCache[String(p.provider)] ?? [];
+        if (cache.length === 0) return 'unknown';
+        return cache.some((store) => store.store_id === String(wired)) ? 'confirmed' : 'stale';
     };
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
         const request = route.request();
@@ -184,7 +282,18 @@ async function setupRoutes(page: Page, options: {
                 state.settingsPuts.push(body);
                 return ok(body);
             }
-            return ok({ providers: state.providers, settings: state.settings, pickup_locations: state.locations });
+            // Round 3 (§A9): pickup_mapping_status + pickup_stores_synced_at are
+            // COMPUTED from the cached listing on every read — static provider
+            // overrides can never green the pill by themselves.
+            return ok({
+                providers: (state.providers as Record<string, unknown>[]).map((p) => ({
+                    ...p,
+                    pickup_mapping_status: derivedMapping(p),
+                    pickup_stores_synced_at: state.syncedAt[String(p.provider)] ?? null,
+                })),
+                settings: state.settings,
+                pickup_locations: state.locations,
+            });
         }
         if (path === '/api/shop/delivery/activate' && method === 'POST') {
             state.activates += 1;
@@ -242,6 +351,14 @@ async function setupRoutes(page: Page, options: {
             state.locations = [...state.locations, created];
             return ok(created, 201);
         }
+        if (path === '/api/shop/delivery/pickup-locations' && method === 'PUT') {
+            // The redesign's LOCAL row update (deep-link EDIT path): id travels in
+            // the body (PUT /pickup-locations alias), never a blind create.
+            state.pickupPuts += 1;
+            state.pickupPutBodies.push(body);
+            state.locations = state.locations.map((l) => (l.id === body.id ? { ...l, ...body } : l));
+            return ok(state.locations.find((l) => l.id === body.id) ?? { ...body });
+        }
         if (path === '/api/shop/delivery/pickup-locations' && method === 'GET') {
             return ok(state.locations);
         }
@@ -255,7 +372,7 @@ async function setupRoutes(page: Page, options: {
         const locationMatch = /^\/api\/shop\/delivery\/pickup-locations\/([\w-]+)$/.exec(path);
         if (locationMatch && method === 'DELETE') {
             const confirmed = url.searchParams.get('confirm') === 'true';
-            state.deleteAttempts.push({ path, confirmed });
+            state.deleteAttempts.push({ path, search: url.search, confirmed });
             if (!confirmed) {
                 // Defensive only: the redesign UI NEVER fires DELETE without the
                 // merchant confirming in the dialog (every call carries ?confirm=true).
@@ -301,21 +418,33 @@ async function setupRoutes(page: Page, options: {
             return ok({ id: locationMatch[1], deleted: true, released_providers: ['pathao'] });
         }
         // Provider store workspace. GET is a PURE READ (§A8 contract round 2):
-        // only the courier listing + capability — no pickup_locations, no upsert.
-        const knownStores = (provider: string) => (provider === 'pathao'
+        // only the courier listing + capability — no pickup_locations, no upsert,
+        // and NO cache write (§A9 round 3: reads never refresh metadata.stores).
+        const defaultStores = (provider: string) => (provider === 'pathao'
             // Two SAME-AREA stores: the UI must let the merchant choose — never first-match.
             ? [
                 { store_id: 's1', store_name: 'Dhanmondi Hub A', city_id: 1, zone_id: 10, area_id: 100 },
                 { store_id: 's2', store_name: 'Dhanmondi Hub B', city_id: 1, zone_id: 10, area_id: 100 },
             ]
             : [{ store_id: 'r1', store_name: 'RedX Gulshan Point', city_id: 7, area_id: 9 }]);
+        const knownStores = (provider: string) => options.stores?.[provider] ?? defaultStores(provider);
+        const pureStoresRead = (provider: string) => ok({
+            provider,
+            stores: knownStores(provider),
+            capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED',
+        });
         const storesMatch = /^\/api\/shop\/delivery\/([\w-]+)\/stores$/.exec(path);
         if (storesMatch && method === 'GET') {
             state.storesGets.push(storesMatch[1]);
-            return ok({ provider: storesMatch[1], stores: knownStores(storesMatch[1]), capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED' });
+            return pureStoresRead(storesMatch[1]);
         }
         const storesSyncMatch = /^\/api\/shop\/delivery\/([\w-]+)\/stores\/sync$/.exec(path);
-        if (storesSyncMatch && (method === 'POST' || method === 'GET')) {
+        if (storesSyncMatch && method === 'GET') {
+            // GET /:provider/stores/sync is ALSO a pure read (controller §A9):
+            // no rows, no metadata, no stores_synced_at stamp.
+            return pureStoresRead(storesSyncMatch[1]);
+        }
+        if (storesSyncMatch && method === 'POST') {
             state.storesSyncs.push({ provider: storesSyncMatch[1], ...body });
             const provider = storesSyncMatch[1];
             const listing = knownStores(provider);
@@ -328,7 +457,7 @@ async function setupRoutes(page: Page, options: {
                         contentType: 'application/json',
                         body: JSON.stringify({
                             success: false,
-                            message: 'The courier did not return all requested store ids.',
+                            message: 'Some requested store ids were not found at the provider',
                             code: 'DELIVERY_STORE_IDS_UNMATCHED',
                             details: { provider, unmatched_store_ids: state.syncMode === 'unmatched' ? requested : unmatched },
                         }),
@@ -336,7 +465,9 @@ async function setupRoutes(page: Page, options: {
                 }
             }
             // Import upserts mirrored rows keyed by (shop, provider, store id) —
-            // repeated imports never duplicate. Returns the refreshed local list.
+            // repeated imports never duplicate. Returns the imported subset + the
+            // refreshed local list. A 409 above claimed NOTHING (no cache write);
+            // success caches the FULL listing read + stamps stores_synced_at (§A9).
             const toImport = requested ? listing.filter((s) => requested.includes(s.store_id)) : listing;
             for (const store of toImport) {
                 const rowId = `loc-${store.store_id}`;
@@ -348,6 +479,7 @@ async function setupRoutes(page: Page, options: {
                     }];
                 }
             }
+            replaceCache(provider, listing);
             return ok({ provider, stores: toImport, pickup_locations: state.locations, capability: 'IMPLEMENTED_NOT_LIVE_VERIFIED' });
         }
         const storeCreateMatch = /^\/api\/shop\/delivery\/([\w-]+)\/pickup\/store$/.exec(path);
@@ -379,36 +511,91 @@ async function setupRoutes(page: Page, options: {
             }
             // Mirrors delivery.service setPickupConfiguration's real return
             // shape: store_resolution is a SYNC-only field, not present here.
-            // The integration row flips to the chosen store + confirmed mapping,
-            // so the post-action reload keeps an honest healthy pill (the local
-            // stale override would otherwise expire).
+            // §A9 round 3: a successful explicit LINK with a store_id EXTENDS the
+            // cached listing with a { store_id, source:'link' } entry + stamps
+            // stores_synced_at — the provider accepted configuration for that id,
+            // which is live evidence it exists. The post-action reload then DERIVES
+            // 'confirmed' from the cache; no status is ever written directly.
             const linked = (state.providers as Record<string, unknown>[]).find((p) => p.provider === pickupLinkMatch[1]);
             if (linked) {
                 linked.pickup_enabled = true;
-                linked.provider_store_id = body.store_id ?? linked.provider_store_id ?? null;
+                if (body.store_id !== undefined && body.store_id !== null && body.store_id !== '') {
+                    linked.provider_store_id = String(body.store_id);
+                    upsertCache(pickupLinkMatch[1], String(body.store_id), 'link');
+                }
                 linked.pickup_location_id = body.pickup_location_id ?? linked.pickup_location_id ?? null;
-                linked.pickup_mapping_status = 'confirmed';
             }
             return ok({ provider: pickupLinkMatch[1], pickup_enabled: true, pickup_store_id: body.store_id ?? null, pickup_location_id: body.pickup_location_id ?? null });
         }
-        const syncMatch = /^\/api\/shop\/delivery\/([\w-]+)\/pickup\/sync$/.test(path);
+        const syncMatch = /^\/api\/shop\/delivery\/([\w-]+)\/pickup\/sync$/.exec(path);
         if (syncMatch && method === 'POST') {
+            const provider = syncMatch[1];
             state.syncs += 1;
             state.syncBodies.push(body);
-            const target = state.providers.find((p) => (p as { provider: string }).provider === body.provider) as Record<string, unknown>
-                ?? state.providers.find((p) => path.includes(`/${(p as { provider: string }).provider}/`)) as Record<string, unknown>;
+            const target = state.providers.find((p) => (p as { provider: string }).provider === provider) as Record<string, unknown> | undefined;
             if (target) target.setup_complete = true;
-            // Mirror the backend contract (syncProviderPickup):
-            //  explicit store_id → LINKED; persisted mapping that no longer
-            //  matches (stale) → PRESERVED; clean single match → MATCHED.
-            const mapping = (target as Record<string, unknown> | undefined)?.pickup_mapping_status;
-            const resolution = body.store_id
-                ? 'LINKED'
-                : (mapping === 'stale' || (target && (target as Record<string, unknown>).provider_store_id))
-                    ? 'PRESERVED'
-                    : 'MATCHED';
-            if (resolution === 'LINKED' || resolution === 'MATCHED') {
-                if (target) { (target as Record<string, unknown>).pickup_mapping_status = 'confirmed'; }
+            // §A9 round 3 — cache semantics of the sync that READS the listing
+            // (delivery.service.syncProviderPickup):
+            //  • explicit store_id           → LINKED: EXTENDS the cache with a
+            //    { store_id, source:'link' } entry + stamps stores_synced_at.
+            //  • exactly one geographic match → MATCHED: REPLACES the cache with
+            //    the full listing read + stamps.
+            //  • >1 match                     → AMBIGUOUS 409 with candidates: the
+            //    listing WAS genuinely read → REPLACES the cache (truth refresh),
+            //    but confirms nothing — the merchant must pick.
+            //  • no match / stale mapping     → PRESERVED or NO_MATCH: claims
+            //    NOTHING — the cache keeps its previous (stale) content, and
+            //    GET /settings keeps deriving 'stale' from it.
+            const listing = knownStores(provider);
+            const cleanId = (value: unknown): string | null => (value === undefined || value === null || String(value) === '' ? null : String(value));
+            const requested = cleanId(body.store_id);
+            const locRow = body.pickup_location_id != null
+                ? state.locations.find((l) => String(l.id) === String(body.pickup_location_id))
+                : null;
+            // Mirror the service's id precedence: request > persisted ROW id >
+            // persisted INTEGRATION id (delivery.service.syncProviderPickup).
+            let storeId = requested ?? cleanId(locRow?.provider_store_id) ?? cleanId(target?.provider_store_id);
+            let resolution = requested !== null ? 'LINKED' : storeId !== null ? 'PRESERVED' : 'UNRESOLVED';
+            if (requested === null && (provider === 'pathao' || provider === 'redx') && locRow) {
+                const meta = (body.provider_pickup_meta ?? {}) as Record<string, unknown>;
+                const metaKeys = (['city_id', 'zone_id', 'area_id'] as const).filter((key) => meta[key] !== undefined && meta[key] !== null && meta[key] !== '');
+                const matches = metaKeys.length > 0
+                    ? listing.filter((store) => metaKeys.every((key) => String((store as Record<string, unknown>)[key]) === String(meta[key])))
+                    : [];
+                if (matches.length > 1) {
+                    replaceCache(provider, listing);
+                    return route.fulfill({
+                        status: 409,
+                        contentType: 'application/json',
+                        body: JSON.stringify({
+                            success: false,
+                            message: 'Multiple provider pickup stores match this location. Select the intended store explicitly.',
+                            code: 'DELIVERY_PICKUP_AMBIGUOUS',
+                            details: {
+                                provider,
+                                pickup_location_id: body.pickup_location_id ?? null,
+                                candidates: matches.map((store) => ({ ...store })),
+                            },
+                        }),
+                    });
+                }
+                if (matches.length === 1) {
+                    storeId = matches[0].store_id;
+                    resolution = 'MATCHED';
+                    replaceCache(provider, listing);
+                } else {
+                    resolution = storeId !== null ? 'PRESERVED' : 'NO_MATCH';
+                }
+            }
+            if (target) {
+                if (requested !== null) upsertCache(provider, requested, 'link');
+                if (storeId !== null) {
+                    target.provider_store_id = storeId;
+                    target.pickup_enabled = true;
+                }
+                if (body.pickup_location_id !== undefined && body.pickup_location_id !== null) {
+                    target.pickup_location_id = body.pickup_location_id;
+                }
             }
             return ok({ store_resolution: resolution, pickup_enabled: true });
         }
@@ -499,6 +686,11 @@ test('activation 409 from the drawer routes to the Pickup tab, then create → s
             providerStatus('steadfast'),
             providerStatus('redx'),
         ],
+        // No pathao-context row exists → the deep-link opens CREATE (never an
+        // EDIT on a stranger's row, never a second duplicate row).
+        locations: [defaultLocations()[0]],
+        // One store matches the created area → sync resolves MATCHED honestly.
+        stores: { pathao: [{ store_id: 's1', store_name: 'Dhanmondi Hub', city_id: 1, zone_id: 10, area_id: 100 }] },
     });
     await loginAndGo(page);
     await expect(page.getByTestId('activation-status-pathao')).toContainText('Setup incomplete');
@@ -526,8 +718,14 @@ test('activation 409 from the drawer routes to the Pickup tab, then create → s
 
     await expect.poll(() => state.pickupPosts).toBe(1);
     await expect.poll(() => state.syncs).toBe(1);
+    expect(state.pickupPuts).toBe(0);
     expect(state.syncBodies[0]).toEqual(expect.objectContaining({ pickup_location_id: 'pickup-new' }));
     expect(state.syncBodies[0].provider_pickup_meta).toEqual({ city_id: 1, zone_id: 10, area_id: 100 });
+
+    // §A9: the single geographic match resolved MATCHED — the sync REPLACED the
+    // cached listing with what it genuinely read and stamped the freshness.
+    expect(state.storesCache.pathao).toEqual([{ store_id: 's1' }]);
+    expect(state.syncedAt.pathao).toBe(SYNC_STAMP);
 
     // WHERE-NEXT: once the deep-link pickup step is server-confirmed, the tab
     // points back to Providers to finish activation (§A8 round 2).
@@ -606,41 +804,142 @@ test('selective import names the store ids the courier did not return (409 DELIV
     await page.getByTestId('pickup-fetch-stores-pathao').click();
     await page.getByTestId('pickup-store-import-pathao-s2').click();
     await expect.poll(() => state.storesSyncs.length).toBe(1);
-    // Blocked pill quotes the missing ids honestly instead of a fake success.
+    // Blocked pill quotes the missing ids honestly instead of a fake success…
     await expect(page.getByTestId('pickup-message-pathao')).toContainText('The courier did not return these store ids: s2.');
     await expect(page.getByTestId('pickup-location-row-loc-s2')).toHaveCount(0);
+    // …and the failed import claims NOTHING on the server cache (§A9).
+    expect(state.storesCache.pathao).toBeUndefined();
+    expect(state.syncedAt.pathao).toBeUndefined();
     expect(state.unexpected).toEqual([]);
 });
 
-test('stale mapping stays honest: Fetch does not green it, unresolved Retry says link-a-store, an explicit Link does', async ({ page }) => {
+test('stale mapping stays honest: Fetch does not green it, unresolved Retry names the fix, an explicit Link does', async ({ page }) => {
     const state = await setupRoutes(page, {
         providers: [providerStatus('pathao', {
             is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true,
-            pickup_enabled: true, provider_store_id: 's999', pickup_mapping_status: 'stale', pickup_location_id: 'loc-a',
+            pickup_enabled: true, provider_store_id: 's999', pickup_location_id: 'loc-a',
         })],
+        // §A9: staleness is cache-derived — the wired s999 sits in an older
+        // cached listing the courier no longer returns → 'stale' from GET /settings.
+        cache: { pathao: ['s9', 's998'] },
     });
     await loginAndGo(page);
     await openTab(page, 'pickup');
 
-    // Server-flagged stale renders ATTENTION from the first paint…
+    // Server-flagged stale renders ATTENTION from the first paint (derived, not
+    // a seeded status field — pickup_mapping_status no longer travels on the
+    // provider fixture at all)…
     await expect(page.getByTestId('pickup-sync-status-pathao')).toContainText('Mapping needs review');
-    // …a successful pure store Fetch never flips it green…
+    // …a successful pure store Fetch never flips it green and NEVER re-caches…
     await page.getByTestId('pickup-fetch-stores-pathao').click();
     await expect(page.getByTestId('pickup-store-row-pathao-s2')).toBeVisible();
     await expect(page.getByTestId('pickup-sync-status-pathao')).toContainText('Mapping needs review');
+    expect(state.storesCache.pathao).toEqual([{ store_id: 's9' }, { store_id: 's998' }]);
     // …and a Retry whose sync cannot prove the wiring (PRESERVED) shows the
-    // honest next step, not a fake success.
+    // honest next step, not a fake success — and claims NOTHING on the cache.
     await page.getByTestId('pickup-retry-pathao').click();
     await expect.poll(() => state.syncs).toBe(1);
-    await expect(page.getByTestId('pickup-message-pathao')).toContainText('Your wired store is no longer listed — Link a store.');
-    // Only an explicit LINK of a chosen store resolves it…
+    await expect(page.getByTestId('pickup-message-pathao')).toContainText('Import to refresh the courier’s store list, then link again.');
+    expect(state.storesCache.pathao).toEqual([{ store_id: 's9' }, { store_id: 's998' }]);
+    // The pill stays ATTENTION (sunlight, never the success color) — after the
+    // retry its label is the action hint naming the fix, not a fake success.
+    await expect(page.getByTestId('pickup-sync-status-pathao')).toHaveClass(/bg-em-sunlight-100/);
+    await expect(page.getByTestId('pickup-sync-status-pathao')).not.toHaveClass(/bg-em-success-100/);
+    // Only an explicit LINK of a chosen store resolves it — the provider accepted
+    // configuration for s2, so the LINK EXTENDS the cache with a source:'link'
+    // entry (§A9)…
     await page.getByTestId('pickup-store-link-pathao-s2').click();
     await expect.poll(() => state.linkBodies.length).toBe(1);
+    expect(state.storesCache.pathao[2]).toEqual({ store_id: 's2', source: 'link' });
+    expect(state.syncedAt.pathao).toBe(SYNC_STAMP);
     // …and after the server reload the mapping is no longer stale: the pill
     // flips to a healthy "Linked…" state and never says "Mapping needs review".
     await expect(page.getByTestId('pickup-sync-status-pathao')).toContainText('Linked');
     expect(await page.getByTestId('pickup-sync-status-pathao').textContent()).not.toContain('Mapping needs review');
     expect(state.createStoreBodies).toHaveLength(0);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('unknown state: a wired store never compared to the courier listing is "not verified", never green', async ({ page }) => {
+    const state = await setupRoutes(page, {
+        providers: [providerStatus('pathao', {
+            is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true,
+            // Wired on the integration row, but the store listing cache is EMPTY
+            // (§A9): confirmed is NEVER derived from wiring alone.
+            pickup_enabled: true, provider_store_id: 's1', pickup_location_id: 'loc-a',
+        })],
+    });
+    await loginAndGo(page);
+    await openTab(page, 'pickup');
+
+    const pill = page.getByTestId('pickup-sync-status-pathao');
+    await expect(pill).toContainText('Linked — not verified against the courier’s store list');
+    await expect(pill).not.toHaveClass(/bg-em-success-100/);
+    await expect(page.getByTestId('pickup-unverified-hint-pathao')).toContainText('Never matched to Pathao’s current store list');
+    await expect(page.getByTestId('pickup-provider-panel-pathao')).toContainText('Not synced yet');
+
+    // Fetch is a PURE READ — it lists stores but proves nothing about the
+    // mapping: NO cache write, and the never-verified hint must stay visible
+    // (the pill may carry the fetch's honest store-count message as transient
+    // action feedback; it never says "Linked & confirmed" while unverified).
+    await page.getByTestId('pickup-fetch-stores-pathao').click();
+    await expect(page.getByTestId('pickup-store-row-pathao-s1')).toBeVisible();
+    expect(state.storesCache.pathao).toBeUndefined();
+    await expect(page.getByTestId('pickup-unverified-hint-pathao')).toBeVisible();
+    expect(await pill.textContent()).not.toContain('Linked & confirmed');
+    // §A9 round-3 hardening: the read may carry the honest store-count message,
+    // but the pill must NEVER be success-styled while unverified.
+    await expect(pill).not.toHaveClass(/bg-em-success-100/);
+
+    // Only an explicit LINK (provider accepted configuration for the id) verifies
+    // it: the cache gains a source:'link' entry, stores_synced_at is stamped, the
+    // hint disappears, and the freshness renders Intl-localized (§ en-US here).
+    await page.getByTestId('pickup-store-link-pathao-s1').click();
+    await expect.poll(() => state.linkBodies.length).toBe(1);
+    expect(state.storesCache.pathao).toEqual([{ store_id: 's1', source: 'link' }]);
+    expect(state.syncedAt.pathao).toBe(SYNC_STAMP);
+    await expect(page.getByTestId('pickup-unverified-hint-pathao')).toHaveCount(0);
+    expect(await pill.textContent()).not.toContain('not verified');
+    // §A8/round 3: the cache stamp renders through Intl in the active locale
+    // (en-US here) — never a raw ISO string.
+    const panel = page.getByTestId('pickup-provider-panel-pathao');
+    await expect(panel).toContainText(/Stores synced \w+ \d{1,2}, 2026, \d{1,2}:\d{2}/);
+    expect(await panel.textContent()).not.toContain('2026-11-25T10:00:00.000Z');
+    expect(state.unexpected).toEqual([]);
+});
+
+test('deep-link 409 opens EDIT when the provider already has a pickup row — never a duplicate create', async ({ page }) => {
+    const state = await setupRoutes(page, {
+        providers: [
+            providerStatus('pathao', { is_connected: true, is_active: false, activation_status: 'SETUP_INCOMPLETE', missing: ['pickup_not_enabled'] }),
+            providerStatus('steadfast'),
+            providerStatus('redx'),
+        ],
+        // defaultLocations() carries loc-b (provider pathao) — the row the 409
+        // must route the merchant to EDIT, not a blank CREATE next to it.
+        stores: { pathao: [{ store_id: 's1', store_name: 'Dhanmondi Hub', city_id: 1, zone_id: 10, area_id: 100 }] },
+    });
+    await loginAndGo(page);
+    await page.getByTestId('manage-pathao').click();
+    await page.getByTestId('drawer-activate-pathao').click();
+
+    await expect(page.getByTestId('delivery-tab-pickup')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { name: 'Edit Pathao pickup location' })).toBeVisible();
+    const form = page.getByTestId('pickup-form');
+    // The existing row's identity + values are loaded (§A9 form remount).
+    await expect(form.getByTestId('pickup-form-name')).toHaveValue('North Hub');
+    await expect(page.getByTestId('pickup-location-row-loc-b')).toBeVisible();
+
+    await form.getByTestId('pickup-form-name').fill('North Hub Two');
+    await form.getByTestId('pickup-form-save').click();
+    await expect.poll(() => state.pickupPuts).toBe(1);
+    expect(state.pickupPosts).toBe(0);                   // never a duplicate create
+    expect(state.pickupPutBodies[0]).toEqual(expect.objectContaining({ id: 'loc-b', display_name: 'North Hub Two' }));
+    // The edit→sync chain then completes the where-next pointer.
+    await expect.poll(() => state.syncs).toBe(1);
+    expect(state.syncBodies[0]).toEqual(expect.objectContaining({ pickup_location_id: 'loc-b' }));
+    await expect(page.getByTestId('pickup-next-step')).toContainText('Pickup saved — return to Courier Providers to Activate.');
+    await expect(page.getByTestId('pickup-location-row-loc-b')).toContainText('North Hub Two');
     expect(state.unexpected).toEqual([]);
 });
 
@@ -708,8 +1007,9 @@ test('external store create only fires after the explicit confirm step, with con
 test('safe delete: labeled Delete always confirms first, nothing fires without confirm, success only after server reply', async ({ page }) => {
     const state = await setupRoutes(page, {
         // pathao integration is wired to loc-a: the dialog must surface that
-        // IN_USE blocker from LOCAL data BEFORE any DELETE (§12).
-        providers: [providerStatus('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true, pickup_enabled: true, pickup_location_id: 'loc-a', provider_store_id: 's1', pickup_mapping_status: 'confirmed' })],
+        // IN_USE blocker from LOCAL data BEFORE any DELETE (§12). No status is
+        // seeded (§A9): wiring + empty cache derives 'unknown', never confirmed.
+        providers: [providerStatus('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE', setup_complete: true, pickup_enabled: true, pickup_location_id: 'loc-a', provider_store_id: 's1' })],
     });
     await loginAndGo(page);
     await openTab(page, 'pickup');
@@ -719,7 +1019,8 @@ test('safe delete: labeled Delete always confirms first, nothing fires without c
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('Delete “HQ Warehouse”?');
     await expect(page.getByTestId('pickup-delete-blockers')).toContainText('This is your default pickup location.');
-    await expect(page.getByTestId('pickup-delete-blockers')).toContainText('In use by: pathao');
+    // §A9: blocker provider rows render as LOCALIZED merchant labels, never raw enums.
+    await expect(page.getByTestId('pickup-delete-blockers')).toContainText('In use by: Pathao');
     // §12: the dialog is a GATE — zero DELETE calls exist at this point.
     expect(state.deleteAttempts).toHaveLength(0);
 
@@ -734,6 +1035,8 @@ test('safe delete: labeled Delete always confirms first, nothing fires without c
     await page.getByTestId('pickup-delete-confirm').click();
     await expect.poll(() => state.deleteAttempts.length).toBe(1);
     expect(state.deleteAttempts[0].confirmed).toBe(true);
+    expect(state.deleteAttempts[0].path).toBe('/api/shop/delivery/pickup-locations/loc-a');
+    expect(state.deleteAttempts[0].search).toContain('confirm=true');
     await expect(page.getByTestId('pickup-location-row-loc-a')).toHaveCount(0);
     await expect(page.getByTestId('pickup-delete-status')).toContainText('Pickup location “HQ Warehouse” was deleted.');
     expect(state.unexpected).toEqual([]);
@@ -754,7 +1057,8 @@ test('safe delete — late server conflict keeps the dialog open with the server
     // the server's blockers replace the local ones, nothing was deleted.
     await expect.poll(() => state.deleteAttempts.length).toBe(1);
     await expect(dialog).toBeVisible();
-    await expect(page.getByTestId('pickup-delete-blockers')).toContainText('In use by: redx');
+    // Late server 409: its raw 'redx' enum renders as the localized label too.
+    await expect(page.getByTestId('pickup-delete-blockers')).toContainText('In use by: RedX');
     await expect(page.getByTestId('pickup-location-row-loc-a')).toBeVisible();
     await expect(page.getByTestId('pickup-delete-status')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
@@ -854,19 +1158,56 @@ test('AI default election moves the badge between active providers; clear remove
     expect(state.unexpected).toEqual([]);
 });
 
-test('capability truth stays below the live-verification ceiling', async ({ page }) => {
-    await setupRoutes(page, { providers: [providerStatus('steadfast', { is_connected: true }), providerStatus('pathao')] });
+test('capability truth stays below the ceiling — per provider, mirrored EXACTLY from provider-capabilities.js', async ({ page }) => {
+    await setupRoutes(page, {
+        providers: [
+            providerStatus('pathao', { is_connected: true }),
+            providerStatus('steadfast', { is_connected: true }),
+            providerStatus('redx', { is_connected: true }),
+        ],
+    });
     await loginAndGo(page);
+
     const steadfast = page.getByTestId('provider-capabilities-steadfast');
     await expect(steadfast).toContainText('Never verified with a live account.');
     await steadfast.locator('summary').click();
-    await expect(page.getByTestId('capability-steadfast-rate_quote')).toHaveText('Not supported');
+    // Steadfast: coverage UNKNOWN (text-only), quote UNSUPPORTED, parcel/tracking
+    // implemented, cancel/edit UNSUPPORTED…
     await expect(page.getByTestId('capability-steadfast-coverage')).toHaveText('Cannot be checked');
+    await expect(page.getByTestId('capability-steadfast-rate_quote')).toHaveText('Not supported');
     await expect(page.getByTestId('capability-steadfast-create_parcel')).toHaveText('Implemented, not live-verified');
-    // Round 2: the honest pickup-store capability row is declared too — still
-    // at the ceiling, never above it.
-    await expect(page.getByTestId('capability-steadfast-pickup_store')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-steadfast-tracking')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-steadfast-cancel')).toHaveText('Not supported');
+    await expect(page.getByTestId('capability-steadfast-edit')).toHaveText('Not supported');
+    // …and NO store API at all — the pickup-store row is UNSUPPORTED, not
+    // implemented (§A9: steadfast pickup is manual, never a fake green row).
+    await expect(page.getByTestId('capability-steadfast-pickup_store')).toHaveText('Not supported');
+    await expect(steadfast).toContainText('This courier has no API for pickup stores.');
+    await expect(steadfast).toContainText('Add your pickup location manually in the Pickup tab.');
     await expect(steadfast).toContainText('Cancel it in the courier');
+
+    const pathao = page.getByTestId('provider-capabilities-pathao');
+    await pathao.locator('summary').click();
+    await expect(page.getByTestId('capability-pathao-coverage')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-pathao-rate_quote')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-pathao-create_parcel')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-pathao-tracking')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-pathao-cancel')).toHaveText('Not supported');
+    await expect(page.getByTestId('capability-pathao-edit')).toHaveText('Not supported');
+    await expect(page.getByTestId('capability-pathao-pickup_store')).toHaveText('Implemented, not live-verified');
+
+    // RedX differs from both: cancel/edit and rate_quote ARE implemented per
+    // provider-capabilities.js — a shared fixture would lie.
+    const redx = page.getByTestId('provider-capabilities-redx');
+    await redx.locator('summary').click();
+    await expect(page.getByTestId('capability-redx-rate_quote')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-redx-cancel')).toHaveText('Implemented, not live-verified');
+    await expect(page.getByTestId('capability-redx-edit')).toHaveText('Implemented, not live-verified');
+    // The unverified store-list envelope is named honestly.
+    await expect(page.getByTestId('capability-redx-pickup_store')).toHaveText('Implemented, not live-verified');
+    await expect(redx).toContainText(/store-list contract has not been confirmed with a live account/);
+
+    // Ceiling: nothing anywhere may claim live verification.
     await expect(page.getByText('Live-verified', { exact: true })).toHaveCount(0);
 });
 
