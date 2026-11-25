@@ -100,6 +100,10 @@ export default function DeliverySettings() {
   const [deliverySettings, setDeliverySettings] = useState<DeliveryShopSettings>(DEFAULT_DELIVERY_SETTINGS);
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
   const [loading, setLoading] = useState(true);
+  // The full-page skeleton is for the FIRST load only. Post-mutation reloads
+  // refresh silently so the active tab — open drawer, fetched provider stores,
+  // selection state — is never unmounted mid-workflow.
+  const [booted, setBooted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -150,6 +154,7 @@ export default function DeliverySettings() {
       console.error('Failed to load delivery settings:', err);
     } finally {
       setLoading(false);
+      setBooted(true);
     }
   };
 
@@ -197,7 +202,7 @@ export default function DeliverySettings() {
     setActiveTab(TABS[nextIndex].id);
   };
 
-  if (loading) {
+  if (loading && !booted) {
     return (
       <div className="em-delivery min-h-full p-4 md:p-6">
         <div className="mx-auto w-full max-w-[1440px] space-y-4" aria-label={t('manageShop.deliverySettings.title')}>
