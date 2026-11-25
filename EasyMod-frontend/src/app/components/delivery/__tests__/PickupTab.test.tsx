@@ -108,7 +108,8 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.pickup.link': 'Link',
         'manageShop.deliverySettings.pickup.retry': 'Retry',
         'manageShop.deliverySettings.pickup.noStores': 'No stores loaded',
-        'manageShop.deliverySettings.pickup.synced': `${values?.n ?? 0} stores available`,
+        'manageShop.deliverySettings.pickup.synced_one': `${values?.formatted ?? 0} store available`,
+        'manageShop.deliverySettings.pickup.synced_other': `${values?.formatted ?? 0} stores available`,
         'manageShop.deliverySettings.pickup.storesFailed': 'Could not load stores',
         'manageShop.deliverySettings.pickup.storesSyncedAt': `Synced ${values?.date ?? ''}`,
         'manageShop.deliverySettings.pickup.notSyncedYet': 'Not synced yet',
@@ -176,6 +177,10 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.pickup.errors.importFailed': 'Could not import these stores.',
         'manageShop.deliverySettings.pickup.errors.deleteBlocked': 'This location can’t be deleted.',
       };
+      if (typeof values?.count === 'number') {
+        const pk = values.count === 1 ? key + '_one' : key + '_other';
+        if (pk in labels) return labels[pk];
+      }
       if (key in labels) return labels[key];
       if (typeof values?.defaultValue === 'string') return values.defaultValue;
       return key;
@@ -631,7 +636,7 @@ describe('PickupTab — unknown mapping is never "confirmed" (§A9)', () => {
     const message = await screen.findByTestId('pickup-message-pathao');
     expect(message).toHaveAttribute('role', 'status');
     expect(message.className).not.toContain('text-em-danger-700');
-    expect(message).toHaveTextContent('1 stores available');
+    expect(message).toHaveTextContent('1 store available');
     const pill = screen.getByTestId('pickup-sync-status-pathao');
     expect(pill).toHaveTextContent('Mapping needs review');
     expect(pill.className).toContain('break-words');

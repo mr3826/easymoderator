@@ -2806,8 +2806,6 @@
         "importing": "Importing…",
         "linking": "Linking…",
         "importDone": "Pickup stores imported.",
-        "synced": "{{n}} stores available",
-        "syncedCounts": "{{n}} stores",
         "linked": "Linked to {{store}}",
         "linkedBadge": "Linked",
         "linkedStoreId": "Provider store {{id}}",
@@ -2886,7 +2884,13 @@
         "deleted": "Pickup location “{{name}}” was deleted.",
         "staleStoreHint": "Import to refresh the courier’s store list, then link again.",
         "unmatchedStores": "The courier did not return these store ids: {{ids}}.",
-        "returnToProviders": "Pickup saved — return to Courier Providers to Activate."
+        "returnToProviders": "Pickup saved — return to Courier Providers to Activate.",
+        "synced_one": "{{formatted}} store available",
+        "synced_other": "{{formatted}} store available",
+        "syncedCounts_one": "{{formatted}} store",
+        "syncedCounts_other": "{{formatted}} store",
+        "synced": "{{formatted}} stores available",
+        "syncedCounts": "{{formatted}} stores"
       },
       "tabs": {
         "label": "Delivery settings sections",

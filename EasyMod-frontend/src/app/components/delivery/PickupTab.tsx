@@ -471,7 +471,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
         provider,
         stores.length > 0 && readConfirmed ? 'healthy' : 'review',
         stores.length > 0
-          ? t('manageShop.deliverySettings.pickup.synced', { n: formatCount(stores.length, i18n?.language) })
+          ? t('manageShop.deliverySettings.pickup.synced', { count: stores.length, formatted: formatCount(stores.length, i18n?.language) })
           : t('manageShop.deliverySettings.pickup.noStores'),
       );
       await reload();
@@ -631,7 +631,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
           setProviderStatus(
             provider,
             'healthy',
-            t(`manageShop.deliverySettings.pickup.resolutions.${resolution}`, { defaultValue: t('manageShop.deliverySettings.pickup.syncedCounts', { n: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }) }),
+            t(`manageShop.deliverySettings.pickup.resolutions.${resolution}`, { defaultValue: t('manageShop.deliverySettings.pickup.syncedCounts', { count: (storesByProvider[provider] ?? []).length, formatted: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }) }),
           );
         } else {
           // PRESERVED / NO_MATCH / anything unresolved: the wiring is NOT proven —
@@ -748,9 +748,9 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
           confirmed ? 'healthy' : 'review',
           resolution
             ? t(`manageShop.deliverySettings.pickup.resolutions.${resolution}`, {
-              defaultValue: t('manageShop.deliverySettings.pickup.syncedCounts', { n: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }),
+              defaultValue: t('manageShop.deliverySettings.pickup.syncedCounts', { count: (storesByProvider[provider] ?? []).length, formatted: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }),
             })
-            : t('manageShop.deliverySettings.pickup.syncedCounts', { n: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }),
+            : t('manageShop.deliverySettings.pickup.syncedCounts', { count: (storesByProvider[provider] ?? []).length, formatted: formatCount((storesByProvider[provider] ?? []).length, i18n?.language) }),
         );
         // Deep-link (409 "Complete pickup") WHERE-NEXT: once the row is saved and
         // server-confirmed synced, point back to Providers to finish activation (§A8).

@@ -2806,8 +2806,6 @@
         "importing": "আমদানি হচ্ছে…",
         "linking": "লিংক হচ্ছে…",
         "importDone": "পিকআপ স্টোর আমদানি হয়েছে।",
-        "synced": "{{n}} টি স্টোর পাওয়া গেছে",
-        "syncedCounts": "{{n}} টি স্টোর",
         "linked": "{{store}}-এর সাথে যুক্ত",
         "linkedBadge": "যুক্ত",
         "linkedStoreId": "কুরিয়ার স্টোর {{id}}",
@@ -2886,7 +2884,13 @@
         "deleted": "“{{name}}” পিকআপ স্থানটি মুছে ফেলা হয়েছে।",
         "staleStoreHint": "কুরিয়ারের স্টোর তালিকা রিফ্রেশ করতে Import করুন, তারপর আবার লিংক করুন।",
         "unmatchedStores": "কুরিয়ার এই স্টোর আইডিগুলো ফেরায়নি: {{ids}}।",
-        "returnToProviders": "পিকআপ সংরক্ষিত হয়েছে — সক্রিয় করতে Courier Providers ট্যাবে ফিরে যান।"
+        "returnToProviders": "পিকআপ সংরক্ষিত হয়েছে — সক্রিয় করতে Courier Providers ট্যাবে ফিরে যান।",
+        "synced_one": "{{formatted}} টি স্টোর পাওয়া গেছে",
+        "synced_other": "{{formatted}} টি স্টোর পাওয়া গেছে",
+        "syncedCounts_one": "{{formatted}} টি স্টোর",
+        "syncedCounts_other": "{{formatted}} টি স্টোর",
+        "synced": "{{formatted}} টি স্টোর পাওয়া গেছে",
+        "syncedCounts": "{{formatted}} টি স্টোর"
       },
       "tabs": {
         "label": "ডেলিভারি সেটিংস বিভাগ",
