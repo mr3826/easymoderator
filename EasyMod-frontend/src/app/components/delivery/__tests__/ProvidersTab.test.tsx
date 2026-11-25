@@ -30,6 +30,10 @@ const mocks = vi.hoisted(() => ({
   getPathaoAreas: vi.fn(),
 }));
 
+// A2c (bn-numerals pin): the mocked i18n language is switchable per test so a
+// pin can render the SAME timestamp under en and bn. beforeEach restores 'en'.
+const i18nState = vi.hoisted(() => ({ language: 'en' }));
+
 vi.mock('@/api/domains/order', () => ({
   ...mocks,
   getOrders: vi.fn(async () => []),
@@ -121,7 +125,7 @@ vi.mock('react-i18next', () => ({
       };
       return labels[key] || key;
     },
-    i18n: { language: 'en' },
+    i18n: { get language() { return i18nState.language; } },
   }),
 }));
 
@@ -171,6 +175,7 @@ const renderTab = (providers: DeliveryProviderStatus[], onMutate = vi.fn(async (
   render(<ProvidersTab providers={providers} onMutate={onMutate} {...opts} />);
 
 beforeEach(() => {
+  i18nState.language = 'en';
   vi.clearAllMocks();
   mocks.connectDeliveryProvider.mockResolvedValue(undefined);
   mocks.testDeliveryConnection.mockResolvedValue(undefined);
@@ -371,6 +376,32 @@ describe('ProvidersTab — drawer actions', () => {
 function withinText(node: HTMLElement, text: string): boolean {
   return (node.textContent || '').includes(text);
 }
+
+/**
+ * A2c MINOR pin (bn-numerals rule): the card's last-tested timestamp must flow
+ * through the ACTIVE locale (Intl via localeFor: bn → bn-BD, else en-US), never
+ * a locale-less toLocaleDateString(). The Latin form is anchored "Month D," —
+ * en-US renders it, bn-BD must not (Bangla day/month come first, in the locale's
+ * own script/numerals, whatever the host ICU data spells them).
+ */
+describe('ProvidersTab — locale-aware timestamps (bn-numerals)', () => {
+  it('renders last-tested through the active locale, never the Latin host default', () => {
+    const iso = '2026-11-24T10:00:00.000Z';
+    const latinMonthDay = /^[A-Za-z]+\s\d{1,2},/;
+
+    i18nState.language = 'en';
+    const enView = renderTab([status('pathao', { is_connected: true, last_validated_at: iso })]);
+    const enDate = (enView.getByText(/^Last tested:/).textContent ?? '').replace(/^Last tested:\s*/, '');
+    expect(enDate).toMatch(latinMonthDay);
+    enView.unmount();
+
+    i18nState.language = 'bn';
+    const bnView = renderTab([status('pathao', { is_connected: true, last_validated_at: iso })]);
+    const bnDate = (bnView.getByText(/^Last tested:/).textContent ?? '').replace(/^Last tested:\s*/, '');
+    expect(bnDate).not.toMatch(latinMonthDay);
+    expect(bnDate).not.toBe(enDate);
+  });
+});
 
 describe('ProvidersTab — connect flow', () => {
   it('validates required fields inline and then sends persisted sandbox on connect', async () => {

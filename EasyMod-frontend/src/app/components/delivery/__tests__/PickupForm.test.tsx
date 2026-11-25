@@ -54,6 +54,7 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.pickup.save': 'Save changes',
         'manageShop.deliverySettings.pickup.saving': 'Saving…',
         'manageShop.deliverySettings.pickup.errors.saveFailed': 'Could not save location',
+        'manageShop.deliverySettings.pickup.errors.staleFormTarget': 'This form was opened for a different pickup location — cancel and reopen Edit on the row you want to change.',
         'manageShop.deliverySettings.pickup.createHeading': 'New pickup location',
         'manageShop.deliverySettings.pickup.editHeading': 'Edit pickup location',
         'manageShop.deliverySettings.pickup.providers.pathao': 'Pathao',
@@ -243,6 +244,24 @@ describe('PickupForm — edit mode', () => {
       expect((screen.getByTestId('pickup-form-zone') as HTMLSelectElement).value).toBe('');
       expect((screen.getByTestId('pickup-form-area') as HTMLSelectElement).value).toBe('');
     });
+  });
+
+  it('refuses to save when a re-target never remounted it — the stale row id cannot be written (§A9 braces)', async () => {
+    const onSaved = vi.fn();
+    const initialA: PickupLocation = { id: 'locA', display_name: 'Hub A', phone: '01712345678', address: 'Address A', area_name: 'Area A', is_default: false };
+    const initialB: PickupLocation = { id: 'locB', display_name: 'Hub B', phone: '01812345678', address: 'Address B', area_name: 'Area B', is_default: false };
+    const { rerender } = render(<PickupForm provider="manual" mode="edit" initial={initialA} onCancel={vi.fn()} onSaved={onSaved} />);
+    // Simulate the exact hazard: the parent re-targeted to B WITHOUT remounting
+    // (PickupTab keys the form to prevent this; the guard is the second brace).
+    rerender(<PickupForm provider="manual" mode="edit" initial={initialB} onCancel={vi.fn()} onSaved={onSaved} />);
+
+    fireEvent.click(screen.getByTestId('pickup-form-save'));
+    expect(await screen.findByTestId('pickup-form-error')).toHaveTextContent('different pickup location');
+    // Neither the stale row (A) nor the new target (B) is silently written, and
+    // no create fires — the merchant must reopen Edit on the intended row.
+    expect(mocks.updatePickupLocation).not.toHaveBeenCalled();
+    expect(mocks.createPickupLocation).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it('a wrong persisted zone id leaves the zone/area blank instead of guessing', async () => {

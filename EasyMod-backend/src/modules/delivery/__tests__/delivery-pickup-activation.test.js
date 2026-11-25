@@ -536,7 +536,19 @@ describe('courier readiness and pickup sync contracts', () => {
                 area_id: 3,
             });
             expect(provider.createStore).not.toHaveBeenCalled();
-            expect(integration.save).not.toHaveBeenCalled();
+            // Round-2 contract: an AMBIGUOUS sync still READ the provider
+            // listing, so the store cache is refreshed with exactly what the
+            // provider has right now — but the mapping itself is not
+            // confirmed (no store is wired; the merchant must pick a
+            // candidate), so pickup wiring stays untouched.
+            expect(integration.save).toHaveBeenCalledTimes(1);
+            expect(integration.metadata.stores.map((store) => store.store_id))
+                .toEqual(['store-a', 'store-b', 'store-c']);
+            expect(typeof integration.metadata.stores_synced_at).toBe('string');
+            expect(integration.metadata.stores.some((store) => store.source === 'link')).toBe(false);
+            expect(integration.provider_store_id).toBeNull();
+            expect(integration.pickup_store_id).toBeNull();
+            expect(integration.pickup_enabled).toBe(false);
         });
     });
 

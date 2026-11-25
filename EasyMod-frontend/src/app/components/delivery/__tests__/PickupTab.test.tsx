@@ -11,18 +11,31 @@
  *     nothing; server-confirmed success notice; late 409 re-surfaces blockers)
  *   · Fetch stores is a PURE READ (never consumes envelope pickup_locations) ·
  *     selective import 409 DELIVERY_STORE_IDS_UNMATCHED names the ids
- *   · stale mapping stays attention through Fetch; only LINK / MATCHED|LINKED
- *     override locally, and only until reload; PRESERVED/NO_MATCH = attention+hint
- *   · focusProvider opens once per prop-driven open + onFocusConsumed · deep-link
+ *   · stale mapping stays attention through Fetch and reloads are
+ *     SERVER-authoritative — no local override: A5c refreshes the cached listing
+ *     inside LINK/MATCHED, so green arrives with the fresh server status;
+ *     PRESERVED/NO_MATCH = attention + hint naming Import→re-link; unknown+wired
+ *     = attention "not verified" + hint, NEVER the green confirmed pill (§A9)
+ *   · Edit re-targeting REMOUNTS the form on the new row (real PickupForm test)
+ *   · focusProvider opens once per prop-driven open + onFocusConsumed · it opens
+ *     EDIT on the provider's existing row (create only when none) · deep-link
  *     save shows the return-to-Providers WHERE-NEXT pointer
  *   · retry after failed sync · steadfast manual-only · create-then-sync is NOT a
  *     link/activate (separate actions).
  */
 import '@testing-library/jest-dom';
+import { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import PickupTab from '../PickupTab';
 import type { DeliveryProviderStatus, PickupLocation } from '@/api/types/order';
+
+// Test-local switch: default keeps the stub form (workspace-action isolation);
+// the Edit re-target test flips this to mount the REAL PickupForm so the
+// remount-on-retarget + PUT-target pin is honest (§A9).
+const formMode = vi.hoisted(() => ({ useReal: false }));
+// Active i18n language, switchable per test (bn-BD numeral formatting, §A9).
+const i18nState = vi.hoisted(() => ({ language: 'en' }));
 
 const mocks = vi.hoisted(() => ({
   getPickupLocations: vi.fn(),
@@ -53,14 +66,32 @@ vi.mock('@shared/lib/http/errors', () => ({
   getErrorMessage: (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback),
 }));
 // Stub the local create/edit form so the tab test stays on workspace actions.
-vi.mock('../PickupForm', () => ({
-  default: ({ provider, onSaved, mode }: { provider: string; mode: string; onSaved: (r: unknown) => void }) => (
-    <div role="dialog" aria-label={`pickup form ${mode}`}>
-      <button type="button" data-testid="stub-form-save" onClick={() => onSaved({ location: { id: 'loc-new', display_name: 'New hub', provider_store_id: null }, providerMeta: { city_id: '5' } })}>stub save</button>
-      <span data-testid="stub-form-provider">{provider}</span>
-    </div>
-  ),
-}));
+// The stub mirrors the REAL form's useState-initializer semantics: it captures
+// the mounted target ONCE, so a re-target without a key-based remount would keep
+// showing the old row's identity — exactly the §A9 bug the remount must prevent.
+vi.mock('../PickupForm', async (importOriginal) => {
+  const actual = (await importOriginal()) as { default: unknown };
+  function StubPickupForm({ provider, mode, initial, onSaved }: {
+    provider: string;
+    mode: string;
+    initial?: { id?: string } | null;
+    onSaved: (r: unknown) => void;
+  }) {
+    const [mountedTarget] = useState(`${mode}:${initial?.id ?? 'new'}`);
+    return (
+      <div role="dialog" aria-label={`pickup form ${mode}`}>
+        <button type="button" data-testid="stub-form-save" onClick={() => onSaved({ location: { id: 'loc-new', display_name: 'New hub', provider_store_id: null }, providerMeta: { city_id: '5' } })}>stub save</button>
+        <span data-testid="stub-form-provider">{provider}</span>
+        <span data-testid="stub-form-mounted-target">{mountedTarget}</span>
+      </div>
+    );
+  }
+  return {
+    get default() {
+      return formMode.useReal ? actual.default : StubPickupForm;
+    },
+  };
+});
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) => {
@@ -89,6 +120,8 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.pickup.mapping.stale': 'Mapping needs review',
         'manageShop.deliverySettings.pickup.mapping.confirmed': 'Linked & confirmed',
         'manageShop.deliverySettings.pickup.mapping.unknown': 'Not linked yet',
+        'manageShop.deliverySettings.pickup.mapping.unknownLinked': "Linked — not verified against the courier's store list",
+        'manageShop.deliverySettings.pickup.mapping.unknownLinkedHint': `Never matched to ${values?.provider ?? ''}'s current store list — Fetch or Import, then Link again to verify.`,
         'manageShop.deliverySettings.pickup.linked': `Linked to ${values?.store ?? ''}`,
         'manageShop.deliverySettings.pickup.linkedBadge': 'Linked',
         'manageShop.deliverySettings.pickup.selectLocationFirst': 'Select a location first',
@@ -134,7 +167,9 @@ vi.mock('react-i18next', () => ({
         'manageShop.deliverySettings.pickup.statusPills.blocked': 'Attention needed',
         'manageShop.deliverySettings.pickup.storeCreateSyncing': 'Refreshing stores…',
         'manageShop.deliverySettings.pickup.deleted': `Deleted ${values?.name ?? ''}.`,
-        'manageShop.deliverySettings.pickup.staleStoreHint': 'Your wired store is no longer listed — Link a store.',
+        'manageShop.deliverySettings.pickup.resolutions.MATCHED': 'Matched an existing store.',
+        // PRESERVED/NO_MATCH honesty (§A9): the hint must NAME the fixing action.
+        'manageShop.deliverySettings.pickup.staleStoreHint': 'Import to refresh the courier’s store list, then link again.',
         'manageShop.deliverySettings.pickup.unmatchedStores': `Not listed by courier: ${values?.ids ?? ''}`,
         'manageShop.deliverySettings.pickup.returnToProviders': 'Pickup saved — return to Courier Providers to Activate.',
         'manageShop.deliverySettings.errors.updateDefaultFailed': 'Could not update default',
@@ -145,7 +180,7 @@ vi.mock('react-i18next', () => ({
       if (typeof values?.defaultValue === 'string') return values.defaultValue;
       return key;
     },
-    i18n: { language: 'en' },
+    i18n: { get language() { return i18nState.language; } },
   }),
 }));
 
@@ -183,6 +218,8 @@ const renderTab = (providers: DeliveryProviderStatus[], opts = {}) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  formMode.useReal = false;
+  i18nState.language = 'en';
   mocks.getPathaoCities.mockResolvedValue([{ id: '1', city_id: 1, name: 'Dhaka' }]);
   mocks.getPathaoZones.mockResolvedValue([{ id: '2', zone_id: 2, name: 'Mirpur' }]);
   mocks.getPathaoAreas.mockResolvedValue([{ id: '3', area_id: 3, name: 'Kallyanpur' }]);
@@ -337,7 +374,8 @@ describe('PickupTab — safe delete (§12 confirm-first)', () => {
     fireEvent.click(await screen.findByTestId('pickup-delete-loc1'));
     expect(await screen.findByText('Delete Hub loc1?')).toBeInTheDocument();
     expect(screen.getByTestId('pickup-delete-blockers')).toHaveTextContent('This is your default pickup location.');
-    expect(screen.getByTestId('pickup-delete-blockers')).toHaveTextContent('In use by: pathao');
+    // §A9: blockers name the merchant-facing provider label, not the raw enum.
+    expect(screen.getByTestId('pickup-delete-blockers')).toHaveTextContent('In use by: Pathao Courier');
     expect(mocks.deletePickupLocation).not.toHaveBeenCalled();
   });
 
@@ -354,7 +392,7 @@ describe('PickupTab — safe delete (§12 confirm-first)', () => {
     // Only the confirmed call was made; the dialog stays OPEN with the SERVER blockers.
     await waitFor(() => expect(mocks.deletePickupLocation).toHaveBeenCalledWith('loc2', { confirm: true }));
     expect(mocks.deletePickupLocation).toHaveBeenCalledTimes(1);
-    expect(await screen.findByTestId('pickup-delete-blockers')).toHaveTextContent('In use by: redx');
+    expect(await screen.findByTestId('pickup-delete-blockers')).toHaveTextContent('In use by: RedX Courier');
     expect(screen.getByText('Delete Hub loc2?')).toBeInTheDocument();
     expect(screen.queryByTestId('pickup-delete-status')).not.toBeInTheDocument();
   });
@@ -472,64 +510,109 @@ describe('PickupTab — stale mapping honesty (§A8)', () => {
     expect(mocks.setProviderPickup).not.toHaveBeenCalled();
   });
 
-  it('retry resolving PRESERVED renders ATTENTION with the wired-store hint, not healthy green', async () => {
+  it('retry resolving PRESERVED renders ATTENTION naming the fixing action (Import → re-link), not healthy green', async () => {
     mocks.retryPickupSync.mockResolvedValueOnce({ provider: 'pathao', store_resolution: 'PRESERVED' });
     renderTab([staleStatus]);
     const retry = screen.getByTestId('pickup-retry-pathao');
     fireEvent.click(retry);
     await waitFor(() => expect(mocks.retryPickupSync).toHaveBeenCalled());
     const message = await screen.findByTestId('pickup-message-pathao');
-    expect(message).toHaveTextContent('Your wired store is no longer listed — Link a store.');
-    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Your wired store is no longer listed');
+    // §A9: PRESERVED-on-retry means the wired store is NOT in the server CACHE —
+    // the hint must name the action that fixes it, never a vague "link a store".
+    expect(message).toHaveTextContent('Import to refresh the courier’s store list, then link again.');
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Import to refresh');
   });
 
-  it('retry resolving NO_MATCH renders ATTENTION with the wired-store hint', async () => {
+  it('retry resolving NO_MATCH renders ATTENTION naming Import-to-refresh, never a confirmed pill', async () => {
     mocks.retryPickupSync.mockResolvedValueOnce({ provider: 'pathao', store_resolution: 'NO_MATCH' });
     renderTab([staleStatus]);
     fireEvent.click(screen.getByTestId('pickup-retry-pathao'));
     const message = await screen.findByTestId('pickup-message-pathao');
-    expect(message).toHaveTextContent('Link a store.');
+    expect(message).toHaveTextContent('then link again.');
     expect(screen.getByTestId('pickup-sync-status-pathao')).not.toHaveTextContent('Linked & confirmed');
   });
 
-  it('an explicit LINK flips the pill healthy LOCALLY, and the next reload restores server truth', async () => {
-    let releaseReload: (() => void) | undefined;
-    const onMutate = vi.fn(() => new Promise<void>((resolve) => { releaseReload = resolve; }));
+  it('an explicit LINK never pre-empts the server: honest attention while stale, green only once the reload reports confirmed (§A9)', async () => {
+    const onMutate = vi.fn(async () => {});
     mocks.listProviderStores.mockResolvedValueOnce({
       provider: 'pathao',
       stores: [{ store_id: 's1', store_name: 'Dhanmondi Hub' }],
     });
     mocks.setProviderPickup.mockResolvedValueOnce({ store_resolution: 'LINKED', pickup_enabled: true });
-    render(<PickupTab providers={[staleStatus]} onMutate={onMutate} />);
+    const view = render(<PickupTab providers={[staleStatus]} onMutate={onMutate} />);
     fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
     fireEvent.click(await screen.findByTestId('pickup-store-link-pathao-s1'));
     await waitFor(() => expect(mocks.setProviderPickup).toHaveBeenCalled());
 
-    // Override window: explicit LINK result may show healthy despite stale mapping.
-    expect(await screen.findByTestId('pickup-sync-status-pathao')).toHaveTextContent('Linked to Dhanmondi Hub');
-    // Reload lands → server mapping (still stale in this fixture) is authority again.
-    expect(releaseReload).toBeDefined();
-    releaseReload?.();
-    await waitFor(() => expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review'));
+    // The LINK result MESSAGE shows, but there is NO local stale-override: while
+    // the server still reports the old mapping the pill stays at attention.
+    const message = await screen.findByTestId('pickup-message-pathao');
+    expect(message).toHaveTextContent('Linked to Dhanmondi Hub');
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review');
+    await waitFor(() => expect(onMutate).toHaveBeenCalled());
+
+    // A5c refreshed the cached listing inside the LINK call — the reload brings
+    // the SERVER 'confirmed' and that is what flips the pill green.
+    view.rerender(
+      <PickupTab
+        providers={[status('pathao', { pickup_mapping_status: 'confirmed', provider_store_id: 's1', pickup_enabled: true })]}
+        onMutate={onMutate}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('pickup-sync-status-pathao')).not.toHaveTextContent('Mapping needs review'));
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Linked to Dhanmondi Hub');
   });
 
-  it('retry resolving MATCHED shows healthy until the reload restores the stale server state', async () => {
-    let releaseReload: (() => void) | undefined;
-    const onMutate = vi.fn(() => new Promise<void>((resolve) => { releaseReload = resolve; }));
+  it('retry MATCHED reloads and flips green from SERVER truth, not from a local override', async () => {
+    const onMutate = vi.fn(async () => {});
     mocks.retryPickupSync.mockResolvedValueOnce({ provider: 'pathao', store_resolution: 'MATCHED' });
-    render(<PickupTab providers={[staleStatus]} onMutate={onMutate} />);
+    const view = render(<PickupTab providers={[staleStatus]} onMutate={onMutate} />);
     fireEvent.click(screen.getByTestId('pickup-retry-pathao'));
     await waitFor(() => expect(mocks.retryPickupSync).toHaveBeenCalled());
-    // MATCHED is a permitted override → pill may read healthy (resolutions label / synced count).
-    const pill = screen.getByTestId('pickup-sync-status-pathao');
-    expect(pill).not.toHaveTextContent('Mapping needs review');
-    releaseReload?.();
-    await waitFor(() => expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review'));
+    const message = await screen.findByTestId('pickup-message-pathao');
+    expect(message).toHaveTextContent('Matched an existing store.');
+    // Server still says stale until its refreshed cache arrives via the reload.
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review');
+    await waitFor(() => expect(onMutate).toHaveBeenCalled());
+    view.rerender(
+      <PickupTab
+        providers={[status('pathao', { pickup_mapping_status: 'confirmed', provider_store_id: 's9', pickup_enabled: true })]}
+        onMutate={onMutate}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('pickup-sync-status-pathao')).not.toHaveTextContent('Mapping needs review'));
   });
 });
 
-describe('PickupTab — 409 deep-link focus (focusProvider) (§A8)', () => {
-  it('opens the create form once per prop-driven open and reports consumption exactly once', async () => {
+describe('PickupTab — unknown mapping is never "confirmed" (§A9)', () => {
+  it('renders unknown + wired as ATTENTION with a "not verified" label + fetch/import hint, never the green pill', () => {
+    renderTab([status('pathao', { pickup_mapping_status: 'unknown', provider_store_id: 's9', pickup_enabled: true })]);
+    const pill = screen.getByTestId('pickup-sync-status-pathao');
+    expect(pill).toHaveTextContent("Linked — not verified against the courier's store list");
+    expect(pill).not.toHaveTextContent('Linked & confirmed');
+    // The hint names the action that VERIFIES it: Fetch/Import + re-link.
+    const hint = screen.getByTestId('pickup-unverified-hint-pathao');
+    expect(hint).toHaveTextContent("Never matched to Pathao Courier's current store list");
+    expect(hint).toHaveTextContent('Link again to verify');
+  });
+
+  it('a wired row whose mapping field is absent (older server) is likewise not confirmed', () => {
+    renderTab([status('pathao', { provider_store_id: 's9', pickup_enabled: true })]);
+    const pill = screen.getByTestId('pickup-sync-status-pathao');
+    expect(pill).not.toHaveTextContent('Linked & confirmed');
+    expect(pill).toHaveTextContent('not verified');
+    expect(screen.getByTestId('pickup-unverified-hint-pathao')).toBeInTheDocument();
+  });
+
+  it('keeps green derived state reserved for a server-confirmed mapping', () => {
+    renderTab([status('pathao', { pickup_mapping_status: 'confirmed', provider_store_id: 's9', pickup_enabled: true })]);
+    expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Linked & confirmed');
+    expect(screen.queryByTestId('pickup-unverified-hint-pathao')).not.toBeInTheDocument();
+  });
+});
+
+describe('PickupTab — 409 deep-link focus (focusProvider) (§A8/§A9)', () => {
+  it('opens the form once per prop-driven open and reports consumption exactly once', async () => {
     const onFocusConsumed = vi.fn();
     const view = render(
       <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="pathao" onFocusConsumed={onFocusConsumed} />,
@@ -542,6 +625,27 @@ describe('PickupTab — 409 deep-link focus (focusProvider) (§A8)', () => {
       <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="pathao" onFocusConsumed={onFocusConsumed} />,
     );
     expect(onFocusConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens EDIT on the provider\'s existing saved row — never a duplicate-blank create (§A9)', async () => {
+    const onFocusConsumed = vi.fn();
+    render(
+      <PickupTab providers={[status('pathao')]} onMutate={vi.fn(async () => {})} focusProvider="pathao" onFocusConsumed={onFocusConsumed} />,
+    );
+    // The default fixture already has a pathao row (loc1) → EDIT opens on IT,
+    // mounted with loc1's identity (mode:row id captured at mount).
+    expect(await screen.findByRole('dialog', { name: 'pickup form edit' })).toBeInTheDocument();
+    expect(screen.getByTestId('stub-form-mounted-target')).toHaveTextContent('edit:loc1');
+    expect(screen.queryByRole('dialog', { name: 'pickup form create' })).not.toBeInTheDocument();
+    expect(onFocusConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it('still opens a create deep-link form when no saved row exists for that provider', async () => {
+    render(
+      <PickupTab providers={[status('redx')]} onMutate={vi.fn(async () => {})} focusProvider="redx" />,
+    );
+    expect(await screen.findByRole('dialog', { name: 'pickup form create' })).toBeInTheDocument();
+    expect(screen.getByTestId('stub-form-mounted-target')).toHaveTextContent('create:new');
   });
 
   it('a fresh deep-link after the shell cleared it opens again and reports once more', async () => {
@@ -587,5 +691,49 @@ describe('PickupTab — 409 deep-link focus (focusProvider) (§A8)', () => {
     fireEvent.click(await screen.findByTestId('stub-form-save'));
     await waitFor(() => expect(mocks.syncProviderPickup).toHaveBeenCalled());
     expect(screen.queryByTestId('pickup-next-step')).not.toBeInTheDocument();
+  });
+});
+
+describe('PickupTab — Edit re-target remounts the form (REAL PickupForm, §A9)', () => {
+  it('Edit(A) then Edit(B) shows B\'s values and PUTs B — never the previously targeted A', async () => {
+    formMode.useReal = true;
+    mocks.getPickupLocations.mockResolvedValue([
+      location('locA'),
+      location('locB', { display_name: 'Hub Beta', phone: '01888888888' }),
+    ]);
+    mocks.updatePickupLocation.mockResolvedValue(location('locB', { display_name: 'Hub Beta', phone: '01888888888' }));
+    renderTab([status('pathao')]);
+
+    fireEvent.click(await screen.findByTestId('pickup-edit-locA'));
+    await waitFor(() => expect((screen.getByTestId('pickup-form-name') as HTMLInputElement).value).toBe('Hub locA'));
+    expect((screen.getByTestId('pickup-form-address') as HTMLTextAreaElement).value).toBe('Address locA');
+
+    // Re-target WHILE the form is open: the mounted form's useState initializers
+    // never re-run, so only the key-based remount can show row B here.
+    fireEvent.click(screen.getByTestId('pickup-edit-locB'));
+    await waitFor(() => expect((screen.getByTestId('pickup-form-name') as HTMLInputElement).value).toBe('Hub Beta'));
+    expect((screen.getByTestId('pickup-form-address') as HTMLTextAreaElement).value).toBe('Address locB');
+
+    fireEvent.click(screen.getByTestId('pickup-form-save'));
+    await waitFor(() => expect(mocks.updatePickupLocation).toHaveBeenCalledTimes(1));
+    expect(mocks.updatePickupLocation).toHaveBeenCalledWith('locB', expect.objectContaining({ display_name: 'Hub Beta' }));
+    expect(mocks.updatePickupLocation.mock.calls[0][0]).not.toBe('locA');
+  });
+});
+
+describe('PickupTab — locale-aware stores-synced timestamp (§A9)', () => {
+  it('formats with the active i18n language — Bangla (bn-BD) numerals for bn', async () => {
+    i18nState.language = 'bn';
+    renderTab([status('pathao', { pickup_stores_synced_at: '2026-11-24T09:30:00Z' })]);
+    const panel = await screen.findByTestId('pickup-provider-panel-pathao');
+    const text = panel.textContent ?? '';
+    expect(text).toMatch(/[০-৯]/); // Bengali digits from Intl bn-BD
+    expect(text).not.toMatch(/[0-9]/); // no leaked Western digits
+  });
+
+  it('formats en-US for the default language', async () => {
+    renderTab([status('pathao', { pickup_stores_synced_at: '2026-11-24T09:30:00Z' })]);
+    const panel = await screen.findByTestId('pickup-provider-panel-pathao');
+    expect(panel.textContent).toMatch(/Nov 24, 2026/);
   });
 });

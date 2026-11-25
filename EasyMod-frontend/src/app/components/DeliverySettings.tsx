@@ -155,6 +155,11 @@ export default function DeliverySettings() {
         // the unsaved indicator never lies before the merchant has edited.
         setSavedChargesSnapshot(JSON.stringify(persisted));
       }
+      // The unconditional-hydration guarantee applies only to a SUCCESSFUL
+      // first load (A8b/A9b): after a failed first load we stay in
+      // "never hydrated" mode so the next successful reload still hydrates
+      // persisted charges rather than trusting a dirty-by-default guard.
+      firstLoadRef.current = false;
       if (Array.isArray(data.pickup_locations)) {
         setPickupLocations(data.pickup_locations);
       }
@@ -162,7 +167,6 @@ export default function DeliverySettings() {
       setError(getErrorMessage(err, t('manageShop.deliverySettings.errors.loadFailed')));
       console.error('Failed to load delivery settings:', err);
     } finally {
-      firstLoadRef.current = false;
       setLoading(false);
       setBooted(true);
     }

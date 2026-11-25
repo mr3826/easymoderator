@@ -2816,7 +2816,9 @@
         "mapping": {
           "confirmed": "Linked & confirmed",
           "stale": "Mapping needs review",
-          "unknown": "Not linked yet"
+          "unknown": "Not linked yet",
+          "unknownLinked": "Linked — not verified against the courier’s store list",
+          "unknownLinkedHint": "Never matched to {{provider}}’s current store list — Fetch or Import, then Link again to verify."
         },
         "statusPills": {
           "healthy": "Linked",
@@ -2869,7 +2871,8 @@
           "ambiguousUnresolved": "That store couldn’t be resolved — try again.",
           "sourceRequired": "Choose a pickup location or store to link first.",
           "providerMismatch": "That location belongs to a different courier.",
-          "notConnected": "Connect this courier before linking a store."
+          "notConnected": "Connect this courier before linking a store.",
+          "staleFormTarget": "This form was opened for a different pickup location — cancel and reopen Edit on the row you want to change."
         },
         "providers": {
           "pathao": "Pathao",
@@ -2878,7 +2881,7 @@
           "manual": "Manual"
         },
         "deleted": "Pickup location “{{name}}” was deleted.",
-        "staleStoreHint": "Your wired store is no longer listed — Link a store.",
+        "staleStoreHint": "Import to refresh the courier’s store list, then link again.",
         "unmatchedStores": "The courier did not return these store ids: {{ids}}.",
         "returnToProviders": "Pickup saved — return to Courier Providers to Activate."
       },

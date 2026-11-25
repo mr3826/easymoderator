@@ -6,10 +6,18 @@
  * order-domain mock is needed — react-i18next is the sole stub.
  */
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProviderDrawer, { type ProviderDrawerProps } from '../ProviderDrawer';
 import type { DeliveryProviderStatus } from '@/api/types/order';
+
+// A2c (bn-numerals pin): the mocked i18n language is switchable per test so a
+// pin can render the SAME timestamp under en and bn. beforeEach restores 'en'.
+const i18nState = vi.hoisted(() => ({ language: 'en' }));
+
+beforeEach(() => {
+  i18nState.language = 'en';
+});
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -55,7 +63,7 @@ vi.mock('react-i18next', () => ({
       };
       return labels[key] || key;
     },
-    i18n: { language: 'en' },
+    i18n: { get language() { return i18nState.language; } },
   }),
 }));
 
@@ -218,6 +226,34 @@ describe('ProviderDrawer — in-drawer action feedback', () => {
     renderDrawer({ feedback: null });
     expect(screen.queryByTestId('drawer-action-feedback')).not.toBeInTheDocument();
     expect(within(screen.getByRole('dialog')).queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A2c MINOR pin (bn-numerals rule): the drawer's last-tested timestamp must flow
+ * through the ACTIVE locale (Intl via localeFor: bn → bn-BD, else en-US), never
+ * a locale-less toLocaleDateString(). en-US renders the anchored Latin form
+ * "Month D,"; bn-BD must not (day/month come first in the locale's own script/
+ * numerals) and must render differently from the en output.
+ */
+describe('ProviderDrawer — locale-aware timestamps (bn-numerals)', () => {
+  it('renders last-tested through the active locale, never the Latin host default', () => {
+    const iso = '2026-11-24T10:00:00.000Z';
+    const latinMonthDay = /^[A-Za-z]+\s\d{1,2},/;
+    const renderTested = () => {
+      renderDrawer({ status: connectedStatus('pathao', { last_validated_at: iso }) });
+      return (screen.getByText(/^Last tested:/).textContent ?? '').replace(/^Last tested:\s*/, '');
+    };
+
+    i18nState.language = 'en';
+    const enDate = renderTested();
+    expect(enDate).toMatch(latinMonthDay);
+    cleanup();
+
+    i18nState.language = 'bn';
+    const bnDate = renderTested();
+    expect(bnDate).not.toMatch(latinMonthDay);
+    expect(bnDate).not.toBe(enDate);
   });
 });
 

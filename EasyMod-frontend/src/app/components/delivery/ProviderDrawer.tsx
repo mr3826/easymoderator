@@ -54,6 +54,22 @@ const INPUT_CLASSES =
 
 const MASK = '••••••••';
 
+/**
+ * A2c (bn-numerals rule): mirrors ProvidersTab — timestamps render through the
+ * ACTIVE locale (same customers/customerDisplay.ts `localeFor` mapping,
+ * bn → bn-BD, else en-US) via Intl.DateTimeFormat, never a locale-less
+ * `toLocaleDateString()` that would show Latin month/digits on the Bangla UI.
+ */
+const localeFor = (language: string): string => (language.toLowerCase().startsWith('bn') ? 'bn-BD' : 'en-US');
+
+const formatTimestamp = (value: string | null | undefined, language: string): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  // Unparseable server value: show the raw string, never "Invalid Date".
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(localeFor(language), { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+};
+
 export interface ProviderDrawerPayload {
   provider: DeliveryProvider;
   credentials: Record<string, string>;
@@ -112,7 +128,7 @@ export default function ProviderDrawer({
   onDisconnect,
   onCompletePickup,
 }: ProviderDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const isConnected = status.is_connected;
@@ -338,7 +354,7 @@ export default function ProviderDrawer({
                   </h3>
                   <p className="mt-1 em-tabular text-xs text-em-text-secondary">
                     {status.last_validated_at
-                      ? t('manageShop.deliverySettings.lastTested', { date: new Date(status.last_validated_at).toLocaleDateString() })
+                      ? t('manageShop.deliverySettings.lastTested', { date: formatTimestamp(status.last_validated_at, i18n.language) })
                       : t('manageShop.deliverySettings.providers.notTested')}
                   </p>
                   {pending === 'test' && (
@@ -457,7 +473,7 @@ export default function ProviderDrawer({
                     </p>
                     <p className="mt-1 text-xs text-em-text-secondary">
                       {status.capabilities.last_verified_at
-                        ? t('manageShop.deliverySettings.capabilities.lastVerified', { date: new Date(status.capabilities.last_verified_at).toLocaleDateString() })
+                        ? t('manageShop.deliverySettings.capabilities.lastVerified', { date: formatTimestamp(status.capabilities.last_verified_at, i18n.language) })
                         : t('manageShop.deliverySettings.capabilities.neverVerified')}
                     </p>
                   </section>

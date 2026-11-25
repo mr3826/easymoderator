@@ -559,6 +559,275 @@ describe('merchant-confirmed external pickup store creation', () => {
     });
 });
 
+describe('pickup mapping freshness contract (link + sync cache semantics)', () => {
+    /**
+     * Review round-2 MAJOR #3: pickup_mapping_status must not stay 'stale'
+     * forever after a successful explicit LINK or a MATCHED sync just because
+     * no bulk Import re-ran. These suites wire the REAL delivery.service and
+     * REAL delivery.controller together so link -> cache extension ->
+     * GET /settings is exercised end-to-end (still fully mocked provider
+     * traffic; nothing reaches a live courier).
+     */
+    const IMPORT_STAMP = '2026-01-01T00:00:00.000Z';
+
+    const freshnessMocks = ({ integration, provider = {}, ownerShop = 'shop-1' }) => {
+        jest.doMock('../delivery-integration.entity', () => ({
+            findOne: jest.fn(async ({ where } = {}) => (
+                where?.shop_id === ownerShop && where?.provider === integration.provider ? integration : null
+            )),
+            findAll: jest.fn(async () => [integration]),
+            sequelize: { query: jest.fn().mockResolvedValue([]) },
+        }));
+        jest.doMock('../../entities', () => ({
+            Shop: { findByPk: jest.fn().mockResolvedValue({ id: ownerShop, settings: {} }) },
+        }));
+        jest.doMock('../pathao-token.service', () => ({
+            createProvider: jest.fn().mockResolvedValue(provider),
+        }));
+        jest.doMock('../pickup-location.service', () => ({
+            getPickupLocation: jest.fn().mockResolvedValue({
+                id: 'pickup-1', shop_id: ownerShop, provider: 'manual', provider_store_id: null,
+                display_name: 'Main pickup', address: 'House 1, Dhaka', area_name: 'Dhanmondi',
+                city_id: 1, zone_id: 2, area_id: 3,
+            }),
+            serializePickupLocation: jest.fn((location) => location),
+            syncProviderStores: jest.fn().mockResolvedValue([]),
+            listPickupLocations: jest.fn().mockResolvedValue([]),
+        }));
+        jest.doMock('../courier-readiness.service', () => ({
+            getReadiness: jest.fn().mockResolvedValue({ ready: true, missing: [] }),
+        }));
+        jest.doMock('../../../utils/shop-settings-cache', () => ({ invalidateShopSettingsCaches: jest.fn() }));
+        jest.doMock('../../../utils/database/database-setup', () => ({
+            sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: 'UPDATE' } }) },
+        }));
+        jest.doMock('../providers/provider.registry', () => ({
+            COURIER_REGISTRY: { pathao: { label: 'Pathao', Provider: class FakePathao {} } },
+        }));
+    };
+
+    const settingsRow = async (controller, shopId = 'shop-1') => {
+        const json = jest.fn();
+        const res = { json, status: jest.fn(() => res) };
+        const next = jest.fn();
+        await controller.getSettings({ user: { shopId } }, res, next);
+        expect(next).not.toHaveBeenCalled();
+        const body = json.mock.calls[0][0];
+        return body.data.providers.find((row) => row.provider === 'pathao');
+    };
+
+    const wiredStaleIntegration = (overrides = {}) => fakeIntegration({
+        provider: 'pathao',
+        pickup_store_id: 'store-old',
+        provider_store_id: 'store-old',
+        pickup_enabled: true,
+        metadata: {
+            stores: [{ store_id: 'ghost', store_name: 'Closed hub' }],
+            stores_synced_at: IMPORT_STAMP,
+            pickup_store_id: 'store-old',
+            store_id: 'store-old',
+            provider_store_id: 'store-old',
+            provider_pickup_meta: {},
+            pickup_enabled: true,
+        },
+        ...overrides,
+    });
+
+    test('(a) an explicit LINK of a store absent from the cache flips it stale -> confirmed', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration({
+                provider: 'pathao',
+                pickup_store_id: '999',
+                provider_store_id: '999',
+                pickup_enabled: true,
+                metadata: {
+                    stores: [{ store_id: '77', store_name: 'Imported hub' }],
+                    stores_synced_at: IMPORT_STAMP,
+                    pickup_store_id: '999',
+                    store_id: '999',
+                    provider_store_id: '999',
+                    pickup_enabled: true,
+                },
+            });
+            freshnessMocks({ integration });
+            const controller = require('../delivery.controller');
+
+            // Wired but unlisted: honest 'stale' before the link.
+            const before = await settingsRow(controller);
+            expect(before.pickup_mapping_status).toBe('stale');
+            expect(before.pickup_stores_synced_at).toBe(IMPORT_STAMP);
+
+            const json = jest.fn();
+            const res = { json, status: jest.fn(() => res) };
+            const next = jest.fn();
+            await controller.setPickupConfiguration(
+                { user: { shopId: 'shop-1' }, params: { provider: 'pathao' }, body: { store_id: '999', enabled: true } },
+                res,
+                next,
+            );
+            expect(next).not.toHaveBeenCalled();
+            expect(json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+
+            // The link call is live evidence the provider accepted that store
+            // id: the cache now carries it (source 'link'), the old Import
+            // entry survives, and stores_synced_at moved forward.
+            const after = await settingsRow(controller);
+            expect(after.pickup_mapping_status).toBe('confirmed');
+            expect(Date.parse(after.pickup_stores_synced_at)).toBeGreaterThan(Date.parse(IMPORT_STAMP));
+            expect(integration.metadata.stores).toEqual(expect.arrayContaining([
+                { store_id: '77', store_name: 'Imported hub' },
+                { store_id: '999', source: 'link' },
+            ]));
+            // The serialized row shows the same additive cache semantics.
+            expect(after.metadata.stores).toEqual(expect.arrayContaining([
+                expect.objectContaining({ store_id: '999', source: 'link' }),
+            ]));
+            expect(after.pickup_stores_synced_at).toBe(integration.metadata.stores_synced_at);
+        });
+    });
+
+    test('(b) a MATCHED sync refreshes the cache with the just-read listing and flips stale -> confirmed', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = wiredStaleIntegration();
+            const provider = {
+                getStores: jest.fn().mockResolvedValue([
+                    { store_id: 'store-other', store_name: 'Other city', city_id: 9, zone_id: 9, area_id: 9 },
+                    { store_id: 'store-selected', store_name: 'Dhanmondi hub', city_id: 1, zone_id: 2, area_id: 3, address: 'House 5' },
+                ]),
+            };
+            freshnessMocks({ integration, provider });
+            const deliveryService = require('../delivery.service');
+            const controller = require('../delivery.controller');
+
+            const before = await settingsRow(controller);
+            expect(before.pickup_mapping_status).toBe('stale');
+
+            const result = await deliveryService.syncProviderPickup('shop-1', 'pathao', {
+                pickup_location_id: 'pickup-1',
+                provider_pickup_meta: { city_id: 1, zone_id: 2, area_id: 3 },
+            });
+            expect(result.store_resolution).toBe('MATCHED');
+            expect(provider.getStores).toHaveBeenCalledTimes(1);
+
+            // The cache is REPLACED by the listing the sync genuinely read:
+            // the stale 'ghost' entry is gone and the matched store is now
+            // listed, so the settings row legitimately reports confirmed.
+            expect(integration.metadata.stores.map((store) => store.store_id))
+                .toEqual(['store-other', 'store-selected']);
+            expect(integration.metadata.stores[1]).toMatchObject({
+                store_id: 'store-selected', name: 'Dhanmondi hub', city_id: 1, zone_id: 2, area_id: 3,
+            });
+            expect(Date.parse(integration.metadata.stores_synced_at)).toBeGreaterThan(Date.parse(IMPORT_STAMP));
+            expect(integration.provider_store_id).toBe('store-selected');
+
+            const after = await settingsRow(controller);
+            expect(after.pickup_mapping_status).toBe('confirmed');
+            expect(after.pickup_stores_synced_at).toBe(integration.metadata.stores_synced_at);
+        });
+    });
+
+    test('(c) a NO_MATCH sync keeps the cache as-is and the mapping stays stale', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = wiredStaleIntegration();
+            const provider = {
+                getStores: jest.fn().mockResolvedValue([
+                    { store_id: 'store-elsewhere', store_name: 'Far hub', city_id: 9, zone_id: 9, area_id: 9 },
+                ]),
+            };
+            freshnessMocks({ integration, provider });
+            const deliveryService = require('../delivery.service');
+            const controller = require('../delivery.controller');
+
+            const result = await deliveryService.syncProviderPickup('shop-1', 'pathao', {
+                pickup_location_id: 'pickup-1',
+                provider_pickup_meta: { city_id: 1, zone_id: 2, area_id: 3 },
+            });
+            expect(result.store_resolution).toBe('NO_MATCH');
+            expect(provider.getStores).toHaveBeenCalledTimes(1);
+
+            // The listing was read, but it confirmed NOTHING about the wired
+            // store: no entry was added, the stamp did not move, and the
+            // server still honestly reports stale.
+            expect(integration.metadata.stores).toEqual([{ store_id: 'ghost', store_name: 'Closed hub' }]);
+            expect(integration.metadata.stores_synced_at).toBe(IMPORT_STAMP);
+            expect(result.pickup_store_id).toBe('store-old');
+
+            const after = await settingsRow(controller);
+            expect(after.pickup_mapping_status).toBe('stale');
+            expect(after.pickup_stores_synced_at).toBe(IMPORT_STAMP);
+        });
+    });
+
+    test('(d) a link with no store_id changes nothing mapping-wise', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = wiredStaleIntegration();
+            freshnessMocks({ integration });
+            const controller = require('../delivery.controller');
+
+            const json = jest.fn();
+            const res = { json, status: jest.fn(() => res) };
+            const next = jest.fn();
+            await controller.setPickupConfiguration(
+                { user: { shopId: 'shop-1' }, params: { provider: 'pathao' }, body: { pickup_location_id: 'pickup-1', enabled: true } },
+                res,
+                next,
+            );
+            expect(next).not.toHaveBeenCalled();
+            const body = json.mock.calls[0][0];
+            // The location link succeeded; the store mapping was only
+            // preserved from prior metadata — never new live evidence.
+            expect(body.success).toBe(true);
+            expect(body.data.pickup_location_id).toBe('pickup-1');
+
+            expect(integration.metadata.stores).toEqual([{ store_id: 'ghost', store_name: 'Closed hub' }]);
+            expect(integration.metadata.stores_synced_at).toBe(IMPORT_STAMP);
+            const after = await settingsRow(controller);
+            expect(after.pickup_mapping_status).toBe('stale');
+            expect(after.pickup_stores_synced_at).toBe(IMPORT_STAMP);
+        });
+    });
+
+    test('(e) link/sync cache writes stay bound to the JWT shop (cross-tenant)', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = wiredStaleIntegration();
+            const provider = { getStores: jest.fn() };
+            freshnessMocks({ integration, provider, ownerShop: 'shop-1' });
+            const deliveryService = require('../delivery.service');
+
+            const cacheBefore = JSON.parse(JSON.stringify(integration.metadata));
+
+            await expect(deliveryService.setPickupConfiguration('shop-2', 'pathao', {
+                store_id: 'store-old', enabled: true,
+            })).rejects.toMatchObject({ status: 404, code: 'DELIVERY_PROVIDER_NOT_FOUND' });
+            await expect(deliveryService.syncProviderPickup('shop-2', 'pathao', {
+                pickup_location_id: 'pickup-1',
+            })).rejects.toMatchObject({ status: 404, code: 'DELIVERY_PROVIDER_NOT_FOUND' });
+
+            expect(integration.save).not.toHaveBeenCalled();
+            expect(provider.getStores).not.toHaveBeenCalled();
+            expect(integration.metadata).toEqual(cacheBefore);
+        });
+    });
+
+    test('a shop with no cache and no link evidence reports unknown, never confirmed', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration({
+                provider: 'pathao',
+                pickup_store_id: 'store-blind',
+                provider_store_id: 'store-blind',
+                pickup_enabled: true,
+                metadata: { pickup_store_id: 'store-blind', store_id: 'store-blind' },
+            });
+            freshnessMocks({ integration });
+            const controller = require('../delivery.controller');
+
+            const row = await settingsRow(controller);
+            expect(row.pickup_mapping_status).toBe('unknown');
+            expect(row.pickup_stores_synced_at).toBeNull();
+        });
+    });
+});
+
 describe('delivery controller structured pickup endpoints', () => {
     test('GET /:provider/stores is a PURE READ: canonical stores, zero writes, no pickup_locations', async () => {
         await jest.isolateModulesAsync(async () => {

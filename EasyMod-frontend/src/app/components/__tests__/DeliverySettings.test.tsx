@@ -337,7 +337,7 @@ describe('DeliverySettings courier setup (tabbed shell)', () => {
     mocks.createPickupLocation.mockResolvedValue({ id: 'pickup-1' });
     mocks.updatePickupLocation.mockResolvedValue({ id: 'pickup-1' });
     mocks.syncProviderPickup.mockResolvedValue({ store_resolution: 'MATCHED' });
-    mocks.listProviderStores.mockResolvedValue({ provider: 'pathao', stores: [], pickup_locations: [] });
+    mocks.listProviderStores.mockResolvedValue({ provider: 'pathao', stores: [] });
     mocks.importProviderStores.mockResolvedValue({ provider: 'pathao', stores: [], pickup_locations: [] });
     mocks.setProviderPickup.mockResolvedValue({ store_resolution: 'LINKED' });
     mocks.createProviderStore.mockResolvedValue({ provider: 'pathao', created: true, store: { store_id: 'new-s' } });
@@ -469,8 +469,10 @@ describe('DeliverySettings courier setup (tabbed shell)', () => {
     // The redesign routes the merchant to the Pickup TAB (no modal in the wired shell).
     await waitFor(() => expect(screen.getByTestId('delivery-tab-pickup')).toHaveAttribute('aria-selected', 'true'));
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByTestId('pickup-form')).toBeInTheDocument();
-    expect(screen.getByText('New Pathao pickup location')).toBeInTheDocument();
+    // PickupTab opens the deep-link form only after its first getPickupLocations
+    // settle (edit-vs-create decision), so wait for the mount rather than assume it.
+    expect(await screen.findByTestId('pickup-form', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText('New Pathao pickup location', {}, { timeout: 3000 })).toBeInTheDocument();
 
     fireEvent.change(screen.getByTestId('pickup-form-name'), { target: { value: 'Main pickup' } });
     fireEvent.change(document.getElementById('pickup-form-phone') as HTMLElement, { target: { value: '01712345678' } });

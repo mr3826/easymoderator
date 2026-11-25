@@ -234,20 +234,75 @@ const setIntegrationValue = (integration, key, value) => {
     }
 };
 
+/**
+ * Store-cache entry shape for integration.metadata.stores (the listing the
+ * pickup_mapping_status staleness in GET /settings is computed against). The
+ * keys mirror the controller's serializeStore whitelist plus the `source`
+ * marker: 'link' means the entry was proved by an explicit pickup LINK (or a
+ * sync that carried an explicit store selection — the provider accepted
+ * configuration for that store id live); entries without a marker came from a
+ * full provider listing (connect, Import, or a listing-reading sync).
+ */
+const CACHE_STORE_KEYS = ['store_id', 'id', 'store_name', 'name', 'address', 'phone', 'city_id', 'zone_id', 'area_id', 'source'];
+
+const canonicalCacheStores = (stores) => {
+    const seen = new Set();
+    const out = [];
+    for (const store of (Array.isArray(stores) ? stores : [])) {
+        if (!isPlainObject(store)) continue;
+        const rawId = store.store_id ?? store.id;
+        const storeId = String(rawId ?? '').trim();
+        if (storeId === '') continue;
+        const dedupeKey = storeId.toLowerCase();
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        const entry = {};
+        for (const key of CACHE_STORE_KEYS) {
+            if (store[key] !== undefined) entry[key] = store[key];
+        }
+        entry.store_id = storeId;
+        out.push(entry);
+    }
+    return out;
+};
+
+const cacheStoreId = (store) => String(store?.store_id ?? store?.id ?? '').trim().toLowerCase();
+
+/**
+ * Writers of metadata.stores (cache semantics, round-2 review contract):
+ *   - POST /:provider/stores/sync Import and the Pathao connect (controller)
+ *     replace the cache with the just-read listing;
+ *   - an explicit pickup LINK (POST /:provider/pickup carrying a top-level
+ *     store selection, pickup enabled) upserts one { store_id, source:'link' }
+ *     entry — the provider accepted configuration for that id, so it is live
+ *     evidence the store exists; existing entries are preserved and deduped;
+ *   - a pickup sync that READS the listing persists it when it MATCHED the
+ *     wired store (fresh listing replaces the cache) and on an AMBIGUOUS 409
+ *     (the listing was genuinely read; refreshing improves truth). PRESERVED
+ *     and NO_MATCH never touch the cache — they must not claim a freshness
+ *     the resolution did not achieve.
+ * Every cache write also stamps metadata.stores_synced_at. GET /settings and
+ * the GET store reads remain pure reads.
+ */
+const withLinkedStore = (metadata, storeId, nowIso) => {
+    const linkedId = String(storeId).trim();
+    if (linkedId === '') return metadata;
+    const stores = Array.isArray(metadata.stores) ? metadata.stores : [];
+    const alreadyCached = stores.some((store) => cacheStoreId(store) === linkedId.toLowerCase());
+    return {
+        ...metadata,
+        stores: alreadyCached ? stores : [...stores, { store_id: linkedId, source: 'link' }],
+        stores_synced_at: nowIso,
+    };
+};
+
 const safeIntegrationMetadata = (metadata = {}) => {
     if (!isPlainObject(metadata)) return {};
     const safe = {};
     for (const [key, value] of Object.entries(metadata)) {
         if (/(token|secret|password|credential|api[_-]?key|authorization|cookie|signature)/i.test(key)) continue;
         if (key === 'stores' && Array.isArray(value)) {
-            safe.stores = value.map((store) => {
-                if (!isPlainObject(store)) return null;
-                const allowed = {};
-                for (const storeKey of ['store_id', 'store_name', 'city_id', 'zone_id', 'area_id']) {
-                    if (store[storeKey] !== undefined) allowed[storeKey] = store[storeKey];
-                }
-                return allowed;
-            }).filter(Boolean);
+            safe.stores = canonicalCacheStores(value);
             continue;
         }
         if (key === 'provider_pickup_meta') {
@@ -600,8 +655,14 @@ class DeliveryService extends EventEmitter {
         });
     }
 
-    /** Persist the selected local/provider pickup source for one integration. */
-    async setPickupConfiguration(shopId, provider, input = {}) {
+    /**
+     * Persist the selected local/provider pickup source for one integration.
+     * `options.listingRefresh` is internal-only (never derived from request
+     * bodies): syncProviderPickup passes the listing it just read from the
+     * provider when a geographic match was made, so the store cache reflects
+     * current truth instead of the last bulk Import.
+     */
+    async setPickupConfiguration(shopId, provider, input = {}, options = {}) {
         if (!shopId || !provider) throw new AppError('Shop ID and provider are required', 400, 'VALIDATION_ERROR');
         const integration = await DeliveryIntegration.findOne({ where: { shop_id: shopId, provider } });
         if (!integration) throw new AppError('Provider not found', 404, 'DELIVERY_PROVIDER_NOT_FOUND');
@@ -654,13 +715,31 @@ class DeliveryService extends EventEmitter {
             );
         }
 
-        const metadata = {
+        let metadata = {
             ...safeIntegrationMetadata(integrationMetadata(integration)),
             ...(locationId ? { pickup_location_id: locationId } : { pickup_location_id: null }),
             ...(storeId !== null && storeId !== undefined ? { pickup_store_id: String(storeId), store_id: String(storeId) } : {}),
             provider_pickup_meta: providerPickupMeta,
             pickup_enabled: enabled,
         };
+        // Store-cache freshness extensions (see withLinkedStore). Only a
+        // TOP-LEVEL store selector in this request (input.store_id /
+        // storeId / provider_store_id) counts as an explicit link; a store id
+        // that merely survived from previously-persisted metadata is not new
+        // live evidence and must not flip the mapping to confirmed. A sync
+        // that read the provider listing replaces the cache with it.
+        const listingRefresh = Array.isArray(options.listingRefresh)
+            ? canonicalCacheStores(options.listingRefresh)
+            : null;
+        const explicitLinkedId = [input.store_id, input.storeId, input.provider_store_id]
+            .find((value) => value !== null && value !== undefined && String(value).trim() !== '');
+        if (listingRefresh && listingRefresh.length > 0) {
+            metadata.stores = listingRefresh;
+            metadata.stores_synced_at = new Date().toISOString();
+        }
+        if (enabled && explicitLinkedId !== undefined) {
+            metadata = withLinkedStore(metadata, explicitLinkedId, new Date().toISOString());
+        }
         integration.metadata = metadata;
         setIntegrationValue(integration, 'pickup_location_id', locationId);
         setIntegrationValue(integration, 'pickup_store_id', storeId === null || storeId === undefined ? null : String(storeId));
@@ -753,6 +832,11 @@ class DeliveryService extends EventEmitter {
         //     and surfaced as NO_MATCH for the UI. A sync NEVER creates an
         //     external provider store; that is the merchant-confirmed
         //     createProviderPickupStore action.
+        // The listing a sync genuinely read, persisted as the fresh store
+        // cache so MATCHED reflects current truth. PRESERVED and NO_MATCH keep
+        // this null: a read that could not confirm the mapping must not stamp
+        // a freshness the resolution did not achieve.
+        let resolvedListing = null;
         if ((provider === 'pathao' || provider === 'redx') && location && (requestStoreId === null || requestStoreId === undefined)) {
             const lock = await acquirePickupMutationLock(shopId, provider);
             if (!lock) throw pickupMutationInProgressError(provider);
@@ -768,6 +852,19 @@ class DeliveryService extends EventEmitter {
                 const storeList = normalizeProviderStoreList(stores);
                 const matches = storeList.filter((store) => providerStoreMatchesPickup(store, location, providerPickupMeta));
                 if (matches.length > 1) {
+                    // AMBIGUOUS still read the provider listing, so the cache
+                    // refresh is honest truth: the mapping itself is not
+                    // confirmed (the merchant must pick a candidate), but the
+                    // persisted listing reflects exactly what the provider
+                    // has right now.
+                    if (storeList.length > 0) {
+                        integration.metadata = {
+                            ...safeIntegrationMetadata(integrationMetadata(integration)),
+                            stores: canonicalCacheStores(storeList),
+                            stores_synced_at: new Date().toISOString(),
+                        };
+                        if (typeof integration.save === 'function') await integration.save();
+                    }
                     throw new AppError(
                         'Multiple provider pickup stores match this location. Select the intended store explicitly.',
                         409,
@@ -790,6 +887,7 @@ class DeliveryService extends EventEmitter {
                 if (matches.length === 1) {
                     storeId = matches[0].store_id;
                     storeResolution = 'MATCHED';
+                    resolvedListing = storeList;
                 } else if (storeId === null || storeId === undefined) {
                     storeResolution = 'NO_MATCH';
                 } else {
@@ -809,7 +907,7 @@ class DeliveryService extends EventEmitter {
             pickup_location_id: locationId,
             store_id: storeId,
             provider_pickup_meta: providerPickupMeta,
-        });
+        }, { listingRefresh: resolvedListing });
         return { ...config, store_resolution: storeResolution };
     }
 

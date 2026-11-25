@@ -21,10 +21,15 @@
  *     sends confirm:true, and a late server 409 (another tab changed state)
  *     re-surfaces the blockers inside the open dialog. Success shows an inline
  *     role=status notice ONLY after the server confirms (§8).
- *  6. Stale-mapping honesty: while the server flags pickup_mapping_status ===
- *     'stale' the pill stays attention — a successful store Fetch never flips it
- *     green; only an explicit LINK result or a sync resolution MATCHED/LINKED may
- *     override locally, and only until the next server reload.
+ *  6. Mapping honesty is SERVER-authoritative: while the server flags
+ *     pickup_mapping_status === 'stale' the pill stays attention — a successful
+ *     store Fetch never flips it green. A5c makes an explicit LINK and a
+ *     MATCHED/LINKED sync refresh the server's cached store listing, so after
+ *     those actions this tab simply RELOADS and lets the fresh server state flip
+ *     the pill — there is no local stale-override. pickup_mapping_status ===
+ *     'unknown' (no cached listing to compare) with a wired store renders an
+ *     ATTENTION "linked — not verified" pill + a Fetch/Import-then-link hint:
+ *     the backend contract is that 'unknown' is NEVER reported as confirmed.
  *
  * Status is Pending while in flight and only flips to a confirmed label once the
  * server replies (§8); sync/link failures keep every entered value (§C5) and
@@ -199,6 +204,37 @@ const formatCount = (value: number, language?: string): string => {
   }
 };
 
+/**
+ * Locale-aware timestamp (same pattern as customers/customerDisplay.ts): the
+ * active i18n language drives Intl — bn renders Bangla numerals, else en-US.
+ */
+const formatStoresSyncedDate = (value: string, language?: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  try {
+    return date.toLocaleString(language?.startsWith('bn') ? 'bn-BD' : 'en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  } catch {
+    return value;
+  }
+};
+
+/** The courier context a saved row was created under (anything unknown = manual). */
+const rowProviderOf = (row: PickupLocation): PickupFormProvider =>
+  row.provider === 'pathao' || row.provider === 'redx' || row.provider === 'steadfast'
+    ? row.provider
+    : 'manual';
+
+/** Persisted provider ids for re-hydrating the edit cascade (§A8 chain). */
+const rowMetaOf = (row: PickupLocation): ProviderPickupMetadata =>
+  (row.metadata?.provider_pickup_meta as ProviderPickupMetadata | undefined) ?? {
+    city_id: row.city_id,
+    zone_id: row.zone_id,
+    area_id: row.area_id,
+  };
+
 // --- Error parsing helpers (tolerant of the AppError → globalHandler envelope).
 const isConflictError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return false;
@@ -307,15 +343,11 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
 
   const [list, setList] = useState<PickupLocation[]>(locations ?? []);
   const [loadingLocations, setLoadingLocations] = useState(false);
+  /** True once the FIRST GET /pickup-locations has settled (deep-link decides on data). */
+  const [locationsSettled, setLocationsSettled] = useState(false);
   const [locationsError, setLocationsError] = useState<string | null>(null);
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
   const [nextStep, setNextStep] = useState<string | null>(null);
-  /**
-   * Local permission to show a stale-mapped provider as healthy — set ONLY by an
-   * explicit LINK result or a sync resolution MATCHED/LINKED, and dropped on every
-   * server reload so the fresh mapping status is the authority again (§A8).
-   */
-  const [staleOverride, setStaleOverride] = useState<Partial<Record<DeliveryProvider, boolean>>>({});
 
   const [storesByProvider, setStoresByProvider] = useState<Partial<Record<DeliveryProvider, ProviderStoreView[]>>>({});
   const [storesLoading, setStoresLoading] = useState<Partial<Record<DeliveryProvider, boolean>>>({});
@@ -326,6 +358,17 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
 
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingState | null>(null);
+  /**
+   * Bumped on every openForm(); part of the mounted PickupForm's KEY so switching
+   * the Edit target ALWAYS remounts the form with the new row's initial state
+   * (locationId + fields). PickupForm's useState initializers only run on mount —
+   * re-targeting without a remount would silently keep editing the OLD row (§A9).
+   */
+  const [formNonce, setFormNonce] = useState(0);
+  const openForm = useCallback((next: EditingState) => {
+    setFormNonce((nonce) => nonce + 1);
+    setEditing(next);
+  }, []);
   const [pending, setPending] = useState<string | null>(null);
   const [ambiguous, setAmbiguous] = useState<AmbiguousState | null>(null);
   const [deleteState, setDeleteState] = useState<DeleteState | null>(null);
@@ -350,7 +393,10 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     } catch (err) {
       if (alive.current) setLocationsError(getErrorMessage(err, t('manageShop.deliverySettings.pickup.errors.loadFailed')));
     } finally {
-      if (alive.current) setLoadingLocations(false);
+      if (alive.current) {
+        setLoadingLocations(false);
+        setLocationsSettled(true);
+      }
     }
   }, []);
 
@@ -358,9 +404,13 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     void loadLocations();
   }, []);
 
-  // Deep-link open (§A8): open the create form ONCE per prop-driven open and tell
-  // the shell it was consumed (re-opening on every remount is the shell's job to
-  // prevent by clearing pickupFocus; the ref guard pins once-per-open here).
+  // Deep-link open (§A8/§A9): the 409 "Complete pickup details" pointer must not
+  // blindly open a blank CREATE form — when the provider already has a saved
+  // pickup row, open EDIT on it (a second create would duplicate the row). The
+  // decision waits for the first location load so the lookup runs against server
+  // data, opens ONCE per prop-driven open, and tells the shell it was consumed
+  // (re-opening on every remount is the shell's job to prevent by clearing
+  // pickupFocus; the ref guard pins once-per-open here).
   const focusHandledRef = useRef<string | null>(null);
   const enteredViaFocusRef = useRef(Boolean(focusProvider));
   useEffect(() => {
@@ -369,25 +419,28 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       return;
     }
     if (focusHandledRef.current === focusProvider) return;
+    if (!locationsSettled) return;
     focusHandledRef.current = focusProvider;
-    setEditing((current) => current ?? { mode: 'create', provider: focusProvider });
+    if (!editing) {
+      const existing = list.find((row) => rowProviderOf(row) === focusProvider);
+      openForm(existing
+        ? { mode: 'edit', provider: focusProvider, location: existing, meta: rowMetaOf(existing) }
+        : { mode: 'create', provider: focusProvider });
+    }
     onFocusConsumed?.();
-  }, [focusProvider, onFocusConsumed]);
+  }, [focusProvider, onFocusConsumed, locationsSettled, list, editing, openForm]);
 
+  // Shell-driven reload of the provider rows. There is deliberately NO local
+  // stale-override to expire here: A5c refreshes the server's cached store
+  // listing as part of the LINK / MATCHED-LINKED calls themselves, so the fresh
+  // pickup_mapping_status coming back through `providers` IS the truth (§A9).
   const reload = useCallback(async () => {
     try {
       await onMutate?.();
     } catch {
       // Shell owns the load-error surface; keep last known state on a failed reload.
-    } finally {
-      // Server is truth after a reload — every local stale-override expires (§A8).
-      setStaleOverride({});
     }
   }, [onMutate]);
-
-  const markStaleResolved = useCallback((provider: DeliveryProvider) => {
-    setStaleOverride((prev) => ({ ...prev, [provider]: true }));
-  }, []);
 
   const setProviderStatus = (provider: DeliveryProvider, kind: PillKind, message?: string | null) => {
     setSyncStatus((prev) => ({ ...prev, [provider]: kind }));
@@ -495,9 +548,10 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       });
       const resolution = result?.store_resolution;
       if (alive.current) {
-        // An explicit LINK result may show healthy even while the server still
-        // flags the old mapping stale — the override lives until the next reload.
-        if (resolution === 'LINKED' || resolution === 'MATCHED') markStaleResolved(provider);
+        // The explicit LINK succeeded and (A5c) refreshed the server's cached
+        // listing, so the reload below is what flips the pill to server-green.
+        // No local stale-override: until the fresh status lands the pill stays
+        // honest to the server (§A9).
         setProviderStatus(
           provider,
           'healthy',
@@ -539,9 +593,9 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       } as never);
       if (!alive.current) return;
       setAmbiguous(null);
-      // Merchant-explicit store choice + successful re-sync = resolved mapping;
-      // healthy locally until the server reload confirms (§A8).
-      markStaleResolved(provider);
+      // Merchant-explicit store choice + successful re-sync resolves the mapping
+      // SERVER-side (A5c refreshes the cached listing on MATCHED/LINKED), so the
+      // reload below is what turns the pill green — not a local override (§A9).
       setProviderStatus(provider, 'healthy', t('manageShop.deliverySettings.pickup.linked', { store: storeTitle(store) }));
       await loadLocations();
       await reload();
@@ -565,7 +619,8 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
       const resolution = (result as unknown as { store_resolution?: string })?.store_resolution;
       if (alive.current) {
         if (resolution === 'MATCHED' || resolution === 'LINKED') {
-          markStaleResolved(provider);
+          // A5c refreshed the cached listing as part of this sync; the reload
+          // below brings the SERVER's 'confirmed' — no local override (§A9).
           setProviderStatus(
             provider,
             'healthy',
@@ -573,8 +628,10 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
           );
         } else {
           // PRESERVED / NO_MATCH / anything unresolved: the wiring is NOT proven —
-          // the previously wired store is likely no longer listed. Show ATTENTION
-          // with the next step, never healthy green (§A8).
+          // PRESERVED on retry means the wired store is not in the server's CACHE
+          // (a stale mapping kept, not verified). Show ATTENTION naming the action
+          // that fixes it — Import to refresh the listing, then link again — never
+          // healthy green (§A8/§A9).
           setProviderStatus(provider, 'attention', t('manageShop.deliverySettings.pickup.staleStoreHint'));
         }
       }
@@ -675,8 +732,10 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
         });
         if (!alive.current) return;
         const resolution = (res as unknown as { store_resolution?: string })?.store_resolution;
+        // The row's own persisted provider_store_id / a MATCHED-LINKED resolution
+        // is server-truth for THIS save; the reload below refreshes the mapping
+        // status itself (A5c refreshes the cache on MATCHED/LINKED) (§A9).
         const confirmed = Boolean(location?.provider_store_id) || resolution === 'MATCHED' || resolution === 'LINKED';
-        if (confirmed) markStaleResolved(provider);
         setProviderStatus(
           provider,
           confirmed ? 'healthy' : 'review',
@@ -731,10 +790,11 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     const msg = syncMessage[provider];
     const mapping = mappingStatus(provider);
     // Server-flagged STALE outranks local optimistic state (§A8): a successful
-    // store Fetch never flips it green. Only an explicit LINK result or a sync
-    // resolution MATCHED/LINKED (markStaleResolved) may show healthy, and only
-    // until the next reload restores the server mapping as the authority.
-    if (mapping === 'stale' && !staleOverride[provider]) {
+    // store Fetch never flips it green, and after an explicit LINK / MATCHED
+    // retry the RELOAD is what flips it (A5c refreshes the cached listing
+    // server-side) — there is no local override (§A9). In-flight pending/blocked/
+    // attention results still describe the action honestly.
+    if (mapping === 'stale') {
       if (stored === 'pending') return { kind: 'pending', label: msg ?? t('manageShop.deliverySettings.pickup.statusPills.pending') };
       if (stored === 'blocked') return { kind: 'blocked', label: msg ?? t('manageShop.deliverySettings.pickup.statusPills.blocked') };
       if (stored === 'attention') return { kind: 'attention', label: msg ?? t('manageShop.deliverySettings.pickup.mapping.stale') };
@@ -743,9 +803,34 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
     if (stored) {
       return { kind: stored, label: msg ?? t(`manageShop.deliverySettings.pickup.statusPills.${stored}`) };
     }
-    if (status.pickup_enabled && status.provider_store_id) return { kind: 'healthy', label: t('manageShop.deliverySettings.pickup.mapping.confirmed') };
+    // GREEN is reserved for a server 'confirmed' (the in-session `stored` state
+    // above is the explicit LINK/MATCHED result). A wired store the server has
+    // never compared against a cached courier listing — 'unknown', or the field
+    // absent on an older server — is an UNVERIFIED mapping: the backend contract
+    // says 'unknown' is never reported as confirmed, so a green "Linked &
+    // confirmed" pill here would be a false verification claim (§A9).
     if (mapping === 'confirmed') return { kind: 'healthy', label: t('manageShop.deliverySettings.pickup.mapping.confirmed') };
+    if (status.pickup_enabled && status.provider_store_id) {
+      return { kind: 'attention', label: t('manageShop.deliverySettings.pickup.mapping.unknownLinked') };
+    }
     return { kind: 'review', label: t('manageShop.deliverySettings.pickup.mapping.unknown') };
+  };
+
+  /**
+   * Wired to a provider store the server has NEVER verified against a cached
+   * listing (pickup_mapping_status 'unknown', or absent on an older server).
+   * Drives the always-visible hint naming the action that verifies it.
+   */
+  const unverifiedWired = (provider: DeliveryProvider): boolean => {
+    const status = statusFor(provider);
+    const mapping = mappingStatus(provider);
+    return Boolean(
+      status?.is_connected
+      && provider !== 'steadfast'
+      && status?.pickup_enabled
+      && status?.provider_store_id
+      && (mapping === null || mapping === 'unknown'),
+    );
   };
 
   return (
@@ -764,7 +849,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
           <EmButton
             variant="primary"
             className="gap-2 self-start"
-            onClick={() => setEditing({ mode: 'create', provider: 'manual' })}
+            onClick={() => openForm({ mode: 'create', provider: 'manual' })}
             data-testid="pickup-add-location"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
@@ -800,7 +885,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                         <h5 className="text-sm font-semibold text-em-text-primary">{t(PROVIDER_LABEL_KEYS[provider])}</h5>
                         {syncedAt ? (
                           <p className="em-tabular mt-0.5 text-xs text-em-text-secondary">
-                            {t('manageShop.deliverySettings.pickup.storesSyncedAt', { date: new Date(syncedAt).toLocaleString() })}
+                            {t('manageShop.deliverySettings.pickup.storesSyncedAt', { date: formatStoresSyncedDate(syncedAt, i18n?.language) })}
                           </p>
                         ) : (
                           <p className="mt-0.5 text-xs text-em-text-secondary">{t('manageShop.deliverySettings.pickup.notSyncedYet')}</p>
@@ -869,6 +954,22 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                           </EmButton>
                         )}
                       </div>
+
+                      {/* Never-verified wired mapping: name the action that fixes
+                          it (Fetch/Import + re-link), not just the state (§A9).
+                          Suppressed while an action message owns the feedback row. */}
+                      {unverifiedWired(provider) && !storesLoading[provider]
+                        && syncStatus[provider] !== 'pending' && syncStatus[provider] !== 'blocked' && (
+                        <p
+                          data-testid={`pickup-unverified-hint-${provider}`}
+                          className="mt-3 flex items-start gap-1.5 rounded-lg border border-em-sunlight-700/20 bg-em-sunlight-100 px-3 py-2 text-sm text-em-sunlight-700"
+                        >
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                          <span>
+                            {t('manageShop.deliverySettings.pickup.mapping.unknownLinkedHint', { provider: t(PROVIDER_LABEL_KEYS[provider as PickupFormProvider]) })}
+                          </span>
+                        </p>
+                      )}
 
                       {(storesError[provider] || syncMessage[provider]) && (
                         <p
@@ -986,6 +1087,11 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
 
           {editing && (
             <PickupForm
+              // Key = target identity + open counter: switching Edit to another
+              // row MUST remount the form so its useState initializers (row id +
+              // every field) take the NEW row's values — a mounted form never
+              // resets them (§A9, pinned by a unit test).
+              key={`${editing.mode}:${editing.provider}:${editing.location?.id ?? 'new'}:${formNonce}`}
               provider={editing.provider}
               mode={editing.mode}
               initial={editing.location}
@@ -1011,9 +1117,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
               {list.map((location) => {
                 const isDefault = location.is_default;
                 const isSelected = location.id === selectedLocationId;
-                const locationProvider = (location.provider === 'pathao' || location.provider === 'redx' || location.provider === 'steadfast')
-                  ? location.provider
-                  : 'manual';
+                const locationProvider = rowProviderOf(location);
                 return (
                   <li
                     key={location.id}
@@ -1041,7 +1145,7 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                             </span>
                           )}
                           <span className="inline-flex items-center gap-1 rounded-full bg-em-bg-muted px-2 py-0.5 text-xs font-medium text-em-text-secondary">
-                            {t(PROVIDER_LABEL_KEYS[locationProvider as PickupFormProvider])}
+                            {t(PROVIDER_LABEL_KEYS[locationProvider])}
                           </span>
                           {isSelected && (
                             <span className="text-xs font-medium text-em-violet-700">{t('manageShop.deliverySettings.pickup.selectedForLink')}</span>
@@ -1076,13 +1180,11 @@ export default function PickupTab({ providers, locations, onMutate, focusProvide
                         <EmButton
                           variant="secondary"
                           className="min-h-11 px-3 text-sm"
-                          onClick={() => setEditing({
+                          onClick={() => openForm({
                             mode: 'edit',
-                            provider: locationProvider as PickupFormProvider,
+                            provider: locationProvider,
                             location,
-                            meta: (location.metadata?.provider_pickup_meta as ProviderPickupMetadata | undefined) ?? {
-                              city_id: location.city_id, zone_id: location.zone_id, area_id: location.area_id,
-                            },
+                            meta: rowMetaOf(location),
                           })}
                           disabled={pending !== null}
                           data-testid={`pickup-edit-${location.id}`}
@@ -1255,7 +1357,20 @@ function DeleteConfirmDialog({ state, pending, onCancel, onConfirm }: DeleteConf
   const blockerLabel = (blocker: DeleteBlocker) => {
     if (blocker.code === 'IS_SHOP_DEFAULT') return t('manageShop.deliverySettings.pickup.deleteBlockedDefault');
     if (blocker.code === 'IN_USE') {
-      const providers = Array.isArray(blocker.providers) && blocker.providers.length > 0 ? blocker.providers.join(', ') : '';
+      // Server rows carry raw provider enums — show the merchant-facing labels
+      // (§A9); unknown enums pass through untranslated rather than rendering
+      // 'undefined'.
+      const providers = Array.isArray(blocker.providers) && blocker.providers.length > 0
+        ? blocker.providers
+          .map((value) => {
+            const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+            return normalized === 'pathao' || normalized === 'redx' || normalized === 'steadfast' || normalized === 'manual'
+              ? t(PROVIDER_LABEL_KEYS[normalized as PickupFormProvider])
+              : String(value ?? '');
+          })
+          .filter(Boolean)
+          .join(', ')
+        : '';
       return providers
         ? t('manageShop.deliverySettings.pickup.deleteBlockedInUseProviders', { providers })
         : t('manageShop.deliverySettings.pickup.deleteBlockedInUse');

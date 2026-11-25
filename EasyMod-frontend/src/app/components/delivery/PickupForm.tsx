@@ -16,7 +16,10 @@
  * a successful save it hands the saved row + the resolved
  * `ProviderPickupMetadata` back via `onSaved` so the parent can sync/link.
  * Field values are preserved on failure (test-pinned C5) — a failed save never
- * clears the inputs.
+ * clears the inputs. The parent MUST key this form by target identity (mode +
+ * provider + row id + open counter): its state comes from useState
+ * initializers, so a re-target without a remount keeps the OLD row — the submit
+ * guard refuses such a stale write instead (§A9).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -260,6 +263,17 @@ export default function PickupForm({
 
   const handleSubmit = async () => {
     if (saving) return;
+    // BRACES (§A9): the parent keys this form by target identity (mode + provider
+    // + row id + open counter), so switching the Edit target always REMOUNTS this
+    // component — useState initializers only run at mount and never re-sync to a
+    // new `initial`. If a caller ever re-targets WITHOUT remounting, this form's
+    // locationId would still point at the OLD row; refuse to write it instead of
+    // silently overwriting the newly targeted row.
+    const targetId = mode === 'edit' ? (initial?.id ?? '') : '';
+    if (locationId !== targetId) {
+      setError(t('manageShop.deliverySettings.pickup.errors.staleFormTarget'));
+      return;
+    }
     if (!validate()) return;
 
     const payload: PickupLocationPayload = {

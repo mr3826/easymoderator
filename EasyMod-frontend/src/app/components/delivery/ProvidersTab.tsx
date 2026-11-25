@@ -153,6 +153,25 @@ const PROVIDER_ICONS: Record<DeliveryProvider, typeof Truck> = {
 const FOCUS_RING =
   'focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none';
 
+/**
+ * A2c (bn-numerals rule): timestamps must render through the ACTIVE locale,
+ * never the host default. `new Date(x).toLocaleDateString()` with no locale
+ * argument showed Latin month/digits on the Bangla UI. Same mapping as
+ * customers/customerDisplay.ts `localeFor` (bn → bn-BD, else en-US) and the
+ * same medium-date + short-time shape `formatDateTime` uses there, through an
+ * explicit Intl.DateTimeFormat — the Phase-1 UTC-day-chip precedent (format
+ * through Intl for bn, so Bangla month/day numerals come from the locale data).
+ */
+const localeFor = (language: string): string => (language.toLowerCase().startsWith('bn') ? 'bn-BD' : 'en-US');
+
+const formatTimestamp = (value: string | null | undefined, language: string): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  // Unparseable server value: show the raw string, never "Invalid Date".
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(localeFor(language), { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+};
+
 const normalizeActivationStatus = (status: DeliveryProviderStatus | undefined): DeliveryActivationStatus => {
   const rawStatus = typeof status?.activation_status === 'string'
     ? (status.activation_status.toUpperCase() as DeliveryActivationStatus)
@@ -271,7 +290,7 @@ export interface ProvidersTabProps {
 }
 
 export default function ProvidersTab({ providers, onMutate, onCompletePickup }: ProvidersTabProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [drawerFor, setDrawerFor] = useState<DeliveryProvider | null>(null);
   const [pending, setPending] = useState<{ provider: DeliveryProvider; kind: ActionKind } | null>(null);
   const [feedback, setFeedback] = useState<InlineFeedback | null>(null);
@@ -542,7 +561,7 @@ export default function ProvidersTab({ providers, onMutate, onCompletePickup }: 
                         </span>
                         {lastTestedValue ? (
                           <span className="em-tabular text-xs text-em-text-secondary">
-                            {t('manageShop.deliverySettings.lastTested', { date: new Date(lastTestedValue).toLocaleDateString() })}
+                            {t('manageShop.deliverySettings.lastTested', { date: formatTimestamp(lastTestedValue, i18n.language) })}
                           </span>
                         ) : (
                           <span className="text-xs text-em-text-secondary">
@@ -669,7 +688,7 @@ export default function ProvidersTab({ providers, onMutate, onCompletePickup }: 
                   </dl>
                   <p className="mt-3 text-xs text-em-text-secondary">
                     {providerStatus.capabilities.last_verified_at
-                      ? t('manageShop.deliverySettings.capabilities.lastVerified', { date: new Date(providerStatus.capabilities.last_verified_at).toLocaleDateString() })
+                      ? t('manageShop.deliverySettings.capabilities.lastVerified', { date: formatTimestamp(providerStatus.capabilities.last_verified_at, i18n.language) })
                       : t('manageShop.deliverySettings.capabilities.neverVerified')}
                   </p>
                 </details>

@@ -74,7 +74,7 @@ const isPlainObject = (value) => (
 const serializeStore = (store) => {
     if (!store || typeof store !== 'object') return null;
     const safe = {};
-    for (const key of ['store_id', 'id', 'store_name', 'name', 'address', 'phone', 'city_id', 'zone_id', 'area_id']) {
+    for (const key of ['store_id', 'id', 'store_name', 'name', 'address', 'phone', 'city_id', 'zone_id', 'area_id', 'source']) {
         if (store[key] !== undefined) safe[key] = store[key];
     }
     return safe;
@@ -206,14 +206,21 @@ const providerPickupState = (integration) => {
         ?? providerMeta.pickup_store_id
         ?? metadata.store_id
         ?? null;
-    // Staleness of the stored provider store mapping against the last store
-    // listing we actually cached. The cache is refreshed ONLY by the explicit
-    // POST /:provider/stores/sync import (and the initial Pathao connect);
-    // GET /:provider/stores is a pure read and never re-caches, so
-    // 'confirmed'/'stale' mean agreement/disagreement with the last explicit
-    // import — the age of that import is surfaced honestly as
-    // pickup_stores_synced_at below. 'unknown' means we have no cached
-    // listing to compare against — it is never reported as confirmed.
+    // Staleness of the stored provider store mapping against the cached
+    // listing in integration.metadata.stores. Writers of that cache (see
+    // delivery.service withLinkedStore): the explicit
+    // POST /:provider/stores/sync import, the initial Pathao connect, an
+    // explicit pickup LINK (POST /:provider/pickup with a top-level store
+    // id upserts a { store_id, source:'link' } entry — the provider accepted
+    // configuration for that id, which is live evidence it exists), and a
+    // pickup sync whose listing read MATCHED (or answered AMBIGUOUS). GET
+    // /:provider/stores is a pure read and never re-caches. So
+    // 'confirmed' means the wired store id appears in the cache we most
+    // recently refreshed — via a full listing or via link evidence — and
+    // 'stale' means it does not; the age of that refresh is surfaced
+    // honestly as pickup_stores_synced_at below. Confirmed is NEVER derived
+    // from wiring alone, and 'unknown' means we have neither a cached
+    // listing nor link evidence to compare against.
     const storesCache = Array.isArray(metadata.stores)
         ? metadata.stores.filter((store) => isPlainObject(store))
         : [];
@@ -721,9 +728,12 @@ class DeliveryController {
      * (optionally filtered by store_ids), cache the listing +
      * stores_synced_at into integration metadata, and return the imported
      * stores with their pickup_locations. That cache is what
-     * pickup_mapping_status staleness in GET /settings is computed against,
-     * so staleness now reflects the last explicit sync — capability honesty
-     * preserved via metadata.stores / pickup_stores_synced_at.
+     * pickup_mapping_status staleness in GET /settings is computed against.
+     * Besides this import (and the Pathao connect), the pickup LINK and
+     * listing-reading sync flows in delivery.service legitimately extend or
+     * refresh the same cache — but only when the provider call itself proved
+     * the store — so staleness reflects the last moment provider truth was
+     * observed, never wiring alone.
      *
      * Steadfast has no store API and stays a manual 409 with manual_step.
      */
@@ -825,9 +835,11 @@ class DeliveryController {
 
             // Cache the listing and the time it was read so the settings
             // payload can distinguish a stale mapping from an unverified
-            // one. This import (and the Pathao connect) is now the ONLY
-            // writer of this cache — GET store reads are pure and never
-            // refresh it, so stores_synced_at is the last explicit sync.
+            // one. Besides this import (and the Pathao connect), the service
+            // extends/refreshes the same cache when a pickup LINK or a
+            // listing-reading sync produces live provider evidence; GET store
+            // reads stay pure and never refresh it, so stores_synced_at is
+            // always the last moment provider store truth was observed.
             integration.metadata = {
                 ...serializeProviderMetadata(integration.metadata),
                 stores: safeStores,
