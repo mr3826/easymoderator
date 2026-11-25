@@ -145,6 +145,7 @@ router.get(
 router.post(
     '/:provider/stores/sync',
     requireOwner,
+    validate(deliveryValidators.syncProviderStores),
     deliveryController.getProviderStores
 );
 

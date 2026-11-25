@@ -341,6 +341,25 @@ const deliveryValidators = {
     /** DELETE /pickup-locations/:id?... — confirm=true after the 409 blockers payload. */
     pickupDeleteQuery: Joi.object({
         confirm: Joi.boolean().truthy('true').falsy('false').optional()
+    }),
+
+    /**
+     * POST /:provider/stores/sync — optional selective import by provider
+     * store id. Absent or empty store_ids keeps the full-listing sync; a
+     * non-empty array mirrors only those ids (unmatched ids answer 409).
+     */
+    syncProviderStores: Joi.object({
+        store_ids: Joi.array()
+            .items(Joi.string().trim().min(1).max(120))
+            .max(50)
+            .optional()
+            .messages({
+                'array.base': 'store_ids must be an array of provider store ids',
+                'array.max': 'store_ids must contain at most 50 ids',
+                'string.base': 'store_ids entries must be strings',
+                'string.min': 'store_ids entries must be non-empty strings',
+                'string.max': 'store_ids entries must be at most 120 characters'
+            })
     })
 };
 

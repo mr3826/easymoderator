@@ -91,6 +91,7 @@ const STRUCTURED_PICKUP_ERROR_CODES = new Set([
     'DELIVERY_PROVIDER_STORE_CONFIRMATION_REQUIRED',
     'PICKUP_LOCATION_DELETE_CONFIRMATION_REQUIRED',
     'DELIVERY_MUTATION_IN_PROGRESS',
+    'DELIVERY_STORE_IDS_UNMATCHED',
 ]);
 
 const respondStructuredPickupError = (res, error) => {
@@ -728,9 +729,46 @@ class DeliveryController {
             const stores = await deliveryService.getProviderStores(shopId, provider);
             const safeStores = (Array.isArray(stores) ? stores : []).map(serializeStore).filter(Boolean);
 
+            // Selective import (POST /:provider/stores/sync with store_ids):
+            // mirror only the named stores. An id the provider did not return
+            // is a conflict the UI must surface, never a silent drop. GET, and
+            // an absent/empty store_ids, keep the full-listing sync.
+            let storesToSync = safeStores;
+            const requestedIds = req.method === 'POST' && Array.isArray(req.body?.store_ids)
+                ? req.body.store_ids
+                : null;
+            if (requestedIds && requestedIds.length > 0) {
+                const normalizeStoreId = (value) => String(value ?? '').trim().toLowerCase();
+                const available = new Map();
+                for (const store of safeStores) {
+                    const canonicalId = store.store_id ?? store.id;
+                    if (canonicalId !== undefined && canonicalId !== null) {
+                        available.set(normalizeStoreId(canonicalId), store);
+                    }
+                }
+                const seen = new Set();
+                const requested = [];
+                for (const raw of requestedIds) {
+                    const norm = normalizeStoreId(raw);
+                    if (!norm || seen.has(norm)) continue;
+                    seen.add(norm);
+                    requested.push({ raw: String(raw).trim(), norm });
+                }
+                const unmatched = requested.filter((entry) => !available.has(entry.norm)).map((entry) => entry.raw);
+                if (unmatched.length > 0) {
+                    throw new AppError(
+                        'Some requested store ids were not found at the provider',
+                        409,
+                        'DELIVERY_STORE_IDS_UNMATCHED',
+                        { provider, unmatched_store_ids: unmatched },
+                    );
+                }
+                storesToSync = requested.map((entry) => available.get(entry.norm));
+            }
+
             let pickupLocations = [];
             try {
-                pickupLocations = await pickupLocationService.syncProviderStores(shopId, provider, safeStores);
+                pickupLocations = await pickupLocationService.syncProviderStores(shopId, provider, storesToSync);
             } catch (syncError) {
                 throw new AppError('Provider stores were read but could not be synchronized', 503, 'DELIVERY_STORE_SYNC_FAILED', {
                     cause: syncError?.code || syncError?.name || 'unknown',
@@ -750,7 +788,7 @@ class DeliveryController {
                 success: true,
                 data: {
                     provider,
-                    stores: safeStores,
+                    stores: storesToSync,
                     pickup_locations: pickupLocations,
                     // Listing reads are mocked-tested only; no live provider
                     // account has been exercised for either provider here.
@@ -758,6 +796,7 @@ class DeliveryController {
                 }
             });
         } catch (error) {
+            if (respondStructuredPickupError(res, error)) return;
             forwardSafeProviderError(next, error, 'Delivery provider store lookup failed');
         }
     }

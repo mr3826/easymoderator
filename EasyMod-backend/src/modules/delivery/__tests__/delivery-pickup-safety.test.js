@@ -728,3 +728,162 @@ describe('metadata pickup_enabled readiness gate', () => {
         });
     });
 });
+
+describe('selective provider store import (POST /:provider/stores/sync store_ids)', () => {
+    const canonicalStore = (id, name) => ({
+        store_id: id, id, name, address: 'House 1', phone: null,
+        city_id: 2, zone_id: 4, area_id: 9,
+    });
+
+    const controllerMocks = ({ stores, integration, syncResult }) => {
+        const deliveryService = { getProviderStores: jest.fn().mockResolvedValue(stores) };
+        const pickupLocationService = {
+            syncProviderStores: jest.fn().mockResolvedValue(syncResult || []),
+            listPickupLocations: jest.fn(),
+        };
+        const DeliveryIntegration = { findOne: jest.fn().mockResolvedValue(integration) };
+        jest.doMock('../delivery-integration.entity', () => DeliveryIntegration);
+        jest.doMock('../../entities', () => ({ Shop: { findByPk: jest.fn() } }));
+        jest.doMock('../delivery.service', () => deliveryService);
+        jest.doMock('../pickup-location.service', () => pickupLocationService);
+        jest.doMock('../courier-readiness.service', () => ({ getReadiness: jest.fn() }));
+        jest.doMock('../../../utils/shop-settings-cache', () => ({ invalidateShopSettingsCaches: jest.fn() }));
+        jest.doMock('../providers/provider.registry', () => ({
+            COURIER_REGISTRY: { pathao: { label: 'Pathao' }, redx: { label: 'RedX' } },
+        }));
+        return { deliveryService, pickupLocationService, DeliveryIntegration };
+    };
+
+    const call = (controller, { method = 'POST', provider = 'pathao', body, shopId = 'shop-1' } = {}) => {
+        const json = jest.fn();
+        const res = { json, status: jest.fn(() => res) };
+        const next = jest.fn();
+        const req = { user: { shopId }, params: { provider }, method };
+        if (body !== undefined) req.body = body;
+        return controller.getProviderStores(req, res, next).then(() => ({ json, res, next }));
+    };
+
+    test('mirrors only the requested store and keeps the full catalog cached', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration();
+            const stores = [canonicalStore('77', 'Dhanmondi Hub'), canonicalStore('88', 'Uttara Hub')];
+            const { pickupLocationService } = controllerMocks({
+                stores, integration, syncResult: [{ id: 'row-77', provider_store_id: '77' }],
+            });
+            const controller = require('../delivery.controller');
+
+            const { json, next } = await call(controller, { body: { store_ids: ['77'] } });
+
+            expect(next).not.toHaveBeenCalled();
+            expect(pickupLocationService.syncProviderStores).toHaveBeenCalledTimes(1);
+            expect(pickupLocationService.syncProviderStores).toHaveBeenCalledWith('shop-1', 'pathao', [
+                expect.objectContaining({ store_id: '77', name: 'Dhanmondi Hub' }),
+            ]);
+            const synced = pickupLocationService.syncProviderStores.mock.calls[0][2];
+            expect(synced).toHaveLength(1);
+            expect(synced[0].store_id).toBe('77');
+            expect(json).toHaveBeenCalledWith(expect.objectContaining({
+                success: true,
+                data: expect.objectContaining({
+                    stores: [expect.objectContaining({ store_id: '77' })],
+                    pickup_locations: [{ id: 'row-77', provider_store_id: '77' }],
+                }),
+            }));
+            expect(integration.metadata.stores.map((s) => s.store_id)).toEqual(['77', '88']);
+        });
+    });
+
+    test('an unmatched id answers a structured 409 listing it and never syncs', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration();
+            const stores = [canonicalStore('77', 'Dhanmondi Hub')];
+            const { pickupLocationService } = controllerMocks({ stores, integration });
+            const controller = require('../delivery.controller');
+
+            const { json, res, next } = await call(controller, { body: { store_ids: ['77', 'does-not-exist'] } });
+
+            expect(next).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(409);
+            expect(json).toHaveBeenCalledWith(expect.objectContaining({
+                success: false,
+                code: 'DELIVERY_STORE_IDS_UNMATCHED',
+                details: expect.objectContaining({
+                    provider: 'pathao',
+                    unmatched_store_ids: ['does-not-exist'],
+                }),
+            }));
+            expect(pickupLocationService.syncProviderStores).not.toHaveBeenCalled();
+            expect(integration.save).not.toHaveBeenCalled();
+        });
+    });
+
+    test('matching is case/whitespace tolerant and unmatched ids keep their original casing', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration();
+            const stores = [canonicalStore('AB', 'Alpha Hub')];
+            const { pickupLocationService } = controllerMocks({ stores, integration, syncResult: [{ id: 'row-ab' }] });
+            const controller = require('../delivery.controller');
+
+            const ok = await call(controller, { body: { store_ids: ['  ab  '] } });
+            expect(ok.next).not.toHaveBeenCalled();
+            expect(pickupLocationService.syncProviderStores).toHaveBeenCalledWith('shop-1', 'pathao', [
+                expect.objectContaining({ store_id: 'AB' }),
+            ]);
+
+            pickupLocationService.syncProviderStores.mockClear();
+            const bad = await call(controller, { body: { store_ids: ['AB', 'MissingId'] } });
+            expect(bad.res.status).toHaveBeenCalledWith(409);
+            expect(bad.json).toHaveBeenCalledWith(expect.objectContaining({
+                code: 'DELIVERY_STORE_IDS_UNMATCHED',
+                details: expect.objectContaining({ unmatched_store_ids: ['MissingId'] }),
+            }));
+        });
+    });
+
+    test('absent or empty store_ids keeps the full-listing sync; GET ignores any body', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration();
+            const stores = [canonicalStore('77', 'Dhanmondi Hub'), canonicalStore('88', 'Uttara Hub')];
+            const { pickupLocationService } = controllerMocks({ stores, integration, syncResult: [{ id: 'row-77' }, { id: 'row-88' }] });
+            const controller = require('../delivery.controller');
+
+            await call(controller, {});
+            expect(pickupLocationService.syncProviderStores).toHaveBeenLastCalledWith('shop-1', 'pathao', [
+                expect.objectContaining({ store_id: '77' }),
+                expect.objectContaining({ store_id: '88' }),
+            ]);
+
+            await call(controller, { body: { store_ids: [] } });
+            expect(pickupLocationService.syncProviderStores).toHaveBeenLastCalledWith('shop-1', 'pathao', [
+                expect.objectContaining({ store_id: '77' }),
+                expect.objectContaining({ store_id: '88' }),
+            ]);
+
+            await call(controller, { method: 'GET', body: { store_ids: ['77'] } });
+            expect(pickupLocationService.syncProviderStores).toHaveBeenLastCalledWith('shop-1', 'pathao', [
+                expect.objectContaining({ store_id: '77' }),
+                expect.objectContaining({ store_id: '88' }),
+            ]);
+        });
+    });
+
+    test('selective import stays bound to the JWT shop (cross-tenant isolation)', async () => {
+        await jest.isolateModulesAsync(async () => {
+            const integration = fakeIntegration();
+            const stores = [canonicalStore('77', 'Dhanmondi Hub')];
+            const { pickupLocationService, DeliveryIntegration } = controllerMocks({ stores, integration, syncResult: [{ id: 'row-77' }] });
+            const controller = require('../delivery.controller');
+
+            await call(controller, { shopId: 'shop-2', body: { store_ids: ['77'] } });
+
+            expect(DeliveryIntegration.findOne).toHaveBeenCalledWith(expect.objectContaining({
+                where: { shop_id: 'shop-2', provider: 'pathao' },
+            }));
+            expect(pickupLocationService.syncProviderStores).toHaveBeenCalledWith('shop-2', 'pathao', [
+                expect.objectContaining({ store_id: '77' }),
+            ]);
+            expect(DeliveryIntegration.findOne.mock.calls[0][0].where.shop_id).toBe('shop-2');
+            expect(pickupLocationService.syncProviderStores.mock.calls[0][0]).toBe('shop-2');
+        });
+    });
+});
