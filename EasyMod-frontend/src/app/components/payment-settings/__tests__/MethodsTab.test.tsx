@@ -154,4 +154,51 @@ describe('MethodsTab', () => {
     fireEvent.click(within(card).getByRole('switch'));
     expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
+
+  // F4: the delete dialog must state TRUE semantics — pending/unclosed payment
+  // records block deletion server-side (409 ACCOUNT_IN_USE), and the orders/
+  // transactions FK is ON DELETE SET NULL, so historical attribution survives
+  // as transaction RECORDS while the link to this account entry is LOST. The
+  // old copy promised "Existing orders keep their payment attribution" — never
+  // say that when the link becomes NULL.
+  it('states the honest delete semantics (resolve pending records first; link lost, never "keeps attribution")', async () => {
+    await renderWith([account({ id: 'a1' })]);
+    fireEvent.click(screen.getByTestId('expand-bkash'));
+    const card = await screen.findByTestId('account-card-a1');
+    fireEvent.click(within(card).getByTestId('delete-a1'));
+    const body = await screen.findByTestId('delete-account-body');
+    expect(body).toHaveTextContent('pending or unclosed payment records cannot be deleted until those are resolved');
+    expect(body).toHaveTextContent('no longer link to this account entry');
+    expect(body).not.toHaveTextContent(/keep their payment attribution/i);
+  });
+
+  it('surfaces a 409 ACCOUNT_IN_USE refusal VERBATIM instead of pretending the delete happened', async () => {
+    // NormalizedApiError shape (what the http client throws) — the component
+    // renders the server's message unchanged, whatever wording the backend
+    // ships for the guard.
+    // Verbatim from payment-accounts.service.js:357-362 (guard landed 2026-11-26).
+    vi.mocked(paymentApi.deletePaymentAccount).mockRejectedValueOnce(Object.assign(new Error(''), {
+      type: 'CONFLICT',
+      statusCode: 409,
+      code: 'ACCOUNT_IN_USE',
+      message: 'This payment account still has 1 unsettled payment transaction(s). Settle them (approve/reject) first, or disable the account instead of deleting it.',
+      timestamp: new Date().toISOString(),
+    }));
+    const onMutate = await renderWith([account({ id: 'a1' })]);
+    fireEvent.click(screen.getByTestId('expand-bkash'));
+    const card = await screen.findByTestId('account-card-a1');
+    fireEvent.click(within(card).getByTestId('delete-a1'));
+    const dialog = await screen.findByRole('dialog', { name: /Delete this payment account/i });
+    fireEvent.click(within(dialog).getByTestId('confirm-delete-account'));
+    await waitFor(() => expect(paymentApi.deletePaymentAccount).toHaveBeenCalledWith('a1'));
+    const alert = await screen.findByRole('alert');
+    // Verbatim server wording, not a generic failure toast.
+    expect(alert).toHaveTextContent('still has 1 unsettled payment transaction(s). Settle them (approve/reject) first, or disable the account instead of deleting it.');
+    // A refusal is a refusal: the tab never claims the account was deleted,
+    // and it never optimistically drops the row (no reload, no success state).
+    expect(alert).not.toHaveTextContent(/Account deleted/i);
+    expect(screen.getByTestId('account-card-a1')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(onMutate).not.toHaveBeenCalled();
+  });
 });

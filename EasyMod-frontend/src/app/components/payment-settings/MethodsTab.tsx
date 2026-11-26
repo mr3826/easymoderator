@@ -309,11 +309,16 @@ export default function MethodsTab({ accounts, onMutate }: MethodsTabProps) {
                   <h3 id="delete-account-title" className="text-lg font-semibold text-em-text-primary">
                     {t(`manageShop.paymentSettings.delete.title`, { defaultValue: 'Delete this payment account?' })}
                   </h3>
-                  <p className="mt-2 text-sm text-em-text-secondary">
+                  <p className="mt-2 text-sm text-em-text-secondary" data-testid="delete-account-body">
+                    {/* F4: TRUE semantics — the server refuses deletion while payment
+                        records are unresolved (409), and the orders/payment_transactions
+                        FK is ON DELETE SET NULL: transaction records persist, the link
+                        to THIS account entry becomes NULL. Never claim attribution is
+                        kept when the link is nulled. */}
                     {t(`manageShop.paymentSettings.delete.body`, {
                       name: deleteTarget.provider ? t(providerNameKey(deleteTarget.provider), { defaultValue: deleteTarget.provider }) : '',
                       type: deleteTarget.account_type ? t(accountTypeKey(deleteTarget.account_type), { defaultValue: accountTypeDefaultLabel(deleteTarget.account_type) }) : '',
-                      defaultValue: 'Existing orders keep their payment attribution, but this account stops being offered to new customers.',
+                      defaultValue: 'Accounts with pending or unclosed payment records cannot be deleted until those are resolved. After a deletion, historical orders keep their payment transaction records but no longer link to this account entry.',
                     })}
                   </p>
                 </div>

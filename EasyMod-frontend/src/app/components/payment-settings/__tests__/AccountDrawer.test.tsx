@@ -164,3 +164,96 @@ describe('AccountDrawer — verification actions (honest)', () => {
     await waitFor(() => expect(paymentApi.certifyLiveAccount).toHaveBeenCalledWith('gw-1', 'bKash onboarding email 2026-11-30'));
   });
 });
+
+describe('AccountDrawer — M5 environment hydration (server parity)', () => {
+  // bkash-tokenized.service.js resolveEnvironment() treats an UNSET
+  // config.environment as sandbox; the drawer must hydrate identically, state
+  // the unrecorded truth, and only ever WRITE environment on explicit touch.
+  it('defaults UNSET config.environment to sandbox and says "not recorded — treated as sandbox"', () => {
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount({ config: {} })} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByTestId('drawer-environment')).toBeChecked();
+    expect(screen.getByTestId('environment-not-recorded')).toHaveTextContent('Not recorded — treated as sandbox.');
+  });
+
+  it('hydrates an explicit production record as production without the honesty line', () => {
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount({ config: { environment: 'production' } })} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByTestId('drawer-environment')).not.toBeChecked();
+    expect(screen.queryByTestId('environment-not-recorded')).not.toBeInTheDocument();
+  });
+
+  it('hydrates an explicit sandbox record as sandbox without the honesty line', () => {
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount({ config: { environment: 'sandbox' } })} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByTestId('drawer-environment')).toBeChecked();
+    expect(screen.queryByTestId('environment-not-recorded')).not.toBeInTheDocument();
+  });
+
+  it('NEVER includes config in the PATCH when the merchant never touched the environment', async () => {
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount({ config: { environment: 'production' } })} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('account-drawer-save'));
+    await waitFor(() => expect(paymentApi.updatePaymentAccount).toHaveBeenCalledTimes(1));
+    const [, patch] = vi.mocked(paymentApi.updatePaymentAccount).mock.calls[0] as [string, Record<string, unknown>];
+    expect('config' in patch).toBe(false);
+    expect('credentials' in patch).toBe(false);
+  });
+
+  it('writes config.environment ONLY after an explicit toggle, and drops the honesty line', async () => {
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount({ config: {} })} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('drawer-environment'));
+    expect(screen.queryByTestId('environment-not-recorded')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('account-drawer-save'));
+    await waitFor(() => expect(paymentApi.updatePaymentAccount).toHaveBeenCalledTimes(1));
+    const [, patch] = vi.mocked(paymentApi.updatePaymentAccount).mock.calls[0] as [string, { config: Record<string, unknown> }];
+    expect(patch.config).toEqual({ environment: 'production' });
+  });
+});
+
+describe('AccountDrawer — M8 credential replace password semantics', () => {
+  it('edit mode labels the password field with the keep-stored semantics', () => {
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount()} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByTestId('password-keep-hint')).toHaveTextContent('Leave blank to keep the stored password');
+    // The hint lives inside the <label>, so the accessible name carries it.
+    expect(screen.getByLabelText(/leave blank to keep the stored password/i)).toBeInTheDocument();
+  });
+
+  it('create mode shows no keep-blank hint (nothing is stored yet)', () => {
+    render(<AccountDrawer mode="create" provider="bkash" onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('channel-option-merchant_gateway'));
+    expect(screen.queryByTestId('password-keep-hint')).not.toBeInTheDocument();
+  });
+
+  it('omits a blank password from the PATCH credentials (server keeps the stored one)', async () => {
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount()} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByTestId('gateway-app-key'), { target: { value: 'AK-new' } });
+    fireEvent.change(screen.getByTestId('gateway-app-secret'), { target: { value: 'AS-new' } });
+    fireEvent.change(screen.getByTestId('gateway-username'), { target: { value: 'u-new' } });
+    // password intentionally left blank:
+    fireEvent.click(screen.getByTestId('account-drawer-save'));
+    await waitFor(() => expect(paymentApi.updatePaymentAccount).toHaveBeenCalledTimes(1));
+    const [, patch] = vi.mocked(paymentApi.updatePaymentAccount).mock.calls[0] as [string, { credentials: Record<string, unknown> }];
+    expect(patch.credentials).toEqual({ app_key: 'AK-new', app_secret: 'AS-new', username: 'u-new' });
+    expect('password' in patch.credentials).toBe(false);
+  });
+
+  it('sends the password exactly when typed, and whitespace-only counts as blank', async () => {
+    const { unmount } = render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount()} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByTestId('gateway-app-key'), { target: { value: 'AK-new' } });
+    fireEvent.change(screen.getByTestId('gateway-app-secret'), { target: { value: 'AS-new' } });
+    fireEvent.change(screen.getByTestId('gateway-username'), { target: { value: 'u-new' } });
+    fireEvent.change(screen.getByTestId('gateway-password'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByTestId('account-drawer-save'));
+    await waitFor(() => expect(paymentApi.updatePaymentAccount).toHaveBeenCalledTimes(1));
+    let [, patch] = vi.mocked(paymentApi.updatePaymentAccount).mock.calls[0] as [string, { credentials: Record<string, unknown> }];
+    expect('password' in patch.credentials).toBe(false);
+    unmount();
+
+    render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount()} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByTestId('gateway-app-key'), { target: { value: 'AK-new' } });
+    fireEvent.change(screen.getByTestId('gateway-app-secret'), { target: { value: 'AS-new' } });
+    fireEvent.change(screen.getByTestId('gateway-username'), { target: { value: 'u-new' } });
+    fireEvent.change(screen.getByTestId('gateway-password'), { target: { value: 'typed-secret' } });
+    fireEvent.click(screen.getByTestId('account-drawer-save'));
+    await waitFor(() => expect(paymentApi.updatePaymentAccount).toHaveBeenCalledTimes(2));
+    [, patch] = vi.mocked(paymentApi.updatePaymentAccount).mock.calls[1] as [string, { credentials: Record<string, unknown> }];
+    expect(patch.credentials).toEqual({ app_key: 'AK-new', app_secret: 'AS-new', username: 'u-new', password: 'typed-secret' });
+  });
+});

@@ -10,9 +10,11 @@
  *  2. Credential replace NEVER echoes secrets on any response and DEMOTES the
  *     ladder (§2 credential-change invalidation).
  *  3. Policy five-rule validation round-trip incl. a server-400 bypass path.
- *  4. claim → merchant approve happy path: payment_claimed → verified, with
- *     expires_at set, duplicate-TrxID refusal, and the honest receipt copy
- *     (never "paid"/"confirmed" before the merchant acts).
+ *  4. claim → merchant approve/reject through the REAL notification-row UI
+ *     (F2 migration: no page.evaluate fetch for owner actions): payment_claimed
+ *     → verified/rejected, with expires_at set, duplicate-TrxID refusal, honest
+ *     receipt copy, verbatim server verdicts, and the D-4 posture that expired
+ *     rows surface honestly (Expired chip) yet stay actionable — no 410 wall.
  * Plus multi-account enable/disable with the single-preferred invariant.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -38,6 +40,18 @@ const row = (over: Partial<Row> & Pick<Row, 'id' | 'provider' | 'account_type'>)
     automated_checkout_active: false, provider_notice: null, config: {}, _secrets: null, ...over,
 } as Row);
 
+// Mirrors the real OwnerNotification row columns returned by GET /in-app
+// (owner-notification.entity.js). Verdicts below come from the mocked server
+// EXACTLY as the real (inert, post-D-4) endpoints answer — flat AppError/success
+// envelopes, never a fabricated shape.
+interface NotifRow {
+    id: string; shop_id: string; type: string;
+    customer_message: string | null;
+    customer_data: Record<string, unknown>;
+    status: string; owner_response: string | null;
+    expires_at: string; created_at: string;
+}
+
 async function setupRoutes(page: Page, seedRows: Row[] = []) {
     let authenticated = false;
     const state: {
@@ -45,6 +59,7 @@ async function setupRoutes(page: Page, seedRows: Row[] = []) {
         rows: Row[];
         policy: Record<string, unknown>;
         claims: Record<string, unknown>[];
+        notifs: NotifRow[];
         usedTrx: string[];
         approveCalls: { id: string; action: string }[];
         preferredPuts: string[];
@@ -56,6 +71,7 @@ async function setupRoutes(page: Page, seedRows: Row[] = []) {
         rows: seedRows,
         policy: { advance_policy: 'none', advance_value: null, payment_message: '' },
         claims: [],
+        notifs: [],
         usedTrx: [],
         approveCalls: [],
         preferredPuts: [],
@@ -185,7 +201,7 @@ async function setupRoutes(page: Page, seedRows: Row[] = []) {
             return route.fulfill({ json: json({ ...state.policy, updated_at: '2026-11-27T00:00:00.000Z', updated_by: 'user-1' }) });
         }
 
-        // ── self-MFS claim + merchant approve surface (§3, R-13) ─────────────
+        // ── self-MFS claim + merchant owner-action surface (§3, R-13) ─────────
         if (path === '/api/payment/claims' && method === 'POST') {
             const b = body();
             const trx = String(b.trxId ?? '').toUpperCase().replace(/\s/g, '');
@@ -197,6 +213,7 @@ async function setupRoutes(page: Page, seedRows: Row[] = []) {
                 return route.fulfill({ status: 409, json: { success: false, code: 'TRXID_ALREADY_USED', message: `This TrxID (${trx}) was already used. Please pay with a new transaction or contact the shop.` } });
             }
             state.usedTrx.push(trx);
+            const notifId = `notif-${state.claims.length + 1}`;
             const claim = {
                 transaction_id: trx,
                 status: 'payment_claimed',
@@ -205,36 +222,81 @@ async function setupRoutes(page: Page, seedRows: Row[] = []) {
                 payment_account_id: 'acc-bkash-self-1',
                 amount: 250,
                 expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                notification_id: 'notif-claim-1',
+                notification_id: notifId,
             };
             state.claims.push(claim);
+            // sendPaymentConfirmationRequest (owner-notification.service.js:131+):
+            // the row carries expires_at (24 h), status pending, and the
+            // merchant-evidence customer_data (stamped wallet number, claim
+            // amount/kind — §3.3 fixes). Real rows have NO customer_data.title.
+            state.notifs.push({
+                id: notifId,
+                shop_id: 'shop-1',
+                type: 'payment_confirmation',
+                customer_message: `Paid ৳250 via bKash, TrxID ${trx}`,
+                customer_data: {
+                    orderId: claim.order_id,
+                    orderNumber: `ORD-${String(b.orderId)}`,
+                    transactionId: trx,
+                    paymentMethod: 'bkash',
+                    amount: claim.amount,
+                    claimAmount: claim.amount,
+                    amountKind: 'full',
+                    walletNumber: '01711000000',
+                },
+                status: 'pending',
+                owner_response: null,
+                expires_at: claim.expires_at,
+                created_at: new Date().toISOString(),
+            });
             return route.fulfill({
                 status: 201,
                 json: { success: true, ...claim, message: `We've received your payment details (TrxID ${trx}). The shop owner will confirm shortly.` },
             });
         }
         if (path === '/api/notifications/in-app' && method === 'GET') {
-            const claim = state.claims[state.claims.length - 1] as Record<string, unknown> | undefined;
-            return route.fulfill({
-                json: json(claim ? [{
-                    id: 'notif-claim-1', type: 'payment_confirmation', status: 'pending',
-                    title: 'Payment confirmation needed', created_at: new Date().toISOString(),
-                    expires_at: claim.expires_at,
-                    customer_data: { transactionId: claim.transaction_id, orderId: claim.order_id, walletNumber: '01711000000', claimAmount: claim.amount, amountKind: 'full' },
-                }] : []),
-            });
+            // Real GET /in-app now goes through listShopNotifications →
+            // markExpiredOnRead (owner-notification.service.js:681+): a pending
+            // row past its deadline is honestly re-reported as 'expired' on the
+            // list read — and stays actionable. Verbatim here.
+            const now = Date.now();
+            for (const n of state.notifs) {
+                if (n.status === 'pending' && n.expires_at && new Date(n.expires_at).getTime() <= now) {
+                    n.status = 'expired';
+                }
+            }
+            return route.fulfill({ json: json([...state.notifs].reverse()) });
         }
         const ap = path.match(/^\/api\/notifications\/payment-confirmation\/([\w-]+)\/(approve|reject)$/);
         if (ap && method === 'POST') {
             state.approveCalls.push({ id: ap[1], action: ap[2] });
-            const claim = state.claims[state.claims.length - 1] as Record<string, unknown> | undefined;
-            if (!claim) return route.fulfill({ status: 404, json: { success: false, message: 'No claim matches this notification' } });
-            if (ap[2] === 'approve') {
-                claim.status = 'verified';
-                return route.fulfill({ json: json({ status: 'approved', transaction_status: 'verified', order_status: 'confirmed' }) });
+            const appEnvelope = (status: number, payload: Record<string, unknown>) => route.fulfill({ status, json: payload });
+            const notif = state.notifs.find((n) => n.id === ap[1]);
+            // Route-level guard (notification.routes.js): unknown id → 404 AppError.
+            if (!notif) {
+                return appEnvelope(404, { success: false, message: 'Notification not found', code: 'INTERNAL_ERROR', timestamp: new Date().toISOString() });
             }
-            claim.status = 'rejected';
-            return route.fulfill({ json: json({ status: 'rejected', transaction_status: 'rejected', order_status: 'cancelled' }) });
+            // handleOwnerResponse status guard (owner-notification.service.js
+            // :250-252, landed 2026-11-26) — 'pending' AND 'expired' stay
+            // actionable; only settled rows are 409-rejected. Verbatim message,
+            // flat AppError envelope. The old blanket 410 expiry wall is GONE
+            // (D-4 ratified: merchant judgment outranks the SLA).
+            if (!['pending', 'expired'].includes(notif.status)) {
+                return appEnvelope(409, { success: false, message: 'Payment confirmation has already been completed', code: 'INTERNAL_ERROR', timestamp: new Date().toISOString() });
+            }
+            const claim = state.claims.find((c) => String(c.notification_id) === notif.id);
+            if (!claim) {
+                return appEnvelope(404, { success: false, message: 'Payment transaction not found', code: 'INTERNAL_ERROR', timestamp: new Date().toISOString() });
+            }
+            const action = ap[2] as 'approve' | 'reject';
+            claim.status = action === 'approve' ? 'verified' : 'rejected';
+            notif.status = 'completed';
+            notif.owner_response = action;
+            // Real success envelope (handleOwnerResponse return, :412-416): FLAT
+            // { success, message: "Payment approved|rejected successfully", orderId }.
+            return route.fulfill({
+                json: { success: true, message: `Payment ${action}d successfully`, orderId: claim.order_id },
+            });
         }
 
         return route.fulfill({ json: json([]) });
@@ -408,56 +470,117 @@ test('multi-account enable/disable keeps exactly one preferred (owner writes onl
     expect(state.unexpected).toEqual([]);
 });
 
-test('claim → merchant approve happy path (mocked endpoints, no live money): payment_claimed → verified with honest receipts', async ({ page }) => {
+// Customer-side claim create — the chatbot machine calls the same service;
+// this settings E2E exercises the wire to prove the shape without live money.
+// (Merchant-side review actions are driven through the real UI below.)
+async function createClaim(page: Page, orderId: string, trxId: string, senderPhone?: string) {
+    return page.evaluate(async (args) => {
+        const r = await fetch('/api/payment/claims', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(args),
+        });
+        return { status: r.status, body: await r.json() };
+    }, senderPhone ? { orderId, trxId, senderPhone } : { orderId, trxId });
+}
+
+test('claim → merchant review through the REAL notification UI (F2 migration): approve settles with the verbatim server verdict and an honest lifecycle', async ({ page }) => {
     const wallet = row({ id: 'acc-bkash-self-1', provider: 'bkash', account_type: 'self', is_enabled: true, is_preferred: true, verification_level: 'configured_unverified', credential_summary: { has_credentials: true, mfs_type: 'bkash', mfs_mode: 'self', mfs_number: '01711000000' } });
     const state = await setupRoutes(page, [wallet]);
     await loginAndGo(page);
 
-    // 1. Customer-side claim create (the chatbot machine calls this same service;
-    //    the settings E2E exercises the wire to prove the shape without live money).
-    const first = await page.evaluate(async () => {
-        const r = await fetch('/api/payment/claims', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ orderId: 'order-77', trxId: '9b7xq2lm', senderPhone: '01712345678' }),
-        });
-        return { status: r.status, body: await r.json() };
-    });
+    // 1. Customer-side claim create (the chatbot machine calls this same
+    //    service; the settings E2E exercises the wire to prove the shape
+    //    without live money). The merchant-side actions below are UI-driven —
+    //    this fetch leg has NO merchant UI (customer is in the chatbot).
+    const first = await createClaim(page, 'order-77', '9b7xq2lm', '01712345678');
     expect(first.status).toBe(201);
     expect(first.body.success).toBe(true);
     expect(first.body.status).toBe('payment_claimed'); // NOT paid/confirmed — merchant judgment pending
     expect(String(first.body.message)).toMatch(/will confirm shortly/i);
     expect(String(first.body.message)).not.toMatch(/\bpaid\b|\bconfirmed\b/i);
-    expect(first.body.expires_at).toBeTruthy(); // the 24h deadline the owner-response 410 guard needs
+    expect(first.body.expires_at).toBeTruthy(); // the 24h deadline D-4 surfaces (never walls)
 
     // 2. Duplicate TrxID refusal (race-safe unique reuse of the same ledger id).
-    const dupe = await page.evaluate(async () => {
-        const r = await fetch('/api/payment/claims', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ orderId: 'order-78', trxId: '9B7XQ2LM' }),
-        });
-        return { status: r.status, body: await r.json() };
-    });
+    const dupe = await createClaim(page, 'order-78', '9B7XQ2LM');
     expect(dupe.status).toBe(409);
     expect(String(dupe.body.message)).toMatch(/already used/i);
 
-    // 3. The merchant sees a NON-dismissible confirmation row carrying the evidence.
-    const inbox = await page.evaluate(async () => (await (await fetch('/api/notifications/in-app')).json()).data);
-    expect(inbox).toHaveLength(1);
-    expect(inbox[0].type).toBe('payment_confirmation');
-    expect(inbox[0].customer_data.walletNumber).toBe('01711000000'); // the number the customer was given (no silent switching)
-    expect(inbox[0].customer_data.claimAmount).toBe(250);
-    expect(inbox[0].expires_at).toBeTruthy();
+    // 3. F2 MIGRATION (was page.evaluate fetches): the merchant drives the
+    //    notification-row buttons. Evidence line shows the stamped wallet
+    //    number + TrxID + claim amount (no silent number switching, §6).
+    await page.getByTestId('notification-bell').click();
+    const approve = page.getByTestId('approve-notif-1');
+    await expect(approve).toBeVisible();
+    await expect(page.getByTestId('reject-notif-1')).toBeVisible();
+    const evidence = page.getByTestId('confirmation-evidence-notif-1');
+    await expect(evidence).toContainText('9B7XQ2LM');
+    await expect(evidence).toContainText('01711000000');
+    // Payment confirmations are NON-dismissible: no generic mark-read here.
+    await expect(page.getByLabel('Mark notification read')).toHaveCount(0);
 
-    // 4. Owner approve → settlement flips transaction verified + order confirmed (merchant act, not automation).
-    const approve = await page.evaluate(async () => {
-        const r = await fetch('/api/notifications/payment-confirmation/notif-claim-1/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) });
-        return { status: r.status, body: await r.json() };
-    });
-    expect(approve.status).toBe(200);
-    expect(approve.body.data.transaction_status).toBe('verified');
-    expect(state.approveCalls).toEqual([{ id: 'notif-claim-1', action: 'approve' }]);
-    expect((state.claims[0] as { status: string }).status).toBe('verified');
+    // 4. Owner approve through the row button → the server's own words render
+    //    verbatim (settlement is the merchant act, not automation).
+    await approve.click();
+    await expect(page.getByTestId('confirmation-result-notif-1')).toContainText('Payment approved successfully');
+    await expect.poll(() => state.approveCalls).toEqual([{ id: 'notif-1', action: 'approve' }]);
+    await expect.poll(() => (state.claims[0] as { status: string }).status).toBe('verified');
+    // Honest lifecycle: the resynced row flips to Completed and never offers
+    // the settled action again (so a repeat 409 cannot even be clicked).
+    await expect(page.getByTestId('completed-chip-notif-1')).toBeVisible();
+    await expect(page.getByTestId('approve-notif-1')).toHaveCount(0);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('reject through the notification row: order-side rejection verdict is the server\'s, rendered verbatim', async ({ page }) => {
+    const wallet = row({ id: 'acc-bkash-self-1', provider: 'bkash', account_type: 'self', is_enabled: true, is_preferred: true, verification_level: 'configured_unverified', credential_summary: { has_credentials: true, mfs_type: 'bkash', mfs_mode: 'self', mfs_number: '01711000000' } });
+    const state = await setupRoutes(page, [wallet]);
+    await loginAndGo(page);
+
+    const claim = await createClaim(page, 'order-79', '7QZ4M2XT');
+    expect(claim.status).toBe(201);
+
+    await page.getByTestId('notification-bell').click();
+    await expect(page.getByTestId('reject-notif-1')).toBeVisible();
+    await page.getByTestId('reject-notif-1').click();
+    // VERBATIM server copy: handleOwnerResponse builds `Payment ${response}d
+    // successfully`, so a reject renders the server's own (misspelled)
+    // "rejectd" string — the client must NOT rewrite server verdicts; the
+    // correctly-worded i18n title ("Payment rejected") sits above it. Flagged
+    // as a backend copy defect for the owner to fix server-side.
+    await expect(page.getByTestId('confirmation-result-notif-1')).toContainText('Payment rejectd successfully');
+    await expect(page.getByTestId('confirmation-result-notif-1')).toContainText('Payment rejected');
+    await expect.poll(() => (state.claims[0] as { status: string }).status).toBe('rejected');
+    await expect.poll(() => state.approveCalls).toEqual([{ id: 'notif-1', action: 'reject' }]);
+    // Never "approved"/"paid" language on a reject.
+    await expect(page.getByTestId('confirmation-result-notif-1')).not.toContainText(/approved|paid/i);
+    await expect(page.getByTestId('completed-chip-notif-1')).toBeVisible();
+    expect(state.unexpected).toEqual([]);
+});
+
+test('F3/D-4: an expired claim surfaces an Expired chip + honest copy, and its buttons STILL work (no 410 wall)', async ({ page }) => {
+    const wallet = row({ id: 'acc-bkash-self-1', provider: 'bkash', account_type: 'self', is_enabled: true, is_preferred: true, verification_level: 'configured_unverified', credential_summary: { has_credentials: true, mfs_type: 'bkash', mfs_mode: 'self', mfs_number: '01711000000' } });
+    const state = await setupRoutes(page, [wallet]);
+    await loginAndGo(page);
+
+    const claim = await createClaim(page, 'order-80', '6TRX9AAA');
+    expect(claim.status).toBe(201);
+
+    // Time passes: the 24 h window elapses while the row sits untouched —
+    // D-4 ratified, nothing auto-fails; the server row is simply past deadline.
+    state.notifs[0].expires_at = new Date(Date.now() - 60_000).toISOString();
+
+    await page.getByTestId('notification-bell').click();
+    await expect(page.getByTestId('expired-chip-notif-1')).toContainText('Expired');
+    await expect(page.getByTestId('expired-copy-notif-1')).toBeVisible();
+    const approve = page.getByTestId('approve-notif-1');
+    await expect(approve).toBeEnabled(); // buttons stay functional per D-4
+
+    // And the action genuinely completes with the ordinary success verdict —
+    // the post-D-4 endpoint has no expiry wall to hit.
+    await approve.click();
+    await expect(page.getByTestId('confirmation-result-notif-1')).toContainText('Payment approved successfully');
+    await expect.poll(() => (state.claims[0] as { status: string }).status).toBe('verified');
+    await expect.poll(() => state.approveCalls).toEqual([{ id: 'notif-1', action: 'approve' }]);
     expect(state.unexpected).toEqual([]);
 });

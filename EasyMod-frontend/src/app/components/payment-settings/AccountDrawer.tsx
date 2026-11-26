@@ -109,9 +109,16 @@ export function AccountDrawer({
   // hydrates from the stored config; create defaults to sandbox because the
   // certification ladder starts there (§2.3: sandbox_verified → live_certified).
   // Wallet/self-MFS channels never see this field (no provider API at all, §2).
-  const [isSandbox, setIsSandbox] = useState(
-    isEdit ? String((account?.config?.environment ?? '')).toLowerCase() === 'sandbox' : true,
-  );
+  //
+  // M5 (2026-11-26): UNSET config.environment hydrates as SANDBOX — that is
+  // exactly what the server's resolveEnvironment() does for an unset value
+  // (bkash-tokenized.service.js:105-110) — and the drawer says so honestly
+  // ("not recorded"). An untouched environment is NEVER re-sent on PATCH:
+  // only an explicit merchant change writes config.environment.
+  const storedEnv = String((isEdit ? account?.config?.environment : '') ?? '').trim().toLowerCase();
+  const envRecorded = storedEnv === 'sandbox' || storedEnv === 'production';
+  const [isSandbox, setIsSandbox] = useState(isEdit ? storedEnv !== 'production' : true);
+  const [envTouched, setEnvTouched] = useState(false);
 
   const [isEnabled, setIsEnabled] = useState(isEdit ? Boolean(account?.is_enabled) : false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -157,16 +164,24 @@ export function AccountDrawer({
           // Only send new secrets if the merchant actually entered the full set —
           // never blank out stored credentials with empty fields.
           if (appKey.trim() && appSecret.trim() && username.trim()) {
+            // M8: a BLANK password is omitted from the payload entirely — the
+            // server merge keeps the stored one ("leave blank to keep the
+            // stored password"). Only a typed password is ever sent.
             patch.credentials = {
               app_key: appKey.trim(),
               app_secret: appSecret.trim(),
               username: username.trim(),
-              ...(password ? { password } : {}),
+              ...(password.trim() ? { password } : {}),
             };
           }
           // Environment selection persists to config (non-secret; sanitize keeps
           // it, credential write is what demotes the ladder — not this).
-          patch.config = { ...(account.config || {}), environment: isSandbox ? 'sandbox' : 'production' };
+          // M5: only an EXPLICIT merchant touch writes environment — an untouched
+          // drawer omits config from the PATCH entirely, so the stored value (or
+          // its honest "unset" state) is never silently rewritten.
+          if (envTouched) {
+            patch.config = { ...(account.config || {}), environment: isSandbox ? 'sandbox' : 'production' };
+          }
         } else {
           patch.credentials = { mfs_type: provider, mfs_number: number, mfs_mode: (accountType === 'business' ? 'business' : 'self') };
         }
@@ -187,7 +202,8 @@ export function AccountDrawer({
             app_key: appKey.trim(),
             app_secret: appSecret.trim(),
             username: username.trim(),
-            ...(password ? { password } : {}),
+            // M8 mirror: never ship an empty password key on create either.
+            ...(password.trim() ? { password } : {}),
           };
         } else {
           payload.credentials = { mfs_type: provider, mfs_number: number, mfs_mode: (accountType === 'business' ? 'business' : 'self') };
@@ -474,8 +490,17 @@ export function AccountDrawer({
                       <input id="drawer-username" type="text" autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} className={INPUT_CLASSES} data-testid="gateway-username" />
                     </div>
                     <div>
+                      {/* M8: on EDIT the label states the true merge semantics —
+                          blank keeps the stored password (the server keeps it; a
+                          typed value replaces it). On CREATE there is nothing to
+                          keep, so the plain "Password" label stands. */}
                       <label htmlFor="drawer-password" className="mb-1 block text-sm font-medium text-em-text-primary">
                         {t(`manageShop.paymentSettings.password`)}
+                        {isEdit && (
+                          <span className="mt-0.5 block text-xs font-normal text-em-text-secondary" data-testid="password-keep-hint">
+                            {t(`manageShop.paymentSettings.passwordKeepBlank`, { defaultValue: 'Leave blank to keep the stored password' })}
+                          </span>
+                        )}
                       </label>
                       <input id="drawer-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className={INPUT_CLASSES} data-testid="gateway-password" />
                     </div>
@@ -505,10 +530,32 @@ export function AccountDrawer({
                 {t(`manageShop.paymentSettings.accounts.enableHonesty`, { defaultValue: 'Enabling only controls whether customers see this option. It does not verify anything with the provider.' })}
               </p>
               {isGateway(provider, accountType) && (
-                <label className="mt-2 inline-flex min-h-11 items-center gap-2 text-sm text-em-text-primary">
-                  <input type="checkbox" checked={isSandbox} onChange={(e) => setIsSandbox(e.target.checked)} className="h-5 w-5 rounded border-em-border-strong accent-em-violet-600" />
-                  {t(`manageShop.paymentSettings.sandbox`)}
-                </label>
+                <div className="mt-2">
+                  <label className="inline-flex min-h-11 items-center gap-2 text-sm text-em-text-primary">
+                    <input
+                      type="checkbox"
+                      checked={isSandbox}
+                      onChange={(event) => {
+                        setIsSandbox(event.target.checked);
+                        // M5: touching the selection is what arms the environment
+                        // write — until then PATCH never carries config.environment.
+                        setEnvTouched(true);
+                      }}
+                      className="h-5 w-5 rounded border-em-border-strong accent-em-violet-600"
+                      data-testid="drawer-environment"
+                    />
+                    {t(`manageShop.paymentSettings.sandbox`)}
+                  </label>
+                  {/* M5 honesty: an account created before the selection persisted
+                      (or never saved one) has NO recorded environment; the server
+                      treats that as sandbox, and we say so instead of implying a
+                      recorded choice. */}
+                  {isEdit && !envRecorded && !envTouched && (
+                    <p className="mt-1 text-xs text-em-text-secondary" data-testid="environment-not-recorded">
+                      {t(`manageShop.paymentSettings.accounts.environmentNotRecorded`, { defaultValue: 'Not recorded — treated as sandbox.' })}
+                    </p>
+                  )}
+                </div>
               )}
             </section>
 

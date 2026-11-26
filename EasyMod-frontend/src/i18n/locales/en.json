@@ -894,7 +894,22 @@
       "markRead": "Mark notification read",
       "review": "Review",
       "loadFailed": "Failed to load notifications",
-      "updateFailed": "Failed to update notification"
+      "updateFailed": "Failed to update notification",
+      "approve": "Approve",
+      "reject": "Reject",
+      "approveAria": "Approve payment confirmation {{reference}}",
+      "rejectAria": "Reject payment confirmation {{reference}}",
+      "completedChip": "Completed",
+      "expiredChip": "Expired",
+      "expiredCopy": "Past its 24-hour window — you can still approve or reject. Nothing was changed automatically.",
+      "approvedTitle": "Payment approved",
+      "rejectedTitle": "Payment rejected",
+      "actionRecorded": "Your action was recorded.",
+      "actionFailedTitle": "The server did not accept this action",
+      "actionFailedFallback": "The payment confirmation could not be updated. Try again.",
+      "evidenceTrxId": "TrxID {{value}}",
+      "evidenceAmount": "৳{{value}}",
+      "evidenceNumber": "Account {{value}}"
     },
     "error": {
       "title": "Something went wrong",
@@ -2958,6 +2973,7 @@
       "username": "Username",
       "usernamePlaceholder": "Enter Username",
       "password": "Password",
+      "passwordKeepBlank": "Leave blank to keep the stored password",
       "passwordPlaceholder": "Enter Password",
       "environment": "Environment",
       "sandbox": "Sandbox (Testing)",
@@ -3126,7 +3142,8 @@
         "alreadyPreferred": "Already preferred",
         "preferredNeedsEnabled": "Enable this account before setting it preferred",
         "codAvailability": "Cash availability per delivery zone is set in Delivery Settings.",
-        "actionFailedTitle": "Action not completed"
+        "actionFailedTitle": "Action not completed",
+        "environmentNotRecorded": "Not recorded — treated as sandbox."
       },
       "save": "Save account",
       "policy": {
@@ -3144,7 +3161,7 @@
       },
       "delete": {
         "title": "Delete this payment account?",
-        "body": "Existing orders keep their payment attribution, but this account stops being offered to new customers."
+        "body": "Accounts with pending or unclosed payment records cannot be deleted until those are resolved. After a deletion, historical orders keep their payment transaction records but no longer link to this account entry."
       }
     },
     "hub": {
