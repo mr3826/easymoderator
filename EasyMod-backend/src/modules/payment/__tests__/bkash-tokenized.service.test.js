@@ -364,6 +364,23 @@ describe('grant budget: ≤2 grant+refresh per rolling hour, refused BEFORE HTTP
         expect(mockAxiosPost).not.toHaveBeenCalled();
     });
 
+    // F-4 (A9-remediation, 2026-11-27): clearTokenCache used to delete the
+    // grant-budget ZSET key too — every 401/403 retry, env demotion or
+    // credential replacement RESTARTED the ≤2/hr rolling window, so repeated
+    // auth failures could hammer the provider past the budget §2.1 exists to
+    // enforce. The token cache is invalidatable; the budget's only reset is
+    // time.
+    test('F-4: clearTokenCache removes ONLY the token — the grant budget window survives', async () => {
+        const account = AUTOMATABLE_ACCOUNT({ id: 'acc-f4-clear' });
+        mockCacheStore.set(`${account.shop_id}|${client.tokenCacheKey(account)}`, { id_token: 'stale' });
+        mockCacheStore.set(`${account.shop_id}|${client.grantBudgetKey(account)}`, 'budget-window');
+
+        await client.clearTokenCache(account);
+
+        expect(mockCacheStore.has(`${account.shop_id}|${client.tokenCacheKey(account)}`)).toBe(false);
+        expect(mockCacheStore.has(`${account.shop_id}|${client.grantBudgetKey(account)}`)).toBe(true);
+    });
+
     // F-2(b) (A9-R2): real settlement paths require the RESOLVED environment
     // to be 'production' — a sandbox-resolved account can never sit on a money
     // path, even at live_certified + enabled flag (defense-in-depth next to

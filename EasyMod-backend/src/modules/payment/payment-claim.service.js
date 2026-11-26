@@ -288,6 +288,17 @@ function isUniqueViolation(err) {
     ));
 }
 
+// F-1(b) (A9-remediation, 2026-11-27): distinguish WHICH unique fired. PG puts
+// the index name in both the message ("duplicate key value violates unique
+// constraint \"idx_...\"") and sequelize's err.parent.constraint; tests and
+// drivers without a parent object are matched via the message too.
+const PENDING_CLAIM_INDEX = 'idx_payment_txn_one_pending_claim_per_order';
+function isPendingClaimViolation(err) {
+    if (!err) return false;
+    return String(err?.parent?.constraint || '') === PENDING_CLAIM_INDEX
+        || String(err?.message || '').includes(PENDING_CLAIM_INDEX);
+}
+
 /**
  * @param {object} args
  * @param {string} args.shopId            — tenant authority for every read
@@ -431,27 +442,33 @@ async function performClaim({
     //     through this path (`verified`) for the same (shop, order) answers
     //     with the honest "a claim is already awaiting review" duplicate —
     //     no second ledger row, no second txn row, no second notification.
-    //     (The `002` partial unique stays gateway-attempt-scoped per D-4;
-    //     claim rows are policed HERE, matching that comment.)
-    if (typeof PaymentTransaction.findOne === 'function') {
-        const OPEN_CLAIM_STATUSES = [CLAIM_STATUS, 'verified'];
-        const openClaim = await PaymentTransaction.findOne({
+    // F-1(b) (A9-remediation, 2026-11-27): the read-then-insert window below is
+    //     now CLOSED at the DB by migration 20261127_003's partial unique
+    //     idx_payment_txn_one_pending_claim_per_order (one `payment_claimed`
+    //     row per order — rejected/verified history stays free, honoring D-4).
+    //     This service check stays as the honest pre-entry answer; concurrent
+    //     racers collide on the index and map back to the SAME pendingClaim
+    //     reply via the insert-failure paths below.
+    const OPEN_CLAIM_STATUSES = [CLAIM_STATUS, 'verified'];
+    const findOpenClaim = async () => {
+        if (typeof PaymentTransaction.findOne !== 'function') return null;
+        const hit = await PaymentTransaction.findOne({
             where: { shop_id: shopId, order_id: order.id, status: OPEN_CLAIM_STATUSES },
         });
         // Defensive: the WHERE already filters; re-check on the row so a
         // mock/partial row without a status can never be mistaken for an
         // open claim (race-detection callers rely on the same shape).
-        if (openClaim && OPEN_CLAIM_STATUSES.includes(String(openClaim.status))) {
-            return {
-                created: false,
-                duplicate: true,
-                pendingClaim: true,
-                reason: 'claim_already_awaiting_review',
-                trxId,
-                duplicateReply: { bn: pendingClaimReply.bn, en: pendingClaimReply.en },
-            };
-        }
-    }
+        return hit && OPEN_CLAIM_STATUSES.includes(String(hit.status)) ? hit : null;
+    };
+    const pendingClaimResult = () => ({
+        created: false,
+        duplicate: true,
+        pendingClaim: true,
+        reason: 'claim_already_awaiting_review',
+        trxId,
+        duplicateReply: { bn: pendingClaimReply.bn, en: pendingClaimReply.en },
+    });
+    if (await findOpenClaim()) return pendingClaimResult();
 
     const gatewayResponse = {
         source: 'self_mfs_claim',
@@ -525,8 +542,16 @@ async function performClaim({
                 // Race with a concurrent claim: one of the two rows already
                 // exists — the duplicate reply stays honest, and the rollback
                 // guarantees WE left no new ledger row behind.
-                const reason = (await duplicateExisting()) || 'trx_id_log';
-                return duplicateResult(reason);
+                // F-1(b): a hit on the pending-claim unique is NOT "TrxID
+                // already used" — the customer's TrxID is fresh, the ORDER
+                // already carries a claim awaiting review. Constraint-name
+                // match first, then the live open-claim read, then the legacy
+                // trx-shape answers.
+                if (isPendingClaimViolation(err)) return pendingClaimResult();
+                const byTrx = await duplicateExisting();
+                if (byTrx) return duplicateResult(byTrx);
+                if (await findOpenClaim()) return pendingClaimResult();
+                return duplicateResult('trx_id_log');
             }
             const { AppError } = require('../../utils/AppError');
             throw new AppError('Payment claim could not be recorded. Please try again.', 500, 'PAYMENT_CLAIM_WRITE_FAILED');
@@ -564,6 +589,10 @@ async function performClaim({
         } catch (err) {
             await releaseLedgerRow();
             if (isUniqueViolation(err)) {
+                // F-1(b): pending-claim unique → the order is already awaiting
+                // review; the customer's fresh TrxID was NOT burned (compensated
+                // above) and they are not told it was "already used".
+                if (isPendingClaimViolation(err)) return pendingClaimResult();
                 return duplicateResult('payment_transaction');
             }
             const { AppError } = require('../../utils/AppError');

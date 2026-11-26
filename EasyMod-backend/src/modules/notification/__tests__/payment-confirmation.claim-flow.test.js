@@ -223,15 +223,53 @@ describe('B1/A9-R3: an already-settled order can never be re-settled by a second
         expect(order.update).not.toHaveBeenCalled();
     });
 
-    test('guard is approve-only — REJECT of a stale claim on a paid order remains the merchant recovery path', async () => {
+    // F-1 (A9 release-remediation, 2026-11-27): the OLD version of this test
+    // pinned "reject on a paid order remains the merchant recovery path" while
+    // MOCKING cancelOrderInTransaction — so the real destructive body (cancel
+    // a settled order, flip payment paid→failed, write a CANCELLED invoice
+    // line, message the customer "payment could not be confirmed") was never
+    // exercised. New doctrine, exercised WITHOUT the cancel mock:
+    test('F-1: REJECT of a stale claim on a PAID order marks only the claim rejected — no cancellation, no customer message', async () => {
         const { notification, payment } = claimFixtures(paymentTaxonomy.CLAIM_STATUS);
         notification.customer_data = { ...notification.customer_data };
         const orderRow = { id: 'order-1', shop_id: 'shop-1', payment_status: 'paid', update: jest.fn() };
         mockModels.Order.findOne.mockResolvedValue(orderRow);
-        mockCancelOrderInTransaction.mockResolvedValue({ id: 'order-1', update: jest.fn() });
-        await expect(service.handleOwnerResponse(notification.id, 'reject', { userId: 'owner-1' }))
-            .resolves.toMatchObject({ success: true });
+        // Deliberately NO mockCancelOrderInTransaction resolution: if the code
+        // still calls it, the require()-ed real service body runs against mock
+        // models and the assertions below (never called) catch the regression.
+        const res = await service.handleOwnerResponse(notification.id, 'reject', { userId: 'owner-1' });
+        expect(res).toMatchObject({
+            success: true,
+            duplicate_reject: true,
+            message: expect.stringMatching(/remains settled as paid/i),
+        });
+        expect(mockCancelOrderInTransaction).not.toHaveBeenCalled();
         expect(payment.update).toHaveBeenCalledWith({ status: 'rejected' }, { transaction: mockTransaction });
+        expect(orderRow.update).not.toHaveBeenCalled(); // payment never flipped, order never cancelled
+        expect(service.sendCustomerResponse).not.toHaveBeenCalled();
+        expect(notification.update).toHaveBeenCalledWith(
+            expect.objectContaining({ owner_response: 'reject', status: 'completed' }),
+            { transaction: mockTransaction },
+        );
+        expect(mockModels.AuditLog.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                metadata: expect.objectContaining({ duplicate_on_settled: true }),
+            }),
+            { transaction: mockTransaction },
+        );
+    });
+
+    test('F-1 boundary: reject on an UNSETTLED order keeps the full cancel-recovery path', async () => {
+        const { notification, order, payment } = claimFixtures(paymentTaxonomy.CLAIM_STATUS);
+        order.payment_status = 'pending';
+        const cancelled = { id: 'order-1', update: jest.fn() };
+        mockCancelOrderInTransaction.mockResolvedValue(cancelled);
+        await expect(service.handleOwnerResponse(notification.id, 'reject', { userId: 'owner-1' }))
+            .resolves.toMatchObject({ success: true, message: expect.stringMatching(/reject/i) });
+        expect(mockCancelOrderInTransaction).toHaveBeenCalled();
+        expect(cancelled.update).toHaveBeenCalledWith({ payment_status: 'failed' }, { transaction: mockTransaction });
+        expect(payment.update).toHaveBeenCalledWith({ status: 'rejected' }, { transaction: mockTransaction });
+        expect(service.sendCustomerResponse).toHaveBeenCalledWith(notification, 'reject');
     });
 
     test('unsettled orders approve green exactly as before (no false block on pending/unpaid)', async () => {

@@ -233,6 +233,7 @@ class OwnerNotificationService {
             throw new AppError('Invalid payment confirmation action', 400);
         }
         let completedNotification;
+        let duplicateRejectOnSettledOrder = false;
         try {
             await sequelize.transaction(async (transaction) => {
                 const notification = await OwnerNotification.findByPk(notificationId, {
@@ -381,6 +382,21 @@ class OwnerNotificationService {
                         status: 'verified',
                         verified_at: new Date(),
                     }, { transaction });
+                } else if (String(order.payment_status || '').trim().toLowerCase() === 'paid') {
+                    // F-1 (A9 release-remediation, 2026-11-27): REJECTING a stale/duplicate
+                    // claim on an ALREADY-SETTLED order is claim-row cleanup, NEVER a
+                    // lifecycle rollback. The old path called cancelOrderInTransaction —
+                    // which guards only terminal ORDER status, not payment state, and the
+                    // approve path leaves a paid order 'confirmed' — so the settled order
+                    // was cancelled, payment flipped paid→failed, an ADR-0011 CANCELLED
+                    // invoice line was written, inventory restored, and (below) the
+                    // customer was told "payment could not be confirmed" WHILE the first
+                    // claim's money stood: a direct breach of the founder invariant "never
+                    // ask a customer to pay again while the original transaction remains
+                    // unresolved". Mark ONLY this duplicate claim rejected; the order, its
+                    // payment and the other verified transaction stay untouched.
+                    await paymentTransaction.update({ status: 'rejected' }, { transaction });
+                    duplicateRejectOnSettledOrder = true;
                 } else {
                     const { cancelOrderInTransaction } = require('../order/order.service');
                     const cancelledOrder = await cancelOrderInTransaction(
@@ -415,12 +431,30 @@ class OwnerNotificationService {
                         notification_id: notification.id,
                         order_id: order.id,
                         ...(pastExpiry ? { expired_on_action: true } : {}),
+                        // F-1 pin: the destructive-path refusal is itself auditable.
+                        ...(duplicateRejectOnSettledOrder ? { duplicate_on_settled: true } : {}),
                     },
                     idempotency_key: `owner-payment:${notification.id}:${response}`,
                 }, { transaction });
                 completedNotification = notification;
             });
 
+            if (duplicateRejectOnSettledOrder) {
+                // F-1: the order REMAINS settled as paid — a "payment could not be
+                // confirmed" message here would ask about re-payment while the
+                // original transaction stands. No customer message; honest merchant
+                // receipt instead.
+                this.logger.info('Duplicate claim rejected on settled order — no cancellation, no customer message', {
+                    notificationId,
+                    orderId: completedNotification.customer_data.orderId,
+                });
+                return {
+                    success: true,
+                    duplicate_reject: true,
+                    message: 'Duplicate claim rejected — the order remains settled as paid. No order or payment change was made.',
+                    orderId: completedNotification.customer_data.orderId,
+                };
+            }
             await this.sendCustomerResponse(completedNotification, response);
             this.logger.info('Owner payment confirmation processed', {
                 notificationId,

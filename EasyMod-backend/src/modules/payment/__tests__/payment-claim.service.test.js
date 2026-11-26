@@ -433,6 +433,69 @@ describe('duplicate handling (§3.2-3 race-safe)', () => {
         expect(mockTrxIDLog.destroy).not.toHaveBeenCalled();
     });
 
+    // ── F-1(b) (A9-remediation, 2026-11-27): the pending-claim unique maps to
+    //    the HONEST awaiting-review answer — never a false "TrxID already
+    //    used" against a fresh TrxID, and the ledger row is compensated so the
+    //    number stays usable for a later legitimate claim. ────────────────────
+    test('F-1b: pending-claim unique violation → claim_already_awaiting_review; TrxID not burned; no notification', async () => {
+        mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' });
+        const dup = new Error('duplicate key value violates unique constraint "idx_payment_txn_one_pending_claim_per_order"');
+        dup.name = 'SequelizeUniqueConstraintError';
+        mockPaymentTransaction.create.mockRejectedValue(dup);
+
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'FRESH77X', account: WALLET,
+        });
+        expect(res).toMatchObject({
+            created: false, duplicate: true, pendingClaim: true, reason: 'claim_already_awaiting_review',
+        });
+        expect(res.duplicateReply.en).not.toMatch(/already used/i);
+        expect(mockTrxIDLog.destroy).toHaveBeenCalled();
+        expect(mockOwnerNotification.sendPaymentConfirmationRequest).not.toHaveBeenCalled();
+    });
+
+    test('F-1b: sequelize v6 parent.constraint shape maps identically', async () => {
+        mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' });
+        const dup = new Error('duplicate key value');
+        dup.name = 'SequelizeUniqueConstraintError';
+        dup.parent = { constraint: 'idx_payment_txn_one_pending_claim_per_order' };
+        mockPaymentTransaction.create.mockRejectedValue(dup);
+
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'FRESH88Y', account: WALLET,
+        });
+        expect(res).toMatchObject({ pendingClaim: true, reason: 'claim_already_awaiting_review' });
+    });
+
+    test('F-1b (atomic driver): generic violation + committed sibling claim answers pendingClaim, not a trx-shape lie', async () => {
+        mockTrxIDLog.sequelize = { transaction: async (cb) => cb({}) };
+        try {
+            mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' });
+            mockTrxIDLog.findOne.mockResolvedValue(null);
+            let openProbes = 0;
+            mockPaymentTransaction.findOne.mockImplementation(async ({ where } = {}) => {
+                if (where && 'status' in where) {
+                    openProbes += 1;
+                    // 5b pre-check races clean; the POST-violation recheck sees
+                    // the concurrent claim that committed first.
+                    return openProbes > 1 ? { status: 'payment_claimed' } : null;
+                }
+                return null; // duplicateExisting() (transaction_id) shape
+            });
+            const dup = new Error('duplicate key value violates unique constraint "other"');
+            dup.name = 'SequelizeUniqueConstraintError';
+            mockPaymentTransaction.create.mockRejectedValue(dup);
+
+            const res = await claim.performClaim({
+                shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'RACE99Z', account: WALLET,
+            });
+            expect(res).toMatchObject({ pendingClaim: true, reason: 'claim_already_awaiting_review' });
+            expect(mockOwnerNotification.sendPaymentConfirmationRequest).not.toHaveBeenCalled();
+        } finally {
+            delete mockTrxIDLog.sequelize;
+        }
+    });
+
     test('F-9: a failed compensation is LOUD (never silent) — logged, original error still propagates', async () => {
         const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
         mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' });
