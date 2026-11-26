@@ -240,6 +240,21 @@ beforeEach(() => {
   mocks.deletePickupLocation.mockResolvedValue({ id: 'loc1', deleted: true, released_providers: [] });
 });
 
+
+// CI flake stabilizer (2026-11-27, blocked the payment release lane twice): the
+// message region MOUNTS EARLY with transitional text, so findByTestId(...)+
+// immediate toHaveTextContent races the async settle. All message assertions
+// go through this: resolve the node, then WAIT for every transitional state
+// (Syncing/Importing/Linking/Refreshing — exact labels from the i18n map; no
+// FINAL expected text contains them case-sensitively) to clear before the
+// test's own expect runs. A component stuck transitional fails here at 3s.
+const TRANSITIONAL_MESSAGE = /Syncing|Importing|Linking|Refreshing stores/;
+const settleMessage = async () => {
+    const el = await screen.findByTestId('pickup-message-pathao');
+    await waitFor(() => expect(el.textContent || '').not.toMatch(TRANSITIONAL_MESSAGE), { timeout: 3000 });
+    return el;
+};
+
 describe('PickupTab — provider-first store list + link', () => {
   it('fetches existing provider stores and renders each as a row (no auto-link)', async () => {
     mocks.listProviderStores.mockResolvedValueOnce({
@@ -288,7 +303,7 @@ describe('PickupTab — provider-first store list + link', () => {
       'pathao',
       expect.objectContaining({ store_id: 's1', pickup_location_id: 'loc1', enabled: true }),
     ));
-    expect(await screen.findByTestId('pickup-message-pathao')).toHaveTextContent('Linked to Dhanmondi Hub');
+    expect(await settleMessage()).toHaveTextContent('Linked to Dhanmondi Hub');
   });
 });
 
@@ -435,7 +450,7 @@ describe('PickupTab — sync failure + retry', () => {
     mocks.listProviderStores.mockRejectedValueOnce({ response: { status: 503, data: { code: 'DELIVERY_STORE_SYNC_FAILED', message: 'read ok, upsert failed' } } });
     renderTab([status('pathao')]);
     fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
-    const message = await screen.findByTestId('pickup-message-pathao');
+    const message = await settleMessage();
     expect(message).toHaveTextContent('Could not load stores');
 
     // Retry action is now available and re-resolves via sync (no new endpoint).
@@ -503,7 +518,7 @@ describe('PickupTab — Fetch is a pure read (§A8)', () => {
     fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
     fireEvent.click(await screen.findByTestId('pickup-store-import-pathao-s1'));
     await waitFor(() => expect(mocks.importProviderStores).toHaveBeenCalledWith('pathao', ['s1']));
-    const message = await screen.findByTestId('pickup-message-pathao');
+    const message = await settleMessage();
     expect(message).toHaveTextContent('Not listed by courier: s7');
     expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Not listed by courier: s7');
     expect(mocks.importProviderStores).not.toHaveBeenCalledWith('pathao', undefined);
@@ -537,7 +552,7 @@ describe('PickupTab — stale mapping honesty (§A8)', () => {
     const retry = screen.getByTestId('pickup-retry-pathao');
     fireEvent.click(retry);
     await waitFor(() => expect(mocks.retryPickupSync).toHaveBeenCalled());
-    const message = await screen.findByTestId('pickup-message-pathao');
+    const message = await settleMessage();
     // §A9: PRESERVED-on-retry means the wired store is NOT in the server CACHE —
     // the hint must name the action that fixes it, never a vague "link a store".
     expect(message).toHaveTextContent('Import to refresh the courier’s store list, then link again.');
@@ -548,7 +563,7 @@ describe('PickupTab — stale mapping honesty (§A8)', () => {
     mocks.retryPickupSync.mockResolvedValueOnce({ provider: 'pathao', store_resolution: 'NO_MATCH' });
     renderTab([staleStatus]);
     fireEvent.click(screen.getByTestId('pickup-retry-pathao'));
-    const message = await screen.findByTestId('pickup-message-pathao');
+    const message = await settleMessage();
     expect(message).toHaveTextContent('then link again.');
     expect(screen.getByTestId('pickup-sync-status-pathao')).not.toHaveTextContent('Linked & confirmed');
   });
@@ -567,7 +582,7 @@ describe('PickupTab — stale mapping honesty (§A8)', () => {
 
     // The LINK result MESSAGE shows, but there is NO local stale-override: while
     // the server still reports the old mapping the pill stays at attention.
-    const message = await screen.findByTestId('pickup-message-pathao');
+    const message = await settleMessage();
     expect(message).toHaveTextContent('Linked to Dhanmondi Hub');
     expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review');
     await waitFor(() => expect(onMutate).toHaveBeenCalled());
@@ -590,7 +605,7 @@ describe('PickupTab — stale mapping honesty (§A8)', () => {
     const view = render(<PickupTab providers={[staleStatus]} onMutate={onMutate} />);
     fireEvent.click(screen.getByTestId('pickup-retry-pathao'));
     await waitFor(() => expect(mocks.retryPickupSync).toHaveBeenCalled());
-    const message = await screen.findByTestId('pickup-message-pathao');
+    const message = await settleMessage();
     expect(message).toHaveTextContent('Matched an existing store.');
     // Server still says stale until its refreshed cache arrives via the reload.
     expect(screen.getByTestId('pickup-sync-status-pathao')).toHaveTextContent('Mapping needs review');
@@ -633,7 +648,7 @@ describe('PickupTab — unknown mapping is never "confirmed" (§A9)', () => {
     });
     renderTab([status('pathao', { pickup_mapping_status: 'stale', provider_store_id: 's9', pickup_enabled: true })]);
     fireEvent.click(screen.getByTestId('pickup-fetch-stores-pathao'));
-    const message = await screen.findByTestId('pickup-message-pathao');
+    const message = await settleMessage();
     expect(message).toHaveAttribute('role', 'status');
     expect(message.className).not.toContain('text-em-danger-700');
     expect(message).toHaveTextContent('1 store available');
