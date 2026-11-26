@@ -2,9 +2,11 @@
  * Business & FAQ workspace shell proofs (A6 battery). Route truth: both
  * /manage-shop/business-info and /manage-shop/faqs render the SAME tabbed
  * workspace (BusinessFaqWorkspace) on their legacy tab; switching tabs is
- * local state (URL never changes, S6); only the active panel mounts (S7), so
- * tab data loads lazily and the e2e allowlists stay meaningful. Roving-focus
- * tablist (ArrowRight/Left wrap, Home/End) mirrors the delivery pattern.
+ * local state (URL never changes, S6). Panels lazy-mount on FIRST visit and
+ * then stay mounted-HIDDEN (19b48b39: tab switching no longer silently
+ * discards in-progress drafts; only the ACTIVE panel is visible, so
+ * getByRole('tabpanel') still counts exactly one). Roving-focus tablist
+ * (ArrowRight/Left wrap, Home/End) mirrors the delivery pattern.
  * Drawer focus discipline: trap cycles inside the dialog, Escape closes,
  * focus restores to the invoking control. 360px overflow pins for ALL three
  * tabs. Abort discipline: state.unexpected === [] everywhere.
@@ -136,8 +138,32 @@ test('both legacy URLs mount the workspace on their own initial tab', async ({ p
     await page.goto('/manage-shop/faqs');
     await expect(page.getByTestId('business-faq-tab-faqs')).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#business-faq-panel-faqs')).toBeVisible();
-    // S7: exactly one panel mounted.
+    // Exactly one VISIBLE tabpanel (hidden keep-mounted panels leave the
+    // accessibility tree — getByRole counts active only).
     await expect(page.getByRole('tabpanel')).toHaveCount(1);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('visited panels stay mounted hidden: in-progress profile draft survives a tab round-trip with no refetch', async ({ page }) => {
+    const state = await setupRoutes(page);
+    await signIn(page);
+    await page.goto('/manage-shop/business-info');
+    await expect(page.getByLabel('Shop Name', { exact: true })).toBeVisible({ timeout: 15_000 });
+    // A8 MAJOR (drafts must not vanish mid-work): type an unsaved value, leave
+    // the tab, come back — the SAME mounted instance is shown again.
+    await page.getByLabel('Extra shop information').fill('DRAFT-KEEP-MOUNTED — do not lose me');
+    await page.getByTestId('business-faq-tab-faqs').click();
+    await expect(page.getByTestId('faq-row-faq-1')).toBeVisible();
+    await expect(page.locator('#business-faq-panel-profile')).toBeHidden();
+    await expect(page.getByRole('tabpanel')).toHaveCount(1);
+    const fetchesBeforeReturn = state.businessInfoGetCalls;
+    await page.getByTestId('business-faq-tab-profile').click();
+    await expect(page.locator('#business-faq-panel-profile')).toBeVisible();
+    await expect(page.getByLabel('Extra shop information')).toHaveValue('DRAFT-KEEP-MOUNTED — do not lose me');
+    // Keep-mounted means NO refetch on return — the GET count did not move
+    // across the whole round-trip (single mount-owning fetch for the panel).
+    expect(state.businessInfoGetCalls).toBe(fetchesBeforeReturn);
+    expect(state.businessInfoGetCalls).toBeGreaterThanOrEqual(1);
     expect(state.unexpected).toEqual([]);
 });
 

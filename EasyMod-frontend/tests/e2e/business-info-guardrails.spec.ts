@@ -93,6 +93,9 @@ async function setupRoutes(page: Page, options: { loadFails?: number } = {}) {
         shopListCalls: 0,
         loadFails: options.loadFails ?? 0,
         lastPutBody: null as Record<string, unknown> | null,
+        // Server-side stored business info — mutated by every successful PUT
+        // so reloads reflect real persisted (incl. CLEARED) values.
+        stored: { ...businessInfo } as Record<string, unknown>,
     };
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
         const request = route.request();
@@ -144,7 +147,10 @@ async function setupRoutes(page: Page, options: { loadFails?: number } = {}) {
                 state.loadFails -= 1;
                 return route.fulfill({ status: 500, json: { success: false, message: 'Network error' } });
             }
-            return route.fulfill({ json: json({ businessInfo, shop: mockShop }) });
+            // Mutable store (round-2 clear-semantics pin): the reload path
+            // must reflect exactly what the last PUT persisted — including
+            // cleared (empty-string) fields.
+            return route.fulfill({ json: json({ businessInfo: state.stored, shop: mockShop }) });
         }
         if (path === '/api/shop/business-info' && method === 'PUT') {
             state.puts += 1;
@@ -160,7 +166,11 @@ async function setupRoutes(page: Page, options: { loadFails?: number } = {}) {
                 return route.fulfill({ status: 400, json: { success: false, message: 'Invalid business info payload', code: 'VALIDATION_ERROR' } });
             }
             state.lastPutBody = body;
-            return route.fulfill({ json: json({ businessInfo: { ...businessInfo, ...body } }) });
+            // Server contract (19b48b39 / validator §): an EMPTY STRING clears
+            // the stored value; an ABSENT key leaves it untouched. The PUT
+            // payload sends every managed field, so clearing really clears.
+            state.stored = { ...state.stored, ...body };
+            return route.fulfill({ json: json({ businessInfo: state.stored }) });
         }
         if (path === '/api/shop/list') {
             state.shopListCalls += 1;
@@ -292,6 +302,42 @@ test('invalid email blocks the save before any request fires (client + server bo
     expect(state.unexpected).toEqual([]);
 });
 
+test('cleared optional fields persist as cleared: empty strings are SENT (A8 MAJOR #1), never absent keys', async ({ page }) => {
+    const state = await setupRoutes(page);
+    await loginAndGo(page);
+    // First persist real values…
+    await page.getByLabel('Tagline').fill('Fast, honest replies');
+    await page.getByLabel('Email').fill('care@easymod.test');
+    await page.getByRole('button', { name: 'Save Changes' }).click();
+    await expect.poll(() => state.puts).toBe(1);
+    expect(state.lastPutBody?.email).toBe('care@easymod.test');
+
+    // …then CLEAR both and save. The contract (19b48b39 ProfileTab): cleared
+    // optional fields MUST send '' — an absent key would be a silent server
+    // no-op with a false success toast.
+    await page.getByLabel('Tagline').fill('');
+    await page.getByLabel('Email').fill('');
+    await page.getByRole('button', { name: 'Save Changes' }).click();
+    await expect.poll(() => state.puts).toBe(2);
+    const body = state.lastPutBody as Record<string, unknown>;
+    expect(body).toHaveProperty('email');
+    expect(body).toHaveProperty('tagline');
+    expect(body.email).toBe('');
+    expect(body.tagline).toBe('');
+    await expect(page.getByRole('status')).toContainText('Business info saved');
+
+    // The server mock persisted the CLEARED state — remounting the panel
+    // (fresh ProfileTab mount re-fetches GET) renders the fields empty; no
+    // ghost value survives from a silent no-op.
+    await page.goto('/manage-shop/faqs');
+    await expect(page.getByTestId('faq-signal')).toBeVisible({ timeout: 15_000 });
+    await page.goto('/manage-shop/business-info');
+    await expect(page.getByLabel('Shop Name', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByLabel('Tagline')).toHaveValue('');
+    await expect(page.getByLabel('Email')).toHaveValue('');
+    expect(state.unexpected).toEqual([]);
+});
+
 test('social links are a labelled group with all six fields and extra info shows a char counter', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
@@ -314,6 +360,10 @@ test('ADR-0013 boundary across ALL tabs: automation link, no AI control/radiogro
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByTestId('business-info-automation-link')).toHaveAttribute('href', '/manage-shop/automation');
+    // Round-2 copy contract: the deep-link desc retired the 'confidence' word
+    // (it promises only what the automation page actually controls).
+    await expect(page.getByTestId('business-info-automation-link')).toContainText('Reply mode and greeting now live on the business automation page.');
+    await expect(page.getByTestId('business-info-automation-link')).not.toContainText(/confidence/i);
     await expect(page.getByTestId('ai-reply-mode')).toHaveCount(0);
     await expect(page.getByRole('radiogroup')).toHaveCount(0);
     await expect(page.locator('input[type="range"]')).toHaveCount(0);

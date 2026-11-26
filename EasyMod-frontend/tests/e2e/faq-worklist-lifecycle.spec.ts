@@ -2,19 +2,28 @@
  * FAQ worklist lifecycle proofs (Business & FAQ redesign, A6 battery). Mock
  * server mirrors the LIVE A5 contract wire shapes exactly (formatFaq rich row
  * + legacy aliases; POST/PATCH settle to sync_status 'pending' + version++;
- * transitions use the status machine; restore only archived → disabled;
- * server search is published-only and NEVER matches internal notes). No fake
- * success: every mutation assertion follows the awaited server response, and
- * the async sync settle only ever happens on the NEXT list read.
+ * transitions use the status machine; restore only archived → disabled). The
+ * /faq/search endpoint stays ALLOWLISTED — it is a still-valid server API —
+ * but the UI no longer calls it (round-2 contract below). No fake success:
+ * every mutation assertion follows the awaited server response, and the async
+ * sync settle only ever happens on the NEXT list read.
  *
- * Pinned flows:
- * - create defaults DRAFT with an explicit Syncing (pending) chip
+ * Pinned flows (FINAL contract after the A8/A9 review round, commit 19b48b39):
+ * - create defaults DRAFT; non-published rows show the neutral 'Not indexed'
+ *   sync chip (green Synced/pending/failed are RESERVED for published rows —
+ *   a 'Disabled · Synced' pair was misleading legibility); only a published
+ *   row's pending sync shows 'Syncing'
  * - publish transition (draft → published, is_active mirror true)
- * - search (server, published-only, notes-immune) + status/category filters
- *   with accurate per-status counts
+ * - search is CLIENT-SIDE across ALL statuses with ZERO server calls while
+ *   typing (A8 MAJOR #2: the published-only server search hid exactly the
+ *   draft/disabled rows the merchant was looking for), still notes-immune;
+ *   status/category filters with accurate per-status counts; ONE denominator:
+ *   'All' chip + default list INCLUDE archived rows (visible, Restore
+ *   reachable) matching the Total pill + 'Published {n} · Total {n}' summary
  * - bulk enable/disable with affected counts + partial-failure disclosure
- * - archive → restore → disabled
- * - sync-failed row shows failed + retry (resync) settles
+ * - archive keeps the row in the default list (Archived chip + inline
+ *   Restore); restore → disabled
+ * - sync-failed (published) row shows failed + retry (resync) settles
  * - edited answer replaces the stale index text (sync_version bump)
  * - internal notes NEVER rendered; no confidence text; honest '—' timestamps
  * Abort discipline: state.unexpected === [] in every test.
@@ -400,10 +409,14 @@ test('create lands as DRAFT with a pending sync chip — saved ≠ live for AI',
     expect(state.lastCreateBody?.status).toBe('draft');
     expect(state.lastCreateBody).not.toHaveProperty('category');
     expect(state.lastCreateBody).not.toHaveProperty('confidence');
-    // Server-confirmed row: Draft lifecycle chip + Syncing (pending) sync chip.
+    // Server-confirmed row: Draft lifecycle chip + NEUTRAL 'Not indexed' sync
+    // chip (A8 minor #1: a draft CANNOT be 'Syncing' toward the reply index —
+    // only published rows get pending/synced/failed chips; the help title
+    // names the rule).
     await expect(rowChip(page, 'faq-new')).toHaveText('Draft');
-    await expect(syncChip(page, 'faq-new')).toHaveText('Syncing');
-    // Honest toast: "Saved — syncing", never "live".
+    await expect(syncChip(page, 'faq-new')).toHaveText('Not indexed');
+    await expect(syncChip(page, 'faq-new')).toHaveAttribute('title', 'Only published FAQs can reach customer replies.');
+    // Honest toast: "Saved", never "live" (the chip tells the index story).
     await expect(page.getByText('Saved — syncing to AI knowledge')).toBeVisible();
     // Internal notes never render on the list surface.
     await expect(page.getByText('NOTE-MARKER-create never customer-visible')).toHaveCount(0);
@@ -423,38 +436,46 @@ test('publish transitions draft → published with the is_active mirror', async 
     expect(state.unexpected).toEqual([]);
 });
 
-test('server search is published-only, immune to internal notes; filters carry accurate counts', async ({ page }) => {
+test('search is CLIENT-SIDE across all statuses with zero server calls, notes-immune; one-denominator filters + Published·Total summary', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    // Accurate per-status chips (draft row counts as draft, archived excluded
-    // from "All").
-    await expect(page.getByTestId('faq-filter-all')).toContainText('(6)');
+    // ONE denominator (A8 minor #2): the 'All' chip counts and shows every
+    // row INCLUDING archived, matching the Total pill.
+    await expect(page.getByTestId('faq-filter-all')).toContainText('(7)');
     await expect(page.getByTestId('faq-filter-draft')).toContainText('(1)');
     await expect(page.getByTestId('faq-filter-review')).toContainText('(1)');
     await expect(page.getByTestId('faq-filter-published')).toContainText('(3)');
     await expect(page.getByTestId('faq-filter-disabled')).toContainText('(1)');
     await expect(page.getByTestId('faq-filter-archived')).toContainText('(1)');
+    // Toolbar summary uses the published/total vocabulary (retired 'active').
+    await expect(page.getByText('Published 3 · Total 7')).toBeVisible();
 
-    // The draft's INTERNAL NOTE mentions "worklist" — searching that term must
-    // return nothing (published-only AND notes never matchable).
-    await page.getByTestId('faq-search').fill('worklist');
-    await expect.poll(() => state.searchCalls).toBe(1);
-    await expect(page.getByText('No FAQs match these filters')).toBeVisible();
-    expect(state.lastSearchBody?.query).toBe('worklist');
-
-    // "deliver" hits two PUBLISHED rows but not the draft whose question also
-    // contains it (server search is published-only).
+    // A8 MAJOR #2 FLIP: typing performs NO server search request — filtering
+    // happens client-side over the loaded worklist. "deliver" must surface
+    // the DRAFT and the DISABLED row too (exactly the rows the old
+    // published-only server search hid).
     await page.getByTestId('faq-search').fill('deliver');
-    await expect.poll(() => state.searchCalls).toBe(2);
+    expect(state.searchCalls).toBe(0);
     await expect(page.getByTestId('faq-row-faq-pub')).toBeVisible();
     await expect(page.getByTestId('faq-row-faq-syncfail')).toBeVisible();
-    await expect(page.getByTestId('faq-row-faq-draft')).toHaveCount(0);
-    // notes/keywords never appear on search result chips either (projections)
-    // — keyword chips only render for loaded rows whose keywords survived.
+    await expect(page.getByTestId('faq-row-faq-draft')).toBeVisible();
+    await expect(page.getByTestId('faq-row-faq-disabled')).toBeVisible();
+    // Non-matching rows stay out; the archived row's text does not contain it.
+    await expect(page.getByTestId('faq-row-faq-arch')).toHaveCount(0);
+    await expect(page.getByTestId('faq-row-faq-nullupdated')).toHaveCount(0);
+
+    // The draft's INTERNAL NOTE mentions "worklist" — client-side filtering
+    // matches question/answers/category only: notes stay UNMATCHABLE, and the
+    // result is the honest empty state (0 server calls the whole time).
+    await page.getByTestId('faq-search').fill('worklist');
+    expect(state.searchCalls).toBe(0);
+    await expect(page.getByText('No FAQs match these filters')).toBeVisible();
 
     // Clear search → client view returns.
     await page.getByTestId('faq-search').fill('');
     await expect(page.getByTestId('faq-row-faq-draft')).toBeVisible();
+    expect(state.searchCalls).toBe(0);
+    expect(state.lastSearchBody).toBeNull();
 
     // Category filter incl. Uncategorized.
     await page.getByTestId('faq-filter-category').selectOption('Shipping');
@@ -466,14 +487,16 @@ test('server search is published-only, immune to internal notes; filters carry a
     await expect(page.getByTestId('faq-row-faq-pub')).toHaveCount(0);
     await page.getByTestId('faq-filter-category').selectOption('all');
 
-    // Status filter: archived only, with the restore affordance.
+    // Status filter: archived only, with the restore affordance…
     await page.getByTestId('faq-filter-archived').click();
     await expect(page.getByTestId('faq-row-faq-arch')).toBeVisible();
     await expect(page.getByTestId('faq-restore-faq-arch')).toBeVisible();
     await expect(page.getByTestId('faq-row-faq-pub')).toHaveCount(0);
+    // …and back to "All" — the archived row STAYS in the default list,
+    // visible and restorable (not vanished behind the chip).
     await page.getByTestId('faq-filter-all').click();
-    // Archived leaves the default list.
-    await expect(page.getByTestId('faq-row-faq-arch')).toHaveCount(0);
+    await expect(page.getByTestId('faq-row-faq-arch')).toBeVisible();
+    await expect(page.getByTestId('faq-restore-faq-arch')).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
 
@@ -516,15 +539,27 @@ test('bulk partial failure names both sides — no blanket success claim', async
     expect(state.unexpected).toEqual([]);
 });
 
-test('archive leaves the default list; restore returns the row as disabled', async ({ page }) => {
+test('archive keeps the row visible under All with inline Restore (one denominator); restore returns it as disabled', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await page.getByTestId('faq-archive-faq-nullupdated').click();
     await expect.poll(() => state.archiveCalls).toBe(1);
-    await expect(page.getByTestId('faq-row-faq-nullupdated')).toHaveCount(0);
     await expect(page.getByText('FAQ archived')).toBeVisible();
+    // FINAL contract (A8 minor #2): archived rows do NOT vanish — they stay
+    // in the default "All" list with their Archived chip + Lifecycle chip and
+    // the Restore affordance inline; Total stays 7, Archived chip becomes (2).
+    await expect(page.getByTestId('faq-row-faq-nullupdated')).toBeVisible();
+    await expect(rowChip(page, 'faq-nullupdated')).toHaveText('Archived');
+    await expect(page.getByTestId('faq-restore-faq-nullupdated')).toBeVisible();
+    await expect(page.getByTestId('faq-filter-all')).toContainText('(7)');
+    await expect(page.getByTestId('faq-filter-archived')).toContainText('(2)');
+    // One denominator: archiving a PUBLISHED row drops Published to 2 while
+    // Total stays 7 — the archived row is still counted and shown.
+    await expect(page.getByText('Published 2 · Total 7')).toBeVisible();
+    // The Archived filter chip narrows to archived-only rows.
     await page.getByTestId('faq-filter-archived').click();
     await expect(rowChip(page, 'faq-nullupdated')).toHaveText('Archived');
+    await expect(page.getByTestId('faq-row-faq-pub')).toHaveCount(0);
     await page.getByTestId('faq-restore-faq-nullupdated').click();
     await expect.poll(() => state.restoreCalls).toBe(1);
     await expect(page.getByText('FAQ restored as disabled')).toBeVisible();
