@@ -101,7 +101,7 @@ Backfill (before adding the unique, same transaction):
 
 FK validity: none to retarget under Option A (rename). Under Option B (no rename) also none. Orders attribution defect fix in §3.5 is a *write-path* fix, not a schema change.
 
-`20261126_003_payment_transaction_integrity.js`:
+`20261126_003_payment_transaction_integrity.js` — **FINAL (A0 integration 2026-11-26): no third file ever landed. The integrity work is FOLDED: `payment_account_id` FK + index live in `20261127_001`, the `(shop_id, transaction_id)` uniqueness and the §4.4 `(order_id) WHERE status IN ('initiated','processing')` active-attempt partial unique live in `20261127_002` (coordinator ruling: migrations stay the 001/002 pair). Everything below this line describes the folded content.**
 - `ADD COLUMN payment_account_id UUID REFERENCES payment_accounts(id) ON DELETE SET NULL` (+ index) — rows must attribute to the *exact account* displayed to the customer (no silent number switching, §6). Entity `payment-transaction.entity.js` moves from `src/modules/billing/` to `src/modules/payment/` (require-path change in `entities.js` + ~10 importers; consumers' semantics unchanged).
 - Partial unique `(shop_id, transaction_id) WHERE transaction_id <> ''` — today there is **no** unique on `transaction_id` (`payment-transaction.entity.js:78-86` all non-unique; DB `20260520_000:615-617` same), while both the webhook replay claim (`payment-webhook.controller.js:52-58`) and the owner-approval lookup (`owner-notification.service.js:253-261`) implicitly assume transaction_id uniqueness. Pre-flight duplicate check + fail-with-report, per the 20261026_001 pattern.
 - Status vocabulary comment → `pending | initiated | payment_claimed | processing | paid | verified | failed | rejected` (`payment_claimed` is the new self-MFS claim state, §3; the column stays VARCHAR — enum migration on a live-status table is not worth the risk; taxonomy module is the validator).
@@ -421,3 +421,80 @@ Additional orchestrator rulings beyond D-1..D-10:
 - **R-13 Self-MFS is the default money path shipped today** and must be FULLY functional + honestly labeled after this work (claim → pending record → merchant approve/reject → customer notification via eligibility gate), since no merchant's gateway rung exists yet.
 - **R-14 One PUT pair per tab** stays the write contract (methods config API + policies API); no chatbot orchestration or messaging-policy edits beyond the payment steps themselves.
 - **R-15 Verdict discipline:** final report must present per-provider verification status honestly (mock-contract-tested vs live-verified) and founder UAT must include the live-credential certification legs as explicit external dependencies.
+
+---
+
+## A0 INTEGRATION LEDGER (2026-11-26, implementation-time decisions recorded per ratification)
+
+These are integration-wave rulings made while wiring A2/A3/A4/A5's delivered
+modules together. Where a draft line said something different, this ledger is
+the shipped truth (it supersedes §1.3's 003 mention in place above).
+
+**Migrations.** Final shape is the RATIFIED pair 20261127_001/002 — no 003.
+§4.4's `(order_id) WHERE status IN ('initiated','processing')` partial unique is
+folded into 002 (coordinator ruling 2026-11-26); `payment_claimed` rows are
+deliberately NOT in that predicate (D-4: merchant judgment owns claim rows; the
+claim service guards duplicates at (shop_id, trx_id) instead). 002's duplicate
+pre-flight fails with a row report per the 20261026_001 convention. Both files
+are now enumerated on the WIPE/FRESH sync path (`src/utils/database/sync.js`,
+postgres-gated like the founder-pilot set — production `migrate.js`
+auto-discovers; this closes A5-Q7/A4-Q7 for the R-11 rehearsal).
+
+**D-9 executed.** Deleted: `bangladesh-payment.controller.js` +
+`bangladesh-payment.routes.js` (zero production importers; the billing service
+that survives is `bangladesh-payment.service.js` — kept per §4.6),
+`smart-payment-detection.service.js` (grep-verified ZERO importers anywhere),
+the dead `paymentCallbackAuth` middleware ARRAY +
+`middleware/payment-callback-auth.middleware.js` + its unit test (§7 row 10,
+with the intent memo now in payment.routes.js), and the unreachable
+`handleOwnerPaymentConfirmation` controller method + its mock in
+webhook.routes.contract.test.js (§7 row 16). route-perimeter.test.js flipped to
+not-exists assertions. base-merchant.service.js docstring rewritten to the
+truth (§7 row 4: Nagad/Rocket merchant classes never existed; automation
+intentionally absent).
+KEPT (live-importer rule): `bkash-merchant.service.js` + `base-merchant.service.js`
+retained — `bkash-merchant.logs.test.js` still imports the former, and per D-9
+"anything with a live importer stays, note it." A future cleanup wave may retire
+the pair together with that test (its redaction intent is already migrated to
+bkash-tokenized.logs.test.js). `PAYMENT_CALLBACK_HMAC_SECRET` stays
+core-required: flipping the validator core list would touch
+production-config.validator.test / production-defaults-matrix /
+render-production-env(.test) / auth-rate-limit pins — out of D-9 scope here and
+recorded as an A6-wave candidate.
+
+**Secrets posture.** `NAGAD_*` collected-no-more: removed from the
+`setup-secrets.js` template with an explanatory note (D-10 ratified).
+`BKASH_WEBHOOK_SECRET` requirement UNCHANGED (required iff BKASH_ENABLED=true,
+no new env var) — its comment now documents the honest role: deployment
+shared-secret TRANSPORT gate inside webhook.middleware.js, never settlement
+evidence (the §4.2 mandatory server-side Query is the evidence chain).
+
+**Scheduler (§4.3 wired).** New `src/jobs/gateway-attempt-reconciler.job.js`,
+registered in jobs/index.js + queue-manager (queue `gateway-attempt-reconciler`,
+manual trigger `gateway_attempt_reconciler`, schedule every minute). The
+1/5/15/30 cadence is PER ROW inside `reconcileStaleGatewayAttempts` via the
+attempt ledger in `gateway_response.reconcile` (max four provider Queries per
+attempt, then quiet — admin read-only report path untouched). BKASH_ENABLED off
+⇒ zero sweep HTTP (R-12); throwing passes still consume a rung (bounded by
+construction).
+
+**Verdicts & copies.** Test-before-save intent (spec-audit #5) is satisfied
+SERVER-side: `savePaymentAccount`/`updatePaymentAccount` format-validate
+credentials BEFORE persist and reject with 400s; the e2e pins assert the causal
+property (a validation failure never persists) rather than literal call order.
+The drawer's sandbox/production selection now PERSISTS to
+`account.config.environment` (spec-audit #7), which
+`bkash-tokenized.resolveEnvironment()` reads; the verify banner states which
+environment was exercised. `modeSelfHint` legacy copy rewritten to the honest
+screenshot-is-supporting-evidence wording (§0 invariant; spec-audit #6). Ledger
+`evidence` column aligned to JSONB on the entity (spec-audit #9).
+
+**Ratified numeric/behavioral values (previously open):** claim amount
+tolerance = max(৳5, 5%) of the server-computed due (mirrors the self-MFS-handler
+family; A4-Q5) — mismatch is recorded + merchant-surfaced, never auto-rejected.
+Non-mobile sender phone ⇒ treated as not-provided on the machine path, null on
+the API path (A4-Q6). NULLABLE provider/account_type at DB level stands (A5-Q6):
+an undecryptable row stays honest (null), never coerced to cod. FE taxonomy:
+canonical mirror `src/app/components/payment/taxonomy.ts` pinned against the
+backend module by `payment-taxonomy.mirror.test.ts`; `payment-settings/taxonomy.ts`
+projects it (single vocabulary source, closing A2-Q6).
