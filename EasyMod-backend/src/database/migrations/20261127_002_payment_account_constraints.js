@@ -55,8 +55,12 @@ async function findLegacyProviderConstraint(sequelize) {
          WHERE rel.relname = 'payment_accounts'
            AND con.contype = 'u'
          GROUP BY con.conname
-        HAVING array_agg(a.attname ORDER BY a.attnum) = ARRAY['shop_id','provider'];
-    `).catch(() => [[]]);
+        HAVING array_agg(a.attname::text ORDER BY a.attnum) = ARRAY['shop_id','provider']::text[];
+    `);
+    // NO error-swallowing catch here: inside the runner's per-migration
+    // transaction ANY thrown statement aborts the transaction, and a swallowed
+    // error would poison every later statement as 25P02 (CI rehearsal caught
+    // exactly that with the uncast name[] = text[] comparison, 42883).
     return Array.isArray(rows) && rows.length ? rows[0].conname : null;
 }
 

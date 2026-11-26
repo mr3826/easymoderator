@@ -59,6 +59,12 @@ describe('20261127_002_payment_account_constraints', () => {
         expect(sql).toMatch(/FROM pg_constraint/);
         expect(sql).toMatch(/DROP CONSTRAINT IF EXISTS payment_configs_shop_id_provider_key/);
         expect(sql).toMatch(/DROP INDEX IF EXISTS idx_payment_configs_shop_gateway/);
+        // REGRESSION PIN (real-PG16 CI/disposable rehearsal, 2026-11-26): the
+        // uncast comparison threw 42883 (operator does not exist: name[] =
+        // text[]); the then-swallowing .catch left the runner's per-migration
+        // transaction ABORTED, poisoning every later statement as 25P02.
+        expect(sql).toContain("array_agg(a.attname::text ORDER BY a.attnum) = ARRAY['shop_id','provider']::text[]");
+        expect(sql).not.toMatch(/array_agg\(a\.attname ORDER BY/);
     });
 
     test('creates the account-scoped partial unique + one-preferred + txn-id unique', async () => {
