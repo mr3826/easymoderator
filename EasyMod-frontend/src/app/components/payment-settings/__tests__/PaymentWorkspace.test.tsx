@@ -76,12 +76,18 @@ function renderShell() {
 }
 
 describe('PaymentWorkspace', () => {
-  it('shows the execution header with the reused channel signal and factual pills', async () => {
+  it('renders the slim header (no signal band, no header CTA) with the factual pills relocated into the methods tab', async () => {
     await renderShell();
-    const signal = await screen.findByTestId('payment-signal');
-    expect(signal).toHaveTextContent('Accepting payments');
+    // Header-removal C1: compact title stays visible (≠ AppBar "Payment").
     expect(screen.getByRole('heading', { level: 1, name: 'Payment Settings' })).toBeInTheDocument();
+    // C6 absence pins: NO generic *-signal testid may exist in the payment scope,
+    // and the derived signal copy ('Accepting payments', keys deleted by the
+    // sweep) must never render — not as a band, not as an empty string.
+    expect(document.querySelectorAll('.em-payment [data-testid$="-signal"]')).toHaveLength(0);
+    expect(screen.queryByText('Accepting payments')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
+    // Contextual facts survive INSIDE content (methods tab is the active panel).
+    expect(screen.getByText(/Enabled methods:/)).toBeInTheDocument();
     expect(screen.getByText(/Preferred:/)).toBeInTheDocument();
   });
 

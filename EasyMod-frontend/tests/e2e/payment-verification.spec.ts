@@ -348,7 +348,10 @@ async function loginAndGo(page: Page) {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/payment-settings');
-    await expect(page.getByTestId('payment-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: no signal band exists any more — the mounted methods
+    // tab is the readiness anchor, and no generic *-signal may appear.
+    await expect(page.getByTestId('payment-tab-methods')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.em-payment [data-testid$="-signal"]')).toHaveCount(0);
 }
 
 test.beforeEach(async ({ page }) => {

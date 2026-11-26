@@ -11,7 +11,10 @@
  *    (D-8: preference moved to payment_accounts.is_preferred; §5: policy moved
  *    to PATCH/PUT /api/payment/policy; §1.4: the settings tab is on the
  *    canonical account API, the legacy routes stay only for old consumers).
- *  - Execution header (§29): title + channel signal + factual pills, NO CTA.
+ *  - Slim header (header-removal C1/C6): compact title ONLY, NO signal band
+ *    (generic [data-testid$="-signal"] must be absent in .em-payment), NO CTA.
+ *    The contextual facts (enabled-methods count, preferred account) render
+ *    INSIDE the methods tab body and stay pinned there.
  *  - Test-before-save intent (spec-audit ruling #5): the CAUSAL property is
  *    asserted — a credential that fails validation is never persisted — both
  *    client-side (drawer blocks + no request fires) and server-side (a mocked
@@ -327,8 +330,10 @@ async function loginAndGo(page: Page) {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/payment-settings');
-    // Wait for the Suspense-loaded workspace to mount before any assertion.
-    await expect(page.getByTestId('payment-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: the signal band is gone, so the mounted methods tab is
+    // the readiness anchor — and NO generic *-signal testid may exist in scope.
+    await expect(page.getByTestId('payment-tab-methods')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.em-payment [data-testid$="-signal"]')).toHaveCount(0);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -346,12 +351,15 @@ const bkashSelfEnabled = baseAccount({
 });
 const codEnabled = baseAccount({ id: 'acc-cod-1', provider: 'cod', account_type: 'standard', is_enabled: true, verification_level: 'live_certified' });
 
-test('execution header: title + channel signal + pills, no header CTA', async ({ page }) => {
+test('slim header: compact title, NO signal band, no header CTA; facts relocated into content', async ({ page }) => {
     const state = await setupRoutes(page, { accounts: [codEnabled, bkashSelfEnabled] });
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Payment Settings', exact: true })).toBeVisible();
-    await expect(page.getByTestId('payment-signal')).toContainText('Accepting payments');
+    // C6 absence pins (the removal itself is what we test):
+    await expect(page.locator('.em-payment [data-testid$="-signal"]')).toHaveCount(0);
+    await expect(page.getByText('Accepting payments')).toHaveCount(0); // deleted signal.* keys must not resurrect
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
+    // The contextual facts survive — inside the methods tab body, not a band.
     await expect(page.getByText(/Enabled methods:/)).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
@@ -444,7 +452,9 @@ test('advance policy persists through PUT /api/payment/policy and round-trips fr
     await expect.poll(() => state.policyPuts.length).toBe(1);
     expect(state.policyPuts[0]).toMatchObject({ advance_policy: 'percentage', advance_value: 25 });
     await page.reload();
-    await expect(page.getByTestId('payment-signal')).toBeVisible();
+    // Post-reload anchor: the mounted workspace (no signal band may exist — C6).
+    await expect(page.getByTestId('payment-tab-methods')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.em-payment [data-testid$="-signal"]')).toHaveCount(0);
     await page.getByTestId('payment-tab-policies').click();
     await expect(page.locator('input[name="advance-policy"][value="percentage"]')).toBeChecked();
     await expect(page.getByTestId('advance-percentage-input')).toHaveValue('25');
@@ -478,7 +488,7 @@ test('390px: no horizontal overflow and five mobile destinations', async ({ page
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page, { accounts: [codEnabled, bkashSelfEnabled] });
     await loginAndGo(page);
-    await expect(page.getByTestId('payment-signal')).toBeVisible();
+    await expect(page.locator('.em-payment [data-testid$="-signal"]')).toHaveCount(0);
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
     await expect(mobile.getByRole('link')).toHaveCount(5);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -489,7 +499,7 @@ test('axe: no critical or serious violations in the payment surface', async ({ p
     await setupRoutes(page, { accounts: [codEnabled, bkashSelfEnabled] });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('payment-signal')).toBeVisible();
+    await expect(page.locator('.em-payment [data-testid$="-signal"]')).toHaveCount(0);
     await page.getByTestId('expand-bkash').click();
     await expect(page.getByTestId(`account-card-${bkashSelfEnabled.id}`)).toBeVisible();
     await page.waitForTimeout(800);

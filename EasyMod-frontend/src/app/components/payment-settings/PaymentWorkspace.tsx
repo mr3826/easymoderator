@@ -10,10 +10,14 @@
  *   live in a draft the shell persists through ONE `PUT /api/payment/policy`,
  *   and the Saved state comes from snapshot equality with the SERVER reply — so
  *   success is never claimed before the server confirms it (§4, R-14).
- * - Execution-page header: title + one channel signal + factual pills only,
- *   no header CTA (§29). `derivePaymentSignal` is reused unchanged so its unit
- *   pins keep passing; the ladder truth lives on each account card, not in the
- *   signal (§7 row 3).
+ * - Execution-page header is SLIM (header-removal C1/C1-amendment):
+ *   "Payment Settings" ≠ AppBar "Payment" in BOTH locales → titleMode="compact",
+ *   no signal prop, no whyHere, no ActionBar (docs/header-removal/03_CONTRACT.md).
+ *   `derivePaymentSignal` and the `paymentSettings.signal.*` / `advanceRuleLabel`
+ *   keys were deleted by the sweep (C3/C5). The contextual account facts
+ *   (enabled-methods count, preferred account) live INSIDE the methods tab body,
+ *   where they are record-level context, not a global pulse; the advance rule is
+ *   the Policies tab's own form state (§29, C7 reclaims the band space).
  * - Tabs follow the ARIA tablist contract: roving tabindex + ArrowLeft/Right
  *   wrap + Home/End. Testids `payment-tab-*` / `payment-panel-*`.
  *
@@ -25,14 +29,12 @@ import { useTranslation } from 'react-i18next';
 import { motion, MotionConfig } from 'motion/react';
 import { fadeUp } from '@/lib/motion';
 import { PageHeader } from '../dashboard/PageHeader';
-import { derivePaymentSignal } from '../payment/derive';
-import { authService } from '@/app/lib/auth';
 import { getErrorMessage } from '@shared/lib/http/errors';
 import { paymentClient } from './paymentClient';
 import MethodsTab from './MethodsTab';
 import PoliciesTab from './PoliciesTab';
 import type { AdvancePolicy, PaymentAccountView, PaymentPolicyView } from './taxonomy';
-import { ADVANCE_POLICIES, DEFAULT_POLICY_VIEW, accountTypeDefaultLabel, accountTypeKey, advancePolicyKey, providerDefaultLabel, providerNameKey } from './taxonomy';
+import { ADVANCE_POLICIES, DEFAULT_POLICY_VIEW, accountTypeDefaultLabel, accountTypeKey, providerDefaultLabel, providerNameKey } from './taxonomy';
 
 const ANIMATE = import.meta.env.MODE !== 'test';
 
@@ -146,15 +148,11 @@ export default function PaymentWorkspace() {
     setActiveTab(TABS[nextIndex].id);
   };
 
-  const phase = loadError ? 'error' : loading && !booted ? 'loading' : 'ready';
   const enabledCount = accounts.filter((a) => a.is_enabled).length;
-  const signal = derivePaymentSignal({ phase, enabledCount }, t);
-  const shopName = authService.getCurrentShop()?.shop_name || t(`manageShop.paymentSettings.title`);
   const preferred = accounts.find((a) => a.is_preferred);
   const preferredLabel = preferred && preferred.provider
     ? `${t(providerNameKey(preferred.provider), { defaultValue: providerDefaultLabel(preferred.provider) })}${preferred.account_type ? ` · ${t(accountTypeKey(preferred.account_type), { defaultValue: accountTypeDefaultLabel(preferred.account_type) })}` : ''}`
     : '—';
-  const advanceRuleLabel = t(advancePolicyKey(draftPolicy.advance_policy));
 
   if (loading && !booted) {
     return (
@@ -177,27 +175,28 @@ export default function PaymentWorkspace() {
       <div className="em-payment min-h-full p-4 md:p-6">
         <div className="mx-auto w-full max-w-[1440px] space-y-6">
           <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
-            <PageHeader
-              title={t(`manageShop.paymentSettings.title`)}
-              breadcrumb={[{ label: shopName }]}
-              signal={signal}
-              signalTestId="payment-signal"
-              signalAnnounce={false}
-              meta={
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t(`manageShop.paymentSettings.enabledMethodsLabel`)}: {enabledCount}
-                  </span>
-                  <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t(`manageShop.paymentSettings.accounts.preferred`, { defaultValue: 'Preferred' })}: {preferredLabel}
-                  </span>
-                  <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t(`manageShop.paymentSettings.advanceRuleLabel`)}: {advanceRuleLabel}
-                  </span>
-                </div>
-              }
-            />
+            {/* Slim header (header-removal C1 amendment): "Payment Settings" is NOT
+                the AppBar's name ("Payment") in either locale → titleMode="compact".
+                No signal band, no breadcrumb, no pill strip — the contextual
+                account facts render inside the methods tab below. */}
+            <PageHeader title={t(`manageShop.paymentSettings.title`)} titleMode="compact" />
           </motion.div>
+
+          {/* Load failure has an honest surface (C4: alert regions stay). Its old
+              home was the header signal's blocked reason — relocated here with a
+              retry affordance so nothing is only-in-the-band. */}
+          {loadError && (
+            <div role="alert" data-testid="payment-load-error" className="flex items-center gap-2 rounded-xl border border-em-danger-700/20 bg-em-danger-100 px-4 py-3 text-sm text-em-danger-700">
+              <span className="flex-1">{loadError}</span>
+              <button
+                type="button"
+                onClick={() => void loadAll()}
+                className="min-h-11 rounded-lg border border-em-danger-700/30 px-3 text-xs font-semibold text-em-danger-700 hover:text-em-danger-700/80 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light"
+              >
+                {t('common.retry')}
+              </button>
+            </div>
+          )}
 
           <div role="tablist" aria-label={t(`manageShop.paymentSettings.tabs.label`, { defaultValue: 'Payment settings sections' })} className="flex gap-1 overflow-x-auto">
             {TABS.map((tab, index) => (
@@ -225,6 +224,18 @@ export default function PaymentWorkspace() {
 
           {activeTab === 'methods' && (
             <div role="tabpanel" id="payment-panel-methods" aria-labelledby="payment-tab-methods" tabIndex={-1}>
+              {/* Contextual account facts relocated from the retired header band:
+                  server-confirmed state (never a global shop pulse, C1). The
+                  advance rule is intentionally NOT repeated here — the Policies
+                  tab's own form + saved footer are its single honest home. */}
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t(`manageShop.paymentSettings.enabledMethodsLabel`)}: {enabledCount}
+                </span>
+                <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t(`manageShop.paymentSettings.accounts.preferred`, { defaultValue: 'Preferred' })}: {preferredLabel}
+                </span>
+              </div>
               <MethodsTab accounts={accounts} onMutate={reloadAccounts} />
             </div>
           )}
