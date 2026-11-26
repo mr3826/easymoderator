@@ -6,7 +6,7 @@
  * - bulk enable/disable discloses affected count, confirms first, reloads
  *   from the server and reports partial failure;
  * - filter chip counts are accurate against the merchant list;
- * - a typed query calls the SERVER search endpoint and hydrated rows keep
+ * - a typed query filters CLIENT-SIDE across ALL statuses (A8 #2) and rows
  *   their internal keywords/notes from the merchant list (projection-safe);
  * - a failed sync row shows Retry and NEVER a green synced state;
  * - confidence/% text is absent everywhere (inverted F3 pin);
@@ -197,8 +197,11 @@ describe('FaqTab — lifecycle transitions bind to the contract endpoints', () =
     fireEvent.click(within(row).getByTestId('faq-archive-2'));
     await waitFor(() => expect(faqApi.archiveKnowledgeFaq).toHaveBeenCalledWith('2'));
     expect(faqApi.updateKnowledgeFaq).not.toHaveBeenCalledWith('2', { status: 'archived' });
-    // Archived leaves the default list (02 §4 — server-confirmed row state).
-    await waitFor(() => expect(screen.queryByTestId('faq-row-2')).toBeNull());
+    // A8 minor #2: ONE denominator — the archived row STAYS visible in the
+    // default list with the server-confirmed state + Restore affordance.
+    const archivedNow = await screen.findByTestId('faq-row-2');
+    expect(within(archivedNow).queryByTestId('faq-archive-2')).toBeNull();
+    expect(within(archivedNow).getByTestId('faq-restore-2')).toBeInTheDocument();
 
     // The Archived filter reveals restore-only affordances (fixture row 5).
     fireEvent.click(screen.getByTestId('faq-filter-archived'));
@@ -279,14 +282,14 @@ describe('FaqTab — bulk enable/disable is count-disclosed and confirmed', () =
 describe('FaqTab — search + filters', () => {
   it('chip counts are accurate against the merchant list and the status filter narrows rows', async () => {
     renderTab();
-    // all=4 (archived hidden from "all"), published=2 (rows 2+3).
-    expect(await screen.findByTestId('faq-filter-all')).toHaveTextContent('(4)');
+    // A8 minor #2: 'All' == Total incl. archived = 5; published=2 (rows 2+3).
+    expect(await screen.findByTestId('faq-filter-all')).toHaveTextContent('(5)');
     expect(screen.getByTestId('faq-filter-published')).toHaveTextContent('(2)');
     expect(screen.getByTestId('faq-filter-draft')).toHaveTextContent('(1)');
     expect(screen.getByTestId('faq-filter-archived')).toHaveTextContent('(1)');
 
-    // Archived row is NOT in the default list (02: archive leaves the default view).
-    expect(screen.queryByTestId('faq-row-5')).toBeNull();
+    // Archived rows are visibly reachable in the default list (one denominator).
+    expect(screen.getByTestId('faq-row-5')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('faq-filter-archived'));
     await waitFor(() => expect(screen.getByTestId('faq-row-5')).toBeInTheDocument());
     expect(screen.queryByTestId('faq-row-2')).toBeNull();
@@ -297,22 +300,18 @@ describe('FaqTab — search + filters', () => {
     expect(screen.queryByTestId('faq-row-1')).toBeNull();
   });
 
-  it('a typed query calls the SERVER search endpoint and rows hydrate from the merchant list', async () => {
-    // Search returns PROJECTION-shaped rows (no keywords/notes on the wire).
-    vi.mocked(faqApi.searchKnowledgeFaqs).mockResolvedValue([
-      { ...publishedRow, keywords: undefined, notes: undefined, relevance_score: 0.9 },
-    ] as never);
+  it('a typed query filters CLIENT-SIDE across all statuses — never a published-only server call (A8 #2)', async () => {
     renderTab();
     const input = await screen.findByTestId('faq-search');
-    fireEvent.change(input, { target: { value: 'delivery charge' } });
-    await waitFor(
-      () => expect(faqApi.searchKnowledgeFaqs).toHaveBeenCalledWith('delivery charge', expect.objectContaining({ limit: 100 })),
-      { timeout: 3000 },
-    );
-    await waitFor(() => expect(screen.getByTestId('faq-row-2')).toBeInTheDocument());
-    expect(screen.queryByTestId('faq-row-1')).toBeNull();
-    // Hydrated from the merchant list, not the stripped projection:
-    expect(within(screen.getByTestId('faq-row-2')).getByText('chattogram')).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: 'fridays' } });
+    await waitFor(() => expect(screen.getByTestId('faq-row-4')).toBeInTheDocument());
+    expect(faqApi.searchKnowledgeFaqs).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('faq-row-2')).toBeNull();
+    // The A8 trap: a DRAFT must stay findable while the merchant types —
+    // 'chattogram' matches draft row 1 (question + keyword), never vanishes.
+    fireEvent.change(input, { target: { value: 'chattogram' } });
+    await waitFor(() => expect(screen.getByTestId('faq-row-1')).toBeInTheDocument());
+    expect(faqApi.searchKnowledgeFaqs).not.toHaveBeenCalled();
   });
 
   it('category filter includes Uncategorized for NULL tags', async () => {
@@ -461,9 +460,10 @@ describe('FaqTab — page states', () => {
     const rows = Array.from(document.querySelectorAll('[data-testid^="faq-row-"]')).map((el) =>
       el.getAttribute('data-testid'),
     );
-    // Rows 2/3/4 share updated 2026-11-05; draft (updated NULL) sorts last;
-    // archived is hidden from the default view.
-    expect(rows[rows.length - 1]).toBe('faq-row-1');
-    expect(rows).not.toContain('faq-row-5');
+    // Rows 2/3/4 share updated 2026-11-05; draft (updated NULL) sorts in the
+    // NULL-safe tail; archived rows are now part of the default view (A8 #2).
+    expect(rows).toContain('faq-row-5');
+    expect(rows.indexOf('faq-row-2')).toBeLessThan(rows.indexOf('faq-row-1'));
+    expect(rows.slice(-2).sort()).toEqual(['faq-row-1', 'faq-row-5']);
   });
 });

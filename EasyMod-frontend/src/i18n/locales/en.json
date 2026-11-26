@@ -2532,7 +2532,7 @@
       },
       "automationLink": {
         "title": "Automation defaults",
-        "desc": "Reply mode, confidence and greeting now live on the business automation page.",
+        "desc": "Reply mode and greeting now live on the business automation page.",
         "cta": "Open automation defaults"
       },
       "retryLoad": "Retry loading",
@@ -3503,7 +3503,9 @@
           "pending": "Syncing",
           "synced": "Synced",
           "failed": "Sync failed",
-          "pruned": "Removed from index"
+          "pruned": "Removed from index",
+          "notIndexed": "Not indexed",
+          "notIndexedHelp": "Only published FAQs can reach customer replies."
         }
       },
       "sync": {
@@ -3518,7 +3520,8 @@
       "keywordsLabel": "Internal keywords",
       "metrics": {
         "published": "Published FAQs",
-        "repliesUsed": "Replies used"
+        "repliesUsed": "Replies used",
+        "countsSummary": "Published {{published}} · Total {{total}}"
       },
       "publish": "Publish",
       "published": "FAQ published",

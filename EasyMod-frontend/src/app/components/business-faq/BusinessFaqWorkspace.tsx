@@ -34,6 +34,10 @@ export default function BusinessFaqWorkspace() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() =>
     location.pathname.endsWith('/faqs') ? 'faqs' : 'profile',
   );
+  // A8 minor #3: switching tabs must NOT discard in-progress edits. Visited
+  // panels stay mounted (hidden), so drafts survive round-trips; new panels
+  // still lazy-mount on first visit (S7 fetch discipline).
+  const [visited, setVisited] = useState<WorkspaceTab[]>([activeTab]);
 
   useEffect(() => {
     // Route-driven tab switches without remount keep the two URLs honest.
@@ -50,6 +54,12 @@ export default function BusinessFaqWorkspace() {
     event.preventDefault();
     document.getElementById(`business-faq-tab-${TABS[nextIndex].id}`)?.focus();
     setActiveTab(TABS[nextIndex].id);
+    setVisited((current) => (current.includes(TABS[nextIndex].id) ? current : [...current, TABS[nextIndex].id]));
+  };
+
+  const selectTab = (tab: WorkspaceTab) => {
+    setActiveTab(tab);
+    setVisited((current) => (current.includes(tab) ? current : [...current, tab]));
   };
 
   return (
@@ -72,7 +82,7 @@ export default function BusinessFaqWorkspace() {
               aria-selected={activeTab === tab.id}
               aria-controls={`business-faq-panel-${tab.id}`}
               tabIndex={activeTab === tab.id ? 0 : -1}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
               onKeyDown={(event) => moveTabFocus(event, index)}
               className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${FOCUS_RING} ${
                 activeTab === tab.id
@@ -85,20 +95,20 @@ export default function BusinessFaqWorkspace() {
           ))}
         </div>
 
-        {activeTab === 'profile' && (
-          <div role="tabpanel" id="business-faq-panel-profile" aria-labelledby="business-faq-tab-profile" tabIndex={-1}>
+        {visited.includes('profile') && (
+          <div role="tabpanel" id="business-faq-panel-profile" aria-labelledby="business-faq-tab-profile" tabIndex={-1} hidden={activeTab !== 'profile'} className={activeTab === 'profile' ? '' : 'hidden'}>
             <ProfileTab />
           </div>
         )}
 
-        {activeTab === 'faqs' && (
-          <div role="tabpanel" id="business-faq-panel-faqs" aria-labelledby="business-faq-tab-faqs" tabIndex={-1}>
+        {visited.includes('faqs') && (
+          <div role="tabpanel" id="business-faq-panel-faqs" aria-labelledby="business-faq-tab-faqs" tabIndex={-1} hidden={activeTab !== 'faqs'} className={activeTab === 'faqs' ? '' : 'hidden'}>
             <FaqTab />
           </div>
         )}
 
-        {activeTab === 'policies' && (
-          <div role="tabpanel" id="business-faq-panel-policies" aria-labelledby="business-faq-tab-policies" tabIndex={-1}>
+        {visited.includes('policies') && (
+          <div role="tabpanel" id="business-faq-panel-policies" aria-labelledby="business-faq-tab-policies" tabIndex={-1} hidden={activeTab !== 'policies'} className={activeTab === 'policies' ? '' : 'hidden'}>
             <PoliciesTab />
           </div>
         )}

@@ -269,13 +269,16 @@ export function ProfileTab({ initialData, loading = false, onPersisted }: Profil
     }, {} as SocialLinks);
 
     // deliveryAreas / paymentMethods / location deliberately omitted.
+    // A8 MAJOR: cleared optional fields MUST send the empty string — the
+    // server contract is 'empty string allowed = clear', while an ABSENT key
+    // means 'leave the stored value untouched' (silent no-op + false success).
     return {
       shopName: form.shopName.trim(),
-      nameEn: form.nameEn.trim() || undefined,
-      tagline: form.tagline.trim() || undefined,
+      nameEn: form.nameEn.trim(),
+      tagline: form.tagline.trim(),
       phone: form.phone.trim(),
-      email: form.email.trim() || undefined,
-      city: form.city.trim() || undefined,
+      email: form.email.trim(),
+      city: form.city.trim(),
       address: form.address.trim(),
       openingHours: form.openingHours.trim(),
       additionalInfo: form.additionalInfo,

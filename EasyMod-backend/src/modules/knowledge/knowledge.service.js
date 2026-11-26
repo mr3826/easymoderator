@@ -3,6 +3,7 @@ const shopService = require('../shop/shop.service');
 const KnowledgeGap = require('../analytics/knowledge-gap.entity');
 const { AppError } = require('../../utils/AppError');
 const ragService = require('../rag/rag.service');
+const { resolveFaqQuestion } = require('./faq-question');
 const cacheService = require('../../utils/cache.service');
 const {
     MERCHANT_KNOWLEDGE_CACHE_KEY,
@@ -89,7 +90,7 @@ const rowPlain = (row) => (typeof row?.get === 'function' ? row.get({ plain: tru
  */
 const formatFaq = (faq) => {
     const status = faqStatusFromRow(faq);
-    const questionText = faq.question || faq.category || '';
+    const questionText = resolveFaqQuestion(faq, '');
     return {
         // New shape.
         id: String(faq.id),
@@ -143,8 +144,9 @@ const formatFaqProjection = (faq) => {
 // __tests__/index-source.contract.test.js — change both together.
 
 const buildFaqIndexText = (faq) => [
-    // question||category preference; keywords/notes are NEVER indexed.
-    (faq.question || faq.category) ? `Q: ${faq.question || faq.category}` : null,
+    // Mirror-invariant resolution, BYTE-IDENTICAL with index-source.contract.js
+    // (shared faq-question.js). keywords/notes are NEVER indexed.
+    resolveFaqQuestion(faq, '') ? `Q: ${resolveFaqQuestion(faq, '')}` : null,
     faq.template_bn && `A (BN): ${faq.template_bn}`,
     faq.template_en && `A (EN): ${faq.template_en}`,
 ].filter(Boolean).join('\n');
@@ -234,6 +236,17 @@ const syncFaqRagIndex = async (shopId, faq) => {
     const text = eligible ? buildFaqIndexText(faq) : '';
 
     if (!eligible || !text) {
+        // Stale-snapshot guard (A9): a queued sync for an OLD ineligible
+        // snapshot must never delete a point that a NEWER save has already
+        // republished — the newer save's own sync owns the point from then on.
+        try {
+            const fresh = await FaqResponse.findByPk(faq.id);
+            if (fresh && faqEligibleForKnowledge(rowPlain(fresh))) return;
+        } catch (_) {
+            // Re-read failed: fall through; the CAS settle below still cannot
+            // clobber a newer row, and rag's version guard covers the ingest
+            // side of the race.
+        }
         // Out of published (draft/review/disabled/archived or empty text):
         // the point must be REMOVED; the removal itself settles the sync.
         try {
@@ -465,6 +478,8 @@ const listFaqs = async (userId, shopId) => {
 // category alias (legacy clients put the question in `category`), and a
 // category update can never overwrite the stored question — structurally.
 const faqQuestionText = (input) => String(input.question || input.category || '').trim() || 'General';
+// (CREATE keeps this question-first payload alias. ROW reads and updateFaq use
+// faq-question.resolveFaqQuestion for the rollback-window mirror invariant.)
 
 const faqAnswerSlots = (input) => {
     // answer_en/template_en/explicit answer → EN slot; answer_bn/template_bn
@@ -528,11 +543,14 @@ const updateFaq = async (userId, shopId, faqId, updates) => {
     // question authoritative (see faqQuestionText): explicit question wins,
     // legacy category alias only when no question came, otherwise the stored
     // question (not the stale category) survives.
+    // PATCH semantics (A9 M3): a legacy `category` field alone NEVER changes
+    // the question — that was the original bug shape (and the contract says
+    // category can never overwrite question). Question edits must send
+    // `question`. With no question in the patch, the stored (drift-resolved)
+    // question survives.
     const question = updates.question !== undefined
         ? String(updates.question).trim() || 'General'
-        : (updates.category !== undefined
-            ? String(updates.category).trim() || 'General'
-            : (current.question || current.category || 'General'));
+        : resolveFaqQuestion(current);
 
     const en = updates.answer_en ?? updates.template_en ?? updates.answer;
     const bn = updates.answer_bn ?? updates.template_bn;
@@ -1030,6 +1048,8 @@ module.exports = {
     mirrorIsActive,
     formatFaq,
     formatFaqProjection,
+    settleFaqSync,
+    resolveFaqQuestion,
     syncFaqRagIndex,
     // Index text builders (kept in lockstep with index-source.contract.js).
     buildFaqIndexText,

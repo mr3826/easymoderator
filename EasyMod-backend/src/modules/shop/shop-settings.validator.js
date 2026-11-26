@@ -155,6 +155,8 @@ const validateBusinessPoliciesBody = (body) => {
     const allowed = new Set(['stance', ...Object.keys(POLICY_TEXT_FIELDS_MAX),
       ...(POLICY_PERIOD_DAYS_KINDS.includes(kind) ? ['period_days'] : []),
       ...(kind === 'warranty' ? ['duration'] : [])]);
+    let stanceValue;
+    let conditionalDetailsStated = false;
     for (const [field, fieldValue] of Object.entries(value)) {
       if (!allowed.has(field)) {
         throw new Error(`Unknown field "${field}" is not allowed for the ${kind} policy`);
@@ -164,7 +166,14 @@ const validateBusinessPoliciesBody = (body) => {
         if (!POLICY_STANCES.includes(fieldValue)) {
           throw new Error(`${kind}.stance must be one of: ${POLICY_STANCES.join(', ')}`);
         }
+        stanceValue = fieldValue;
         continue;
+      }
+      // Y2 (server-authoritative): 'conditional' is a promise the merchant
+      // must actually describe — an empty conditional is indistinguishable
+      // from a stale toggle and misleads customer answers.
+      if (field === 'details' && typeof fieldValue === 'string' && fieldValue.trim() !== '') {
+        conditionalDetailsStated = true;
       }
       if (field === 'period_days') {
         if (!Number.isInteger(fieldValue) || fieldValue < 0 || fieldValue > 365) {
@@ -179,6 +188,9 @@ const validateBusinessPoliciesBody = (body) => {
       if (fieldValue.length > max) {
         throw new Error(`${kind}.${field} must not exceed ${max} characters`);
       }
+    }
+    if (stanceValue === 'conditional' && !conditionalDetailsStated) {
+      throw new Error(`${kind}.stance 'conditional' requires a non-empty details description`);
     }
   }
   return true;

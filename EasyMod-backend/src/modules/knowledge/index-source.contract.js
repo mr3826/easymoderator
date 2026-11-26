@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildEmbeddingText } = require('../product/product-embedding-text');
+const { resolveFaqQuestion } = require('./faq-question');
 
 // These are PostgreSQL source relations. The Qdrant collection name is
 // deliberately absent: a vector-store identifier is not a database table.
@@ -128,8 +129,11 @@ const buildBusinessInfoIndexText = (businessInfo = {}, policies = null) => {
 };
 
 const buildFaqIndexText = (faq = {}) => [
-    // question||category preference; keywords/notes are NEVER indexed text.
-    (faq.question || faq.category) ? `Q: ${faq.question || faq.category}` : null,
+    // Mirror-invariant resolution (shared with knowledge.service via
+    // faq-question.js): question wins; a category that DIFFERS is a newer
+    // old-image write (rollback window) and wins until the next re-mirror.
+    // keywords/notes are NEVER indexed text.
+    resolveFaqQuestion(faq, '') ? `Q: ${resolveFaqQuestion(faq, '')}` : null,
     faq.template_bn && `A (BN): ${faq.template_bn}`,
     faq.template_en && `A (EN): ${faq.template_en}`,
 ].filter(Boolean).join('\n');
@@ -186,7 +190,7 @@ const collectShopSources = async (query, shopId, existingShop = null) => {
                 // keeps the payload schema consistent with the incremental
                 // write path (rag.service version guard compares it).
                 faq_version: Number.isSafeInteger(faq.sync_version) ? faq.sync_version : 0,
-                embeddingTitle: faq.question || faq.category || 'FAQ',
+                embeddingTitle: resolveFaqQuestion(faq),
             },
         });
     }

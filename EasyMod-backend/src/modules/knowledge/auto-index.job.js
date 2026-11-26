@@ -136,6 +136,22 @@ const indexShop = async (shopId, { existingShop = null, skipRelationCheck = fals
             const res = await ingestData({ text, metadata: { shopId, ...metadata } });
             if (res && res.success) {
                 indexed++;
+                // Honest settling (A9): migrated rows start sync_status='pending'
+                // with sync_version=0 and nothing else ever settles them. A
+                // successful batch ingest of the CURRENT row text is genuine
+                // indexing evidence, so settle via the same version CAS the
+                // single-write path uses. Best-effort: never breaks the batch.
+                if (metadata.type === 'faq' && metadata.documentId) {
+                    const faqId = String(metadata.documentId).replace(/^faq-/, '');
+                    if (faqId) {
+                        try {
+                            const { settleFaqSync } = require('./knowledge.service');
+                            await settleFaqSync(faqId, Number(metadata.faq_version) || 0, { sync_status: 'synced', synced_at: new Date() });
+                        } catch (_) {
+                            // Row stays pending and is retried next cycle.
+                        }
+                    }
+                }
             } else {
                 logger.warn('Ingestion reported failure', { shopId, docType: metadata.type, reason: res && res.message });
                 errors++;

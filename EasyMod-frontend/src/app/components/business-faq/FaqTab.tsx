@@ -58,7 +58,6 @@ import FaqEditorDrawer from './FaqEditorDrawer';
 import FaqGapSuggestions from './FaqGapSuggestions';
 import {
   asFaqRow,
-  asFaqRows,
   canBulkDisable,
   canBulkEnable,
   clientFilter,
@@ -85,8 +84,6 @@ const STATUS_FILTERS: StatusFilter[] = ['all', 'draft', 'review', 'published', '
 
 /** Server search is capped by `limit` (default 10); request generously so a
  *  query surfaces every match the merchant list can then hydrate. */
-const SEARCH_LIMIT = 100;
-const SEARCH_DEBOUNCE_MS = 300;
 
 interface EditorState {
   mode: 'create' | 'edit';
@@ -105,10 +102,6 @@ export default function FaqTab({ className }: { className?: string }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  /** null → no server search active; otherwise the id set from the last
-   *  resolved search (published-only per contract). */
-  const [searchIds, setSearchIds] = useState<string[] | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkMode, setBulkMode] = useState<'enable' | 'disable' | null>(null);
@@ -150,67 +143,37 @@ export default function FaqTab({ className }: { className?: string }) {
 
   useEffect(() => {
     void loadFaqs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once load (house pattern)
   }, []);
 
-  // Server search while a query is typed; cleared (client filter) otherwise.
-  useEffect(() => {
-    const term = query.trim();
-    if (!term) {
-      setSearchIds(null);
-      setIsSearching(false);
-      return undefined;
-    }
-    const controller = new AbortController();
-    setIsSearching(true);
-    const timer = setTimeout(async () => {
-      try {
-        const result = await faqApi.searchKnowledgeFaqs(term, { limit: SEARCH_LIMIT, signal: controller.signal });
-        if (controller.signal.aborted || !mountedRef.current) return;
-        setSearchIds(asFaqRows(result).map((row) => row.id));
-      } catch (error: unknown) {
-        if (controller.signal.aborted || !mountedRef.current) return;
-        // A failed search must not silently masquerade as "no matches".
-        toast.error(getErrorMessage(error, t('manageShop.faqs.errors.load')));
-        setSearchIds(null);
-      } finally {
-        if (mountedRef.current && !controller.signal.aborted) setIsSearching(false);
-      }
-    }, SEARCH_DEBOUNCE_MS);
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [query, t]);
+  // Search is CLIENT-SIDE over the loaded worklist (02 §2; A8 MAJOR #2):
+  // drafts, needs-review and paused rows must stay findable while the
+  // merchant types — the published-only server search hid exactly the rows
+  // that need fixing and made them look lost. clientFilter below does the
+  // debounced-free filtering over question/answers/category_tag for ALL
+  // statuses. No server round-trip on typing.
 
   const isOwner = authService.getCurrentShop()?.role?.toLowerCase() === 'owner';
 
   const counts = useMemo(() => countByStatus(faqs), [faqs]);
   const categoryTags = useMemo(() => distinctCategoryTags(faqs), [faqs]);
 
-  const orderedRows = useMemo(() => {
-    if (searchIds) {
-      const order = new Map(searchIds.map((id, index) => [id, index]));
-      return faqs.filter((row) => order.has(row.id)).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    }
-    return sortFaqs(faqs);
-  }, [faqs, searchIds]);
+  const orderedRows = useMemo(() => sortFaqs(faqs), [faqs]);
 
   const visibleRows = useMemo(() => {
     let rows = orderedRows;
-    // "All" keeps 02 §4: archived rows leave the default list; Restore is their exit.
-    if (statusFilter === 'all') rows = rows.filter((row) => row.status !== 'archived');
-    else rows = rows.filter((row) => row.status === statusFilter);
+    // A8 minor #2 resolution: ONE denominator — "All" counts and shows every
+    // row including archived (archived rows are reachable, not vanished),
+    // matching the "Total FAQs" pill and the toolbar summary.
+    if (statusFilter !== 'all') rows = rows.filter((row) => row.status === statusFilter);
     if (categoryFilter !== 'all') {
       rows = rows.filter((row) =>
         categoryFilter === '__uncategorized__' ? row.category_tag === null : row.category_tag === categoryFilter,
       );
     }
-    // While the server search is in flight or unavailable, still filter what
-    // we have; when no search is active this is the client-side query pass.
-    if (!searchIds) rows = clientFilter(rows, query, '');
+    // Single filtering path: client-side across ALL statuses (A8 MAJOR #2).
+    rows = clientFilter(rows, query, '');
     return rows;
-  }, [orderedRows, statusFilter, categoryFilter, query, searchIds]);
+  }, [orderedRows, statusFilter, categoryFilter, query]);
 
   const selectedRows = useMemo(() => faqs.filter((row) => selected.has(row.id)), [faqs, selected]);
   const enableTargets = useMemo(() => selectedRows.filter(canBulkEnable), [selectedRows]);
@@ -342,17 +305,29 @@ export default function FaqTab({ className }: { className?: string }) {
     const failed = faq.sync_status === 'failed';
     return (
       <>
-        <span
-          data-testid={`faq-sync-chip-${faq.id}`}
-          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${syncChipClasses[faq.sync_status]}`}
-          title={
-            faq.sync_status === 'synced' && faq.synced_at
-              ? `${t('manageShop.businessFaq.chip.sync.synced')} · ${formatDateTime(faq.synced_at, lang)}`
-              : undefined
-          }
-        >
-          {t(`manageShop.businessFaq.chip.sync.${faq.sync_status}`)}
-        </span>
+        {faq.status === 'published' ? (
+          <span
+            data-testid={`faq-sync-chip-${faq.id}`}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${syncChipClasses[faq.sync_status]}`}
+            title={
+              faq.sync_status === 'synced' && faq.synced_at
+                ? `${t('manageShop.businessFaq.chip.sync.synced')} · ${formatDateTime(faq.synced_at, lang)}`
+                : undefined
+            }
+          >
+            {t(`manageShop.businessFaq.chip.sync.${faq.sync_status}`)}
+          </span>
+        ) : (
+          // Ineligible rows cannot claim a green 'Synced': the honest story is
+          // 'not in the reply index' (A8 minor #1). Lifecycle chip + Publish is the action.
+          <span
+            data-testid={`faq-sync-chip-${faq.id}`}
+            className="inline-flex items-center gap-1 rounded-full border border-em-border bg-em-bg-muted px-2 py-0.5 text-xs font-medium text-em-text-secondary"
+            title={t('manageShop.businessFaq.chip.sync.notIndexedHelp')}
+          >
+            {t('manageShop.businessFaq.chip.sync.notIndexed')}
+          </span>
+        )}
         {/* Failed = saved but NOT live for replies. Retry is a labeled 44px
             button (§18), owner-only per contract, and re-runs via resync. */}
         {failed && isOwner && (
@@ -415,8 +390,8 @@ export default function FaqTab({ className }: { className?: string }) {
               <div className="min-w-0">
                 <h3 className="font-semibold text-em-text-primary">{t('manageShop.faqs.manageTitle')}</h3>
                 <p className="em-tabular text-sm text-em-text-secondary">
-                  {t('manageShop.faqs.faqCount', {
-                    active: formatCount(counts.published, lang),
+                  {t('manageShop.businessFaq.metrics.countsSummary', {
+                    published: formatCount(counts.published, lang),
                     total: formatCount(faqs.length, lang),
                   })}
                 </p>
@@ -524,11 +499,6 @@ export default function FaqTab({ className }: { className?: string }) {
               />
             )}
 
-            {isSearching && !loadError && faqs.length > 0 && (
-              <p className="px-4 pt-3 text-xs text-em-text-secondary" role="status">
-                {t('manageShop.businessFaq.search.searching')}
-              </p>
-            )}
 
             {isLoading ? (
               <div className="space-y-3 p-4" aria-label={t('manageShop.faqs.loading')}>

@@ -281,7 +281,6 @@ export default function PoliciesTab() {
 
   // Stable identity so the mount effect runs exactly once (profile pattern,
   // S11 abort discipline); retry reuses it with a fresh controller.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const load = useCallback(async () => {
     try {
       setIsLoading(true);

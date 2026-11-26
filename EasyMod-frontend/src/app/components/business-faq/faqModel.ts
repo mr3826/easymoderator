@@ -109,7 +109,13 @@ export const canBulkDisable = (row: FaqRow): boolean => canTransition(row.status
 /** Normalize one server row defensively (covers projection rows from search). */
 export function asFaqRow(raw: unknown): FaqRow {
   const r = (raw ?? {}) as Partial<FaqRow> & Record<string, unknown>;
-  const status = (typeof r.status === 'string' ? r.status : 'published') as FaqStatus;
+  // A9 minor: never fabricate 'published' from a missing status — mirror the
+  // server's own fallback (is_active === false means disabled, not published).
+  const status = (typeof r.status === 'string'
+    ? r.status
+    : r.is_active === false
+      ? 'disabled'
+      : 'published') as FaqStatus;
   const answers =
     r.answers && typeof r.answers === 'object'
       ? { en: (r.answers as FaqRow['answers']).en ?? null, bn: (r.answers as FaqRow['answers']).bn ?? null }
@@ -240,7 +246,9 @@ export function countByStatus(rows: FaqRow[]): Record<FaqStatus, number> & { all
   };
   for (const row of rows) {
     counts[row.status] += 1;
-    if (row.status !== 'archived') counts.all += 1;
+    // A8 minor #2: 'All' is ONE denominator with the Total pill — archived
+    // included; they stay reachable (and restorable) from the list.
+    counts.all += 1;
   }
   return counts;
 }

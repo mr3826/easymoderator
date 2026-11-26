@@ -2532,7 +2532,7 @@
       },
       "automationLink": {
         "title": "অটোমেশন ডিফল্ট",
-        "desc": "Reply mode, confidence ও greeting এখন ব্যবসার automation পেজে।",
+        "desc": "Reply mode ও greeting এখন ব্যবসার automation পেজে।",
         "cta": "Automation defaults খুলুন"
       },
       "retryLoad": "আবার লোড করুন",
@@ -3503,7 +3503,9 @@
           "pending": "সিঙ্ক হচ্ছে",
           "synced": "সিঙ্ক হয়েছে",
           "failed": "সিঙ্ক ব্যর্থ",
-          "pruned": "ইনডেক্স থেকে সরানো হয়েছে"
+          "pruned": "ইনডেক্স থেকে সরানো হয়েছে",
+          "notIndexed": "ইনডেক্স করা হয়নি",
+          "notIndexedHelp": "শুধু প্রকাশিত FAQ-ই গ্রাহকের উত্তরে ব্যবহৃত হতে পারে।"
         }
       },
       "sync": {
@@ -3518,7 +3520,8 @@
       "keywordsLabel": "অভ্যন্তরীণ কীওয়ার্ড",
       "metrics": {
         "published": "প্রকাশিত FAQ",
-        "repliesUsed": "ব্যবহৃত উত্তর"
+        "repliesUsed": "ব্যবহৃত উত্তর",
+        "countsSummary": "প্রকাশিত {{published}} · মোট {{total}}"
       },
       "publish": "প্রকাশ করুন",
       "published": "FAQ প্রকাশ হয়েছে",
