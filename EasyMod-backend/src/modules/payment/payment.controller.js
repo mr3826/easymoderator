@@ -1,4 +1,6 @@
 const paymentService = require('./payment.service');
+const paymentAccounts = require('./payment-accounts.service');
+const paymentPolicy = require('./payment-policy.service');
 const { AppError } = require('../../utils/AppError');
 
 const SAFE_PAYMENT_CONFIG_FIELDS = [
@@ -85,7 +87,30 @@ module.exports = {
     getPaymentConfigs,
     savePaymentConfig,
     testPaymentConnection,
-    deletePaymentConfig
+    deletePaymentConfig,
+    // canonical account API (A5)
+    getPaymentAccounts,
+    getPaymentAccount,
+    savePaymentAccount,
+    updatePaymentAccount,
+    deletePaymentAccount,
+    setPreferredAccount,
+    verifyPaymentAccountCredentials,
+    certifyLiveAccount,
+    // policies API (A5, §5.2)
+    getPaymentPolicy,
+    updatePaymentPolicy,
+    // transactions / claims (dispatch to A3/A4)
+    refundPaymentTransaction,
+    createSelfMfsClaim,
+};
+
+const requireShopId = (req) => {
+    const { shopId } = req.user || {};
+    if (!shopId) {
+        throw new AppError('No shop selected. Please login again.', 400);
+    }
+    return shopId;
 };
 
 /**
@@ -194,5 +219,113 @@ async function deletePaymentConfig(req, res, next) {
     } catch (error) {
         next(error);
     }
+}
+
+// ───────────────────────── Canonical account API (A5) ─────────────────────────
+async function getPaymentAccounts(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const accounts = await paymentAccounts.listPaymentAccounts(shopId, req.user.userId);
+        res.status(200).json({ success: true, data: accounts });
+    } catch (error) { next(error); }
+}
+
+async function getPaymentAccount(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const account = await paymentAccounts.getPaymentAccount(shopId, req.user.userId, req.params.accountId);
+        res.status(200).json({ success: true, data: account });
+    } catch (error) { next(error); }
+}
+
+async function savePaymentAccount(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const account = await paymentAccounts.savePaymentAccount(shopId, req.user.userId, req.body);
+        res.status(200).json({ success: true, message: 'Payment account saved', data: account });
+    } catch (error) { next(error); }
+}
+
+async function updatePaymentAccount(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const account = await paymentAccounts.updatePaymentAccount(
+            shopId, req.user.userId, req.params.accountId, req.body,
+        );
+        res.status(200).json({ success: true, message: 'Payment account updated', data: account });
+    } catch (error) { next(error); }
+}
+
+async function deletePaymentAccount(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const result = await paymentAccounts.deletePaymentAccount(shopId, req.user.userId, req.params.accountId);
+        res.status(200).json({ success: true, message: result.message });
+    } catch (error) { next(error); }
+}
+
+async function setPreferredAccount(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const result = await paymentAccounts.setPreferredAccount(shopId, req.user.userId, req.params.accountId);
+        res.status(200).json({ success: true, ...result });
+    } catch (error) { next(error); }
+}
+
+// A3-owned ladder action; this route just dispatches (§2.1 rate-limited check).
+async function verifyPaymentAccountCredentials(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const result = await paymentAccounts.verifyPaymentAccount(shopId, req.user.userId, req.params.accountId);
+        res.status(200).json({ success: true, ...result });
+    } catch (error) { next(error); }
+}
+
+// A3-owned; owner records live_certified evidence (§2.3, never self-declared).
+async function certifyLiveAccount(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const result = await paymentAccounts.certifyLiveAccount(
+            shopId, req.user.userId, req.params.accountId, req.body.evidence,
+        );
+        res.status(200).json({ success: true, ...result });
+    } catch (error) { next(error); }
+}
+
+// ───────────────────────── Policies API (A5, §5.2) ─────────────────────────
+async function getPaymentPolicy(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const policy = await paymentPolicy.getPaymentPolicy(shopId, req.user.userId);
+        const { _shop_id, ...data } = policy; // strip internal tenant marker
+        res.status(200).json({ success: true, data });
+    } catch (error) { next(error); }
+}
+
+async function updatePaymentPolicy(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const policy = await paymentPolicy.updatePaymentPolicy(shopId, req.user.userId, req.body);
+        res.status(200).json({ success: true, message: 'Payment policy saved', data: policy });
+    } catch (error) { next(error); }
+}
+
+// ───────────────────────── Transactions / claims (A3/A4 dispatch) ─────────────────────────
+async function refundPaymentTransaction(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const result = await paymentAccounts.refundPaymentTransaction(
+            shopId, req.user.userId, req.params.id, req.body,
+        );
+        res.status(200).json({ success: true, ...result });
+    } catch (error) { next(error); }
+}
+
+async function createSelfMfsClaim(req, res, next) {
+    try {
+        const shopId = requireShopId(req);
+        const result = await paymentAccounts.createSelfMfsClaim(shopId, req.user.userId, req.body);
+        res.status(201).json({ success: true, ...result });
+    } catch (error) { next(error); }
 }
 

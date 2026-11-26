@@ -8,6 +8,8 @@ const getOrderServiceImports = () => require('./order.service');
 const ShopEntity = require('../shop/shop.entity');
 const PaymentConfigEntity = require('../payment/payment-config.entity');
 const CustomerEntity = require('../customer/customer.entity');
+// Canonical payment vocabulary (§1.1) — pure module, no DB surface.
+const paymentTaxonomy = require('../payment/payment-taxonomy');
 // P0-2: screenshot OCR verification is no longer wired into checkout —
 // payment truth comes only from merchant confirmation or verified webhooks.
 const { isNegatedMutation, isQuestionShaped } = require('../ai/intent/stage2-rules');
@@ -182,6 +184,9 @@ const OrderSession = sequelize.define('OrderSession', {
 // intentionally NOT guarded — any text is a legitimate free-form value there.
 const QUESTION_PROTECTED_STEPS = new Set([
     'COLLECTING_NAME', 'COLLECTING_PHONE', 'COLLECTING_ADDRESS', 'COLLECTING_ZONE',
+    // §3.2 claim intake: a question-shaped answer ("TrxID koi?") must not be
+    // stored as a transaction id — the bridge answers, then re-asks.
+    'AWAITING_PAYMENT_CLAIM', 'AWAITING_PAYMENT_SENDER',
 ]);
 
 // ─── Delivery zone config ─────────────────────────────────────────────────────
@@ -244,9 +249,12 @@ const ZONE_AREA_KEYWORDS = {
 const ZONE_DETECT_ORDER = ['inside_dhaka', 'sub_dhaka', 'outside_dhaka'];
 
 // ─── Payment gateway config ───────────────────────────────────────────────────
+// Compat tokens (§1.4): the machine still answers in ['cod','self-mfs'] shape
+// during the window. The wallet label gains Rocket (§1.1/§7 row 7 — the prompt
+// previously showed only "bKash / Nagad" while Rocket numbers were configurable).
 const GATEWAY_LABELS = {
     'cod':      { bn: 'ক্যাশ অন ডেলিভারি (COD)', en: 'Cash on Delivery (COD)' },
-    'self-mfs': { bn: 'বিকাশ / নগদ (মোবাইল ব্যাংকিং)', en: 'bKash / Nagad (Mobile Banking)' }
+    'self-mfs': { bn: 'বিকাশ / নগদ / রকেট (মোবাইল ব্যাংকিং)', en: 'bKash / Nagad / Rocket (Mobile Banking)' }
 };
 // Payment status to use when creating the order per gateway
 const GATEWAY_PAYMENT_STATUS = {
@@ -915,6 +923,59 @@ class OrderSessionService {
                     // checkout flow can tell a customer "payment confirmed" from
                     // an image (see self-mfs-handler for merchant-side review).
                     step_data.payment_method = gateway;
+
+                    // §3.2 self-MFS claim intake (A4/R-13): when the shop has an
+                    // enabled WALLET account (self|business with a number), show
+                    // exactly ONE number (preferred per §6 — no silent number
+                    // switching: the stamped account rides through to the claim)
+                    // and collect a TrxID. With no resolvable number the machine
+                    // behaves exactly as before (order lands pending). No OTP is
+                    // ever asked; a screenshot is never required here.
+                    if (gateway === 'self-mfs') {
+                        let claimStep = null;
+                        try {
+                            const claimService = require('../payment/payment-claim.service');
+                            const providerChoice = OrderSessionService.extractPaymentProvider(answer);
+                            const wallet = await claimService.resolvePaymentWallet(session.shop_id, { provider: providerChoice });
+                            if (wallet) {
+                                const { grandTotal } = OrderSessionService.sessionTotals(session, step_data);
+                                const due = await claimService.computeClaimAmount(session.shop_id, {
+                                    orderTotal: grandTotal,
+                                    deliveryCharge: Number(step_data.delivery_charge || 0),
+                                });
+                                if (Number(due.amount) > 0) {
+                                    step_data.payment_provider = wallet.provider;
+                                    // §3.5 attribution + §6 number lock — every
+                                    // later read (claim row, notification,
+                                    // approve detail) uses THIS account/number.
+                                    step_data.payment_wallet = {
+                                        account_id: wallet.account_id,
+                                        provider: wallet.provider,
+                                        number: wallet.number,
+                                    };
+                                    step_data.payment_account_id = wallet.account_id;
+                                    step_data.payment_claim_amount = due.amount;
+                                    step_data.payment_policy = due.snapshot; // §5.2 #2
+                                    claimStep = { wallet, due, grandTotal };
+                                }
+                            }
+                        } catch (walletErr) {
+                            // Wallet/policy read failed: fall back to today's
+                            // behavior — the order is created pending and the
+                            // merchant reconciles manually. Nothing is claimed.
+                            console.error('[OrderSession] Payment wallet resolution failed', {
+                                sessionId: session.id,
+                                errorCode: safeErrorCode(walletErr, 'PAYMENT_WALLET_RESOLUTION_FAILED'),
+                            });
+                        }
+                        if (claimStep) {
+                            nextStep = 'AWAITING_PAYMENT_CLAIM';
+                            prompt = OrderSessionService.buildWalletPaymentPrompt(
+                                claimStep.wallet, claimStep.due, claimStep.grandTotal, lang,
+                            );
+                            break;
+                        }
+                    }
                     nextStep = 'COLLECTING_NOTES';
                     prompt = pickLang(lang, 'কোনো বিশেষ নির্দেশনা আছে?', 'Any special instructions for your order?');
                 } else {
@@ -925,6 +986,78 @@ class OrderSessionService {
                         '\n\nঅনুগ্রহ করে সঠিক নম্বর বা পেমেন্ট পদ্ধতির নাম লিখুন।',
                         '\n\nPlease enter the correct number or payment method name.');
                 }
+                break;
+            }
+
+            // ── §3.2-2: TrxID collection (NEVER an OTP; screenshot optional via
+            //    the existing attachment path, supporting evidence only) ────────
+            case 'AWAITING_PAYMENT_CLAIM': {
+                if (!step_data.payment_wallet) {
+                    // Account vanished mid-flow — honestly return to the payment
+                    // question instead of showing a stale number.
+                    nextStep = 'COLLECTING_PAYMENT';
+                    prompt = OrderSessionService.buildPaymentPrompt(
+                        step_data.enabled_gateways || ['cod'],
+                        { zone: step_data.delivery_zone, charge: step_data.delivery_charge },
+                        lang,
+                    );
+                    break;
+                }
+                const t = String(answer || '').trim();
+                if (/^(skip|later|after|no|na|পরে|না|নাই|পাঠাবো|trxid\s*পরে)\.?$/i.test(t)) {
+                    // No TrxID → no claim. The order will land pending like
+                    // today; the customer can pay + tell the shop manually.
+                    delete step_data.payment_claim_trx_id;
+                    delete step_data.payment_claim_sender_phone;
+                    nextStep = 'COLLECTING_NOTES';
+                    prompt = pickLang(lang,
+                        'ঠিক আছে — অর্ডার pending থাকবে। পেমেন্ট করলে TrxID-টি দোকানকে জানান।\nকোনো বিশেষ নির্দেশনা আছে? (না থাকলে "না" লিখুন)',
+                        'No problem — the order stays pending for payment. Send your TrxID to the shop after paying.\nAny special instructions for your order? (type "no" if none)');
+                    break;
+                }
+                let trxCheck = { valid: false, normalized: '' };
+                try {
+                    trxCheck = require('../payment/payment-claim.service').validateTrxIdInput(t);
+                } catch (_) {
+                    const n = t.toUpperCase().replace(/\s+/g, '');
+                    trxCheck = /^[A-Z0-9]{6,16}$/.test(n) ? { valid: true, normalized: n } : trxCheck;
+                }
+                if (!trxCheck.valid) {
+                    prompt = pickLang(lang,
+                        `সঠিক Transaction ID লিখুন (৬-১৬ অক্ষর/সংখ্যা, যেমন: 8A3F2B9XK1)। "${t}" থেকে যাচ্ছে না।\n(আমরা কখনো OTP চাই না)`,
+                        `Please enter the exact Transaction ID (6-16 letters/digits, e.g. 8A3F2B9XK1). Could not read "${t}".\n(We never ask for an OTP)`);
+                    break;
+                }
+                step_data.payment_claim_trx_id = trxCheck.normalized;
+                nextStep = 'AWAITING_PAYMENT_SENDER';
+                prompt = pickLang(lang,
+                    `আপনি কোন নম্বর থেকে ${paymentTaxonomy.providerLabel(step_data.payment_provider, 'bn')} পাঠিয়েছেন? (01XXXXXXXXX লিখুন — না জানলে "skip")`,
+                    `Which number did you send the ${paymentTaxonomy.providerLabel(step_data.payment_provider, 'en')} from? (enter 01XXXXXXXXX, or "skip")`);
+                break;
+            }
+
+            // ── §3.2-2: optional sender number, asked once, skip accepted ──────
+            case 'AWAITING_PAYMENT_SENDER': {
+                const t = String(answer || '').trim();
+                if (/^(skip|later|after|no|na|পরে|না|নাই)\.?$/i.test(t) || !t) {
+                    step_data.payment_claim_sender_phone = null;
+                } else {
+                    let sender = null;
+                    try {
+                        sender = require('../payment/payment-claim.service').normalizeSenderPhone(t);
+                    } catch (_) {
+                        sender = null;
+                    }
+                    if (!sender) {
+                        prompt = pickLang(lang,
+                            'সঠিক ১০-সংখ্যার নম্বর লিখুন (01XXXXXXXXX) — বা "skip" লিখুন।',
+                            'Please write a valid 10-digit number (01XXXXXXXXX) — or type "skip".');
+                        break;
+                    }
+                    step_data.payment_claim_sender_phone = sender;
+                }
+                nextStep = 'COLLECTING_NOTES';
+                prompt = pickLang(lang, 'কোনো বিশেষ নির্দেশনা আছে?', 'Any special instructions for your order?');
                 break;
             }
 
@@ -1174,6 +1307,44 @@ class OrderSessionService {
                         orderPrompt = pickLang(lang,
                             `✅ অর্ডার সফলভাবে সম্পন্ন হয়েছে! অর্ডার নম্বর: ${order.order_number}`,
                             `✅ Order placed successfully! Order number: ${order.order_number}`);
+
+                        // §3.2-3 (A4): with a collected TrxID and a real order
+                        // row, materialize the self-MFS claim: TrxIDLog ledger
+                        // first, then PaymentTransaction `payment_claimed`,
+                        // then the merchant notification (24 h expiry). The
+                        // ORDER is untouched — payment truth stays with the
+                        // merchant's approve/reject (existing guards). A claim
+                        // failure must never un-confirm the created order; the
+                        // reply then says so honestly (nothing "received").
+                        if (step_data.payment_method === 'self-mfs' && step_data.payment_claim_trx_id) {
+                            try {
+                                const claimService = require('../payment/payment-claim.service');
+                                const claimResult = await claimService.createSelfMfsClaimForOrder(session.shop_id, order, {
+                                    sessionId: session.id,
+                                    provider: step_data.payment_provider || null,
+                                    account: step_data.payment_wallet || null,
+                                    trxId: step_data.payment_claim_trx_id,
+                                    senderPhone: step_data.payment_claim_sender_phone || null,
+                                    displayedAmount: step_data.payment_claim_amount ?? null,
+                                    customerMessage: step_data.notes || null,
+                                });
+                                if (claimResult.created) {
+                                    orderPrompt += `\n\n${claimResult.reply[lang === 'en' ? 'en' : 'bn']}`;
+                                } else if (claimResult.duplicate) {
+                                    orderPrompt += `\n\n${claimResult.duplicateReply[lang === 'en' ? 'en' : 'bn']}`;
+                                    step_data.payment_claim_duplicate = claimResult.reason || true;
+                                }
+                            } catch (claimErr) {
+                                console.error('[OrderSession] Payment claim materialization failed', {
+                                    sessionId: session.id,
+                                    orderId: order.id,
+                                    errorCode: safeErrorCode(claimErr, 'PAYMENT_CLAIM_FAILED'),
+                                });
+                                orderPrompt += `\n\n${pickLang(lang,
+                                    'আপনার TrxID নথিভুক্ত করা যায়নি — দয়া করে TrxID-টি দোকানকে জানান। অর্ডার pending-এ আছে।',
+                                    'Your TrxID could not be recorded — please send it to the shop directly. The order stays pending.')}`;
+                            }
+                        }
 
                         // Issue the customer's invoice in the same confirmation message.
                         // Invoice failure must never un-confirm a created order.
@@ -1734,20 +1905,104 @@ class OrderSessionService {
      * Load shop's enabled payment gateways from PaymentConfig table.
      * Returns gateway IDs ordered by preference: cod first.
      * Falls back to ['cod'] if nothing is configured.
+     *
+     * §1.4 compat window: the output stays ['cod','self-mfs']-shaped so
+     * existing readers/mocks keep working, but merchant_gateway rows are
+     * excluded from the chatbot unless the single automation predicate says
+     * they can actually run (§6 eligibility; isAutomatable is false in this
+     * environment per R-12 — gateway attempts never surface here). Duplicate
+     * wallet rows (multi-account) collapse to ONE self-mfs token.
      */
     static async getEnabledPaymentGateways(shopId) {
         const configs = await PaymentConfigEntity.findAll({
             where: { shop_id: shopId, is_enabled: true },
-            attributes: ['gateway']
+            attributes: ['gateway', 'provider', 'account_type']
         });
 
-        if (configs.length === 0) return ['cod'];
+        if (!Array.isArray(configs) || configs.length === 0) return ['cod'];
+
+        const tokens = new Set();
+        for (const row of configs) {
+            const gateway = String(row.gateway || '').toLowerCase();
+            const provider = paymentTaxonomy.normalizeProvider(row.provider)
+                || paymentTaxonomy.providerFromCredentials(null, gateway);
+            const accountType = row.account_type;
+            if (provider === 'cod' || gateway === 'cod') {
+                tokens.add('cod');
+                continue;
+            }
+            // A merchant_gateway row is only ever chatbot-visible when it is
+            // automatable (live_certified + flag + creds) — never as a wallet.
+            if (accountType === paymentTaxonomy.GATEWAY_ACCOUNT_TYPE) {
+                if (paymentTaxonomy.isAutomatable(row)) tokens.add('self-mfs');
+                continue;
+            }
+            tokens.add('self-mfs');
+        }
+
+        if (tokens.size === 0) return ['cod'];
 
         // Sort: cod first, then self-mfs
         const ORDER = ['cod', 'self-mfs'];
-        return configs
-            .map(c => c.gateway)
-            .sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+        return [...tokens].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+    }
+
+    /**
+     * Cart + delivery totals exactly as generateOrderSummary shows them, so the
+     * wallet step displays the SAME grand total the customer will confirm.
+     */
+    static sessionTotals(session, stepData) {
+        const cart = OrderSessionService.getCartItems(session, stepData);
+        const itemsTotal = cart.reduce((s, c) => s + (c.price || 0) * (c.quantity || 1), 0);
+        const deliveryCharge = Number(stepData.delivery_charge || 0);
+        return { itemsTotal, deliveryCharge, grandTotal: itemsTotal + deliveryCharge };
+    }
+
+    /**
+     * §3.2-1 — display EXACTLY ONE number, with the server-computed amount due.
+     * Never list alternatives; "no silent number switching" starts here (§6).
+     * When an advance policy is active the §5.2 #1 line makes total/advance/
+     * remainder explicit; percentage/fixed NEVER trigger a gateway link (D-7).
+     */
+    static buildWalletPaymentPrompt(wallet, due, grandTotal, lang = 'bn') {
+        const label = paymentTaxonomy.providerLabel(wallet.provider, lang === 'en' ? 'en' : 'bn')
+            || paymentTaxonomy.providerLabel(wallet.provider, 'en');
+        const partial = due && due.partial;
+        const amount = Number((due && due.amount) || grandTotal);
+        const header = partial
+            ? pickLang(lang,
+                `অর্ডার মোট ৳${grandTotal}। এখন এডভান্স: ৳${amount}${due.snapshot && due.snapshot.remainder > 0 ? ` (বাকি ৳${due.snapshot.remainder} ডেলিভারির সময়)` : ''}।`,
+                `Order total ৳${grandTotal}. Advance required now: ৳${amount}${due.snapshot && due.snapshot.remainder > 0 ? ` (remaining ৳${due.snapshot.remainder} on delivery)` : ''}.`)
+            : pickLang(lang,
+                `অর্ডার মোট: ৳${grandTotal}।`,
+                `Order total: ৳${grandTotal}.`);
+        const send = pickLang(lang,
+            `৳${amount} ${label} ${wallet.number}-এ পাঠান। তারপর Transaction ID লিখুন।`,
+            `Send ৳${amount} to ${label} ${wallet.number}. Then type your Transaction ID.`);
+        const otpGuard = pickLang(
+            lang,
+            'আমরা কখনো OTP চাই না। স্ক্রিনশট দিলে সহায়ক প্রমাণ হিসেবে থাকবে, নিশ্চিতকরণ নয়।',
+            'We never ask for an OTP. A screenshot is supporting evidence only, never confirmation.',
+        );
+        const ask = pickLang(lang,
+            '\n\nTrxID লিখুন (না করতে পারলে "skip"):',
+            '\n\nType your TrxID (or "skip"):');
+        return `${header}\n${send}\n${otpGuard}${ask}`;
+    }
+
+    /**
+     * Map a customer answer to a canonical wallet provider (§6 keyword map —
+     * bkash/বিকাশ, nagad/নগদ, rocket/রকেট). Null when no provider was named
+     * (the shop-preferred wallet then wins, §6).
+     */
+    static extractPaymentProvider(answer) {
+        const t = String(answer || '').trim().toLowerCase();
+        if (!t) return null;
+        for (const provider of paymentTaxonomy.PROVIDERS_WITH_WALLETS) {
+            const kws = paymentTaxonomy.PROVIDER_KEYWORDS[provider] || [];
+            if (kws.some(kw => t.includes(kw))) return provider;
+        }
+        return null;
     }
 
     static buildPaymentPrompt(gateways, zoneChoice, lang = 'bn') {
@@ -1774,9 +2029,12 @@ class OrderSessionService {
             return gateways[num - 1];
         }
 
+        // Keywords extended per §6: every wallet provider (incl. Rocket — the
+        // gap fixed by the taxonomy) maps onto the compat 'self-mfs' token; the
+        // provider itself is resolved separately by extractPaymentProvider.
         const keywordMap = {
-            'cod':      ['cod', 'cash', 'ক্যাশ', 'cash on delivery'],
-            'self-mfs': ['bkash', 'বিকাশ', 'nagad', 'নগদ', 'mfs', 'mobile', 'self-mfs', 'self mfs']
+            'cod':      ['cod', 'cash', 'ক্যাশ', 'cash on delivery', 'সিওডি'],
+            'self-mfs': ['bkash', 'বিকাশ', 'nagad', 'নগদ', 'rocket', 'রকেট', 'mfs', 'mobile', 'self-mfs', 'self mfs', 'মোবাইল']
         };
 
         for (const gw of gateways) {
@@ -1884,6 +2142,15 @@ class OrderSessionService {
             delivery_fee: stepData.delivery_charge || 0,
             payment_status: GATEWAY_PAYMENT_STATUS[stepData.payment_method] || 'pending',
             payment_method: stepData.payment_method || null,
+            // §3.5 attribution fix: chatbot-created orders now carry the FK to
+            // the EXACT account shown to the customer (stamped at the wallet
+            // step, §6 "no silent number switching"). createOrderInternal
+            // resolves+persists payment_method_id; when present it also becomes
+            // the authoritative resolved payment method on the order.
+            ...(stepData.payment_account_id ? { payment_method_id: stepData.payment_account_id } : {}),
+            // §5.2 #2: server-side policy snapshot at creation (never from the
+            // customer) — recorded whenever the wallet step computed one.
+            ...(stepData.payment_policy ? { metadata: { payment_policy: stepData.payment_policy } } : {}),
             note: stepData.notes || null,
             // Deterministic idempotency binds tenant, conversation, session, and
             // the exact customer-confirmed summary.
@@ -2403,6 +2670,8 @@ class OrderSessionService {
             'COLLECTING_ZONE':      pickLang(L, 'আপনার ডেলিভারি এলাকা নির্বাচন করুন', 'Select your delivery area'),
             'COLLECTING_PAYMENT':      pickLang(L, 'পেমেন্ট পদ্ধতি নির্বাচন করুন', 'Select payment method'),
             'AWAITING_MFS_SCREENSHOT': pickLang(L, 'পেমেন্ট পদ্ধতি নির্বাচন করুন', 'Select payment method'),
+            'AWAITING_PAYMENT_CLAIM':  pickLang(L, 'Transaction ID লিখুন', 'Enter your Transaction ID'),
+            'AWAITING_PAYMENT_SENDER': pickLang(L, 'পাঠানোর নম্বর লিখুন', 'Enter the sender number'),
             'COLLECTING_NOTES':        pickLang(L, 'কোনো বিশেষ নির্দেশনা আছে?', 'Any special instructions?'),
             'ORDER_SUMMARY':        pickLang(L, 'অর্ডার নিশ্চিত করুন', 'Confirm order')
         };

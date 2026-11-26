@@ -374,14 +374,20 @@ async function testPaymentConnection(shopId, userId, gateway, credentials) {
     if (gateway === 'cod') {
         return {
             success: true,
+            status: 'format_validated',
             message: 'COD does not require credentials'
         };
     } else if (gateway === 'self-mfs') {
+        // §7 row 1 (misleading-claim cleanup): this is a LOCAL format check only —
+        // it never contacts the provider. The old "`{mfs_type} number verified`"
+        // wording implied a verified provider connection. The honest shape below
+        // is what the renamed "Validate format" button surfaces (contract §2, R-12).
         const normalizedCredentials = normalizeCredentialsForGateway(originalGateway, credentials);
-        const validatedCredentials = validateSelfMfsCredentials(normalizedCredentials);
+        validateSelfMfsCredentials(normalizedCredentials);
         return {
             success: true,
-            message: `${validatedCredentials.mfs_type} number verified`
+            status: 'format_validated',
+            message: 'Number format validated — not a provider check'
         };
     }
 

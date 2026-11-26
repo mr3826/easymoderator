@@ -13,6 +13,35 @@ jest.mock('../../webhook/webhook.service', () => ({
     sendToCustomer: jest.fn().mockResolvedValue({ sent: true }),
 }));
 
+// ── contract-mock provider seam (§4.2, R-12) ─────────────────────────────────
+// The webhook trust chain now requires a SERVER-SIDE bKash v2 Query before any
+// status transition. This integration suite keeps its REAL-database race
+// semantics (atomic claim vs concurrent courier booking) and substitutes the
+// provider leg with fixtures shaped after the official Tokenized v2 docs sweep
+// (query/payment → transactionStatus + verificationStatus + merchantInvoice).
+// They are contract-mock only and must never be presented as
+// live-provider-verified. The evaluation re-implements the §4.2 guards so a
+// broken guard still fails this suite.
+const mockEvidence = { available: true, query: {} };
+jest.mock('../../payment/bkash-tokenized.service', () => ({
+    querySettlementEvidence: () => Promise.resolve(mockEvidence),
+    evaluateSettlement: (query, { expectedOrderNumber, expectedAmountMinor } = {}) => {
+        const settled = String(query?.transactionStatus || '').toLowerCase() === 'completed';
+        const verificationOk = String(query?.verificationStatus || '').toUpperCase() === 'VERIFIED';
+        const invoiceOk = Boolean(expectedOrderNumber) && String(query?.merchantInvoice || '') === String(expectedOrderNumber);
+        const amountMinor = query?.amount != null ? Math.round(Number(query.amount) * 100) : null;
+        const amountOk = amountMinor !== null && expectedAmountMinor !== null
+            && BigInt(amountMinor) === BigInt(expectedAmountMinor);
+        return {
+            settled, verificationOk, invoiceOk, amountOk,
+            confirmed: settled && verificationOk && invoiceOk && amountOk,
+            trxId: query?.trxID || query?.trxId || null,
+            canonical: settled ? 'paid' : 'unknown',
+            providerStatus: String(query?.transactionStatus || 'unknown').toLowerCase(),
+        };
+    },
+}));
+
 const crypto = require('crypto');
 const express = require('express');
 const request = require('supertest');
@@ -132,6 +161,16 @@ describe('real bKash webhook courier claim boundary', () => {
             amount: '1250.00',
             status: 'pending',
         });
+        // contract-mock Query evidence shaped per the docs sweep (§4.2); the
+        // webhook must settle only through this seam now.
+        mockEvidence.available = true;
+        mockEvidence.query = {
+            transactionStatus: 'Completed',
+            verificationStatus: 'VERIFIED',
+            merchantInvoice: order.order_number,
+            amount: '1250.00',
+            trxID: `TRX-INT-${payment.id}`,
+        };
     });
 
     afterEach(async () => {

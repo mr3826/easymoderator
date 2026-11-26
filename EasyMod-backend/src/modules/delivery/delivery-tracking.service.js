@@ -555,30 +555,37 @@ const applyStatus = async (transaction = null) => {
 
     /**
      * Handle failed delivery
+     *
+     * D-5 (A0-ratified, Payment Data Contract §3.3): a delivery failure is NOT
+     * a payment confirmation. The old code called
+     * ownerNotificationService.sendPaymentConfirmationRequest with a
+     * `delivery_failure` payload — creating a payment_confirmation row the
+     * approve/reject route would later act on, and crashing the formatter on
+     * the missing paymentMethod. It is replaced by the already-registered
+     * NOTIFICATION_EVENTS.ORDER_REVIEW_REQUIRED dashboard+queue event, so the
+     * merchant is still told the order needs attention while the original
+     * delivery-failure intent stays served by the courier exception path.
      */
     async handleFailedDelivery(tracking) {
         try {
-            // Send failure notification to shop owner
-            const ownerNotificationService = require('../notification/owner-notification.service');
-            
-            await ownerNotificationService.sendPaymentConfirmationRequest(
+            const merchantNotification = require('../notification/merchant-notification.service');
+            const { NOTIFICATION_EVENTS } = require('../notification/notification-events');
+
+            await merchantNotification.notifyShop(
                 tracking.order.shop_id,
+                NOTIFICATION_EVENTS.ORDER_REVIEW_REQUIRED,
                 {
-                    id: tracking.order.id,
-                    order_number: tracking.order.order_number,
-                    customer_name: tracking.order.customer_name,
-                    customer_phone: tracking.order.customer_phone,
-                    total: tracking.order.total
+                    orderId: tracking.order.id || null,
+                    orderNumber: tracking.order.order_number || null,
+                    reason: `delivery_failed:${tracking.current_status || 'failed'}`,
+                    reasonCode: 'DELIVERY_FAILED',
+                    decision: 'delivery_failed',
+                    reasonCodes: ['DELIVERY_FAILED'],
+                    provider: tracking.provider || null,
+                    trackingNumber: tracking.tracking_number || null,
+                    status: tracking.current_status || null,
                 },
-                {
-                    type: 'delivery_failure',
-                    message: `Delivery failed for order #${tracking.order.order_number}`,
-                    trackingInfo: {
-                        provider: tracking.provider,
-                        trackingNumber: tracking.tracking_number,
-                        status: tracking.current_status
-                    }
-                }
+                { dedupeKey: `${tracking.order.id || tracking.id}:delivery-failed:${tracking.current_status || 'failed'}` }
             );
 
             this.logger.info('Delivery failure processed', {

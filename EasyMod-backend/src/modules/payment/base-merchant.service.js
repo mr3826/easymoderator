@@ -1,30 +1,26 @@
 /**
- * Base Merchant Service
- * 
- * Abstract base class that all payment gateway merchants must extend.
- * Provides shared functionality including OAuth token caching with TTL management.
- * 
- * This eliminates ~120 lines of duplicated OAuth token caching logic across
- * BkashMerchantService, NagadMerchantService, and RocketMerchantService.
- * 
+ * Base Merchant Service — LEGACY in-process token-cache base for the old
+ * v1.2.0 bKash checkout client (`bkash-merchant.service.js`).
+ *
+ * HONEST STATE (Payment Data Contract §7 rows 4–5, D-9):
+ *  - NagadMerchantService and RocketMerchantService NEVER existed and never
+ *    will — the official docs sweep found NO public official merchant API for
+ *    either provider, so their automation is INTENTIONALLY ABSENT. The earlier
+ *    wording in this docstring claimed this base eliminated duplication across
+ *    three merchants; that was a phantom-class claim and is corrected here.
+ *  - Nagad/Rocket payments run only through the self-MFS merchant-confirmation
+ *    path (contract §3) — displayed as configured_unverified, never verified
+ *    automatically (R-12).
+ *  - The current official bKash product is Tokenized Checkout v2, implemented
+ *    in `bkash-tokenized.service.js` with a Redis-backed token store and a
+ *    ≤2-grants-per-hour budget (§2.1/§4). That client does NOT use this class.
+ *  - `bkash-merchant.service.js` has ZERO production importers left after the
+ *    §4.2 webhook rewrite; it remains only because its redaction test
+ *    (`bkash-merchant.logs.test.js`) still imports it (D-9 rule: a file with a
+ *    live importer stays). A future cleanup may retire the pair together.
+ *
  * @module payment/base-merchant.service
  * @abstract
- * 
- * @example
- * class BkashMerchantService extends BaseMerchantService {
- *   constructor() {
- *     super('bKash', 'https://checkout.bka.sh');
- *   }
- *   
- *   async getOAuthToken(shopId) {
- *     const cacheKey = `bkash_token_${shopId}`;
- *     return this.getCachedToken(cacheKey, async () => {
- *       // Fetch from bKash API
- *       const response = await axios.post(...);
- *       return response.data.id_token;
- *     });
- *   }
- * }
  */
 
 const { AppError } = require('../../utils/AppError');

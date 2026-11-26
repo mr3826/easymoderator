@@ -25,6 +25,20 @@ const founderPilotSchemaMigrations = [
     require('../../database/migrations/20261101_003_ads_studio_manual_reports'),
     require('../../database/migrations/20261101_004_storefront_cod'),
 ];
+// Payment redesign (20261127_001/002 — R-11 numbering; the §4.4 one-active-
+// attempt-per-order guard is FOLDED INTO 002 by A0 ruling, so there is no
+// 003). Repeat-safe and idempotent: on a freshly-synced database the entity
+// model already creates `payment_accounts` (renamed table) + the verification
+// ledger, so 001's rename guard skips and both files only (re)create the
+// DB-only partial uniques sequelize.sync omits (one preferred per shop,
+// (shop,provider,account_type), txn-id uniqueness, active-attempt guard).
+// Applied inside the postgres branch below, exactly like the founder-pilot
+// set (A5 handoff Q7 / A4 Q7 — the production migrate.js auto-discovers them;
+// the wipe/fresh path enumerates explicitly).
+const paymentRedesignSchemaMigrations = [
+    require('../../database/migrations/20261127_001_payment_accounts'),
+    require('../../database/migrations/20261127_002_payment_account_constraints'),
+];
 
 const syncDatabase = async () => {
     try {
@@ -58,6 +72,9 @@ const syncDatabase = async () => {
         // composite tenant constraints after sequelize.sync on the wipe path.
         if (sequelize.getDialect() === 'postgres') {
             for (const migration of founderPilotSchemaMigrations) {
+                await migration.up(sequelize);
+            }
+            for (const migration of paymentRedesignSchemaMigrations) {
                 await migration.up(sequelize);
             }
         }

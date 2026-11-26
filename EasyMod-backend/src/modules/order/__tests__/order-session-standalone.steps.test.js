@@ -735,6 +735,220 @@ describe('self-MFS payment truth (P0-2)', () => {
     });
 });
 
+// Contract §3.2 (A4): the self-MFS claim sub-flow. These tests ADD machine
+// cases without weakening any pin above — intake happens only when a real
+// wallet number resolves; the customer is shown EXACTLY ONE number; TrxID is
+// collected (never an OTP); the claim is materialized AFTER order creation and
+// nothing in the flow may say the payment itself is confirmed.
+describe('self-MFS claim sub-flow (§3.2, A4)', () => {
+    const claimService = require('../../payment/payment-claim.service');
+    const drainImmediates = () => new Promise(resolve => setImmediate(resolve));
+
+    const walletAccount = {
+        id: 'acct-1',
+        provider: 'bkash',
+        account_type: 'self',
+        gateway: 'self-mfs',
+        is_preferred: true,
+        is_enabled: true,
+        credentials: { mfs_type: 'bkash', mfs_number: '01711111111' },
+    };
+    const claimStepData = (over = {}) => ({
+        language: 'en',
+        enabled_gateways: ['cod', 'self-mfs'],
+        delivery_zone: 'inside_dhaka',
+        delivery_charge: 60,
+        payment_method: 'self-mfs',
+        payment_provider: 'bkash',
+        payment_wallet: { account_id: 'acct-1', provider: 'bkash', number: '01711111111' },
+        payment_account_id: 'acct-1',
+        payment_claim_amount: 1710,
+        payment_policy: { policy: 'none', value: null, advance_amount: 0, remainder: 1710, snapshot_at: '2026-11-26T00:00:00.000Z' },
+        ...over,
+    });
+
+    test('selecting the wallet with a configured number enters claim intake showing ONE number + total', async () => {
+        PaymentConfigEntity.findAll.mockResolvedValue([walletAccount]);
+        const session = makeSession({
+            current_step: 'COLLECTING_PAYMENT',
+            product_info: { id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 },
+            step_data: {
+                language: 'en',
+                enabled_gateways: ['cod', 'self-mfs'],
+                delivery_zone: 'inside_dhaka',
+                delivery_charge: 60,
+                cart: [{ product_id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 }],
+            },
+        });
+        const res = await OrderSessionService.handleCurrentStep(session, 'bkash', null);
+
+        expect(res.current_step).toBe('AWAITING_PAYMENT_CLAIM');
+        expect(res.prompt).toContain('01711111111');
+        expect(res.prompt).toContain('৳1710');
+        // one number only, never a list of alternatives:
+        expect(res.prompt).not.toMatch(/018/);
+        expect(res.prompt).toMatch(/never ask for an OTP/i);
+        expect(res.step_data.payment_account_id).toBe('acct-1'); // §3.5 stamp
+        expect(res.step_data.payment_wallet.number).toBe('01711111111');
+        expect(res.step_data.payment_claim_amount).toBe(1710);
+        expect(res.step_data.payment_policy).toMatchObject({ policy: 'none' });
+    });
+
+    test('with no resolvable number the machine behaves exactly as before (legacy pending path)', async () => {
+        PaymentConfigEntity.findAll.mockResolvedValue([]);
+        const session = makeSession({
+            current_step: 'COLLECTING_PAYMENT',
+            step_data: { language: 'en', enabled_gateways: ['cod', 'self-mfs'], delivery_zone: 'inside_dhaka', delivery_charge: 60 },
+        });
+        const res = await OrderSessionService.handleCurrentStep(session, 'bkash', null);
+        expect(res.current_step).toBe('COLLECTING_NOTES');
+        expect(res.step_data.payment_account_id).toBeUndefined();
+    });
+
+    test('TrxID answer normalizes; garbage re-prompts; skip continues WITHOUT a claim', async () => {
+        const ok = makeSession({ current_step: 'AWAITING_PAYMENT_CLAIM', step_data: claimStepData() });
+        const resOk = await OrderSessionService.handleCurrentStep(ok, ' 8a3f 2b9xk1 ', null);
+        expect(resOk.step_data.payment_claim_trx_id).toBe('8A3F2B9XK1');
+        expect(resOk.current_step).toBe('AWAITING_PAYMENT_SENDER');
+        expect(resOk.prompt).toMatch(/Which number did you send/i);
+        expect(resOk.prompt).not.toMatch(/\bOTP\b/i); // sender is a number, not a code
+
+        const bad = makeSession({ current_step: 'AWAITING_PAYMENT_CLAIM', step_data: claimStepData() });
+        const resBad = await OrderSessionService.handleCurrentStep(bad, 'i forgot it', null);
+        expect(resBad.current_step).toBe('AWAITING_PAYMENT_CLAIM');
+        expect(resBad.step_data.payment_claim_trx_id).toBeUndefined();
+
+        const skip = makeSession({ current_step: 'AWAITING_PAYMENT_CLAIM', step_data: claimStepData() });
+        const resSkip = await OrderSessionService.handleCurrentStep(skip, 'skip', null);
+        expect(resSkip.current_step).toBe('COLLECTING_NOTES');
+        expect(resSkip.step_data.payment_claim_trx_id).toBeUndefined();
+        expect(resSkip.prompt).toMatch(/stays pending/i);
+    });
+
+    test('sender number is optional and BD-validated (asked once)', async () => {
+        const good = makeSession({ current_step: 'AWAITING_PAYMENT_SENDER', step_data: claimStepData({ payment_claim_trx_id: '8A3F2B9XK1' }) });
+        const resGood = await OrderSessionService.handleCurrentStep(good, '+8801933333333', null);
+        expect(resGood.current_step).toBe('COLLECTING_NOTES');
+        expect(resGood.step_data.payment_claim_sender_phone).toBe('01933333333');
+
+        const bad = makeSession({ current_step: 'AWAITING_PAYMENT_SENDER', step_data: claimStepData({ payment_claim_trx_id: '8A3F2B9XK1' }) });
+        const resBad = await OrderSessionService.handleCurrentStep(bad, 'banana', null);
+        expect(resBad.current_step).toBe('AWAITING_PAYMENT_SENDER');
+        expect(resBad.step_data.payment_claim_sender_phone).toBeUndefined();
+
+        const skip = makeSession({ current_step: 'AWAITING_PAYMENT_SENDER', step_data: claimStepData({ payment_claim_trx_id: '8A3F2B9XK1' }) });
+        const resSkip = await OrderSessionService.handleCurrentStep(skip, 'skip', null);
+        expect(resSkip.current_step).toBe('COLLECTING_NOTES');
+        expect(resSkip.step_data.payment_claim_sender_phone).toBeNull();
+    });
+
+    test('confirmation materializes the claim AFTER order creation, stamps attribution, and never says payment confirmed', async () => {
+        PaymentConfigEntity.findAll.mockResolvedValue([walletAccount]);
+        productSearch.checkStock.mockResolvedValue({ available: true });
+        createOrderInternal.mockResolvedValue({
+            id: 'ord-9', order_number: '100009', total: 1710, shop_id: 'shop-1',
+            payment_method: 'self-mfs', payment_status: 'pending',
+        });
+        const { issueInvoiceForOrder } = require('../../invoice/chat-invoice.service');
+        issueInvoiceForOrder.mockResolvedValue({ invoice: {}, text: '🧾 INVOICE' });
+        const claimSpy = jest.spyOn(claimService, 'createSelfMfsClaimForOrder').mockResolvedValue({
+            created: true,
+            reply: {
+                en: "We've received your payment details (TrxID 8A3F2B9XK1). The shop owner will confirm shortly.",
+                bn: '✅ পেমেন্ট তথ্য পেয়েছি (TrxID 8A3F2B9XK1)। দোকান মালিক নিশ্চিত করবেন।',
+            },
+        });
+
+        const session = makeSession({
+            current_step: 'ORDER_SUMMARY',
+            product_info: { id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 },
+            step_data: claimStepData({
+                name: 'Evan', phone: '01886895874', address: 'Mirpur 10',
+                payment_claim_trx_id: '8A3F2B9XK1', payment_claim_sender_phone: '01933333333',
+                cart: [{ product_id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 }],
+            }),
+        });
+        const res = await OrderSessionService.handleCurrentStep(session, 'confirm', null, { conversationId: 'conv-9' });
+        await drainImmediates();
+
+        expect(res.completed).toBe(true);
+        // §3.5: the created order carries the account FK + policy snapshot.
+        const [, orderData] = createOrderInternal.mock.calls[0];
+        expect(orderData.payment_method_id).toBe('acct-1');
+        expect(orderData.metadata.payment_policy).toMatchObject({ policy: 'none' });
+        // the claim runs with the STAMPED wallet (no silent number switching):
+        expect(claimSpy).toHaveBeenCalledWith('shop-1', expect.objectContaining({ id: 'ord-9' }),
+            expect.objectContaining({
+                trxId: '8A3F2B9XK1',
+                account: expect.objectContaining({ account_id: 'acct-1', number: '01711111111' }),
+                senderPhone: '01933333333',
+                displayedAmount: 1710,
+            }));
+        expect(res.prompt).toContain('shop owner will confirm shortly');
+        expect(res.prompt).not.toMatch(/Payment confirmed|পেমেন্ট নিশ্চিত/i);
+        claimSpy.mockRestore();
+    });
+
+    test('claim write failure never un-confirms the order and says so honestly', async () => {
+        productSearch.checkStock.mockResolvedValue({ available: true });
+        createOrderInternal.mockResolvedValue({
+            id: 'ord-10', order_number: '100010', total: 1710, shop_id: 'shop-1',
+        });
+        const { issueInvoiceForOrder } = require('../../invoice/chat-invoice.service');
+        issueInvoiceForOrder.mockResolvedValue({ invoice: {}, text: '🧾 INVOICE' });
+        const claimSpy = jest.spyOn(claimService, 'createSelfMfsClaimForOrder')
+            .mockRejectedValue(new Error('db down'));
+
+        const session = makeSession({
+            current_step: 'ORDER_SUMMARY',
+            product_info: { id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 },
+            step_data: claimStepData({
+                name: 'Evan', phone: '01886895874', address: 'Mirpur 10',
+                payment_claim_trx_id: '8A3F2B9XK1',
+                cart: [{ product_id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 }],
+            }),
+        });
+        const res = await OrderSessionService.handleCurrentStep(session, 'confirm', null, { conversationId: 'conv-10' });
+        await drainImmediates();
+
+        expect(res.completed).toBe(true); // order stands
+        expect(res.prompt).toMatch(/could not be recorded/i);
+        expect(res.prompt).not.toMatch(/received your payment details/i);
+        claimSpy.mockRestore();
+    });
+
+    test('duplicate TrxID gets the already-used reply family, order unchanged', async () => {
+        productSearch.checkStock.mockResolvedValue({ available: true });
+        createOrderInternal.mockResolvedValue({ id: 'ord-11', order_number: '100011', total: 1710, shop_id: 'shop-1' });
+        const { issueInvoiceForOrder } = require('../../invoice/chat-invoice.service');
+        issueInvoiceForOrder.mockResolvedValue({ invoice: {}, text: '🧾 INVOICE' });
+        const claimSpy = jest.spyOn(claimService, 'createSelfMfsClaimForOrder').mockResolvedValue({
+            created: false, duplicate: true, reason: 'trx_id_log',
+            duplicateReply: {
+                en: 'This TrxID (8A3F2B9XK1) was already used. Please pay with a new transaction or contact the shop.',
+                bn: 'এই TrxID (8A3F2B9XK1) আগেই ব্যবহার হয়েছে। নতুন payment করুন বা দোকানকে জানান।',
+            },
+        });
+
+        const session = makeSession({
+            current_step: 'ORDER_SUMMARY',
+            product_info: { id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 },
+            step_data: claimStepData({
+                name: 'Evan', phone: '01886895874', address: 'Mirpur 10',
+                payment_claim_trx_id: '8A3F2B9XK1',
+                cart: [{ product_id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 }],
+            }),
+        });
+        const res = await OrderSessionService.handleCurrentStep(session, 'confirm', null, { conversationId: 'conv-11' });
+        await drainImmediates();
+
+        expect(res.completed).toBe(true);
+        expect(res.prompt).toMatch(/already used/i);
+        expect(res.step_data.payment_claim_duplicate).toBe('trx_id_log');
+        claimSpy.mockRestore();
+    });
+});
+
 // P+04 belt: identity-capturing steps must refuse question-shaped answers
 // instead of storing "delivery charge koto?" as the customer's name, while
 // ordinary names/addresses/digits keep flowing through unchanged.

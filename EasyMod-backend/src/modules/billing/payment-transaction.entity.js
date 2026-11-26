@@ -25,10 +25,24 @@ const PaymentTransaction = sequelize.define('PaymentTransaction', {
         },
         onDelete: 'CASCADE'
     },
+    // The exact account shown to the customer (§1.3-003, §6 "no silent number
+    // switching"). Nullable so historical/billing-era rows stay valid. FK +
+    // non-unique index created by migration 20261127_001; (shop_id,transaction_id)
+    // uniqueness by 20261127_002.
+    payment_account_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'payment_accounts',
+            key: 'id'
+        },
+        onDelete: 'SET NULL',
+        comment: 'payment_accounts.id that was used for this attempt'
+    },
     payment_method: {
         type: DataTypes.STRING(50),
         allowNull: false,
-        comment: 'Payment method: bkash, nagad, aamarpay, sslcommerz, cod, self-mfs'
+        comment: 'Payment method (provider vocabulary): bkash, nagad, rocket, aamarpay, sslcommerz, cod, self-mfs'
     },
     payment_gateway: {
         type: DataTypes.STRING(50),
@@ -49,7 +63,7 @@ const PaymentTransaction = sequelize.define('PaymentTransaction', {
         type: DataTypes.STRING(20),
         allowNull: false,
         defaultValue: 'pending',
-        comment: 'pending, initiated, processing, paid, failed, rejected, verified'
+        comment: 'pending, initiated, payment_claimed, processing, paid, verified, failed, rejected (payment-taxonomy §1.3-003)'
     },
     gateway_response: {
         type: DataTypes.JSON,

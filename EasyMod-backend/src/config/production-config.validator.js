@@ -37,6 +37,16 @@ const CORE_REQUIRED = [
     // requiring it unconditionally pressures an operator into inventing a fake
     // credential to make the deploy pass. It is required with the rest of the
     // bKash set below whenever BKASH_ENABLED=true.
+    //
+    // POSTURE NOTE (Payment redesign §7 row 9, A0): after the §4.2 rewrite this
+    // secret guards a DEPLOYMENT SHARED-SECRET TRANSPORT GATE inside
+    // webhook.middleware.js (constant-time, 503 fail-closed when unset) — it is
+    // NOT a provider signature scheme (the old "B1/B17 provider-signature"
+    // claim was invented and is deleted). The callback body is a TRIGGER only:
+    // settlement always requires the server-side Tokenized-v2 Query, so no
+    // amount of webhook-secret strength is ever trusted as payment evidence.
+    // Requirement semantics are unchanged (required iff BKASH_ENABLED=true) —
+    // no new env var was introduced and existing pins stay authoritative.
     'RESEND_API_KEY',
     'EMAIL_FROM',
 ];
