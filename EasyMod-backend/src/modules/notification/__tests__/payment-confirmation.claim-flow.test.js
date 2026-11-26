@@ -234,9 +234,12 @@ describe('B1/A9-R3: an already-settled order can never be re-settled by a second
         notification.customer_data = { ...notification.customer_data };
         const orderRow = { id: 'order-1', shop_id: 'shop-1', payment_status: 'paid', update: jest.fn() };
         mockModels.Order.findOne.mockResolvedValue(orderRow);
-        // Deliberately NO mockCancelOrderInTransaction resolution: if the code
-        // still calls it, the require()-ed real service body runs against mock
-        // models and the assertions below (never called) catch the regression.
+        // Deliberately NO mockCancelOrderInTransaction resolution: the file's
+        // jest.mock of order.service means a call returns undefined, so the
+        // old code would CRASH on cancelledOrder.update — and the explicit
+        // not.toHaveBeenCalled pin below fails loudly on any regression.
+        // (Honest scope note, A9 round-2: the real destructive body is NOT
+        // executed here; a real-DB integration pin is a follow-up.)
         const res = await service.handleOwnerResponse(notification.id, 'reject', { userId: 'owner-1' });
         expect(res).toMatchObject({
             success: true,

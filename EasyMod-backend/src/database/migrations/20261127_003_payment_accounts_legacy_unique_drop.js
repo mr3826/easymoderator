@@ -44,8 +44,10 @@ const RECREATED_CONSTRAINT = 'payment_configs_shop_id_provider_key';
 // untouched — the partial predicate mirrors the service rule EXACTLY.
 const PENDING_CLAIM_UNIQUE = 'idx_payment_txn_one_pending_claim_per_order';
 
-// Constraint backed by exactly (shop_id, provider), matched on the CONSTRAINT's
-// own column list — conkey ordered by its ordinality, not the table's attributes.
+// Constraint backed by exactly (shop_id, provider) IN EITHER DECLARED ORDER
+// (A9 round-2 nit: a hand-made (provider, shop_id) duplicate must not evade
+// the drop), matched on the CONSTRAINT's own column list — conkey ordered by
+// its ordinality, not the table's attributes.
 const FIND_LEGACY_CONSTRAINT = `
     SELECT con.conname
       FROM pg_constraint con
@@ -58,7 +60,8 @@ const FIND_LEGACY_CONSTRAINT = `
       ) sc ON true
      WHERE rel.relname = '${TABLE}'
        AND con.contype = 'u'
-       AND sc.cols = ARRAY['shop_id','provider']::text[];
+       AND (sc.cols = ARRAY['shop_id','provider']::text[]
+         OR sc.cols = ARRAY['provider','shop_id']::text[]);
 `;
 
 // Standalone UNIQUE INDEX over exactly (shop_id, provider) that is NOT the
@@ -74,10 +77,17 @@ const FIND_LEGACY_INDEX = `
        AND NOT x.indisprimary
        AND NOT EXISTS (SELECT 1 FROM pg_constraint con WHERE con.conindid = c.oid)
        AND (
-           SELECT array_agg(a.attname::text ORDER BY k.ord)
-             FROM unnest(x.indkey) WITH ORDINALITY AS k(attnum, ord)
-             JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = k.attnum
-       ) = ARRAY['shop_id','provider']::text[];
+           (
+               SELECT array_agg(a.attname::text ORDER BY k.ord)
+                 FROM unnest(x.indkey) WITH ORDINALITY AS k(attnum, ord)
+                 JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = k.attnum
+           ) = ARRAY['shop_id','provider']::text[]
+           OR (
+               SELECT array_agg(a.attname::text ORDER BY k.ord)
+                 FROM unnest(x.indkey) WITH ORDINALITY AS k(attnum, ord)
+                 JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = k.attnum
+           ) = ARRAY['provider','shop_id']::text[]
+       );
 `;
 
 async function lookup(sequelize, sql) {

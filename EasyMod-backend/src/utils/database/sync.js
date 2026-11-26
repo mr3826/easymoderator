@@ -26,8 +26,12 @@ const founderPilotSchemaMigrations = [
     require('../../database/migrations/20261101_004_storefront_cod'),
 ];
 // Payment redesign (20261127_001/002 — R-11 numbering; the §4.4 one-active-
-// attempt-per-order guard is FOLDED INTO 002 by A0 ruling, so there is no
-// 003). Repeat-safe and idempotent: on a freshly-synced database the entity
+// attempt-per-order guard is FOLDED INTO 002; 003 was ADDED by the 2026-11-27
+// release remediation — R-18 legacy (shop_id, provider) unique drop with
+// self-verify + R-19 one-pending-claim-per-order unique. Production
+// migrate.js auto-discovers it; this explicit list must stay in sync or
+// fresh/wipe-synced databases silently lose the dedupe backstops — A9 round-2
+// catch, 2026-11-27). Repeat-safe and idempotent: on a freshly-synced database the entity
 // model already creates `payment_accounts` (renamed table) + the verification
 // ledger, so 001's rename guard skips and both files only (re)create the
 // DB-only partial uniques sequelize.sync omits (one preferred per shop,
@@ -38,6 +42,7 @@ const founderPilotSchemaMigrations = [
 const paymentRedesignSchemaMigrations = [
     require('../../database/migrations/20261127_001_payment_accounts'),
     require('../../database/migrations/20261127_002_payment_account_constraints'),
+    require('../../database/migrations/20261127_003_payment_accounts_legacy_unique_drop'),
 ];
 
 const syncDatabase = async () => {
