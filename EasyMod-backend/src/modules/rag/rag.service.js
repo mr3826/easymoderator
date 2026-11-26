@@ -317,18 +317,19 @@ const buildShopFilter = (shopId, extraFilters) => {
 };
 
 /**
- * Retrieve existing points by id (payload shopId projection only). Used by the
- * ownership-checked delete path and by the ingest cross-tenant guard. A point
- * that does not exist is simply absent from the result.
+ * Retrieve existing points by id. Used by the ownership-checked delete path,
+ * by the ingest cross-tenant guard, and by the FAQ version guard. A point that
+ * does not exist is simply absent from the result. `payloadFields` defaults to
+ * the ownership projection; the FAQ version guard adds 'faq_version'.
  */
-const retrievePoints = async (collection, ids, { signal } = {}) => {
+const retrievePoints = async (collection, ids, { signal, payloadFields = ['shopId'] } = {}) => {
     const unique = [...new Set((ids || []).filter(Boolean).map(String))];
     if (!unique.length) return [];
     const result = await qdrantJson(qdrantPath(collection, '/points'), {
         method: 'POST',
         body: JSON.stringify({
             ids: unique,
-            with_payload: ['shopId'],
+            with_payload: payloadFields,
             with_vector: false,
         }),
         signal,
@@ -434,6 +435,40 @@ const ingestData = async ({ text, metadata = {} }) => {
         // embedding spend so rejected attempts cost nothing.
         if (metadata.documentId && uuidValidate(String(metadata.documentId))) {
             await assertPassthroughOwnership(binding, pointId, shopId);
+        }
+
+        // FAQ version guard (20261126_001 lifecycle): when the caller carries a
+        // sync version (knowledge.service writes faq_version into the point
+        // payload), refuse to overwrite a point whose stored faq_version is
+        // NEWER than this write — a stale async sync can never clobber newer
+        // content. Checked BEFORE embedding spend, like the F1 passthrough
+        // guard. A guard-read failure is treated as "unknown" and does not
+        // block the ingest: the row's own latest async sync re-converges the
+        // point (idempotent upsert on the scoped documentId), so availability
+        // wins over a best-effort safety read.
+        if (Number.isSafeInteger(metadata.faq_version) && metadata.documentId) {
+            let storedVersion = null;
+            try {
+                const existing = await retrievePoints(binding.collection, [pointId], {
+                    payloadFields: ['shopId', 'faq_version'],
+                });
+                const existingPoint = existing.find((point) => String(point?.id) === String(pointId));
+                if (existingPoint && String(existingPoint?.payload?.shopId ?? '') === String(shopId)
+                    && Number.isSafeInteger(existingPoint?.payload?.faq_version)) {
+                    storedVersion = existingPoint.payload.faq_version;
+                }
+            } catch (_) {
+                storedVersion = null;
+            }
+            if (storedVersion !== null && storedVersion > metadata.faq_version) {
+                return {
+                    success: false,
+                    guarded: true,
+                    message: 'FAQ_VERSION_GUARDED',
+                    ingestionId: pointId,
+                    documentId: metadata.documentId,
+                };
+            }
         }
 
         const embedding = await getEmbeddingResult(content, {
@@ -635,10 +670,59 @@ const deletePoint = async (id, shopId) => {
     });
 };
 
+/**
+ * Scroll the CALLING shop's non-manifest points of one payload `type`
+ * ('faq' | 'business_info' | 'product'), returning {id, documentId,
+ * faqVersion} per point. Tenant scoping is the payload shopId match
+ * (defence-in-depth: in QDRANT_PER_TENANT mode the collection is already
+ * shop-scoped). Used by the reindex reconcile-prune to find FAQ points whose
+ * source row is gone/ineligible OR whose stored faq_version trails the row's
+ * sync_version (stale vector content must not survive a reindex).
+ */
+const scrollShopPointsByType = async (shopId, type, { pageSize = 100, signal } = {}) => {
+    const scopedShopId = requireShopId(shopId);
+    const binding = await ensureCollection(scopedShopId, { allowCreate: false });
+    const filter = contentFilter({
+        must: [
+            ...buildShopFilter(scopedShopId).must,
+            { key: 'type', match: { value: String(type) } },
+        ],
+    });
+    const points = [];
+    let offset = null;
+    for (;;) {
+        const result = await qdrantJson(qdrantPath(binding.collection, '/points/scroll'), {
+            method: 'POST',
+            body: JSON.stringify({
+                filter,
+                limit: pageSize,
+                offset,
+                with_payload: ['documentId', 'faq_version'],
+                with_vector: false,
+            }),
+            signal,
+        });
+        const page = result?.result?.points || [];
+        for (const point of page) {
+            points.push({
+                id: point.id,
+                documentId: point?.payload?.documentId ?? null,
+                faqVersion: Number.isSafeInteger(point?.payload?.faq_version)
+                    ? point.payload.faq_version
+                    : null,
+            });
+        }
+        offset = result?.result?.next_page_offset ?? null;
+        if (!offset || !page.length) break;
+    }
+    return points;
+};
+
 module.exports = {
     ingestData,
     queryData,
     deletePoint,
+    scrollShopPointsByType,
     // Public contract helpers are used by proof/tests and do not perform writes.
     readCollectionBinding,
     setCollectionState,

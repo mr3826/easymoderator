@@ -91,6 +91,50 @@ const deleteFaq = async (req, res, next) => {
     }
 };
 
+// ── FAQ lifecycle endpoints (20261126_001) ────────────────────────────────────
+// Every response serializes the fresh row: sync_status 'pending' means
+// SAVED — the UI must not present it as synchronized (settled states arrive
+// via the next list read).
+
+const archiveFaq = async (req, res, next) => {
+    try {
+        const { shopId, userId } = req.user;
+        if (!shopId) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No shop selected. Please login again.' } });
+        }
+        const data = await knowledgeService.archiveFaq(userId, shopId, req.params.id);
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const restoreFaq = async (req, res, next) => {
+    try {
+        const { shopId, userId } = req.user;
+        if (!shopId) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No shop selected. Please login again.' } });
+        }
+        const data = await knowledgeService.restoreFaq(userId, shopId, req.params.id);
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const resyncFaq = async (req, res, next) => {
+    try {
+        const { shopId, userId } = req.user;
+        if (!shopId) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No shop selected. Please login again.' } });
+        }
+        const data = await knowledgeService.resyncFaq(userId, shopId, req.params.id);
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+};
+
 const listGaps = async (req, res, next) => {
     try {
         const { shopId, userId } = req.user;
@@ -209,6 +253,9 @@ module.exports = {
     listFaqs,
     createFaq,
     updateFaq,
+    archiveFaq,
+    restoreFaq,
+    resyncFaq,
     deleteFaq,
     listGaps,
     listDocuments,

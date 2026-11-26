@@ -7,8 +7,9 @@
  * Deterministic by design (spec §11.1): normalization + keyword domain
  * classification + frequency thresholds; NO model calls, NO embeddings.
  * Suggestions NEVER auto-publish: publishing goes through the existing
- * knowledge.service.createFaq authority (is_active + RAG sync + snapshot
- * invalidation), so an unapproved answer can never reach a customer.
+ * knowledge.service.createFaq authority (explicit status:'published' lifecycle
+ * write + RAG sync + snapshot invalidation), so an unapproved answer can never
+ * reach a customer.
  *
  * Evidence hygiene: only the normalized key, one short display sample and
  * counters are stored. Dismissed suggestions re-open only when at least
@@ -232,11 +233,15 @@ async function publishAnswer(shopId, actorUserId, suggestionId, faq) {
     });
     if (!row) return null;
     const knowledgeService = require('./knowledge.service');
+    // Publish explicitly through the new lifecycle machine: 'published' is the
+    // ONLY retrieval-eligible status. The is_active flag is the service's own
+    // derived mirror — callers must never pass it. category_tag keeps the
+    // domain label; the question stays authoritative (category never overwrites).
     const created = await knowledgeService.createFaq(actorUserId, shopId, {
         question: faq.question,
         answer: faq.answer,
-        category: faq.category || null,
-        is_active: faq.is_active !== false,
+        category_tag: faq.category || undefined,
+        status: 'published',
         priority: faq.priority || 50,
     });
     await row.update({

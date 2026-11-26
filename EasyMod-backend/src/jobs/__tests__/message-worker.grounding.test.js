@@ -350,8 +350,12 @@ describe('grounded replies reach Meta intact', () => {
 
         await expect(_private.revalidateKnowledgeEvidenceBeforeSend(evidence))
             .resolves.toEqual({ valid: true, changedKnowledgeIds: [] });
+        // Pre-send revalidation is published-only (20261126_001 lifecycle; the
+        // is_active mirror stays for rollback-window rows) and fetches the
+        // question column so the content hash prefers it.
         expect(mockFaqFindAll).toHaveBeenCalledWith(expect.objectContaining({
-            where: expect.objectContaining({ shop_id: SHOP, is_active: true }),
+            where: expect.objectContaining({ shop_id: SHOP, is_active: true, status: 'published' }),
+            attributes: expect.arrayContaining(['id', 'question', 'category', 'template_en', 'template_bn']),
         }));
     });
 

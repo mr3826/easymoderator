@@ -1718,8 +1718,10 @@ describe('settings generation and inactive FAQ cache boundaries', () => {
         expect(cached.grounding.knowledgeSnapshots).toEqual([faqSnapshot(faq)]);
         expect(cached.grounding.operatingContextHash).toBe(first.grounding.operatingContextHash);
         expect(cachedVerdict.decision).toBe(grounding.GroundingDecision.SEND);
+        // Published-only cache re-resolution (20261126_001): the is_active
+        // double-gate stays for rollback-window rows, status must be published.
         expect(FaqResponse.findOne).toHaveBeenCalledWith({
-            where: { id: 'faq-delivery-1', shop_id: SHOP, is_active: true },
+            where: { id: 'faq-delivery-1', shop_id: SHOP, is_active: true, status: 'published' },
         });
     });
 
@@ -1841,5 +1843,101 @@ describe('D-P2-04 usageContext boundary', () => {
                 conversationId: 'test-conversation-1',
             },
         });
+    });
+});
+
+// ── A5 lifecycle (20261126_001): published-only selection + prompt projection ──
+
+describe('FAQ lifecycle pins (Business & FAQ redesign)', () => {
+    test('Stage-2 keyword search selects only published rows (is_active double-gate kept)', async () => {
+        const faq = {
+            id: 'faq-lifecycle-1', shop_id: SHOP, is_active: true, status: 'published',
+            question: 'Do you deliver to Sylhet?', category: 'Do you deliver to Sylhet?',
+            template_en: 'Yes, Sylhet is covered.', template_bn: null,
+        };
+        FaqResponse.findAll.mockResolvedValueOnce([faq]);
+        llm.chat.mockResolvedValueOnce({ text: 'Yes, Sylhet is covered.', provider: 'gemini-lite' });
+
+        const result = await route({ shopId: SHOP, message: 'sylhet covered?', systemPrompt: 'BASE', language: 'en' });
+
+        expect(result.source).toBe('faq');
+        const stage2 = FaqResponse.findAll.mock.calls[0][0];
+        expect(stage2.where).toMatchObject({ shop_id: SHOP, is_active: true, status: 'published' });
+    });
+
+    test('Stage-3 vector re-resolution selects published rows and includes the question column', async () => {
+        rag.queryData.mockResolvedValueOnce({
+            success: true,
+            results: [{ score: 0.9, content: 'stale', metadata: { type: 'faq', faq_id: 'faq-77' } }],
+        });
+        const live = {
+            id: '77', shop_id: SHOP, is_active: true, status: 'published',
+            question: 'Live question?', category: 'Live question?', template_en: 'Live answer', template_bn: null,
+        };
+        FaqResponse.findAll.mockResolvedValueOnce([live]);
+
+        const out = await require('src/modules/ai/intent-router.service')._private.retrieveKnowledge(SHOP, 'q');
+
+        const stage3 = FaqResponse.findAll.mock.calls[0][0];
+        expect(stage3.where).toMatchObject({ shop_id: SHOP, is_active: true, status: 'published' });
+        expect(stage3.attributes).toContain('question');
+        // question||category content preference flows into the snippet.
+        expect(out.snippets).toBe('Live question?\nLive answer');
+        expect(out.knowledgeSnapshots).toEqual([faqSnapshot(live)]);
+    });
+
+    test('buildSystemPrompt prefers question over the category mirror', () => {
+        const prompt = buildSystemPrompt({
+            businessInfo: { shopName: 'S' },
+            faqs: [{ question: 'Real question?', category: 'STALE TAG', template_en: 'A1' }],
+        }, 'en');
+        expect(prompt).toContain('Q: Real question?');
+        expect(prompt).not.toContain('STALE TAG');
+    });
+
+    test('buildSystemPrompt projects nameEn/tagline/email/city and the policies block; absence renders nothing', () => {
+        const withEverything = buildSystemPrompt({
+            businessInfo: {
+                shopName: 'Rina', nameEn: 'Rina EN', tagline: 'Best fits',
+                email: 'care@rina.test', city: 'Dhaka',
+            },
+            faqs: [],
+            policies: {
+                returns: { stance: 'offered', period_days: 7, details: 'unused only' },
+                refunds: { stance: 'not_offered' },
+            },
+        }, 'en');
+        expect(withEverything).toContain('English shop name: Rina EN');
+        expect(withEverything).toContain('Tagline: Best fits');
+        expect(withEverything).toContain('Email: care@rina.test');
+        expect(withEverything).toContain('City: Dhaka');
+        expect(withEverything).toContain('Business policy (returns): stance: offered; window: 7 days; conditions: unused only');
+        expect(withEverything).toContain('Business policy (refunds): stance: not_offered');
+        expect(withEverything).toContain('informational');
+        // Absence is honest: no policies → NO policy lines at all.
+        const bare = buildSystemPrompt({ businessInfo: { shopName: 'R' }, faqs: [] }, 'en');
+        expect(bare).not.toContain('Business policy (');
+        expect(bare).not.toContain('English shop name');
+        expect(bare).not.toContain('Tagline');
+        expect(bare).not.toContain('Email');
+    });
+
+    test('keywords and internal notes never reach the system prompt', () => {
+        const prompt = buildSystemPrompt({
+            businessInfo: { shopName: 'R' },
+            faqs: [{ question: 'Q', category: 'Q', template_en: 'A', keywords: ['secret-kw'], notes: 'secret-note' }],
+        }, 'en');
+        expect(prompt).not.toContain('secret-kw');
+        expect(prompt).not.toContain('secret-note');
+    });
+
+    test('operating context still outranks: the authoritative block stays above FAQs/policies', () => {
+        const operatingContext = '--- SHOP PAYMENT & DELIVERY (authoritative) ---\nAccepted payment: COD ONLY.';
+        const prompt = buildSystemPrompt(
+            { businessInfo: { shopName: 'R' }, faqs: [{ question: 'pay', category: 'pay', template_en: 'bKash accepted' }], policies: { refunds: { stance: 'offered' } } },
+            'en', false, 'friendly_bd', null, operatingContext,
+        );
+        expect(prompt.indexOf('Frequently Asked Questions')).toBeGreaterThan(prompt.indexOf(operatingContext));
+        expect(prompt.indexOf('Business policy (refunds)')).toBeGreaterThan(prompt.indexOf(operatingContext));
     });
 });

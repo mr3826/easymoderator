@@ -12,7 +12,8 @@ const {
     addUserValidator,
     removeUserValidator,
     updateRoleValidator,
-    shopBusinessInfoValidator
+    shopBusinessInfoValidator,
+    businessPoliciesValidator
 } = require('./shop.validator');
 
 const router = express.Router();
@@ -59,6 +60,18 @@ router.get('/business-info', shopController.getBusinessInfo);
 
 // PUT /shop/business-info - Update business info for current shop
 router.put('/business-info', verifyShopAccess, requireOwner, shopBusinessInfoValidator, shopController.updateBusinessInfo);
+
+// GET /shop/business-policies - Merchant-stated policy facts for the TOKEN shop
+// (any member — informational read only; never an automation input).
+router.get('/business-policies', shopController.getBusinessPolicies);
+
+// PUT /shop/business-policies - Update business policies for current shop
+// (owner; mirrors the business-info write middleware exactly). PATCH is the
+// honest verb for the per-policy partial merge; A0 confirmed clients send
+// PATCH, the A0 contract names PUT — both routes run the identical
+// verifyShopAccess + requireOwner + validator + merge handler.
+router.put('/business-policies', verifyShopAccess, requireOwner, businessPoliciesValidator, shopController.updateBusinessPolicies);
+router.patch('/business-policies', verifyShopAccess, requireOwner, businessPoliciesValidator, shopController.updateBusinessPolicies);
 
 // GET /shop/onboarding/status - Server-computed first-launch checklist
 router.get('/onboarding/status', shopController.getOnboardingStatus);
