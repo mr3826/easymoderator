@@ -8,7 +8,7 @@ Status: Source of truth for UI/UX decisions
 
 Version: 2.0
 
-Updated: 2026-11-21
+Updated: 2026-11-26 (amended by the §29 header-removal addendum of the same date)
 
 Supersedes: 2026-11-16 founder layout addendum
 
@@ -163,16 +163,16 @@ These are **design archetypes**, not claims that each route or feature already e
 
 ### 5.2 Overview / dashboard anatomy
 
-The original layout applies here because orientation is the merchant's task.
+Orientation on an overview page is owned by the persistent shell AppBar and by the prioritized work modules themselves — **not** by a page-level header band. The 2026-11-26 addendum (§29) retires the original signal band from this archetype too: permanent page-level signal headers are prohibited on **every** page, overviews included.
 
 ```text
 +--------------------------------------------------------------+
-| Breadcrumb / context (if navigation requires it)              |
+| Compact page name (small visible heading, or screen-reader-   |
+| only when the shell already shows the same name)              |
+| Breadcrumb / context (only where deep context genuinely helps)|
 +--------------------------------------------------------------+
-| Page title + meaningful dominant status signal                |
-| Short WHY HERE summary (only if it adds decision value)       |
-+--------------------------------------------------------------+
-| Prioritized action / attention entry point                    |
+| Prioritized work modules — attention queues and entry points  |
+| live in their own rows, chips, and cards, never in a hero band |
 +--------------------------------------------------------------+
 | Operational evidence, metrics, and workflow modules           |
 +--------------------------------------------------------------+
@@ -182,9 +182,11 @@ The original layout applies here because orientation is the merchant's task.
 
 Dashboard rules:
 
-- Surface a meaningful, prioritized next workflow, not an arbitrary global CTA.
+- No permanent global-status badge ("this shop's pulse"), no `WHY HERE` explanatory summary paragraph, and no generic top action band — on overview pages exactly as on execution pages.
+- Page titles stay compact: a small visible heading, or an accessible screen-reader-only `<h1>` when the AppBar owns the visible name. One heading, never two visible page names.
+- Surface a meaningful, prioritized next workflow **inside the work module it belongs to** (queue row, toolbar, workflow card) — never an arbitrary global CTA. Header-only CTAs move to that page's existing toolbar/workflow area; nothing invents a replacement band, and removal reserves no empty space.
 - Make metrics actionable or clearly diagnostic; disclose stale or delayed data.
-- Do not repeat a status or explanation in both a header and a card.
+- Do not repeat a status or explanation in both a header and a card; status now lives on records, modules, and results only.
 - A next-step footer is optional, not an empty region to be filled.
 
 ### 5.3 Execution workspace anatomy — Orders is the reference
@@ -397,7 +399,7 @@ Use signals to communicate workflow state, not to decorate page headers.
 
 - Every signal must include a meaningful label, not only color.
 - Every signal should include an icon when space allows and when it improves scanning.
-- Use **one dominant signal per focal decision or record**, not necessarily one for the entire page.
+- Use **one dominant signal per focal decision or record**, not necessarily one for the entire page. Since the 2026-11-26 addendum these signals live **in content** — record rows, module cards, result banners, validation, onboarding guidance, offline/emergency banners — never in a permanent page-level header badge.
 - Lists may show different statuses on different rows; this is expected and must not be collapsed into a fabricated page-wide signal.
 - Summaries belong in a dashboard or relevant operational aggregate, not automatically above every table.
 - Signals must be readable by screen readers.
@@ -869,7 +871,7 @@ These templates describe **how to design a page kind if that workflow exists**. 
 
 ### 21.1 Dashboard / Overview
 
-Purpose: Show what needs attention now, with an optional short explanatory header and clearly prioritized entry points.
+Purpose: Show what needs attention now through prioritized work modules. No explanatory header band and no page-level status badge (2026-11-26 addendum).
 
 Core Design Test:
 
@@ -890,7 +892,8 @@ Useful modules, when backed by reliable data:
 
 Rules:
 
-- The §5.2 overview anatomy applies here.
+- The §5.2 overview anatomy applies here — including its prohibition of a permanent page-level signal header. "Overview pages keep full anatomy" has meant, since 2026-11-26, full **content** anatomy: the header band is no longer part of it.
+- Attention entry points are queue rows, chips and workflow cards, not a hero CTA.
 - Do not show vanity metrics without meaning or action.
 - Each actionable metric must link to a real workflow.
 - Show stale data warnings if synchronization is delayed.
@@ -1196,20 +1199,18 @@ type PageKind =
   | "setup";
 ```
 
-### PageHeader — optional composition
+### PageHeader — optional composition (slim, since 2026-11-26)
 
 ```ts
 type PageHeaderProps = {
-  title?: string;             // may be compact or visually hidden
-  breadcrumb?: BreadcrumbItem[];
-  signal?: SignalBadge;      // only when a page-level signal is meaningful
-  summary?: string;          // generally overview/setup, not Orders/Inbox
-  primaryAction?: Action;    // only when genuine page-scoped work exists
-  secondaryActions?: Action[];
+  title?: string;                    // compact visible heading or sr-only
+  titleMode?: "compact" | "srOnly";  // default "compact"
+  breadcrumb?: BreadcrumbItem[];     // only where deep context genuinely helps
+  meta?: ReactNode;                  // record-level/contextual status only
 };
 ```
 
-**Never require** `whyHere` or `primaryAction` as PageHeader props. Execution pages may render no separate `PageHeader` at all if navigation and the work toolbar provide enough orientation.
+The former `signal`, `whyHere`/`summary`, `primaryAction`, `secondaryActions` slots are **retired props — not optional, not permitted anywhere** (2026-11-26 addendum, §29): a page may not render a permanent global-status badge, explanatory summary paragraph, or generic action band. The `meta` row carries only record-level, server-confirmed contextual status (never a shop-wide pulse). The header renders nothing when it has no title, breadcrumb, or meta — removal reserves no vertical space. Page-scoped actions keep their existing toolbar/workflow homes. Execution pages may render no separate `PageHeader` at all if navigation and the work toolbar provide enough orientation.
 
 ### WorkbenchToolbar — execution pages
 
@@ -1278,7 +1279,7 @@ A screen is approved only when its applicable requirements pass. Mark a non-appl
 
 - [ ] Primary merchant goal and page archetype are documented.
 - [ ] Layout follows the selected archetype in §5, not the dashboard by default.
-- [ ] Orders/Inbox execution screens have no forced `WHY HERE` paragraph, `WHAT NOW` bar, dominant page signal, or result footer.
+- [ ] No page — overview, execution, or configuration — renders a forced `WHY HERE` paragraph, `WHAT NOW`/primary-action band, dominant page-level status signal, or result footer.
 - [ ] Filters, records, conversation content, or form controls occupy the appropriate first-screen space.
 - [ ] No unsupported feature or action has been invented.
 
@@ -1396,7 +1397,7 @@ A UI change is done when:
 
 ### Source-of-truth precedence
 
-This version **integrates and supersedes** the founder addendum dated 2026-11-16. It also replaces the old universal §5 five-band anatomy, old §24 mandatory header props, and old §25 universal checklist requirements.
+This version **integrates and supersedes** the founder addendum dated 2026-11-16. It also replaces the old universal §5 five-band anatomy, old §24 mandatory header props, and old §25 universal checklist requirements. It is itself amended — normatively and in its favor — by the 2026-11-26 header-removal addendum recorded at the end of this section.
 
 When this document appears to conflict with an existing UI design:
 
@@ -1404,11 +1405,11 @@ When this document appears to conflict with an existing UI design:
 2. Determine the user's primary task and select the correct §5 archetype.
 3. Use the archetype-specific rules in §§5, 6, 21, 24, and 25.
 4. Reuse the existing verified workflow; do not invent functionality to match an illustration.
-5. Treat the original dashboard anatomy as applicable **only to overview pages**.
+5. Treat the original dashboard anatomy as applicable **only to overview pages** — and since 2026-11-26, only to their content modules; the header band itself is retired everywhere.
 
 ### Migration guidance for existing screens
 
-- **Dashboard:** Retain an overview structure where it helps priority selection. Remove redundant explanations, not useful signals.
+- **Dashboard:** Retain an overview structure where it helps priority selection. Remove redundant explanations **and the permanent header signal/summary/action band**; useful signals survive where they were always actionable — queue rows, module cards, results, and banners.
 - **Orders:** Remove tall summary/header/action bands that repeat navigation or list state. Put search, filters, order records, and contextual actions first.
 - **Inbox:** Keep the list, conversation, composer, handoff state, and evidence in the working area. Remove header essays and global CTAs.
 - **Record details:** Keep compact identity, decision-relevant statuses, actions, and history; do not strip information needed for consequential decisions.
@@ -1423,5 +1424,17 @@ When this document appears to conflict with an existing UI design:
 - Corrected the four-question design test so its answers are semantic, not four required React props or visible headings.
 - Revised hierarchy, buttons, statuses, navigation, components, and QA checklists to avoid contradictory global requirements.
 - Preserved the established Midnight/Violet/Sunlight brand tokens, accessibility baseline, content tone, and core trust requirements.
+
+### Header-removal addendum to Version 2.0 — 2026-11-26
+
+Founder mission 2026-11-26, governed by `docs/header-removal/03_CONTRACT.md` (A0 ruling). Where any clause in §§5, 8, 21, 24, 25, or this section conflicts, **this addendum controls**. It amends §5.2, §8 (placement), §21.1, §24, and §25 above rather than rewriting the Version 2.0 history:
+
+- **Prohibition:** permanent page-level signal headers — a global status badge, a `WHY HERE` explanatory summary, and a generic top action band — are prohibited on **all** merchant-facing pages, overview/dashboard pages included. "Overview pages keep full anatomy" now means full **content** anatomy.
+- **Titles:** compact page and record titles remain legal — one heading per page, visible small (`titleMode="compact"`, required on record pages and where no AppBar-equivalent name exists) or screen-reader-only (`titleMode="srOnly"`) where the sticky shell AppBar already shows the same name. Breadcrumbs only where deep context genuinely helps.
+- **Meta:** a compact header meta row may carry only record-level, server-confirmed contextual status — never a shop-wide pulse.
+- **Actions:** header-exclusive affordances relocate into each page's existing toolbar/workflow area. No page may invent a replacement band, and removal reserves no empty space (no placeholder wrappers, no min-height).
+- **Signals (§8 semantics unchanged, placement normed):** record-level and contextual signals — per-row chips, module tiles, result banners, validation errors, onboarding guidance, offline/emergency-stop banners — keep their exact meanings and now live exclusively in content.
+- **Tests:** signal-testid assertions are absence pins (`toHaveCount(0)` / `queryByTestId(...) === null`) that lock the removal; functional, safety, accessibility, overflow, and axe gates stay at full strength.
+- **i18n:** header-exclusive key groups (per-module `*.signal.*`, `dashboard.pulse.primary.*`, dead pill/narrative keys) are deleted from BOTH locales in lockstep; surviving shared groups are pruned key-by-key with parity preserved.
 
 ---
