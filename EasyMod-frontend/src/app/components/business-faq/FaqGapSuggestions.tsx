@@ -49,12 +49,9 @@ function isGapStateConflict(error: unknown): boolean {
   return code === 'GAP_STATE_CONFLICT' || status === 409;
 }
 
-interface FaqGapSuggestionsProps {
-  /** Reports the OPEN count up so the tab header signal stays truthful (F1). */
-  onOpenCountChange?: (count: number) => void;
-}
-
-export default function FaqGapSuggestions({ onOpenCountChange }: FaqGapSuggestionsProps) {
+// Header-removal C3: the old `onOpenCountChange` prop existed only to feed the
+// retired tab header signal; the OPEN count is shown in this list itself.
+export default function FaqGapSuggestions() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [suggestions, setSuggestions] = useState<KnowledgeGapSuggestion[] | null>(null);
@@ -72,11 +69,6 @@ export default function FaqGapSuggestions({ onOpenCountChange }: FaqGapSuggestio
   useEffect(() => {
     void load();
   }, []);
-
-  useEffect(() => {
-    const open = (suggestions ?? []).filter((s) => s.status === 'OPEN').length;
-    onOpenCountChange?.(open);
-  }, [suggestions, onOpenCountChange]);
 
   const handleAuthor = async (suggestion: KnowledgeGapSuggestion) => {
     if (suggestion.status !== 'OPEN') return;

@@ -1,21 +1,19 @@
 /**
  * Pure derivation for the dashboard redesign: work items/groups (baseline
- * logic, unchanged), the single dominant signal (§8), the single primary
- * action (§11), and the Core Design Test narrative (§4). No DOM, no fetch —
- * every function is unit-testable with a key-returning `t`.
+ * logic, unchanged) and the Core Design Test narrative (§4). The page-level
+ * dominant signal and single primary action DERIVATIONS were retired with the
+ * header band (header-removal C3/C2 — status now lives in record-level
+ * content: ConnectionHealth badges, FTS task rows, queue chips). No DOM, no
+ * fetch — every function is unit-testable with a key-returning `t`.
  */
 import { AlertTriangle, FileText, MessageCircle } from "lucide-react";
 import type {
-  Action,
   DashboardNarrative,
   DeriveInput,
   PulseData,
-  Signal,
-  SignalKind,
   Translate,
   WorkGroup,
   WorkItem,
-  WorkKind,
 } from "./types";
 
 export const WORK_ITEMS_PER_GROUP = 2;
@@ -144,161 +142,46 @@ export function isCaughtUp(pulse: PulseData, workItems: WorkItem[]): boolean {
   return hasAllWorkSources(pulse) && workItems.length === 0;
 }
 
-const signalLabel = (kind: SignalKind, t: Translate) => t(`dashboard.pulse.signal.${kind}`);
-
-export interface DeriveCountFormat {
-  /**
-   * A8 MAJOR-3: every interpolated count reaches the locale string through
-   * this formatter (the proven QueueSignalChips pattern — Dashboard.tsx passes
-   * an Intl.NumberFormat bound to the active locale, so bn renders Bangla
-   * numerals instead of raw Latin digits). Default keeps raw numbers for the
-   * pure unit pins.
-   */
-  formatCount?: (value: number) => string;
-}
-
-/**
- * A8 MAJOR-2 (hero-number authority): the "delivery exceptions" figure must
- * come from the SAME exhaustive bucket count the Orders nav badge uses
- * (`worklistNeedsActionCount` = GET /api/order/counts `needs_action`) — never
- * from the capped 10-row sample length, which understated the true count
- * while claiming verification. The sample is a projection: when the bucket
- * source failed (null) the sample length is the FALLBACK, and an incomplete
- * exception scan is then rendered as an explicit lower bound ("10+"), never
- * as exhaustive.
- */
-export function deliveryExceptionAuthority(pulse: PulseData | null): { count: number; lowerBound: boolean } {
-  const exact = pulse?.worklistNeedsActionCount ?? null;
-  if (exact !== null && Number.isFinite(exact) && exact >= 0) return { count: exact, lowerBound: false };
-  const sample = pulse?.atRiskOrders?.length ?? 0;
-  return { count: sample, lowerBound: pulse?.exceptionCoverageComplete === false };
-}
-
-const exceptionDisplay = (
-  pulse: PulseData | null,
-  formatCount: (value: number) => string,
-): { count: number; display: string } => {
-  const authority = deliveryExceptionAuthority(pulse);
-  return {
-    count: authority.count,
-    display: `${formatCount(authority.count)}${authority.lowerBound ? '+' : ''}`,
-  };
-};
-
-/** One dominant signal per screen (§8). First match wins; stale never changes it. */
-export function deriveSignal(input: DeriveInput, t: Translate, options: DeriveCountFormat = {}): Signal {
-  const formatCount = options.formatCount ?? ((value: number) => String(value));
-  switch (input.phase) {
-    case "setup-loading":
-    case "pulse-loading":
-      return { kind: "pending", label: signalLabel("pending", t) };
-    case "pulse-error":
-      return { kind: "blocked", label: signalLabel("blocked", t) };
-    case "setup":
-      return { kind: "attention", label: signalLabel("attention", t) };
-    case "setup-complete":
-      return { kind: "resolved", label: signalLabel("resolved", t) };
-    case "ready": {
-      const exceptions = exceptionDisplay(input.pulse, formatCount);
-      const replies = input.pulse?.replyTasks?.length ?? 0;
-      const drafts = input.pulse?.draftOrders?.length ?? 0;
-      if (exceptions.count > 0) {
-        // Display string in the {{count}} slot (tWithCountDisplay precedent —
-        // the key has no plural forms, so i18next interpolates, never selects).
-        return {
-          kind: "attention",
-          label: signalLabel("attention", t),
-          reason: t("dashboard.pulse.signal.reason.exceptions", { count: exceptions.display }),
-        };
-      }
-      if (replies > 0 || drafts > 0) {
-        return {
-          kind: "review",
-          label: signalLabel("review", t),
-          reason: t("dashboard.pulse.signal.reason.work", { replies: formatCount(replies), drafts: formatCount(drafts) }),
-        };
-      }
-      if (input.caughtUp) {
-        return { kind: "healthy", label: signalLabel("healthy", t) };
-      }
-      return {
-        kind: "pending",
-        label: signalLabel("pending", t),
-        reason: t("dashboard.pulse.signal.reason.partial"),
-      };
-    }
-  }
-}
-
-/** Exactly one primary action (§11). Severity: exception → reply → draft. */
-export function derivePrimaryAction(input: DeriveInput, t: Translate): Action {
-  if (input.phase === "pulse-error") {
-    return { label: t("dashboard.pulse.retry") };
-  }
-  if (input.phase === "ready") {
-    const firstOf = (kind: WorkKind) =>
-      input.workItems
-        .filter((item) => item.kind === kind)
-        .sort((left, right) => right.sortAt - left.sortAt)[0];
-    const first = firstOf("exception") ?? firstOf("reply") ?? firstOf("draft");
-    if (first) {
-      return { label: t(`dashboard.pulse.primary.${first.kind}`), to: first.to };
-    }
-  }
-  return { label: t("dashboard.pulse.attention.openInbox"), to: "/inbox" };
-}
-
-export interface NarrativeOptions extends DeriveCountFormat {
+export interface NarrativeOptions {
   lastSyncLabel?: string;
   provenResultOverride?: string;
 }
 
-/** Core Design Test (§4): all four answers, always non-empty. */
+/** Core Design Test (§4): the answers that feed the evidence footer and the
+ *  inbox rail. `whatNow` left with the header action band (C2) and `whyHere`
+ *  with its last render consumer (round-1 F2) — the counts reach the page via
+ *  AttentionQueue, QueueSignalChips and BusinessHealth, all of which keep the
+ *  A8 MAJOR-3 locale formatter at the component edge. A8 MAJOR-2's
+ *  bucket-count authority survives the same way: Dashboard.tsx hands the
+ *  BusinessHealth tile the exhaustive `worklistNeedsActionCount`
+ *  (GET /api/order/counts needs_action) directly — null renders
+ *  "unavailable", never a capped-sample figure presented as verified. */
 export function deriveNarrative(
   input: DeriveInput,
   t: Translate,
   options: NarrativeOptions = {},
 ): DashboardNarrative {
-  const formatCount = options.formatCount ?? ((value: number) => String(value));
-  const replies = input.pulse?.replyTasks?.length ?? 0;
-  const drafts = input.pulse?.draftOrders?.length ?? 0;
-  // Same authority as the Orders badge (A8 MAJOR-2), same Intl formatter
-  // (A8 MAJOR-3) — the hero sentence and the badge can never disagree.
-  const exceptions = exceptionDisplay(input.pulse, formatCount);
-
-  let whyHere: string;
   let whereNext: string;
   switch (input.phase) {
     case "setup-loading":
     case "pulse-loading":
-      whyHere = t("dashboard.pulse.whyHere.loading");
       whereNext = t("dashboard.pulse.whereNext.loading");
       break;
     case "pulse-error":
-      whyHere = t("dashboard.pulse.whyHere.error");
       whereNext = t("dashboard.pulse.whereNext.error");
       break;
     case "setup":
-      whyHere = t("dashboard.pulse.whyHere.setup");
       whereNext = t("dashboard.pulse.whereNext.setup");
       break;
     case "setup-complete":
-      whyHere = t("dashboard.pulse.whyHere.setupComplete");
       whereNext = t("dashboard.pulse.whereNext.setupComplete");
       break;
     case "ready":
       if (input.workItems.length > 0) {
-        whyHere = t("dashboard.pulse.whyHere.work", {
-          replies: formatCount(replies),
-          drafts: formatCount(drafts),
-          exceptions: exceptions.display,
-        });
         whereNext = t("dashboard.pulse.whereNext.work");
       } else if (input.caughtUp) {
-        whyHere = t("dashboard.pulse.whyHere.caughtUp");
         whereNext = t("dashboard.pulse.whereNext.caughtUp");
       } else {
-        whyHere = t("dashboard.pulse.whyHere.partial");
         whereNext = t("dashboard.pulse.whereNext.partial");
       }
       break;
@@ -310,8 +193,6 @@ export function deriveNarrative(
       : t("dashboard.pulse.timeUnavailable"));
 
   return {
-    whyHere,
-    whatNow: derivePrimaryAction(input, t).label,
     whereNext,
     provenResult,
   };

@@ -327,7 +327,8 @@ export interface PickupTabProps {
   providers: DeliveryProviderStatus[];
   /** Optional seed from GET /settings; the tab self-fetches via getPickupLocations regardless. */
   locations?: PickupLocation[];
-  /** Reload + re-derive the header signal after a server-confirmed mutation (shell-owned). */
+  /** Reload + re-derive server truth after a confirmed mutation (shell-owned);
+   *  since header-removal A0 the shell renders no page-level signal. */
   onMutate?: () => void | Promise<void>;
   /** Deep-link from Tab 1's "Complete pickup" — pre-opens the create form for a provider. */
   focusProvider?: DeliveryProvider | null;

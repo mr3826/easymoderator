@@ -1,16 +1,16 @@
 /**
- * Orders-worklist guardrails contracts (§8/§17/§18/§29): worklist signal matrix,
- * execution header without CTA, create-order dialog focus trap + Escape + label,
- * and the payment-reconciliation alert honesty (role + copy, never a settlement
- * claim). Additive suite (real i18n en); the legacy Orders/Courier/Confidence
- * suites stay unchanged.
+ * Orders-worklist guardrails contracts (§8/§17/§18 + header-removal C1/C6):
+ * header band retired (sr-only h1, no signal badge, no header CTA) with the
+ * honest bucket counts relocated to the toolbar, create-order dialog focus
+ * trap + Escape + label, and the payment-reconciliation alert honesty
+ * (role + copy, never a settlement claim). Additive suite (real i18n en);
+ * the legacy Orders/Courier/Confidence suites stay unchanged.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Orders from '../../Orders';
-import { deriveOrdersSignal } from '../derive';
 import { apiClient } from '@/api';
 
 const navigate = vi.fn();
@@ -75,33 +75,27 @@ function renderOrders() {
   return render(<MemoryRouter><Orders /></MemoryRouter>);
 }
 
-describe('worklist signal derivation', () => {
-  const t = (key: string, opts?: Record<string, unknown>) => (opts?.count !== undefined ? `${key}:${opts.count}` : key);
-  it('maps error / loading / needs-action / flowing / empty to distinct signals', () => {
-    expect(deriveOrdersSignal({ phase: 'error', totalCount: null, needsActionCount: null }, t).kind).toBe('blocked');
-    expect(deriveOrdersSignal({ phase: 'loading', totalCount: null, needsActionCount: null }, t).kind).toBe('pending');
-    expect(deriveOrdersSignal({ phase: 'ready', totalCount: 5, needsActionCount: 2 }, t).kind).toBe('attention');
-    expect(deriveOrdersSignal({ phase: 'ready', totalCount: 5, needsActionCount: 2 }, t).label).toContain('needsAction');
-    expect(deriveOrdersSignal({ phase: 'ready', totalCount: 5, needsActionCount: 0 }, t).kind).toBe('healthy');
-    expect(deriveOrdersSignal({ phase: 'ready', totalCount: 0, needsActionCount: 0 }, t).kind).toBe('attention');
-    expect(deriveOrdersSignal({ phase: 'ready', totalCount: null, needsActionCount: null }, t).kind).toBe('attention');
-  });
-});
-
-describe('execution header', () => {
-  it('shows title + signal + factual pills and no header CTA', async () => {
+describe('page header (header-removal C1/C6)', () => {
+  it('renders only the sr-only h1 and no header CTA; honest counts live in the toolbar', async () => {
     renderOrders();
-    await waitFor(() => expect(screen.getByTestId('orders-signal').textContent).toContain('Orders flowing'));
+    await waitFor(() => expect(screen.getByTestId('orders-bucket-count-all').textContent).toBe('1'));
+    // C1: AppBar owns the visible name; the h1 keeps its accessible name.
     expect(screen.getByRole('heading', { level: 1, name: 'Orders' })).toBeInTheDocument();
+    // C6: the page-level signal badge must NOT exist any more.
+    expect(screen.queryByTestId('orders-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
-    expect(screen.getByText(/Total:/)).toBeInTheDocument();
-    expect(screen.getByText(/Needs action:/)).toBeInTheDocument();
+    // The retired meta pills' facts were already in the bucket toolbar (C4).
+    expect(screen.getByTestId('orders-bucket-count-all')).toHaveTextContent('1');
+    expect(screen.getByTestId('orders-bucket-count-needs_action')).toHaveTextContent('0');
+    expect(screen.queryByText(/Total:/)).toBeNull();
+    expect(screen.queryByText(/Needs action:/)).toBeNull();
   });
 
-  it('surfaces needs-action when the server aggregate says so', async () => {
+  it('surfaces needs-action through the bucket count when the server aggregate says so', async () => {
     vi.mocked(apiClient.getOrderCounts).mockResolvedValue(counts({ total: 4, needs_action: 2 }) as never);
     renderOrders();
-    await waitFor(() => expect(screen.getByTestId('orders-signal').textContent).toContain('Orders need action'));
+    await waitFor(() => expect(screen.getByTestId('orders-bucket-count-needs_action').textContent).toBe('2'));
+    await waitFor(() => expect(screen.getByTestId('orders-bucket-count-all').textContent).toBe('4'));
   });
 });
 

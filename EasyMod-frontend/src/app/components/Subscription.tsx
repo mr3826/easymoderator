@@ -16,11 +16,10 @@ import { motion, MotionConfig } from "motion/react";
 import { toast } from "sonner";
 import { fadeUp } from "@/lib/motion";
 import { PageHeader } from "./dashboard/PageHeader";
-import { deriveBillingSignal } from "./subscription/derive";
 import { deriveUsageSummary, invoiceUsage, outcomeDateFor, type InvoiceUsageDetail } from "./subscription/usage";
 import { Badge } from "@/app/components/ui/badge";
 import { Button } from "@/app/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader } from "@/app/components/ui/card";
+import { Card, CardAction, CardContent, CardFooter, CardHeader } from "@/app/components/ui/card";
 import {
   cancelInvoicePayment,
   completeInvoicePayment,
@@ -225,21 +224,9 @@ export default function Subscription() {
   const outstanding = invoices.find(
     (invoice) => invoice.status === "pending" || invoice.status === "overdue",
   );
-  const outstandingCount = invoices.filter(
-    (invoice) => invoice.status === "pending" || invoice.status === "overdue",
-  ).length;
   // Usage is read from the invoice rows already fetched — the job freezes each
   // period's delivered/zero-rated counts into `metadata`. No extra request.
   const usage = deriveUsageSummary(invoices);
-
-  const signal = deriveBillingSignal(
-    {
-      phase: contractQuery.error ? "error" : contractQuery.isLoading || invoicesLoading ? "loading" : "ready",
-      invoiceCount: invoices.length,
-      outstandingCount,
-    },
-    t,
-  );
 
   const invoiceStatusLabel = (status: string) => {
     const known = ["paid", "pending", "overdue", "cancelled"];
@@ -260,42 +247,10 @@ export default function Subscription() {
     <div className="em-billing min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-6">
         <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader
-            title={t("subscription.title")}
-            breadcrumb={[]}
-            signal={signal}
-            signalTestId="billing-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("subscription.invoiceCountLabel")}: {invoices.length}
-                </span>
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("subscription.dueCountLabel")}: {outstandingCount}
-                </span>
-                {usage.hasDetail && (
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t("subscription.usageDeliveredPillLabel")}: {usage.deliveredCount}
-                  </span>
-                )}
-              </div>
-            }
-          />
+          {/* The sticky AppBar already shows "Billing", so the h1 stays in the
+              accessibility tree without repeating it visually (C1 srOnly). */}
+          <PageHeader title={t("subscription.title")} titleMode="srOnly" />
         </motion.div>
-
-        {outstanding && (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              onClick={() => void handlePayInvoice(outstanding.rawId)}
-              disabled={!bkashEnabled || payingInvoiceId === outstanding.rawId}
-              title={bkashEnabled ? undefined : t("subscription.bkashUnavailable")}
-            >
-              <CreditCard className="mr-2 h-4 w-4" />
-              {bkashEnabled ? t("subscription.payInvoice") : t("subscription.bkashUnavailable")}
-            </Button>
-          </div>
-        )}
 
       {error && <div role="alert" className="rounded-xl border border-em-danger-700/20 bg-em-danger-100 p-4 text-sm text-em-danger-700">{error}</div>}
       {success && <div role="status" className="rounded-xl border border-em-success-700/20 bg-em-success-100 p-4 text-sm text-em-success-700">{success}</div>}
@@ -420,6 +375,23 @@ export default function Subscription() {
       <Card>
         <CardHeader>
           <h2 className="text-lg font-semibold text-em-text-primary">{t("subscription.invoicesTitle")}</h2>
+          {/* Pay entry relocated from the retired header band to the section
+              that lists the due row itself. */}
+          {outstanding && (
+            <CardAction className="max-w-full">
+              <Button
+                onClick={() => void handlePayInvoice(outstanding.rawId)}
+                disabled={!bkashEnabled || payingInvoiceId === outstanding.rawId}
+                title={bkashEnabled ? undefined : t("subscription.bkashUnavailable")}
+                // The long disabled-state label must not widen the header grid
+                // track on narrow viewports (overflow specs pin 360/390px).
+                className="max-w-[56vw] whitespace-normal text-left sm:max-w-none"
+              >
+                <CreditCard className="mr-2 h-4 w-4" />
+                {bkashEnabled ? t("subscription.payInvoice") : t("subscription.bkashUnavailable")}
+              </Button>
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent>
           {invoicesLoading ? (

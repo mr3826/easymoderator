@@ -11,14 +11,15 @@ import { getErrorMessage } from "@shared/lib/http/errors";
 import { fadeUp } from "@/lib/motion";
 import { EmButton } from "./dashboard/EmButton";
 import { PageHeader } from "./dashboard/PageHeader";
-import { deriveBusinessSignal } from "./business/derive";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
 /**
  * Business profile: identity and knowledge only. AI reply mode moved to the
  * business automation defaults page (ADR-0013 §1); this page links there.
- * Execution-page header (§29): title + signal + factual pills, no CTA.
+ * Legacy (unrouted — /manage-shop/business-info renders the Business & FAQ
+ * workspace): kept test-compilable under header-removal C1, the page-level
+ * signal header is retired here too; only the sr-only h1 landmark remains.
  */
 export default function BusinessInfoSettings() {
   const { t } = useTranslation();
@@ -67,37 +68,14 @@ export default function BusinessInfoSettings() {
     return updated;
   };
 
-  const signal = deriveBusinessSignal(
-    { phase: loadError ? 'error' : isLoading ? 'loading' : 'ready', hasShopName: Boolean(businessInfo?.shopName?.trim()) },
-    t,
-  );
-  const social = (businessInfo?.socialLinks || {}) as Record<string, string | undefined>;
-  const socialCount = ['facebook', 'website'].filter((k) => social[k]?.trim()).length;
-  const infoLength = (businessInfo?.additionalInfo || '').length;
-
   return (
     <MotionConfig reducedMotion="user">
     <div className="em-business min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-6">
-        <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
-          <PageHeader
-            title={t('nav.businessInfo')}
-            breadcrumb={[{ label: businessInfo?.shopName || t('nav.businessInfo') }]}
-            signal={signal}
-            signalTestId="business-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('manageShop.businessInfo.socialCountLabel')}: {socialCount}
-                </span>
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('manageShop.businessInfo.infoLengthLabel')}: {infoLength}
-                </span>
-              </div>
-            }
-          />
-        </motion.div>
+        {/* Header-removal C1 (legacy page): signal band, shop-name breadcrumb
+            and tally pills retired; the load-error alert below still owns the
+            blocked-state honesty. */}
+        <PageHeader title={t('nav.businessInfo')} titleMode="srOnly" />
 
         {loadError ? (
           <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-em-danger-700/20 bg-em-danger-100 px-4 py-3 text-sm text-em-danger-700">

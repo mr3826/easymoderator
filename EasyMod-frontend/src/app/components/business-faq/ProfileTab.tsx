@@ -41,7 +41,6 @@ import { BDPhoneInput, BD_PHONE_REGEX } from "@shared/components/BDPhoneInput";
 import { EmButton } from "@/app/components/dashboard/EmButton";
 import { ResultBanner } from "@/app/components/dashboard/ResultBanner";
 import { PageHeader } from "@/app/components/dashboard/PageHeader";
-import { deriveBusinessSignal } from "@/app/components/business/derive";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
@@ -325,11 +324,6 @@ export function ProfileTab({ initialData, loading = false, onPersisted }: Profil
     void load();
   };
 
-  const signal = deriveBusinessSignal(
-    { phase: phase === "error" ? "error" : phase === "loading" ? "loading" : "ready", hasShopName: Boolean(form.shopName.trim()) },
-    t,
-  );
-
   const errNode = (message?: string) =>
     message ? (
       <p className="mt-1 text-xs font-medium text-em-danger-700" role="alert">
@@ -339,45 +333,16 @@ export function ProfileTab({ initialData, loading = false, onPersisted }: Profil
 
   const infoLength = form.additionalInfo.length;
 
-  const socialCount = ['facebook', 'instagram', 'whatsapp', 'tiktok', 'youtube', 'website'].filter(
-    (k) => String((form.socialLinks as Record<string, string | undefined> | undefined)?.[k] ?? '').trim() !== '',
-  ).length;
-
   return (
     <MotionConfig reducedMotion="user">
       {/* Scope .em-business comes from the workspace shell (03 §1); the tab root
           stays neutral so focus/reduced-motion rules apply once. */}
       <div className="space-y-6" data-testid="profile-tab">
-        {/* Execution-page header (§29): title + signal + factual pills only —
-            legacy business-info-guardrails pins (h1 'Business Info',
-            business-signal, Social-links pill) survive inside the tab panel. */}
-        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader
-            title={t("nav.businessInfo")}
-            breadcrumb={[{ label: form.shopName.trim() || t("nav.businessInfo") }]}
-            signal={signal}
-            signalTestId="business-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("manageShop.businessInfo.socialCountLabel")}: {fmtCount(socialCount, i18n.language)}
-                </span>
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("manageShop.businessInfo.infoLengthLabel")}: {fmtCount(infoLength, i18n.language)}
-                </span>
-                {isDirty && (
-                  <span
-                    data-testid="profile-changes-unsaved"
-                    className="whitespace-nowrap rounded-full border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-1 text-xs font-medium text-em-sunlight-700"
-                  >
-                    {t("manageShop.businessFaq.profile.unsaved")}
-                  </span>
-                )}
-              </div>
-            }
-          />
-        </motion.div>
+        {/* Header-removal C1: the tab's signal band, editable-shop-name
+            breadcrumb and tally pills are retired — the visible tablist above
+            orients, the h1 stays sr-only, and the unsaved indicator moved to
+            the save footer where the Save button lives. */}
+        <PageHeader title={t("nav.businessInfo")} titleMode="srOnly" />
 
         {phase === "loading" ? (
           <div className="space-y-4" aria-label={t("manageShop.businessInfo.loading")} data-testid="profile-loading">
@@ -628,13 +593,19 @@ export function ProfileTab({ initialData, loading = false, onPersisted }: Profil
               </section>
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-em-border pt-4">
-                <span className="text-xs text-em-text-secondary">
-                  {isDirty
-                    ? t("manageShop.businessInfo.unsavedChanges")
-                    : touched
-                      ? t("manageShop.businessInfo.savedAll")
-                      : ""}
-                </span>
+                {/* C2/C4: the unsaved-changes pill rode the retired header
+                    meta row; it now sits beside the Save it gates, keeping
+                    the pinned testid (dirty-before-navigation contract). */}
+                {isDirty ? (
+                  <span
+                    data-testid="profile-changes-unsaved"
+                    className="whitespace-nowrap rounded-full border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-1 text-xs font-medium text-em-sunlight-700"
+                  >
+                    {t("manageShop.businessFaq.profile.unsaved")}
+                  </span>
+                ) : touched ? (
+                  <span className="text-xs text-em-text-secondary">{t("manageShop.businessInfo.savedAll")}</span>
+                ) : null}
                 <EmButton
                   variant="primary"
                   onClick={handleSave}

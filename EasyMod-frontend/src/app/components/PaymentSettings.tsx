@@ -8,7 +8,6 @@ import { getErrorMessage } from "@shared/lib/http/errors";
 import { fadeUp } from "@/lib/motion";
 import { EmButton } from "./dashboard/EmButton";
 import { PageHeader } from "./dashboard/PageHeader";
-import { derivePaymentSignal } from "./payment/derive";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
@@ -361,17 +360,11 @@ export default function PaymentSettings() {
     }
   };
 
+  // Header-removal C3: the page-level payment signal died with the header.
+  // The only fact worth restating is how many methods are enabled — it rides
+  // the gateways section header below; default/rule truth stays at the
+  // controls that own them (star chip, advance-rule radios).
   const enabledCount = gateways.filter((gateway) => gateway.enabled).length;
-  const signal = derivePaymentSignal({ phase: error ? 'error' : loading ? 'loading' : 'ready', enabledCount }, t);
-  const shopName = authService.getCurrentShop()?.shop_name || t('manageShop.paymentSettings.title');
-  const defaultGatewayName = defaultGateway ? nameFor(defaultGateway) : undefined;
-  const advanceRuleLabel = {
-    none: t('manageShop.paymentSettings.noPayment'),
-    full: t('manageShop.paymentSettings.fullPayment'),
-    delivery: t('manageShop.paymentSettings.deliveryOnly'),
-    percentage: t('manageShop.paymentSettings.percentage'),
-    fixed: t('manageShop.paymentSettings.fixedAmount'),
-  }[advancePaymentRule];
 
   const advanceOption = (value: 'none' | 'full' | 'delivery' | 'percentage' | 'fixed', title: string, description?: string, children?: React.ReactNode) => (
     <label
@@ -401,29 +394,10 @@ export default function PaymentSettings() {
     <MotionConfig reducedMotion="user">
     <div className="em-payment min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-6">
-        {/* Execution-page header (§29): title + signal + factual pills only. */}
-        <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
-          <PageHeader
-            title={t('manageShop.paymentSettings.title')}
-            breadcrumb={[{ label: shopName }]}
-            signal={signal}
-            signalTestId="payment-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('manageShop.paymentSettings.enabledMethodsLabel')}: {enabledCount}
-                </span>
-                <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('manageShop.paymentSettings.defaultBadge')}: {defaultGatewayName || '—'}
-                </span>
-                <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('manageShop.paymentSettings.advanceRuleLabel')}: {advanceRuleLabel}
-                </span>
-              </div>
-            }
-          />
-        </motion.div>
+        {/* Header-removal C1 amendment (unified title rule): no signal badge,
+            breadcrumb or pill strip. "Payment Settings" is NOT the AppBar's
+            name ("Payment"), so the compact title stays visible. */}
+        <PageHeader title={t('manageShop.paymentSettings.title')} titleMode="compact" />
 
         {/* Success/Error Messages */}
         {error && (
@@ -465,7 +439,15 @@ export default function PaymentSettings() {
         <div className="space-y-6">
           {/* Payment Gateways */}
           <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible" className="bg-em-bg-surface rounded-xl border border-em-border p-6">
-            <h2 className="text-lg font-semibold text-em-text-primary mb-4">{t('manageShop.paymentSettings.gatewaysTitle')}</h2>
+            {/* C2: the enabled-methods count moved here — the one contextual
+                fact the retired header pill carried that the cards do not
+                already state in aggregate. */}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-em-text-primary">{t('manageShop.paymentSettings.gatewaysTitle')}</h2>
+              <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                {t('manageShop.paymentSettings.enabledMethodsLabel')}: {enabledCount}
+              </span>
+            </div>
             <p className="text-sm text-em-text-secondary mb-4">
               {t('manageShop.paymentSettings.gatewaysSubtitle')}
             </p>

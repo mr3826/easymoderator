@@ -143,7 +143,7 @@ async function loginAndGo(page: Page) {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/automation');
-    await expect(page.getByTestId('automation-signal')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Automation defaults', exact: true })).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -154,11 +154,12 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + signal + factual pills, no header CTA', async ({ page }) => {
+test('page header: compact title + contextual pills, no signal band, no header CTA', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Automation defaults', exact: true })).toBeVisible();
-    await expect(page.getByTestId('automation-signal')).toContainText('Drafts need review');
+    // Removal pinned: the page-level signal badge must not exist.
+    await expect(page.getByTestId('automation-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
     await expect(page.getByText(/Mode: Drafts for review/)).toBeVisible();
     await expect(page.getByText(/Confidence: 75%/)).toBeVisible();
@@ -203,7 +204,8 @@ test('non-owner: the fieldset disables the switches and the header says read-onl
     await expect(page.getByTestId('automation-settings-fieldset')).toHaveAttribute('disabled', '');
     await expect(page.getByRole('button', { name: 'Save Reply Settings', exact: true })).toBeDisabled();
     await expect(page.getByText(/Only the shop owner can change automation defaults/i)).toBeVisible();
-    await expect(page.getByTestId('automation-signal')).toContainText('Read-only');
+    // The read-only fact now lives in that body notice — no header band.
+    await expect(page.getByTestId('automation-signal')).toHaveCount(0);
     expect(state.puts).toHaveLength(0);
     expect(state.unexpected).toEqual([]);
 });
@@ -214,7 +216,8 @@ test('emergency stop locks the editor; resume unlocks it after a reload', async 
     await expect(page.getByTestId('automation-emergency-stop-notice')).toContainText(/locked to Manual until the emergency stop is resumed/i);
     await expect(page.getByRole('switch', { name: 'Closing message' })).toBeDisabled();
     await expect(page.getByTestId('automation-settings-fieldset')).toHaveAttribute('disabled', '');
-    await expect(page.getByTestId('automation-signal')).toContainText('AI replies stopped');
+    // Stopped state survives band removal as the role=status body notice.
+    await expect(page.getByTestId('automation-signal')).toHaveCount(0);
 
     await page.getByTestId('emergency-resume-button').click();
     await expect(page.getByTestId('emergency-stop-button')).toBeVisible();
@@ -262,7 +265,8 @@ test('load failure is an alert and retry recovers the editor', async ({ page }) 
     state.failLoads = true;
     await loginAndGo(page);
     await expect(page.getByRole('alert').first()).toContainText(/could not load/i);
-    await expect(page.getByTestId('automation-signal')).toContainText('Defaults unavailable');
+    // Unavailable state survives band removal as the role=alert body banner.
+    await expect(page.getByTestId('automation-signal')).toHaveCount(0);
     state.failLoads = false;
     await page.getByRole('button', { name: /Retry loading defaults/i }).click();
     await expect(page.getByTestId('ai-reply-mode')).toBeVisible();

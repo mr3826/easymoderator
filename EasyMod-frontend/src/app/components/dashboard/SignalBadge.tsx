@@ -1,6 +1,7 @@
 /**
  * Workflow signal badge (guardrails §8): icon + visible label, never color
- * alone. One dominant signal per screen; the header badge announces politely.
+ * alone. Content-level only — the permanent page-header slot was retired
+ * 2026-11-26 (A0); live consumers are setup task rows and connection health.
  */
 import {
   BadgeCheck,

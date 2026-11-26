@@ -1,8 +1,10 @@
 /**
  * Orders-worklist guardrails proof (mock-only, CI subset). Execution-class
- * worklist (§29): signal header + factual pills, create-order dialog focus trap
- * + Escape + label, docked detail region + payment-reconciliation alert honesty,
- * 390px no-overflow, axe `.em-orders`. Allowlist+abort discipline mirrors
+ * worklist (header-removal C1/C6): no permanent signal band — the honest
+ * counts live in the worklist bucket toolbar, create/export stay in that
+ * toolbar; create-order dialog focus trap + Escape + label, docked detail
+ * region + payment-reconciliation alert honesty, 390px no-overflow,
+ * axe `.em-orders`. Allowlist+abort discipline mirrors
  * order-management.spec.ts (no new endpoints). The detailed filter/courier/
  * correction contracts remain covered by order-management.spec.ts.
  */
@@ -108,7 +110,9 @@ async function loginAndGo(page: Page) {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/orders');
-    await expect(page.getByTestId('orders-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: the signal testid is gone; the worklist bucket
+    // toolbar is the stable mount anchor.
+    await expect(page.getByTestId('orders-bucket-all')).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -119,13 +123,19 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + worklist signal + pills, no header CTA', async ({ page }) => {
+test('no header band: sr-only title, honest counts in the toolbar, no header CTA', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
-    await expect(page.getByTestId('orders-signal')).toContainText('Orders flowing');
+    // C6: the page-level signal badge must NOT exist any more.
+    await expect(page.getByTestId('orders-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
-    await expect(page.getByText(/Total:/)).toBeVisible();
+    // C4: the same facts survive record/bucket-level — the toolbar chips are
+    // server-aggregated counts (total 2 / needs_action 0 from the mock).
+    await expect(page.getByTestId('orders-bucket-count-all')).toHaveText('2');
+    await expect(page.getByTestId('orders-bucket-count-needs_action')).toHaveText('0');
+    // Create keeps its toolbar home (C2).
+    await expect(page.getByRole('button', { name: 'Create Order' })).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
 
@@ -161,7 +171,7 @@ test('390px: no horizontal overflow on the worklist', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('orders-signal')).toBeVisible();
+    await expect(page.getByTestId('orders-bucket-all')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
 });
@@ -171,7 +181,7 @@ test('360px: no horizontal overflow and the create action stays reachable', asyn
     await page.setViewportSize({ width: 360, height: 800 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('orders-signal')).toBeVisible();
+    await expect(page.getByTestId('orders-bucket-all')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     // Primary task action reachable and functional at true 360px.
@@ -190,7 +200,7 @@ test('200% zoom-equivalent (1280×1024 content at 640 CSS px): worklist fits, cr
     await page.setViewportSize({ width: 640, height: 512 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('orders-signal')).toBeVisible();
+    await expect(page.getByTestId('orders-bucket-all')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
     await page.getByRole('button', { name: 'Create Order' }).click();
@@ -203,7 +213,7 @@ test('axe: no critical or serious violations in the orders surface', async ({ pa
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('orders-signal')).toBeVisible();
+    await expect(page.getByTestId('orders-bucket-all')).toBeVisible();
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.em-orders').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');

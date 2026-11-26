@@ -275,10 +275,12 @@ export default function DashboardLayout() {
 
         {/* ─── Sticky AppBar ─────────────────────────────────────────── */}
         <header className="sticky top-0 z-20 h-14 bg-em-bg-surface border-b border-em-border flex items-center px-2 sm:px-4 gap-2 sm:gap-4 shrink-0">
-          {/* Page title. Deliberately not a heading: every page renders its own
-              <h1> in <main>; an <h1> here duplicated the document heading and
-              made heading-based locators ambiguous (customer-intelligence
-              journeys, release-readiness sweep). */}
+          {/* Page title. Deliberately not a heading: every page still owns
+              exactly one <h1> in <main> (PageHeader v2 renders it compact or
+              sr-only — header-removal C1), so an <h1> here would duplicate the
+              document heading and make heading-based locators ambiguous
+              (customer-intelligence journeys, release-readiness sweep). The
+              AppBar is the visible name; the in-page h1 keeps the landmark. */}
           <p className="text-sm font-semibold text-em-text-primary flex-1 min-w-0 truncate">{pageTitle}</p>
 
           {/* D6: read-only AI status (desktop only, links to Channels —

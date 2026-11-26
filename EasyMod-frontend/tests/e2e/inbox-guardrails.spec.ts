@@ -2,7 +2,9 @@
  * /inbox guardrails proof (mock-only, CI subset). Mirrors the ai-reply-mode
  * fixture discipline: every /api/* path outside the allowlist is aborted and
  * recorded, so a redesign that invents backend calls fails here. Covers the
- * execution-page header (§29: title + signal only, no subtitle/CTA),
+ * header-removal contract (C1 + C1 amendment: no permanent signal band —
+ * compact h1 ("Shared Inbox" ≠ AppBar "Inbox") plus contextual pills only, no
+ * subtitle/CTA), reclaimed fold space,
  * merchant-driven row navigation, keyboard focus, 390px overflow, scoped axe,
  * queue partial honesty and SSE-offline honesty.
  */
@@ -236,20 +238,29 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + signal only, no subtitle or CTA, work area owns the fold', async ({ page }) => {
+test('no permanent header band: compact title + contextual pills, work area owns the fold', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
+    // C1 amendment (unified title rule): "Shared Inbox" ≠ the AppBar name
+    // ("Inbox"), so the h1 renders VISIBLE as a compact one-line title — the
+    // heading pin passes directly, not via an sr-only landmark. Geometry pins
+    // below stay honest: the compact title is one text-lg line (~28px) and the
+    // meta pill row lost its own px inset (moved to the header wrapper), so
+    // header < 80px and workbench y < 220px still hold without moving either
+    // threshold.
     await expect(page.getByRole('heading', { name: 'Shared Inbox', level: 1 })).toBeVisible();
-    const signal = page.getByTestId('inbox-signal');
-    await expect(signal).toBeVisible();
-    await expect(signal).toContainText('Needs review');
+    // C6: the page-level signal badge must NOT exist any more.
+    await expect(page.getByTestId('inbox-signal')).toHaveCount(0);
     await expect(page.getByTestId('inbox-primary-action')).toHaveCount(0);
     await expect(page.getByText('Customers are waiting for a reply on this page.')).toHaveCount(0);
+    // Contextual status survives (C4) — the pill row is the only header chrome.
+    await expect(page.getByTestId('inbox-ai-reply-mode')).toBeVisible();
+    // C7: reclaimed vertical space — no band left above the work surface.
     const headerBox = await page.locator('.em-inbox header').boundingBox();
     expect(headerBox).not.toBeNull();
-    expect(headerBox!.height).toBeLessThan(170);
+    expect(headerBox!.height).toBeLessThan(80);
     const workbench = await page.locator('.mw-inbox-workbench').boundingBox();
-    expect(workbench!.y).toBeLessThan(300);
+    expect(workbench!.y).toBeLessThan(220);
     expect(state.unexpected).toEqual([]);
 });
 
@@ -271,7 +282,7 @@ test('merchant opens a reply task from the row without refetching the list', asy
 test('no header CTA: zero violet primaries on the base screen', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('inbox-signal')).toBeVisible();
+    await expect(page.getByTestId('inbox-ai-reply-mode')).toBeVisible();
     const count = await page.evaluate(
         () => document.querySelectorAll('.em-inbox button.bg-em-violet-600').length,
     );
@@ -334,7 +345,7 @@ test('axe: no critical or serious violations inside .em-inbox', async ({ page })
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('inbox-signal')).toBeVisible();
+    await expect(page.getByTestId('inbox-ai-reply-mode')).toBeVisible();
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.em-inbox').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
@@ -403,7 +414,7 @@ test('200% zoom-equivalent (1280×1024 content at 640 CSS px): no page overflow,
     await page.setViewportSize({ width: 640, height: 512 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('inbox-signal')).toBeVisible();
+    await expect(page.getByTestId('inbox-ai-reply-mode')).toBeVisible();
     const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );

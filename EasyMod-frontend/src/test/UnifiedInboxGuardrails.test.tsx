@@ -1,9 +1,13 @@
 /**
- * Guardrails contracts for /inbox as an EXECUTION page (founder addendum §29):
- * header = title + dominant signal + factual pills only (no WHY HERE paragraph,
- * no header CTA); the merchant drives work from rows/composer/queue; evidence
- * rail carries PROVEN RESULT / WHERE NEXT; resolve dialog semantics; composer
- * proof hook. Additive suite — the legacy UnifiedInbox contract is untouched.
+ * Guardrails contracts for /inbox as an EXECUTION page (header-removal
+ * contract C1 + C1 amendment): the permanent signal band is gone — only the
+ * compact visible h1 ("Shared Inbox" ≠ AppBar "Inbox") plus
+ * conversation/page-contextual pills remain; no header CTA, no dominant badge
+ * (the evidence-rail WHY HERE paragraph is inbox-namespace contextual copy,
+ * untouched by the dashboard whyHere removal); the merchant drives work from
+ * rows/composer/queue; evidence rail carries PROVEN RESULT / WHERE NEXT;
+ * resolve dialog semantics; composer proof hook. Additive suite — the legacy
+ * UnifiedInbox contract is untouched.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
@@ -119,14 +123,18 @@ beforeEach(() => {
   vi.mocked(apiClient.markConversationRead).mockResolvedValue(conv('conv-1', 'Alice') as never)
 })
 
-describe('inbox execution-page header (§29)', () => {
-  it('renders title + dominant signal + factual pills, and no subtitle or header CTA', async () => {
+describe('inbox execution-page header (header-removal C1/C6)', () => {
+  it('keeps only the compact title + contextual pills: no signal band, subtitle or header CTA', async () => {
     vi.mocked(apiClient.getConversations).mockResolvedValue(
       list([conv('conv-1', 'Alice'), conv('conv-2', 'Bob', { needs_merchant_reply: true, needs_merchant_reply_reason: 'CUSTOMER_UNANSWERED' })]) as never,
     )
     renderInbox()
+    // C1 amendment: "Shared Inbox" ≠ AppBar "Inbox" → compact visible h1; the
+    // signal band is still gone (absence pins below).
     await screen.findByRole('heading', { name: 'Shared Inbox', level: 1 })
-    await waitFor(() => expect(screen.getByTestId('inbox-signal')).toHaveTextContent('Needs review'))
+    await waitFor(() => expect(screen.getByTestId('inbox-ai-reply-mode')).toBeInTheDocument())
+    // C6: the page-level signal testid must NOT exist any more.
+    expect(screen.queryByTestId('inbox-signal')).toBeNull()
     expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
     expect(screen.queryByText('Customers are waiting for a reply on this page.')).toBeNull()
     expect(screen.getByTestId('inbox-ai-reply-mode').textContent).toBe('AI reply mode: Manual replies only')
@@ -151,7 +159,9 @@ describe('inbox execution-page header (§29)', () => {
   it('caught-up state adds no CTA and never polls', async () => {
     vi.mocked(apiClient.getConversations).mockResolvedValue(list([conv('conv-1', 'Alice')]) as never)
     renderInbox()
-    await waitFor(() => expect(screen.getByTestId('inbox-signal')).toHaveTextContent('All caught up'))
+    await waitFor(() => expect(screen.getByTestId('inbox-ai-reply-mode')).toBeInTheDocument())
+    // The retired dominant badge must not come back as page chrome.
+    expect(screen.queryByTestId('inbox-signal')).toBeNull()
     expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
     await waitFor(() => expect(vi.mocked(apiClient.getConversations)).toHaveBeenCalledTimes(1))
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -161,9 +171,11 @@ describe('inbox execution-page header (§29)', () => {
   it('error state keeps the compact header and exposes the list retry', async () => {
     vi.mocked(apiClient.getConversations).mockRejectedValue(new Error('boom'))
     renderInbox()
+    // C6: honesty survives in content — the list retry (already asserted) is
+    // the anchor now that the header badge is retired.
     const retry = await screen.findByRole('button', { name: /try again/i })
     expect(screen.queryByTestId('inbox-primary-action')).toBeNull()
-    expect(screen.getByTestId('inbox-signal').textContent).toContain('AI stopped')
+    expect(screen.queryByTestId('inbox-signal')).toBeNull()
     fireEvent.click(retry)
     await waitFor(() => expect(vi.mocked(apiClient.getConversations)).toHaveBeenCalledTimes(2))
   })
