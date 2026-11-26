@@ -241,11 +241,48 @@ module.exports = {
             CREATE INDEX IF NOT EXISTS idx_ptxn_payment_account
                 ON payment_transactions(payment_account_id);
         `);
+
+        // ── 9. F-4 (A9-R2, 2026-11-26): payment_configs compatibility VIEW ─────
+        // The rollback floor image (reader floor, main lineage ≤ ad79cd9c) still
+        // ships a PaymentConfig model bound to tableName 'payment_configs'.
+        // Without this view, reverting the APP image alone breaks every payment
+        // read AND write on the migrated DB (the table no longer exists under
+        // the old name) — A9 found that as the rollback-floor table outage.
+        // A single-table view is AUTO-UPDATABLE in PostgreSQL: the old image's
+        // SELECTs, INSERTs, UPDATEs and DELETEs on payment_configs keep working
+        // against payment_accounts transparently.
+        //
+        // Column list = the legacy model's attribute set VERBATIM in legacy
+        // names — taken from the floor image's entity (git 53c6ebb1
+        // EasyMod-backend/src/modules/payment/payment-config.entity.js):
+        //   id, shop_id, gateway, is_enabled, credentials, config,
+        //   created_at, updated_at
+        // The redesign columns (provider / account_type / verification_level /
+        // is_preferred) are deliberately NOT exposed: the old image does not
+        // know them, and omitting them keeps the view simple/auto-updatable
+        // (their DB defaults apply to old-image inserts).
+        //
+        // CREATE OR REPLACE ⇒ idempotent re-run. Postgres-only (the rename is
+        // Postgres-only; SQLite sync path uses the entity's table directly).
+        if (isPostgres) {
+            await sequelize.query(`
+                CREATE OR REPLACE VIEW payment_configs AS
+                SELECT id, shop_id, gateway, is_enabled, credentials, config, created_at, updated_at
+                  FROM payment_accounts;
+            `);
+        }
     },
 
     down: async (sequelize) => {
         // Honest, data-preserving reversal.
         const isPostgres = sequelize.getDialect() === 'postgres';
+
+        // F-4: the compat VIEW occupies the name `payment_configs` — it MUST be
+        // dropped BEFORE the rename-back, or `ALTER TABLE payment_accounts
+        // RENAME TO payment_configs` collides with the view (and the guarded
+        // rename would silently skip, stranding the old image without its
+        // table). Idempotent via IF EXISTS.
+        await sequelize.query(`DROP VIEW IF EXISTS payment_configs;`);
 
         // Restore the legacy dual-write value before any drop (rows never leave).
         await sequelize.query(`

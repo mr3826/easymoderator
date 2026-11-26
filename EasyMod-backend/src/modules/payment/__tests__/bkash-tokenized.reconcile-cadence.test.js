@@ -21,6 +21,9 @@ jest.mock('../../../utils/cache.service', () => ({
     getForShop: jest.fn(async () => null),
     setForShop: jest.fn(async () => true),
     deleteForShop: jest.fn(async () => true),
+    // F-3 (A9-R2): atomic budget-consume shape (this suite spies queryPayment
+    // so it is never actually reached — declared for mock-surface parity).
+    consumeSlotForShopStrict: jest.fn(async () => 1),
 }));
 const mockPaymentTransaction = { findAll: jest.fn(), update: jest.fn(), findOne: jest.fn(), create: jest.fn() };
 const mockPaymentConfig = { findOne: jest.fn(), findByPk: jest.fn(), create: jest.fn(), update: jest.fn(), destroy: jest.fn() };

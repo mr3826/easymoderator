@@ -129,6 +129,63 @@ describe('payment.routes — policies API (R-14 one write pair)', () => {
     });
 });
 
+describe('payment.routes — self-MFS claims edge validation (F-7, A9-R2)', () => {
+    // Shape is validated at the boundary; ALL business rules stay in
+    // payment-claim.service (defense in depth). A malformed body must be a
+    // 400 VALIDATION_ERROR from the route, never a 500 from the DB driver.
+    test('malformed orderId ⇒ 400 VALIDATION_ERROR, service never called', async () => {
+        const res = await request(app()).post('/api/payment/claims')
+            .send({ orderId: 'not-a-uuid', trxId: 'ABC123456' });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('VALIDATION_ERROR');
+        expect(mockAccounts.createSelfMfsClaim).not.toHaveBeenCalled();
+    });
+
+    test('missing trx id or missing order id ⇒ 400', async () => {
+        const noTrx = await request(app()).post('/api/payment/claims').send({ orderId: UUID });
+        expect(noTrx.status).toBe(400);
+        const noOrder = await request(app()).post('/api/payment/claims').send({ trxId: 'ABC123456' });
+        expect(noOrder.status).toBe(400);
+        expect(mockAccounts.createSelfMfsClaim).not.toHaveBeenCalled();
+    });
+
+    test('trx_id outside the mirrored service pattern (^[A-Z0-9]{6,16}$) ⇒ 400', async () => {
+        for (const bad of ['short1', 'has space', 'punc!123', 'x'.repeat(17)]) {
+            const res = await request(app()).post('/api/payment/claims').send({ orderId: UUID, trxId: bad });
+            expect(res.status).toBe(400);
+        }
+        expect(mockAccounts.createSelfMfsClaim).not.toHaveBeenCalled();
+    });
+
+    test('oversized screenshot_url / message ⇒ 400', async () => {
+        const res = await request(app()).post('/api/payment/claims').send({
+            orderId: UUID, trxId: 'ABC123456', screenshotUrl: 'https://x/'.repeat(700) + 'a'.repeat(10),
+        });
+        expect(res.status).toBe(400);
+        const res2 = await request(app()).post('/api/payment/claims').send({
+            orderId: UUID, trxId: 'ABC123456', customerMessage: 'm'.repeat(501),
+        });
+        expect(res2.status).toBe(400);
+    });
+
+    test('valid payload dispatches unchanged (camel + snake aliases admitted)', async () => {
+        mockAccounts.createSelfMfsClaim.mockResolvedValue({ created: true, status: 'payment_claimed' });
+        const res = await request(app()).post('/api/payment/claims').send({
+            orderId: UUID, trxId: '8A3F2B9XK1', senderPhone: '01933333333',
+            screenshotUrl: 'https://cdn.example.com/receipt.png', customerMessage: 'paid today',
+        });
+        expect(res.status).toBe(201);
+        expect(mockAccounts.createSelfMfsClaim).toHaveBeenCalledWith('shop-1', 'user-1', expect.objectContaining({
+            orderId: UUID, trxId: '8A3F2B9XK1',
+        }));
+
+        const snake = await request(app()).post('/api/payment/claims').send({
+            order_id: UUID, trx_id: 'ABC123456', sender_number: '01933333333', message: 'hi',
+        });
+        expect(snake.status).toBe(201);
+    });
+});
+
 describe('payment.routes — legacy config surface preserved (§1.4)', () => {
     test('GET /api/payment/config still works', async () => {
         mockLegacy.getPaymentConfigs.mockResolvedValue([]);

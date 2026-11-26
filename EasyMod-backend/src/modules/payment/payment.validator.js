@@ -110,6 +110,47 @@ const transactionIdParamValidator = Joi.object({
     id: Joi.string().uuid().required().messages({ 'string.guid': 'transaction id must be a UUID' }),
 });
 
+/**
+ * F-7 (A9-R2, 2026-11-26): POST /api/payment/claims edge validation.
+ * Previously the route had NO body validator, so a malformed orderId reached
+ * the service raw and a non-UUID string could surface as a 500 from the DB
+ * driver instead of an honest 400. This is EDGE-SHAPE ONLY — every business
+ * rule (normalization, prose-guard, tenant check, server amount authority,
+ * duplicate race handling) STAYS in payment-claim.service (defense in depth,
+ * not migration; the chatbot path calls performClaim directly and relies on
+ * those service guards alone).
+ *
+ * Field names accept both the API-canonical camelCase and the snake_case the
+ * service tolerates (§3.2 payload). The trx-id pattern mirrors the service's
+ * TRXID_PATTERN (^[A-Z0-9]{6,16}$) applied to real-world uppercase TrxIDs;
+ * the service remains the authority that normalizes and re-validates.
+ */
+const CLAIM_TRXID_PATTERN = /^[A-Z0-9]{6,16}$/;
+const createSelfMfsClaimValidator = Joi.object({
+    orderId: Joi.string().uuid(),
+    order_id: Joi.string().uuid(),
+    trxId: Joi.string().trim().pattern(CLAIM_TRXID_PATTERN),
+    trx_id: Joi.string().trim().pattern(CLAIM_TRXID_PATTERN),
+    // optional sender — never an OTP; kept a plain string, phone semantics
+    // belong to the service (normalizeSenderPhone).
+    senderPhone: Joi.string().trim().max(20).allow('', null),
+    sender_phone: Joi.string().trim().max(20).allow('', null),
+    sender_number: Joi.string().trim().max(20).allow('', null),
+    screenshotUrl: Joi.string().uri().max(2048).allow('', null),
+    screenshot_url: Joi.string().uri().max(2048).allow('', null),
+    customerMessage: Joi.string().trim().max(500).allow('', null),
+    customer_message: Joi.string().trim().max(500).allow('', null),
+    message: Joi.string().trim().max(500).allow('', null),
+    provider: Joi.string().trim().max(40).allow('', null),
+    provider_hint: Joi.string().trim().max(40).allow('', null),
+})
+    .or('orderId', 'order_id')
+    .or('trxId', 'trx_id')
+    .messages({
+        'object.or': 'Both an order id (orderId) and a transaction id (trxId) are required',
+        'object.base': 'Claim payload must be an object',
+    });
+
 const refundValidator = Joi.object({
     reason: Joi.string().trim().max(500).allow('', null).optional(),
 });
@@ -126,4 +167,5 @@ module.exports = {
     paymentPolicyBodyValidator,
     transactionIdParamValidator,
     refundValidator,
+    createSelfMfsClaimValidator,
 };

@@ -24,6 +24,9 @@ jest.mock('../../../utils/cache.service', () => ({
     getForShop: async () => null,
     setForShop: async () => true,
     deleteForShop: async () => true,
+    // F-3 (A9-R2): the grant budget now consumes atomically; this suite pins
+    // LOG REDACTION only, so the consume always succeeds (slot 1).
+    consumeSlotForShopStrict: jest.fn(async () => 1),
 }));
 jest.mock('../../../utils/structured-logger', () => ({ createLogger: () => mockLogger }));
 jest.mock('../../webhooks/payment-webhook.controller', () => ({ processSuccessfulPayment: jest.fn() }));

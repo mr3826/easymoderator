@@ -24,9 +24,11 @@
  *        no settlement implied".
  *      production credentials are NEVER create/query-tested (§2.2).
  *  - live_certified is ONLY ever set by an explicit owner certify-live action
- *    with non-empty recorded evidence, gated on a prior sandbox_verified, with
- *    an append-only payment_account_verifications row AND an AuditLog entry
- *    (§2.3). No code path in this service self-declares it.
+ *    with non-empty recorded evidence, gated on the account's EXPLICIT
+ *    production posture (config.environment === 'production', F-2/A9-R2 —
+ *    NOT on a sandbox handshake, which §2.2 forbids on production creds),
+ *    with an append-only payment_account_verifications row AND an AuditLog
+ *    entry (§2.3). No code path in this service self-declares it.
  *  - Cooldown (§2.1): an explicit credentials check (credentials_check or
  *    sandbox_create_query) younger than 30 minutes returns the cached verdict
  *    with zero provider traffic; the ≤2 grant+refresh rolling-hour budget lives
@@ -263,6 +265,9 @@ async function verifyPaymentAccount(shopId, userId, accountId) {
     } catch (error) {
         // Budget refusal is not a provider verdict — propagate for 429.
         if (isAppError(error) && error.code === 'CREDENTIAL_CHECK_RATE_LIMITED') throw error;
+        // F-3 (A9-R2): fail-closed rate-limit-state outage is OUR unavailability,
+        // not a provider verdict — propagate the honest 503, never a 502.
+        if (isAppError(error) && error.code === 'GRANT_BUDGET_UNAVAILABLE') throw error;
         // Sandbox-only guard / kind gates propagate as-is (409/400).
         if (isAppError(error) && ['SANDBOX_ONLY_OPERATION', 'GATEWAY_DISABLED', 'GATEWAY_CREDENTIALS_INCOMPLETE', 'CREDENTIAL_CHECK_UNSUPPORTED'].includes(error.code)) {
             throw error;
@@ -288,7 +293,27 @@ async function verifyPaymentAccount(shopId, userId, accountId) {
     }
 }
 
-// ── certify-live: recorded, never self-declared (§2.3) ───────────────────────
+// ── certify-live: recorded, never self-declared (§2.3, A9-R2 ruling) ─────────
+//
+// F-2(a) (A9-R2, 2026-11-26): the old "sandbox_verified is a prerequisite"
+// rule contradicted §2.2 — the sandbox create→query handshake may NEVER run
+// on production credentials, yet live_certified describes a PRODUCTION
+// posture. A production-only merchant (no sandbox app issued) could therefore
+// never certify, while the ladder silently gated automation. New contract:
+//  (i)   account.config.environment MUST be EXPLICITLY recorded 'production'
+//        (unset/legacy or sandbox rows are refused with an honest 400 — the
+//        certification attests production posture, so the posture must be
+//        written down, not guessed from env fallbacks);
+//  (ii)  owner role + >=3-char evidence — unchanged;
+//  (iii) any non-archived rung is certifiable FROM the production posture
+//        (unverified / configured_unverified / sandbox_verified all qualify);
+//        an already live_certified row is refused idempotently, and unknown/
+//        archived rungs are refused loudly.
+// The recorded providerEnvironment is the ACTUAL resolved environment of the
+// account — never a hardcode — asserted equal to the explicit config value
+// before anything is written.
+const CERTIFIABLE_RUNGS = ['unverified', 'configured_unverified', 'sandbox_verified'];
+
 async function certifyLiveAccount(shopId, userId, accountId, evidence) {
     await requireOwner(userId, shopId);
     const account = await requireAccount(accountId, shopId);
@@ -306,13 +331,44 @@ async function certifyLiveAccount(shopId, userId, accountId, evidence) {
             409, 'LADDER_CEILING',
         );
     }
-    if (account.verification_level !== 'sandbox_verified') {
-        // §2.3: only a sandbox_verified account can be certified.
+
+    // (i) EXPLICIT production posture required (F-2(a)): no resolveEnvironment
+    // env-var fallback may mint a certification — the row itself must say so.
+    const explicitEnvironment = String(account?.config?.environment ?? '').trim().toLowerCase();
+    if (explicitEnvironment !== 'production') {
         throw new AppError(
-            'Only a sandbox-verified account can be live-certified — run the sandbox credentials test first (§2.3).',
-            409, 'SANDBOX_HANDSHAKE_REQUIRED',
+            explicitEnvironment === 'sandbox'
+                ? 'This account is recorded as a SANDBOX environment — live certification describes production posture. Switch the account to production (this demotes the ladder) and certify with production evidence.'
+                : 'The account environment is not explicitly recorded as "production" (legacy rows must be re-saved with config.environment="production" before they can be live-certified). Nothing was recorded.',
+            400, 'PROVIDER_ENVIRONMENT_NOT_PRODUCTION',
         );
     }
+    // Honest ledger guard: the recorded environment must be the ACTUAL resolved
+    // one, not a hardcode — refuse to write a self-inconsistent attestation.
+    const resolvedEnvironment = tokenized.resolveEnvironment(account);
+    if (resolvedEnvironment !== explicitEnvironment) {
+        throw new AppError(
+            'Account environment mismatch between config and resolution — certification aborted, nothing was recorded',
+            500, 'PROVIDER_ENVIRONMENT_MISMATCH',
+        );
+    }
+
+    // (iii) rung gate: certifiable FROM any non-archived rung; the old
+    // sandbox_verified prerequisite is REMOVED (see header).
+    const levelBefore = account.verification_level || 'unverified';
+    if (levelBefore === 'live_certified') {
+        throw new AppError(
+            'This account is already live-certified — submit a new certification only after a credential/environment change demotes it.',
+            409, 'ALREADY_LIVE_CERTIFIED',
+        );
+    }
+    if (!CERTIFIABLE_RUNGS.includes(levelBefore)) {
+        throw new AppError(
+            `Verification level "${levelBefore}" is not certifiable`,
+            409, 'LADDER_STATE_NOT_CERTIFIABLE',
+        );
+    }
+
     const evidenceText = typeof evidence === 'string' ? evidence.trim() : '';
     if (evidenceText.length < 3 || evidenceText.length > 500) {
         throw new AppError('A non-empty live-certification evidence reference (3–500 chars) is required', 400, 'INVALID_EVIDENCE');
@@ -324,12 +380,13 @@ async function certifyLiveAccount(shopId, userId, accountId, evidence) {
         level: 'live_certified',
         method: 'certify_live',
         performedByUserId: userId,
-        providerEnvironment: 'production',
+        // NOT a hardcode — resolved + asserted equal to config above (F-2(a)).
+        providerEnvironment: resolvedEnvironment,
         evidence: {
             evidence: evidenceText,
             source: 'owner_recorded',
             self_declared: false,
-            note: 'live_certified is a recorded provider/owner act; the app never declares it (§2.3, R-12).',
+            note: 'live_certified is a recorded provider/owner act; the app never declares it (§2.3, R-12, A9-R2: prerequisite is EXPLICIT production posture, not a sandbox handshake).',
         },
     });
     await AuditLog.create({
@@ -338,7 +395,11 @@ async function certifyLiveAccount(shopId, userId, accountId, evidence) {
         action: 'payment_account_live_certified',
         resource_type: 'payment_account',
         resource_id: accountId,
-        metadata: { evidence: evidenceText, level_before: 'sandbox_verified' },
+        metadata: {
+            evidence: evidenceText,
+            level_before: levelBefore,
+            provider_environment: resolvedEnvironment,
+        },
         idempotency_key: `payment-live-cert:${accountId}:${new Date().toISOString()}`,
     });
 
@@ -364,6 +425,24 @@ async function refundPaymentTransaction(shopId, userId, transactionId, payload =
     if (!['paid', 'verified'].includes(txn.status)) {
         throw new AppError('Only a confirmed payment can be refunded through the gateway', 409, 'NOT_REFUNDABLE');
     }
+    // F-6 (A9-R2, 2026-11-26): double-submit guard. The refund record lives
+    // inside gateway_response.refund; once a SUCCESSFUL entry is there, a
+    // second submission must be refused BEFORE any provider call — otherwise
+    // a double-click / retry issues a second v2 refund against the same
+    // payment (the row stays 'paid', so the status guard alone never stops it).
+    const gr = txn.gateway_response && typeof txn.gateway_response === 'object' ? txn.gateway_response : {};
+    const priorRefund = gr.refund && typeof gr.refund === 'object' ? gr.refund : null;
+    if (priorRefund) {
+        const priorStatus = String(priorRefund.status || '').trim().toLowerCase();
+        const alreadyRecorded = priorRefund.refund_id != null
+            || ['refunded', 'success', 'successful', 'completed'].includes(priorStatus);
+        if (alreadyRecorded) {
+            throw new AppError(
+                'A refund has already been recorded for this payment — the provider was not contacted again.',
+                409, 'REFUND_ALREADY_RECORDED',
+            );
+        }
+    }
     if (txn.payment_gateway !== 'bkash' || !txn.payment_account_id) {
         // Self-MFS claims settle by merchant judgment, not by API — refunds
         // there are manual wallet transfers and are never pretended here.
@@ -388,7 +467,7 @@ async function refundPaymentTransaction(shopId, userId, transactionId, payload =
         );
     }
 
-    const gr = txn.gateway_response && typeof txn.gateway_response === 'object' ? txn.gateway_response : {};
+    // (gr already loaded above for the F-6 double-submit guard)
     const trxId = gr.trxID || gr.trxId || null;
     if (!trxId) {
         throw new AppError(

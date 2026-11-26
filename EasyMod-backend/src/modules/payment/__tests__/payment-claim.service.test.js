@@ -17,7 +17,9 @@
 process.env.NODE_ENV = 'test';
 
 const mockPaymentConfig = { findAll: jest.fn(), findByPk: jest.fn() };
-const mockTrxIDLog = { create: jest.fn(), findOne: jest.fn() };
+// `destroy` exists for the F-9 (A9-R2) compensating-delete pins; the real
+// TrxIDLog model always has it (sequelize instance + static surface).
+const mockTrxIDLog = { create: jest.fn(), findOne: jest.fn(), destroy: jest.fn() };
 const mockPaymentTransaction = { create: jest.fn(), findOne: jest.fn() };
 const mockOrder = { findOne: jest.fn() };
 const mockOwnerNotification = { sendPaymentConfirmationRequest: jest.fn() };
@@ -196,22 +198,62 @@ describe('validation + tolerance (§3.2, D-7 R rule)', () => {
         expect(mockPaymentTransaction.create.mock.calls[0][0].gateway_response.amount_mismatch).toBeUndefined();
     });
 
-    test('advance policy partial amount claims the ADVANCE and stamps the snapshot', async () => {
+    test('F1/BLOCK ruling: an advance-policy shop claims the FULL total, never the partial advance', async () => {
         mockPolicyService.getPaymentPolicy.mockResolvedValue({ advance_policy: 'percentage', advance_value: 50 });
         mockPolicyService.computeAdvance.mockImplementation(({ policy, orderTotal }) => (
             policy === 'percentage'
                 ? { policy, advance_amount: Math.round(orderTotal * 0.5), remainder: orderTotal - Math.round(orderTotal * 0.5) }
                 : { policy, advance_amount: orderTotal, remainder: 0 }
         ));
+        // A legacy in-flight session still PROMPTED with the advance figure 825:
         const res = await claim.performClaim({
             shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET, displayedAmount: 825,
         });
-        expect(res.amount).toBe(825);
-        expect(res.amountKind).toBe('advance');
+        // the claim is the FULL order total — approve can never settle a
+        // fabricated "paid" over an unenforced remainder:
+        expect(res.amount).toBe(1650);
+        expect(res.amountKind).toBe('full');
+        expect(res.amountBasis).toBe('full');
+        expect(res.policyAdvance).toBe(true);
         const txn = mockPaymentTransaction.create.mock.calls[0][0];
-        expect(txn.amount).toBe(825);
-        expect(txn.gateway_response.amount_kind).toBe('advance');
-        expect(txn.gateway_response.payment_policy).toMatchObject({ policy: 'percentage', advance_amount: 825 });
+        expect(txn.amount).toBe(1650);
+        expect(txn.gateway_response.amount_kind).toBe('full');
+        // the policy truth still rides in the snapshot with the machine field:
+        expect(txn.gateway_response.payment_policy).toMatchObject({
+            policy: 'percentage', advance_amount: 825, amount_basis: 'full',
+        });
+        // displayed-vs-server stays RECORDED + SURFACED (never auto-rejected):
+        expect(res.created).toBe(true);
+        expect(res.amountMismatch).toMatchObject({ displayed_amount: 825, server_amount: 1650 });
+        const paymentInfo = mockOwnerNotification.sendPaymentConfirmationRequest.mock.calls[0][2];
+        expect(paymentInfo.claim_amount).toBe(1650);
+        expect(paymentInfo.amount_kind).toBe('full');
+        expect(paymentInfo.amount_basis).toBe('full');
+        expect(paymentInfo.policy_advance).toBe(true);
+    });
+
+    test('computeClaimAmount: partial policies never yield a partial claim amount (F1 unit pin)', async () => {
+        mockPolicyService.getPaymentPolicy.mockResolvedValue({ advance_policy: 'fixed', advance_value: 300 });
+        // computeAdvance is SYNC in the real service — mockReturnValue, not Resolved.
+        mockPolicyService.computeAdvance.mockReturnValue({ policy: 'fixed', advance_amount: 300, remainder: 1350 });
+        const due = await claim.computeClaimAmount('shop-1', { orderTotal: 1650, deliveryCharge: 60 });
+        expect(due).toMatchObject({
+            amount: 1650,
+            partial: false,
+            amount_basis: 'full',
+            policy_advance: true,
+        });
+        expect(due.snapshot).toMatchObject({
+            policy: 'fixed',
+            advance_amount: 300,
+            remainder: 1350,
+            amount_basis: 'full',
+        });
+    });
+
+    test('computeClaimAmount: policy none is trivially full', async () => {
+        const due = await claim.computeClaimAmount('shop-1', { orderTotal: 1650, deliveryCharge: 60 });
+        expect(due).toMatchObject({ amount: 1650, partial: false, amount_basis: 'full', policy_advance: false });
     });
 
     test('settled order refuses the claim (payment_status guard)', async () => {
@@ -260,6 +302,111 @@ describe('duplicate handling (§3.2-3 race-safe)', () => {
         expect(mockPaymentTransaction.create).not.toHaveBeenCalled();
         expect(mockOwnerNotification.sendPaymentConfirmationRequest).not.toHaveBeenCalled();
     });
+
+    // ── F-9 (A9-R2, 2026-11-26): ledger + txn writes are ATOMIC ──────────────
+    // Before: two independent inserts. A PaymentTransaction failure left the
+    // TrxIDLog row behind, permanently BURNING a legitimate TrxID (every retry
+    // answered "already used" while no claim row ever existed). Now: a single
+    // sequelize transaction when the driver supports it; compensating delete
+    // otherwise.
+
+    test('F-9: txn-create failure (non-duplicate) compensates the ledger row — TrxID stays usable, no notification', async () => {
+        mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' }); // no instance destroy → static destroy path
+        mockPaymentTransaction.create.mockRejectedValue(new Error('connection reset'));
+
+        await expect(claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET,
+        })).rejects.toMatchObject({ status: 500, code: 'PAYMENT_CLAIM_WRITE_FAILED' });
+
+        expect(mockTrxIDLog.destroy).toHaveBeenCalledWith({
+            where: { shop_id: 'shop-1', trx_id: 'ABC123' },
+        });
+        expect(mockOwnerNotification.sendPaymentConfirmationRequest).not.toHaveBeenCalled();
+    });
+
+    test('F-9: txn unique violation → honest duplicate reply AND the just-inserted ledger row is compensated', async () => {
+        mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' });
+        const dup = new Error('duplicate key value violates unique constraint "payment_transactions_shop_transaction"');
+        dup.name = 'SequelizeUniqueConstraintError';
+        mockPaymentTransaction.create.mockRejectedValue(dup);
+
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET,
+        });
+        expect(res).toMatchObject({ created: false, duplicate: true, reason: 'payment_transaction' });
+        expect(res.duplicateReply.en).toMatch(/already used/i);
+        // the ledger row must not linger orphaned over a claim that does not exist
+        expect(mockTrxIDLog.destroy).toHaveBeenCalled();
+    });
+
+    test('F-9: an instance destroy on the returned ledger row is preferred over the static delete', async () => {
+        const destroyInstance = jest.fn().mockResolvedValue(true);
+        mockTrxIDLog.create.mockResolvedValue({ id: 'log-1', destroy: destroyInstance });
+        mockPaymentTransaction.create.mockRejectedValue(new Error('disk full'));
+
+        await expect(claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET,
+        })).rejects.toMatchObject({ status: 500, code: 'PAYMENT_CLAIM_WRITE_FAILED' });
+        expect(destroyInstance).toHaveBeenCalled();
+        expect(mockTrxIDLog.destroy).not.toHaveBeenCalled();
+    });
+
+    test('F-9: a failed compensation is LOUD (never silent) — logged, original error still propagates', async () => {
+        const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' });
+        mockTrxIDLog.destroy.mockRejectedValueOnce(new Error('db gone'));
+        mockPaymentTransaction.create.mockRejectedValue(new Error('connection reset'));
+
+        await expect(claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET,
+        })).rejects.toMatchObject({ status: 500, code: 'PAYMENT_CLAIM_WRITE_FAILED' });
+        expect(errSpy).toHaveBeenCalledWith(
+            expect.stringContaining('compensating ledger delete FAILED'), expect.anything(),
+        );
+        errSpy.mockRestore();
+    });
+
+    test('F-9: when the driver supports transactions, BOTH writes run inside ONE transaction (no compensating delete needed)', async () => {
+        const fakeT = { id: 'trx-driver' };
+        mockTrxIDLog.sequelize = { transaction: jest.fn((cb) => cb(fakeT)) };
+        mockTrxIDLog.create.mockResolvedValue({ id: 'log-1' });
+        mockPaymentTransaction.create.mockResolvedValue({ id: 'txn-1' });
+
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET,
+        });
+        expect(res.created).toBe(true);
+        expect(mockTrxIDLog.sequelize.transaction).toHaveBeenCalledTimes(1);
+        expect(mockTrxIDLog.create.mock.calls[0][1]).toEqual({ transaction: fakeT });
+        expect(mockPaymentTransaction.create.mock.calls[0][1]).toEqual({ transaction: fakeT });
+        expect(mockTrxIDLog.destroy).not.toHaveBeenCalled(); // rollback owns cleanup
+    });
+
+    test('F-9: transaction path — txn failure rolls both back (no burned TrxID, no destroy call), duplicate reply stays honest', async () => {
+        const fakeT = { id: 'trx-driver-2' };
+        mockTrxIDLog.sequelize = { transaction: jest.fn((cb) => cb(fakeT)) };
+        // pre-check sees nothing; the RACING winner exists by the time the
+        // failed transaction re-checks:
+        mockPaymentTransaction.findOne.mockResolvedValueOnce(null).mockResolvedValue({ id: 'racer-txn' });
+        const dup = new Error('duplicate key value violates unique constraint');
+        dup.name = 'SequelizeUniqueConstraintError';
+        mockPaymentTransaction.create.mockRejectedValue(dup);
+
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET,
+        });
+        // pre-check finds the racing row → honest 'payment_transaction' reason:
+        expect(res).toMatchObject({ created: false, duplicate: true, reason: 'payment_transaction' });
+        expect(mockOwnerNotification.sendPaymentConfirmationRequest).not.toHaveBeenCalled();
+        expect(mockTrxIDLog.destroy).not.toHaveBeenCalled();
+    });
+
+    test('F-9: a ledger row is NEVER destroyed when the claim succeeds', async () => {
+        await claim.performClaim({ shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET });
+        expect(mockTrxIDLog.destroy).not.toHaveBeenCalled();
+    });
+
+    afterEach(() => { delete mockTrxIDLog.sequelize; });
 });
 
 describe('wallet resolution (§6 preferred + no silent switching)', () => {

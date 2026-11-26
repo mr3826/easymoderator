@@ -11,8 +11,12 @@
  *    atomic claim to 'processing' (unchanged) → SERVER-SIDE v2 QUERY →
  *    confirmed (Completed + verificationStatus pass + merchantInvoice echo +
  *    amount minor-units equality, case-insensitive per §4.1) ⇒ fulfill via
- *    processSuccessfulPayment → NOT confirmed ⇒ release claim back to
- *    'pending' and defer to scheduled Query reconciliation (§4.3).
+ *    processSuccessfulPayment → NOT confirmed ⇒ release claim back to the
+ *    PRE-CLAIM status 'initiated' (F-1, A9-R2 2026-11-26: never 'pending' —
+ *    'pending' is invisible to ACTIVE_ATTEMPT_STATUSES, the migration
+ *    20261127_002 partial unique (initiated/processing) and the §4.3
+ *    reconciler scan, so releasing there would open a duplicate-charge hole)
+ *    and defer to scheduled Query reconciliation (§4.3).
  *  - In the shipped inert configuration (R-12: BKASH_ENABLED=false or no
  *    live_certified account) the Query seam returns unavailable and NOTHING
  *    transitions — a body saying "Completed" cannot settle anything.
@@ -49,6 +53,21 @@ function normalizeAmountToMinorUnits(value) {
     const [whole, fraction = ''] = text.split('.');
     return BigInt(whole) * 100n + BigInt((fraction + '00').slice(0, 2));
 }
+
+// F-1 (A9-R2, 2026-11-26): the release target for a claimed row whose server
+// side Query did not confirm settlement is the PRE-CLAIM gateway status
+// 'initiated', NOT 'pending'. 'pending' was invisible to all three
+// duplicate-charge guards at once:
+//  - taxonomy.ACTIVE_ATTEMPT_STATUSES (initiateGatewayPayment's re-initiation
+//    409 PAYMENT_IN_PROGRESS),
+//  - the 20261127_002 partial UNIQUE idx_payment_txn_one_active_attempt_per_order
+//    (status IN ('initiated','processing')),
+//  - reconcileStaleGatewayAttempts' initiated/processing scan (§4.3).
+// Releasing a row to 'pending' therefore allowed a SECOND live attempt on the
+// same order while the first one was still payable at the provider — a
+// duplicate-charge hole. Releasing 'initiated' restores the original
+// one-active-attempt semantics and keeps the row reconcilable.
+const CLAIM_RELEASE_STATUS = 'initiated';
 
 class PaymentWebhookController {
     constructor() {
@@ -156,9 +175,13 @@ class PaymentWebhookController {
                     return res.status(200).json({ success: true });
                 }
                 // Query unavailable or not confirmed ⇒ release the claim back
-                // to 'pending' and defer to scheduled Query reconciliation.
+                // to the PRE-CLAIM status 'initiated' (CLAIM_RELEASE_STATUS,
+                // F-1: stays inside ACTIVE_ATTEMPT_STATUSES / the 002 partial
+                // unique / the §4.3 reconciler scan) and defer to scheduled
+                // Query reconciliation. CAS unchanged: only a row still holding
+                // the 'processing' claim is released.
                 await PaymentTransaction.update({
-                    status: 'pending',
+                    status: CLAIM_RELEASE_STATUS,
                     gateway_response: { ...(paymentTransaction.gateway_response || {}), ...req.body, webhook_verification: settlement.outcome },
                 }, {
                     where: { id: paymentTransaction.id, status: 'processing' },
@@ -274,8 +297,11 @@ class PaymentWebhookController {
         } catch (processingError) {
             // A claimed callback must remain retryable if fulfillment
             // fails. Order and courier paths are independently idempotent.
+            // F-1 (A9-R2): release to 'initiated', never 'pending' — the row
+            // must stay an ACTIVE attempt (re-initiation 409 + partial unique
+            // + §4.3 reconciler scan) while its provider outcome is unknown.
             await PaymentTransaction.update({
-                status: 'pending',
+                status: CLAIM_RELEASE_STATUS,
                 gateway_response: req.body,
             }, {
                 where: { id: paymentTransaction.id, status: 'processing' },

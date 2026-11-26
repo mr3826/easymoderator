@@ -31,8 +31,11 @@ const paymentTaxonomy = require('../payment/payment-taxonomy');
 const OWNER_APPROVABLE_TRANSACTION_STATUSES = paymentTaxonomy.APPROVABLE_STATUSES;
 
 // §3.3 / D-10 ratified defect correction: payment confirmations expire. The
-// column existed (owner-notification.entity.js:55-59) and handleOwnerResponse
-// already honored it (→ 410), but nothing ever SET it — the guard was dead.
+// column existed (owner-notification.entity.js:55-59) but nothing ever SET it.
+// F3/D-4 (2026-11-26 RATIFIED): expiry is a SURFACE, never a dead end — past
+// expires_at the row/list status is honestly marked 'expired' (the missing
+// writer, idempotent + append-only-safe) and approve/reject REMAIN functional:
+// the merchant's judgment outranks the SLA. The blanket 410 is removed.
 const PAYMENT_CONFIRMATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 const TERMINAL_ORDER_STATUSES = new Set([
@@ -119,11 +122,14 @@ class OwnerNotificationService {
      * Uses all available channels for maximum reach.
      *
      * §3.3 fixes (A4): the row now carries a real expires_at (24 h — the
-     * handleOwnerResponse 410 guard is no longer dead), stays non-dismissible
-     * (notification.routes.js /read pin), and keeps the merchant's evidence
-     * context additive: claim amount, amount kind and the wallet number the
-     * customer was shown (from the stamped payment_account_id, §6 — the approve
-     * detail reads these, no silent number switching).
+     * expiry SURFACE is no longer dead: past it, the row/list reads 'expired'
+     * and handleOwnerResponse keeps approve/reject functional, F3/D-4), stays
+     * non-dismissible (notification.routes.js /read pin), and keeps the
+     * merchant's evidence context additive: claim amount, amount kind/basis
+     * (the F1 machine field the merchant UI renders copy against) and the
+     * wallet number the customer was shown (from the stamped
+     * payment_account_id, §6 — the approve detail reads these, no silent
+     * number switching).
      *
      * @returns the created OwnerNotification row (reference) alongside the
      *          channel summary — §3.3 "returns the created row".
@@ -152,7 +158,16 @@ class OwnerNotificationService {
                     screenshotUrl: paymentInfo.screenshotUrl,
                     // additive merchant-evidence fields (self-MFS claim flow §3.2):
                     ...(paymentInfo.claim_amount !== undefined && paymentInfo.claim_amount !== null
-                        ? { claimAmount: paymentInfo.claim_amount, amountKind: paymentInfo.amount_kind || 'full' }
+                        ? {
+                            claimAmount: paymentInfo.claim_amount,
+                            amountKind: paymentInfo.amount_kind || 'full',
+                            // F1 machine field (copy keys are FE-owned): 'full'
+                            // = this claim settles the ENTIRE order total.
+                            ...(paymentInfo.amount_basis
+                                ? { amountBasis: paymentInfo.amount_basis } : {}),
+                            ...(paymentInfo.policy_advance !== undefined
+                                ? { policyAdvance: Boolean(paymentInfo.policy_advance) } : {}),
+                        }
                         : {}),
                     ...(paymentInfo.amount_mismatch ? { amountMismatch: paymentInfo.amount_mismatch } : {}),
                     ...(paymentInfo.wallet_number ? { walletNumber: paymentInfo.wallet_number } : {}),
@@ -228,11 +243,20 @@ class OwnerNotificationService {
                 if (notification.type !== 'payment_confirmation') {
                     throw new AppError('Notification is not a payment confirmation', 400);
                 }
-                if (notification.status !== 'pending') {
+                // F3/D-4 (2026-11-26): 'expired' is a surfaced state, not a
+                // dead end — owner judgment outranks the SLA, so both
+                // 'pending' and 'expired' rows remain actionable. Anything
+                // else (completed) stays 409-rejected: no double settlement.
+                if (!['pending', 'expired'].includes(notification.status)) {
                     throw new AppError('Payment confirmation has already been completed', 409);
                 }
-                if (notification.expires_at && notification.expires_at <= new Date()) {
-                    throw new AppError('Payment confirmation has expired', 410);
+                const pastExpiry = Boolean(
+                    notification.expires_at && new Date(notification.expires_at) <= new Date(),
+                );
+                if (pastExpiry && notification.status === 'pending') {
+                    // Missing writer, done here idempotently (pending →
+                    // expired only; completed rows are never rewritten).
+                    await notification.update({ status: 'expired' }, { transaction });
                 }
 
                 const orderId = notification.customer_data?.orderId;
@@ -304,14 +328,32 @@ class OwnerNotificationService {
                 if (!paymentTransaction) throw new AppError('Payment transaction not found', 404);
                 // §3.2-4: the claim state `payment_claimed` is now part of the
                 // approvable set (single source: payment-taxonomy). The rest of
-                // this guard chain — terminal order, COD-path, courier-claim and
-                // expiry checks above — stays byte-for-byte: settlement evidence
+                // this guard chain — terminal order, COD-path and courier-claim
+                // checks above — stays byte-for-byte: settlement evidence
                 // remains the merchant's own action on a matched claim.
                 if (!OWNER_APPROVABLE_TRANSACTION_STATUSES.includes(paymentTransaction.status)) {
                     throw new AppError('Payment transaction is not awaiting owner confirmation', 409);
                 }
 
                 if (response === 'approve') {
+                    // F1/BLOCK (2026-11-26 ruling): approve settles the order as
+                    // FULLY paid, so a claim below the order total must never
+                    // settle it. New self-MFS claims always mint the full-total
+                    // amount, but LEGACY rows may already hold partial advance
+                    // numbers — refuse with a machine-readable 409 and change
+                    // NOTHING (order stays pending, txn stays unverified; the
+                    // merchant reconciles via re-collect / reject).
+                    const orderTotal = Number(order.total);
+                    const claimedAmount = Number(paymentTransaction.amount);
+                    if (Number.isFinite(orderTotal) && Number.isFinite(claimedAmount)
+                        && claimedAmount < orderTotal) {
+                        throw new AppError(
+                            'Claimed payment is below the order total — approving would settle a partial payment as fully paid. '
+                            + 'Collect the remaining amount first (a new claim) or reject.',
+                            409,
+                            'CLAIM_AMOUNT_BELOW_ORDER_TOTAL',
+                        );
+                    }
                     await order.update({
                         payment_status: 'paid',
                         paid_at: new Date(),
@@ -340,6 +382,9 @@ class OwnerNotificationService {
                     owner_info: {
                         user_id: ownerInfo.userId,
                         source: 'authenticated_dashboard',
+                        // D-4 honesty: an expired row the owner still judged is
+                        // recorded as acted-after-expiry (surface, never hide).
+                        ...(pastExpiry ? { acted_after_expiry: true } : {}),
                     },
                 }, { transaction });
                 await AuditLog.create({
@@ -351,6 +396,7 @@ class OwnerNotificationService {
                     metadata: {
                         notification_id: notification.id,
                         order_id: order.id,
+                        ...(pastExpiry ? { expired_on_action: true } : {}),
                     },
                     idempotency_key: `owner-payment:${notification.id}:${response}`,
                 }, { transaction });
@@ -410,7 +456,8 @@ class OwnerNotificationService {
             customer_data: data.customerData,
             status: data.status,
             // §3.3 fix: payment confirmations carry a real 24 h expiry so the
-            // handleOwnerResponse 410 guard actually applies (D-10 defect pin).
+            // SURFACE is honest (D-10 defect pin; F3/D-4: expiry marks the row
+            // 'expired' — it does NOT block the owner's judgment).
             ...(data.expiresAt ? { expires_at: data.expiresAt } : {}),
             created_at: new Date()
         });
@@ -618,10 +665,59 @@ Reference: ${notificationId}`;
     }
 
     /**
-     * Get pending notifications for shop
+     * F3/D-4 (2026-11-26): the missing EXPIRY WRITER. Past expires_at a pending
+     * payment confirmation is honestly marked 'expired' (the column's documented
+     * third state) — on read-list AND on owner action (handleOwnerResponse).
+     * Idempotent (only 'pending' rows past their expiry are touched, never
+     * 'completed'/'expired' ones) and append-only-safe (status progression
+     * only; no evidence rewrite; the payment row is NOT auto-failed — D-4
+     * RATIFIED: surface expired + retain merchant judgment). Best-effort on
+     * the read path: a marking failure must never break a list read; the next
+     * read retries.
+     *
+     * @param {Array} notifications loaded OwnerNotification rows/objects
+     * @returns the rows detected past expiry (marked or not)
+     */
+    async markExpiredOnRead(notifications = []) {
+        const now = Date.now();
+        const expiredRows = [];
+        for (const row of notifications) {
+            if (!row || row.status !== 'pending' || !row.expires_at) continue;
+            if (new Date(row.expires_at).getTime() > now) continue;
+            expiredRows.push(row);
+            try {
+                await row.update({ status: 'expired' });
+            } catch (_) {
+                this.logger.warn('Owner notification expiry marking failed (will retry on next read)', {
+                    notificationId: row.id,
+                });
+            }
+        }
+        return expiredRows;
+    }
+
+    /**
+     * Merchant dashboard read-list (GET /api/notifications/in-app surface).
+     * Same rows as before — plus the F3 expiry writer, so the list never shows
+     * a past-expiry payment confirmation as still-'pending'.
+     */
+    async listShopNotifications(shopId, { limit = 20 } = {}) {
+        const rows = await OwnerNotification.findAll({
+            where: { shop_id: shopId },
+            order: [['created_at', 'DESC']],
+            limit,
+        });
+        await this.markExpiredOnRead(rows);
+        return rows;
+    }
+
+    /**
+     * Get pending notifications for shop. F3/D-4: past-expiry rows are marked
+     * 'expired' and leave the PENDING set — they stay visible (and actionable)
+     * in the full in-app list as 'expired'.
      */
     async getPendingNotifications(shopId, limit = 10) {
-        return await OwnerNotification.findAll({
+        const rows = await OwnerNotification.findAll({
             where: {
                 shop_id: shopId,
                 status: 'pending'
@@ -629,6 +725,9 @@ Reference: ${notificationId}`;
             order: [['created_at', 'DESC']],
             limit
         });
+        const expired = await this.markExpiredOnRead(rows);
+        const expiredIds = new Set(expired.map((row) => row && row.id));
+        return rows.filter((row) => !expiredIds.has(row && row.id));
     }
 
     /**

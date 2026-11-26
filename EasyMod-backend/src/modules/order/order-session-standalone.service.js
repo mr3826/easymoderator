@@ -939,6 +939,9 @@ class OrderSessionService {
                             const wallet = await claimService.resolvePaymentWallet(session.shop_id, { provider: providerChoice });
                             if (wallet) {
                                 const { grandTotal } = OrderSessionService.sessionTotals(session, step_data);
+                                // F1 ruling: due.amount is the FULL order total
+                                // (amount_basis 'full'); the policy snapshot still
+                                // rides through for honest surfaces.
                                 const due = await claimService.computeClaimAmount(session.shop_id, {
                                     orderTotal: grandTotal,
                                     deliveryCharge: Number(step_data.delivery_charge || 0),
@@ -1914,15 +1917,25 @@ class OrderSessionService {
      * wallet rows (multi-account) collapse to ONE self-mfs token.
      */
     static async getEnabledPaymentGateways(shopId) {
+        // M6 (2026-11-26): is_enabled rides on the selected columns AND is
+        // consumed below. The automatable predicate (isAutomatable) reads
+        // is_enabled / verification_level / credentials — with them unselected
+        // the automatable branch could never be true against real rows, so the
+        // branch was dead by accident, not by design. Fail-closed behavior is
+        // otherwise unchanged (empty/unreadable table still falls back to COD).
         const configs = await PaymentConfigEntity.findAll({
             where: { shop_id: shopId, is_enabled: true },
-            attributes: ['gateway', 'provider', 'account_type']
+            attributes: ['gateway', 'provider', 'account_type', 'is_enabled', 'verification_level', 'credentials']
         });
 
         if (!Array.isArray(configs) || configs.length === 0) return ['cod'];
 
         const tokens = new Set();
         for (const row of configs) {
+            // Consumed: an explicitly disabled row never surfaces (defense in
+            // depth — the query filters on is_enabled already); rows without
+            // the attribute (legacy mocks) keep working as before.
+            if (row.is_enabled === false) continue;
             const gateway = String(row.gateway || '').toLowerCase();
             const provider = paymentTaxonomy.normalizeProvider(row.provider)
                 || paymentTaxonomy.providerFromCredentials(null, gateway);
@@ -1961,14 +1974,32 @@ class OrderSessionService {
     /**
      * §3.2-1 — display EXACTLY ONE number, with the server-computed amount due.
      * Never list alternatives; "no silent number switching" starts here (§6).
-     * When an advance policy is active the §5.2 #1 line makes total/advance/
-     * remainder explicit; percentage/fixed NEVER trigger a gateway link (D-7).
+     *
+     * F1/BLOCK (2026-11-26 ruling): self-MFS claims collect the FULL order
+     * total — computeClaimAmount returns amount_basis='full', partial=false.
+     * The "remaining X on delivery" clause below therefore renders ONLY when
+     * the CURRENT collection is genuinely partial-collectable: an explicit
+     * amount_basis 'advance' the backend would enforce. No self-MFS path
+     * produces that basis today (gateway initiation for percentage/fixed still
+     * 409s per D-7), so the machine can never promise a remainder that nothing
+     * enforces.
      */
     static buildWalletPaymentPrompt(wallet, due, grandTotal, lang = 'bn') {
         const label = paymentTaxonomy.providerLabel(wallet.provider, lang === 'en' ? 'en' : 'bn')
             || paymentTaxonomy.providerLabel(wallet.provider, 'en');
-        const partial = due && due.partial;
-        const amount = Number((due && due.amount) || grandTotal);
+        // Only an EXPLICIT 'advance' basis (a collection the backend would
+        // enforce as partial) unlocks the advance wording; a caller asserting
+        // partial without naming its basis gets the honest full-total treatment.
+        const basis = due && due.amount_basis != null ? String(due.amount_basis) : 'full';
+        const partial = Boolean(due && due.partial)
+            && basis === 'advance'
+            && Number(due.amount) > 0
+            && Number(due.amount) < Number(grandTotal);
+        // Full-basis asks for the FULL total — the displayed send-amount can
+        // never sit below the order value (F1: no unenforced half-promise).
+        const amount = partial
+            ? Number(due.amount)
+            : Math.max(Number((due && due.amount) || 0) || 0, Number(grandTotal) || 0);
         const header = partial
             ? pickLang(lang,
                 `অর্ডার মোট ৳${grandTotal}। এখন এডভান্স: ৳${amount}${due.snapshot && due.snapshot.remainder > 0 ? ` (বাকি ৳${due.snapshot.remainder} ডেলিভারির সময়)` : ''}।`,

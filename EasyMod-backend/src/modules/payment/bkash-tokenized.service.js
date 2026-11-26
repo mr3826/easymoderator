@@ -139,6 +139,20 @@ class BkashTokenizedService {
                 503, 'GATEWAY_AUTOMATION_DISABLED',
             );
         }
+        // F-2(b) (A9-R2, 2026-11-26): REAL settlement paths (create/execute/
+        // query/refund — everything reachable through this choke) require the
+        // RESOLVED environment to be 'production'. A sandbox-resolved account
+        // must never sit on a money path: a sandbox paymentId echoed back by a
+        // webhook would otherwise be "settled" against a live order. The
+        // sandbox create→query handshake (assertSandboxOnly, D-3) is the
+        // SANDBOX product and deliberately does not route through here.
+        const resolved = resolveEnvironment(account);
+        if (resolved !== 'production') {
+            throw new AppError(
+                `This payment account resolves to the "${resolved}" environment — real settlement requires an account explicitly recorded as production (§2.2/§2.3)`,
+                503, 'GATEWAY_ENVIRONMENT_NOT_PRODUCTION',
+            );
+        }
         return true;
     }
 
@@ -177,28 +191,58 @@ class BkashTokenizedService {
     }
 
     grantBudgetKey(account) {
-        return `account:${account.id}:grant-budget`;
+        // F-3 key shape (`pay:grant:<accountId>:<window>`) per the A9-R2
+        // ruling; the window is a Redis ZSET scored by grant timestamp, so the
+        // ≤2/hour budget is a real ROLLING hour (slot membership, not a
+        // fixed-window counter).
+        return `pay:grant:${account.id}:window`;
     }
 
-    /** Rolling ≤2 grant+refresh/hour per account (one merchant app per account
-     *  row: unique (shop, bkash, merchant_gateway)). Throws 429 BEFORE any HTTP
-     *  when the budget is spent (§2.1). Returns the 1-based slot used. */
+    /**
+     * Rolling ≤2 grant+refresh/hour per account (one merchant app per account
+     * row: unique (shop, bkash, merchant_gateway)). Throws 429 BEFORE any HTTP
+     * when the budget is spent (§2.1). Returns the 1-based slot used.
+     *
+     * F-3 (A9-R2, 2026-11-26) — ATOMIC + FAIL-CLOSED: the old
+     * get→filter→push→set sequence was a lost-update race (two concurrent
+     * forced grants both saw an empty window and BOTH believed they consumed
+     * slot 1, so the provider could be hammered past its 2/hour limit). It now
+     * consumes through `cache.consumeSlotForShopStrict`, which runs ONE Redis
+     * EVAL (ZREMRANGEBYSCORE→ZCARD→ZADD→PEXPIRE) server-side — two concurrent
+     * verifications consume TWO slots, never zero. A Redis error throws
+     * GRANT_BUDGET_UNAVAILABLE (503) instead of degrading open: hammer
+     * protection that fails open is not protection. Note the sequence stays
+     * fail-closed even with the lenient token read: any grant path reaches
+     * THIS function before HTTP, so an unreachable budget state can never
+     * result in a provider call.
+     */
     async consumeGrantSlot(account) {
-        const now = Date.now();
-        const key = this.grantBudgetKey(account);
-        const raw = await cache.getForShop(account.shop_id, key).catch(() => null);
-        const recent = Array.isArray(raw)
-            ? raw.filter((t) => Number.isFinite(t) && now - t < GRANT_WINDOW_MS)
-            : [];
-        if (recent.length >= GRANT_BUDGET_MAX) {
+        let slot;
+        try {
+            slot = await cache.consumeSlotForShopStrict(account.shop_id, this.grantBudgetKey(account), {
+                max: GRANT_BUDGET_MAX,
+                windowMs: GRANT_WINDOW_MS,
+                // unique member token — two grants in the same millisecond must
+                // not collapse into one ZSET member.
+                member: `${Date.now()}:${crypto.randomBytes(8).toString('hex')}`,
+                now: Date.now(),
+            });
+        } catch (error) {
+            logger.error('bKash grant budget unavailable; refusing grant (fail-closed)', {
+                shopId: account.shop_id, accountId: account.id, errorCode: safeErrorCode(error),
+            });
+            throw new AppError(
+                'Payment rate-limit state is unavailable — the provider grant was refused (fail-closed). Please retry shortly.',
+                503, 'GRANT_BUDGET_UNAVAILABLE',
+            );
+        }
+        if (slot < 0) {
             throw new AppError(
                 'bKash allows at most 2 credential grants per hour per app. Please retry later.',
                 429, 'CREDENTIAL_CHECK_RATE_LIMITED',
             );
         }
-        recent.push(now);
-        await cache.setForShop(account.shop_id, key, recent, Math.ceil(GRANT_WINDOW_MS / 1000));
-        return recent.length;
+        return slot;
     }
 
     async getCachedToken(account) {
@@ -716,6 +760,12 @@ async function confirmAndSettle(shopId, txn, account, executeHint = null) {
 }
 
 async function settleFromQuery(shopId, txn, account, providerResult = {}) {
+    // F-2(b) (A9-R2, 2026-11-26): the settlement path's OWN entry guard — a
+    // caller that hands in `__query` (execute hint) never passes through
+    // client.queryPayment, so the environment/automation choke is asserted
+    // here too: no row settles against a sandbox-resolved or inert account,
+    // regardless of which leg triggered the settle.
+    client.assertMoneyMovementAllowed(account);
     let query = providerResult.__query;
     if (!query) {
         query = await client.queryPayment(account, { paymentId: txn.transaction_id });

@@ -139,4 +139,70 @@ describe('20261127_001_payment_accounts', () => {
         expect(sql).not.toMatch(/DROP COLUMN IF EXISTS provider/);
         expect(sql).not.toMatch(/DROP TABLE IF EXISTS payment_accounts/);
     });
+
+    // ── F-4 (A9-R2, 2026-11-26): payment_configs compatibility VIEW ───────────
+    // The rollback floor image still runs its PaymentConfig model against
+    // `payment_configs`. The rename alone would break it (table outage). The
+    // single-table auto-updatable view created in up() step 9 keeps the old
+    // image's READS *AND WRITES* working over payment_accounts. These pins are
+    // fake-sequelize SQL assertions (repo convention): exact legacy column
+    // set, in legacy names, FROM the renamed table.
+    //
+    // Legacy attribute set VERIFIED against the floor image entity:
+    //   git show 53c6ebb1:EasyMod-backend/src/modules/payment/payment-config.entity.js
+    const LEGACY_ATTRIBUTES = ['id', 'shop_id', 'gateway', 'is_enabled', 'credentials', 'config', 'created_at', 'updated_at'];
+
+    test('F-4: up() creates the auto-updatable payment_configs VIEW over payment_accounts', async () => {
+        const s = makeSequelize();
+        await migration.up(s);
+        const viewCall = s.calls.find((c) => /CREATE OR REPLACE VIEW payment_configs/.test(c.sql));
+        expect(viewCall).toBeDefined();
+        const sql = viewCall.sql.replace(/\s+/g, ' ');
+        expect(sql).toMatch(/FROM payment_accounts/);
+        // every legacy attribute is exposed under its legacy name…
+        for (const attr of LEGACY_ATTRIBUTES) {
+            expect(sql).toContain(attr);
+        }
+        // …and ONLY the legacy attributes (single-table, no expressions/joins →
+        // PostgreSQL auto-updatability: old-image INSERT/UPDATE/DELETE pass
+        // through). New redesign columns must NOT leak into the view.
+        for (const modern of ['provider', 'account_type', 'verification_level', 'is_preferred', 'is_active']) {
+            expect(sql).not.toContain(modern);
+        }
+        // A legacy-shaped SELECT through the view resolves every attribute the
+        // floor image queries (simulated resolution against the view list):
+        const selected = sql.match(/SELECT (.+?) FROM/i)[1].split(',').map((c) => c.trim());
+        expect([...LEGACY_ATTRIBUTES].sort()).toEqual([...selected].sort());
+    });
+
+    test('F-4: down() drops the compat VIEW BEFORE renaming the table back', async () => {
+        const s = makeSequelize();
+        await migration.down(s);
+        const seq = s.calls.map((c) => c.sql);
+        const dropView = seq.findIndex((sql) => /DROP VIEW IF EXISTS payment_configs/.test(sql));
+        const rename = seq.findIndex((sql) => /RENAME TO payment_configs/.test(sql));
+        expect(dropView).toBeGreaterThanOrEqual(0);
+        expect(rename).toBeGreaterThan(dropView);
+    });
+
+    test('F-4: re-running up() is idempotent (guards + CREATE OR REPLACE, no throw, no data loss)', async () => {
+        const s = makeSequelize();
+        await migration.up(s);
+        await expect(migration.up(s)).resolves.toBeUndefined();
+        const sql = s.calls.map((c) => c.sql).join('\n');
+        // rename stays guarded both times (view/table existence aware)…
+        expect((sql.match(/ALTER TABLE payment_configs RENAME TO payment_accounts/g) || []).length).toBe(2);
+        expect(sql.match(/CREATE OR REPLACE VIEW payment_configs/g)).toHaveLength(2);
+        // …and NOTHING destructive appears in either pass
+        expect(sql).not.toMatch(/DELETE FROM payment_accounts/i);
+        expect(sql).not.toMatch(/DROP TABLE IF EXISTS payment_accounts/i);
+    });
+
+    test('F-4: non-postgres dialect does not get the view (rename path is PG-only)', async () => {
+        const s = makeSequelize();
+        s.getDialect = () => 'sqlite';
+        await migration.up(s);
+        const sql = s.calls.map((c) => c.sql).join('\n');
+        expect(sql).not.toMatch(/CREATE OR REPLACE VIEW payment_configs/);
+    });
 });

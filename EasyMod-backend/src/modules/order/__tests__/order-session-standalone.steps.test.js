@@ -1106,3 +1106,120 @@ describe('single-language prompts (never both at once)', () => {
         expect(res.prompt).not.toMatch(/mobile number/i);
     });
 });
+
+// M6 (2026-11-26): getEnabledPaymentGateways must SELECT and CONSUME the
+// automation columns — is_enabled / verification_level / credentials are what
+// isAutomatable reads, so without them the automatable branch was dead by
+// accident. The fail-closed posture itself is unchanged (R-12: flag off ⇒
+// gateway rows never surface; nothing configured ⇒ COD fallback).
+describe('M6 — getEnabledPaymentGateways consumes is_enabled; automatable branch live', () => {
+    let prevFlag;
+    beforeEach(() => { prevFlag = process.env.BKASH_ENABLED; });
+    afterEach(() => {
+        if (prevFlag === undefined) delete process.env.BKASH_ENABLED;
+        else process.env.BKASH_ENABLED = prevFlag;
+    });
+
+    test('the query selects the automation columns (is_enabled/verification_level/credentials)', async () => {
+        PaymentConfigEntity.findAll.mockResolvedValue([]);
+        await OrderSessionService.getEnabledPaymentGateways('shop-1');
+        expect(PaymentConfigEntity.findAll).toHaveBeenCalledWith(expect.objectContaining({
+            where: { shop_id: 'shop-1', is_enabled: true },
+            attributes: expect.arrayContaining(['is_enabled', 'verification_level', 'credentials']),
+        }));
+    });
+
+    test('automatable gateway row (flag ON + live_certified + creds + enabled) surfaces — branch reachable', async () => {
+        process.env.BKASH_ENABLED = 'true';
+        PaymentConfigEntity.findAll.mockResolvedValue([
+            {
+                gateway: 'self-mfs', provider: 'bkash', account_type: 'merchant_gateway',
+                is_enabled: true, verification_level: 'live_certified',
+                credentials: { app_key: 'k', app_secret: 's', username: 'u' },
+            },
+        ]);
+        const gateways = await OrderSessionService.getEnabledPaymentGateways('shop-1');
+        expect(gateways).toContain('self-mfs');
+    });
+
+    test('R-12 posture unchanged: flag OFF (default) → gateway row never surfaces, COD fallback', async () => {
+        delete process.env.BKASH_ENABLED;
+        PaymentConfigEntity.findAll.mockResolvedValue([
+            {
+                gateway: 'self-mfs', provider: 'bkash', account_type: 'merchant_gateway',
+                is_enabled: true, verification_level: 'live_certified',
+                credentials: { app_key: 'k', app_secret: 's', username: 'u' },
+            },
+        ]);
+        expect(await OrderSessionService.getEnabledPaymentGateways('shop-1')).toEqual(['cod']);
+    });
+
+    test('a disabled row is consumed away even if it slipped past the query filter', async () => {
+        PaymentConfigEntity.findAll.mockResolvedValue([
+            { gateway: 'cod', is_enabled: true },
+            { gateway: 'self-mfs', provider: 'bkash', account_type: 'self', is_enabled: false },
+        ]);
+        expect(await OrderSessionService.getEnabledPaymentGateways('shop-1')).toEqual(['cod']);
+    });
+});
+
+// F1/BLOCK (2026-11-26 ruling): a self-MFS collection is the FULL order total,
+// so the wallet step must never promise "remaining X on delivery" that nothing
+// enforces. The promise renders ONLY for an explicit 'advance' basis — which no
+// backend path produces today (gateway partial initiation still 409s, D-7).
+describe('F1 — the wallet step promises only what the backend enforces', () => {
+    const wallet = { provider: 'bkash', number: '01711111111' };
+
+    test('full-basis due shows the FULL total with NO "remaining on delivery" promise (en + bn)', () => {
+        const due = {
+            amount: 1710,
+            partial: false,
+            amount_basis: 'full',
+            snapshot: { policy: 'percentage', advance_amount: 855, remainder: 855, amount_basis: 'full' },
+        };
+        const en = OrderSessionService.buildWalletPaymentPrompt(wallet, due, 1710, 'en');
+        const bn = OrderSessionService.buildWalletPaymentPrompt(wallet, due, 1710, 'bn');
+        expect(en).toMatch(/Order total: ৳1710\./);
+        expect(en).toMatch(/Send ৳1710 to bKash 01711111111/);
+        expect(en).not.toMatch(/remaining .* on delivery/i);
+        expect(bn).not.toMatch(/বাকি .* ডেলিভারির সময়/);
+        expect(bn).toMatch(/৳1710 .* 01711111111-এ পাঠান/);
+    });
+
+    test('partial WITHOUT the enforceable basis gets full-total treatment (no unenforced promise)', () => {
+        const due = { amount: 855, partial: true, snapshot: { remainder: 855 } };
+        const en = OrderSessionService.buildWalletPaymentPrompt(wallet, due, 1710, 'en');
+        expect(en).not.toMatch(/remaining .* on delivery/i);
+        expect(en).toMatch(/Send ৳1710/); // asks the full total, never the unenforced half
+    });
+
+    test('explicit advance basis (genuinely partial-collectable) keeps the honest promise', () => {
+        const due = { amount: 855, partial: true, amount_basis: 'advance', snapshot: { remainder: 855 } };
+        const en = OrderSessionService.buildWalletPaymentPrompt(wallet, due, 1710, 'en');
+        expect(en).toMatch(/Advance required now: ৳855 \(remaining ৳855 on delivery\)/);
+    });
+
+    test('machine pin: claim intake carries amount_basis=full and shows the full total only', async () => {
+        PaymentConfigEntity.findAll.mockResolvedValue([{
+            id: 'acct-1', provider: 'bkash', account_type: 'self', gateway: 'self-mfs',
+            is_preferred: true, is_enabled: true, credentials: { mfs_type: 'bkash', mfs_number: '01711111111' },
+        }]);
+        const session = makeSession({
+            current_step: 'COLLECTING_PAYMENT',
+            product_info: { id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 },
+            step_data: {
+                language: 'en',
+                enabled_gateways: ['cod', 'self-mfs'],
+                delivery_zone: 'inside_dhaka',
+                delivery_charge: 60,
+                cart: [{ product_id: 'prod-1', name: 'Saree', price: 1650, quantity: 1 }],
+            },
+        });
+        const res = await OrderSessionService.handleCurrentStep(session, 'bkash', null);
+
+        expect(res.current_step).toBe('AWAITING_PAYMENT_CLAIM');
+        expect(res.step_data.payment_claim_amount).toBe(1710); // FULL order total
+        expect(res.step_data.payment_policy).toMatchObject({ amount_basis: 'full' });
+        expect(res.prompt).not.toMatch(/remaining .* on delivery|বাকি .* ডেলিভারির সময়/i);
+    });
+});

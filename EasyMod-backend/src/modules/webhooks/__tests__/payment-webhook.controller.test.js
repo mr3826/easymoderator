@@ -231,7 +231,7 @@ describe('bKash payment webhook replay protection', () => {
         expect(mockPaymentTransaction.update).not.toHaveBeenCalled();
     });
 
-    test('returns a failed fulfillment claim to pending for webhook retry', async () => {
+    test('F-1 (A9-R2): a failed fulfillment claim releases to INITIATED — never pending — for webhook retry', async () => {
         const payment = {
             id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
             update: jest.fn(),
@@ -250,10 +250,27 @@ describe('bKash payment webhook replay protection', () => {
 
         expect(res.status).toHaveBeenCalledWith(500);
         expect(mockPaymentTransaction.update).toHaveBeenLastCalledWith(
-            { status: 'pending', gateway_response: expect.any(Object) },
+            // RELEASE TARGET PIN: the row returns to the PRE-CLAIM status
+            // 'initiated', not 'pending'.
+            { status: 'initiated', gateway_response: expect.any(Object) },
+            // CAS kept: only a row still holding the claim is released.
             { where: { id: 'payment-1', status: 'processing' } },
         );
         expect(payment.update).not.toHaveBeenCalled();
+
+        // F-1(a)+F-1(c) vocabulary pins: the released status must be a LIVE
+        // attempt status so that (a) initiateGatewayPayment's service-level
+        // re-initiation guard (409 PAYMENT_IN_PROGRESS over
+        // ACTIVE_ATTEMPT_STATUSES) blocks a second link, and (c) it is inside
+        // reconcileStaleGatewayAttempts' initiated/processing scan set, so an
+        // unconfirmed webhook release can never leave a second active attempt
+        // possible AND unreconciled. ('pending' satisfied neither — that was
+        // the duplicate-charge hole A9 found.)
+        const taxonomy = require('../../payment/payment-taxonomy');
+        expect(taxonomy.ACTIVE_ATTEMPT_STATUSES).toContain('initiated');
+        expect(['initiated', 'processing']).toContain('initiated'); // reconciler scan set
+        // 20261127_002 partial unique covers (initiated, processing) — a
+        // released 'initiated' row is inside it (migration-test comment pin).
     });
 
     test('a processing callback remains pending and cannot repeat fulfillment', async () => {
@@ -354,9 +371,12 @@ describe('bKash payment webhook replay protection', () => {
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
             success: true, pending: true, verification: 'query_unavailable', reason: 'automation_inert',
         }));
-        // claim released back to pending for reconciliation (§4.2 error path):
+        // claim released back to the PRE-CLAIM status 'initiated' (F-1) for
+        // reconciliation (§4.2 error path) — never 'pending': the row must
+        // stay visible to ACTIVE_ATTEMPT_STATUSES + the 002 partial unique +
+        // the §4.3 reconciler scan:
         expect(mockPaymentTransaction.update).toHaveBeenLastCalledWith(
-            expect.objectContaining({ status: 'pending' }),
+            expect.objectContaining({ status: 'initiated' }),
             { where: { id: 'payment-1', status: 'processing' } },
         );
     });
@@ -385,8 +405,10 @@ describe('bKash payment webhook replay protection', () => {
         expect(fulfillment).not.toHaveBeenCalled();
         expect(res.status).toHaveBeenCalledWith(202);
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ verification: 'query_unconfirmed' }));
+        // F-1 (A9-R2): unconfirmed Query releases to 'initiated' (active,
+        // blocked, reconcilable) — NOT 'pending' (a duplicate-charge hole).
         expect(mockPaymentTransaction.update).toHaveBeenLastCalledWith(
-            expect.objectContaining({ status: 'pending' }),
+            expect.objectContaining({ status: 'initiated' }),
             { where: { id: 'payment-1', status: 'processing' } },
         );
     });

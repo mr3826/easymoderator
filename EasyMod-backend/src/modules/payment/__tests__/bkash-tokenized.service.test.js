@@ -26,13 +26,30 @@ jest.mock('../../entities', () => ({
 }));
 // Minimal deterministic cache double for the Redis token store + grant budget.
 const mockCacheStore = new Map();
+// F-3 (A9-R2): the grant budget now consumes through ONE atomic primitive
+// (a Redis EVAL in production). The double models that shape: its critical
+// section contains no await point, exactly like a server-side EVAL — a
+// get→filter→push→set race is impossible BY CONSTRUCTION here, which is the
+// atomicity shape the test asserts.
+const mockGrantWindows = new Map();
+const mockCacheGetCalls = [];
+const mockCacheSetCalls = [];
 jest.mock('../../../utils/cache.service', () => ({
     getForShop: async (shopId, key) => {
+        mockCacheGetCalls.push(`${shopId}|${key}`);
         const hit = mockCacheStore.get(`${shopId}|${key}`);
         return hit === undefined ? null : hit;
     },
-    setForShop: async (shopId, key, value) => { mockCacheStore.set(`${shopId}|${key}`, value); return true; },
+    setForShop: async (shopId, key, value) => { mockCacheSetCalls.push(`${shopId}|${key}`); mockCacheStore.set(`${shopId}|${key}`, value); return true; },
     deleteForShop: async (shopId, key) => { mockCacheStore.delete(`${shopId}|${key}`); return true; },
+    consumeSlotForShopStrict: jest.fn(async (shopId, key, { max, windowMs, member, now = Date.now() }) => {
+        const k = `${shopId}|${key}`;
+        const list = (mockGrantWindows.get(k) || []).filter((e) => now - e.at < windowMs);
+        if (list.length >= max) { mockGrantWindows.set(k, list); return -1; }
+        list.push({ at: now, member });
+        mockGrantWindows.set(k, list);
+        return list.length;
+    }),
 }));
 jest.mock('../../webhooks/payment-webhook.controller', () => ({
     processSuccessfulPayment: jest.fn().mockResolvedValue(undefined),
@@ -78,6 +95,9 @@ function routeCalls() {
 beforeEach(() => {
     jest.clearAllMocks();
     mockCacheStore.clear();
+    mockGrantWindows.clear();
+    mockCacheGetCalls.length = 0;
+    mockCacheSetCalls.length = 0;
     Object.assign(process.env, ORIGINAL_ENV, { BKASH_ENABLED: 'true' });
 });
 afterEach(() => { process.env = { ...ORIGINAL_ENV }; });
@@ -155,6 +175,21 @@ describe('initiateGatewayPayment', () => {
         mockOrder.findOne.mockResolvedValue({ id: 'o-1', shop_id: 'shop-1', order_number: 'ORDER-1', total: 100, payment_status: 'pending' });
         mockShop.findByPk.mockResolvedValue({ settings: {} });
         mockPaymentTransaction.findOne.mockResolvedValue({ id: 'txn-old', status: 'processing' });
+        await expect(tokenized.initiateGatewayPayment('shop-1', 'user-1', { orderId: 'o-1' }))
+            .rejects.toMatchObject({ status: 409, code: 'PAYMENT_IN_PROGRESS' });
+        expect(mockAxiosPost).not.toHaveBeenCalled();
+    });
+
+    // F-1(a) (A9-R2, 2026-11-26): a webhook claim released after an
+    // unconfirmed Query lands on status 'initiated' — THIS pin proves the
+    // released row is still matched by the service-level re-initiation guard
+    // (ACTIVE_ATTEMPT_STATUSES), i.e. it cannot silently coexist with a
+    // second customer-payable link (the duplicate-charge hole was releasing
+    // to 'pending', which this query never saw).
+    test('F-1: a released (initiated) row blocks re-initiation with 409 PAYMENT_IN_PROGRESS', async () => {
+        mockOrder.findOne.mockResolvedValue({ id: 'o-1', shop_id: 'shop-1', order_number: 'ORDER-1', total: 100, payment_status: 'pending' });
+        mockShop.findByPk.mockResolvedValue({ settings: {} });
+        mockPaymentTransaction.findOne.mockResolvedValue({ id: 'txn-released', status: 'initiated' });
         await expect(tokenized.initiateGatewayPayment('shop-1', 'user-1', { orderId: 'o-1' }))
             .rejects.toMatchObject({ status: 409, code: 'PAYMENT_IN_PROGRESS' });
         expect(mockAxiosPost).not.toHaveBeenCalled();
@@ -283,6 +318,88 @@ describe('grant budget: ≤2 grant+refresh per rolling hour, refused BEFORE HTTP
         expect(t2).toBe(t1);
         expect(mockAxiosPost).toHaveBeenCalledTimes(1);
     });
+
+    // F-3 (A9-R2, 2026-11-26): budget consumption is ATOMIC. The old
+    // get→filter→push→set sequence lost concurrent updates (two races both
+    // consumed "slot 1", recording ≤1 — or with the swallowed get-error, 0 —
+    // while the provider saw 2+ real grants). The service now consumes via
+    // consumeSlotForShopStrict (one EVAL round-trip in production).
+    test('F-3: concurrent double-verify consumes TWO slots, not zero (race-proof consumption)', async () => {
+        const account = AUTOMATABLE_ACCOUNT({ id: 'acc-race', verification_level: 'configured_unverified' });
+        mockAxiosPost.mockResolvedValue(grantReply());
+
+        const results = await Promise.all([
+            client.grantToken(account, { force: true }),
+            client.grantToken(account, { force: true }),
+        ]);
+        expect(results.every((t) => typeof t === 'string')).toBe(true);
+
+        // BOTH grants are recorded in the window (the shape of atomicity: one
+        // consume call per grant, window holds two distinct members):
+        const window = [...mockGrantWindows.values()].flat();
+        expect(window).toHaveLength(2);
+        expect(new Set(window.map((e) => e.member)).size).toBe(2);
+
+        // ATOMICITY SHAPE: budget consumption never goes through a
+        // read-modify-write (get/set) sequence — the budget keys are touched
+        // ONLY by the strict consume call, once per grant.
+        const cacheMock = require('../../../utils/cache.service');
+        expect(cacheMock.consumeSlotForShopStrict).toHaveBeenCalledTimes(2);
+        expect(mockCacheGetCalls.some((k) => k.includes('pay:grant'))).toBe(false);
+        expect(mockCacheSetCalls.some((k) => k.includes('pay:grant'))).toBe(false);
+
+        // …and the budget is honestly spent: a 3rd concurrent attempt is 429.
+        await expect(client.grantToken(account, { force: true }))
+            .rejects.toMatchObject({ status: 429, code: 'CREDENTIAL_CHECK_RATE_LIMITED' });
+    });
+
+    test('F-3: a Redis failure during budget check FAILS CLOSED — grant refused, zero HTTP', async () => {
+        const account = AUTOMATABLE_ACCOUNT({ id: 'acc-failclosed', verification_level: 'configured_unverified' });
+        mockAxiosPost.mockResolvedValue(grantReply());
+        const cacheMock = require('../../../utils/cache.service');
+        cacheMock.consumeSlotForShopStrict.mockRejectedValueOnce(new Error('READONLY You can\'t write against a read only replica'));
+
+        await expect(client.grantToken(account, { force: true }))
+            .rejects.toMatchObject({ status: 503, code: 'GRANT_BUDGET_UNAVAILABLE' });
+        expect(mockAxiosPost).not.toHaveBeenCalled();
+    });
+
+    // F-2(b) (A9-R2): real settlement paths require the RESOLVED environment
+    // to be 'production' — a sandbox-resolved account can never sit on a money
+    // path, even at live_certified + enabled flag (defense-in-depth next to
+    // the §2.3 certification rule and the §2 environment-change demotion).
+    test('F-2(b): sandbox-resolved account is refused on the money path (GATEWAY_ENVIRONMENT_NOT_PRODUCTION, zero HTTP)', async () => {
+        const sandboxAcct = AUTOMATABLE_ACCOUNT({ id: 'acc-sbx-settle', config: { environment: 'sandbox' } });
+        await expect(client.createPayment(sandboxAcct, { amount: '100.00', merchantInvoiceNumber: 'ORDER-1' }))
+            .rejects.toMatchObject({ code: 'GATEWAY_ENVIRONMENT_NOT_PRODUCTION' });
+        await expect(client.queryPayment(sandboxAcct, { paymentId: 'PID-1' }))
+            .rejects.toMatchObject({ code: 'GATEWAY_ENVIRONMENT_NOT_PRODUCTION' });
+        await expect(client.refundPayment(sandboxAcct, { paymentId: 'PID-1', trxId: 'T', refundAmount: '10.00' }))
+            .rejects.toMatchObject({ code: 'GATEWAY_ENVIRONMENT_NOT_PRODUCTION' });
+        expect(mockAxiosPost).not.toHaveBeenCalled();
+    });
+
+    test('F-2(b): settleFromQuery against a sandbox-resolved account throws the env guard, fulfilling nothing', async () => {
+        const sandboxAcct = AUTOMATABLE_ACCOUNT({ id: 'acc-sbx-settle2', config: { environment: 'sandbox' } });
+        mockOrder.findOne.mockResolvedValue({ id: 'o-1', shop_id: 'shop-1', order_number: 'ORDER-1', total: 100 });
+        const txn = { id: 'txn-1', shop_id: 'shop-1', order_id: 'o-1', transaction_id: 'PID-1', amount: '100.00', status: 'processing' };
+        await expect(tokenized.settleFromQuery('shop-1', txn, sandboxAcct, { __query: settledQuery().data }))
+            .rejects.toMatchObject({ code: 'GATEWAY_ENVIRONMENT_NOT_PRODUCTION' });
+        expect(webhookController.processSuccessfulPayment).not.toHaveBeenCalled();
+        expect(mockAxiosPost).not.toHaveBeenCalled();
+    });
+
+    test('F-2(b): the sandbox handshake path is UNCHANGED — it never routes through the money choke', async () => {
+        // assertSandboxOnly stays the sandbox product (§2.2/D-3): a sandbox
+        // account still runs grant→create→query via the private legs.
+        const account = AUTOMATABLE_ACCOUNT({ id: 'acc-sbx-hand', verification_level: 'configured_unverified', config: { environment: 'sandbox' } });
+        mockAxiosPost
+            .mockResolvedValueOnce(grantReply())
+            .mockResolvedValueOnce(createReply())
+            .mockResolvedValueOnce({ data: { transactionStatus: 'Initiated', merchantInvoice: `SANDBOX-${'acc-sbx-hand'.slice(0, 8)}` } });
+        const res = await client.sandboxCreateQueryHandshake(account);
+        expect(res.grantOk).toBe(true);
+    });
 });
 
 // ── sandbox rung (§2.2, D-3) ─────────────────────────────────────────────────
@@ -374,5 +491,9 @@ describe('reconcileStaleGatewayAttempts (§4.3): bounded Query, NEVER re-execute
         const where = mockPaymentTransaction.findAll.mock.calls[0][0].where;
         expect(where.status[require('sequelize').Op.in]).toEqual(['initiated', 'processing']);
         expect(where.payment_account_id[require('sequelize').Op.ne]).toBeNull();
+        // F-1(c) (A9-R2): the webhook claim-release status MUST be inside the
+        // reconciler scan set — 'initiated' is (it was NOT for 'pending', the
+        // hole A9 found: a released row used to leave the reconciler's sight).
+        expect(where.status[require('sequelize').Op.in]).toContain('initiated');
     });
 });

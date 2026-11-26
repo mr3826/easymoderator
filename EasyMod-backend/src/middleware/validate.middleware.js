@@ -26,7 +26,11 @@ function validate(schemaOrMap) {
             }
         }
         if (errors.length) {
-            return next(new AppError(errors.join('; '), 400));
+            // F-7 (A9-R2): boundary-shape rejections carry an honest
+            // VALIDATION_ERROR code (was the AppError default INTERNAL_ERROR
+            // on a 400, which mislabeled client payload faults as server
+            // faults for every validated route).
+            return next(new AppError(errors.join('; '), 400, 'VALIDATION_ERROR'));
         }
         next();
     };

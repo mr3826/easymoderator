@@ -47,12 +47,14 @@ function fixtures(overrides = {}) {
         id: 'order-1',
         shop_id: 'shop-1',
         customer_id: null,
+        total: 500, // NOT NULL DECIMAL in the real schema — mirrors it (F1 guard)
         update: jest.fn(),
         ...overrides.order,
     };
     const payment = {
         id: 'payment-1',
         status: 'pending',
+        amount: 500,
         update: jest.fn(),
         ...overrides.payment,
     };
@@ -306,7 +308,6 @@ describe('authenticated owner payment confirmation state machine', () => {
 
     test.each([
         ['replayed completion', { notification: { status: 'completed' } }, 409],
-        ['expired action', { notification: { expires_at: new Date(Date.now() - 60_000) } }, 410],
         ['completed payment transition', { payment: { status: 'paid' } }, 409],
     ])('rejects %s', async (_label, overrides, status) => {
         const { notification } = fixtures(overrides);
@@ -316,6 +317,66 @@ describe('authenticated owner payment confirmation state machine', () => {
             'approve',
             { userId: 'owner-1' },
         )).rejects.toMatchObject({ status });
+    });
+
+    // F3/D-4 (2026-11-26 ratified): the blanket 410 dead-end is GONE. Past
+    // expires_at the row is honestly marked 'expired' (the missing writer) and
+    // the owner's judgment remains functional — merchant judgment outranks the
+    // SLA, and expiry never auto-fails the payment.
+    test('expiry surfaces the row but keeps owner approval functional (no 410)', async () => {
+        const { notification, order, payment } = fixtures({
+            notification: { expires_at: new Date(Date.now() - 60_000) },
+        });
+
+        await expect(service.handleOwnerResponse(
+            notification.id,
+            'approve',
+            { userId: 'owner-1' },
+        )).resolves.toMatchObject({ success: true });
+
+        expect(notification.update).toHaveBeenCalledWith({ status: 'expired' }, { transaction: mockTransaction });
+        expect(order.update).toHaveBeenCalledWith(
+            expect.objectContaining({ payment_status: 'paid', order_status: 'confirmed' }),
+            { transaction: mockTransaction },
+        );
+        expect(payment.update).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'verified' }),
+            { transaction: mockTransaction },
+        );
+    });
+
+    test('expiry does not reopen a completed confirmation', async () => {
+        const { notification } = fixtures({
+            notification: { status: 'completed', expires_at: new Date(Date.now() - 60_000) },
+        });
+
+        await expect(service.handleOwnerResponse(
+            notification.id,
+            'approve',
+            { userId: 'owner-1' },
+        )).rejects.toMatchObject({ status: 409 });
+        expect(notification.update).not.toHaveBeenCalled();
+    });
+
+    // F1/BLOCK (2026-11-26 ruling): approve settles the FULL order — a claim
+    // below the order total (legacy advance rows included) is refused with a
+    // machine-readable 409 and NOTHING changes.
+    test('approve of a below-total claim is refused CLAIM_AMOUNT_BELOW_ORDER_TOTAL', async () => {
+        const { notification, order, payment } = fixtures({
+            order: { total: 1650 },
+            payment: { status: 'payment_claimed', amount: 825 },
+        });
+
+        await expect(service.handleOwnerResponse(
+            notification.id,
+            'approve',
+            { userId: 'owner-1' },
+        )).rejects.toMatchObject({ status: 409, code: 'CLAIM_AMOUNT_BELOW_ORDER_TOTAL' });
+
+        expect(order.update).not.toHaveBeenCalled();
+        expect(payment.update).not.toHaveBeenCalled();
+        expect(notification.update).not.toHaveBeenCalled();
+        expect(mockModels.AuditLog.create).not.toHaveBeenCalled();
     });
 
     test('rejects a forged action before reading tenant data', async () => {

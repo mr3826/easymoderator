@@ -154,7 +154,9 @@ Recommendation: define `sandbox_verified` = successful grant + create + query wi
 
 ### 2.3 `live_certified` — recorded, never self-declared
 
-`POST /api/payment/accounts/:id/certify-live` (owner-only): requires non-empty `evidence` (provider go-live/approval reference, e.g. "bKash onboarding email 2026-11-30"), writes an append-only `payment_account_verifications` row, sets `verification_level='live_certified'`, writes an `AuditLog` (`AuditLog.create` pattern already used at `owner-notification.service.js:298-309`). Only a `sandbox_verified` account can be certified. Revocation: credential change (§2 invalidation) or owner action.
+`POST /api/payment/accounts/:id/certify-live` (owner-only): requires non-empty `evidence` (provider go-live/approval reference, e.g. "bKash onboarding email 2026-11-30"), writes an append-only `payment_account_verifications` row, sets `verification_level='live_certified'`, writes an `AuditLog` (`AuditLog.create` pattern already used at `owner-notification.service.js:298-309`). Revocation: credential change (§2 invalidation) or owner action.
+
+**A9-R2 amendment (2026-11-26, F-2 — supersedes the old "only a `sandbox_verified` account can be certified" prerequisite, which contradicted §2.2: the sandbox handshake may NEVER run on production credentials, so a production-only merchant could not legitimately reach the rung §2.3 required).** Certification now requires, all of: (i) `account.config.environment === 'production'` **explicitly recorded on the row** — unset/legacy rows are refused with `400 PROVIDER_ENVIRONMENT_NOT_PRODUCTION` and sandbox rows with the same code (no env-var fallback may mint a production attestation); (ii) owner role + 3–500-char evidence (unchanged); (iii) current level is any non-archived rung (`unverified` / `configured_unverified` / `sandbox_verified` all certifiable **from** the production posture; an already-`live_certified` row refuses idempotently). The recorded `provider_environment` is the ACTUAL resolved environment, asserted equal to the config value (a mismatch throws `PROVIDER_ENVIRONMENT_MISMATCH` and records nothing). Symmetrically: ANY write that flips `config.environment` demotes the ladder (append-only `configured_unverified` event, reason `environment_changed`) and clears the account's Redis token/grant cache — same policy as a credential change; and the money paths (`createPayment`/`settleFromQuery`/execute/query/refund via `assertMoneyMovementAllowed`) additionally refuse any account whose RESOLVED environment is not production (`GATEWAY_ENVIRONMENT_NOT_PRODUCTION`) while the sandbox handshake (§2.2/D-3) remains sandbox-only as before.
 
 **Automation enable predicate** (single helper in taxonomy module, used by gateway initiation §4, chatbot eligibility §6, and the settings tab):
 `isAutomatable(account) = account.is_enabled && account.provider==='bkash' && account.account_type==='merchant_gateway' && account.verification_level==='live_certified' && BKASH_ENABLED==='true' && credentialsComplete(account)`. Anything below → the account is *displayed* in settings with its honest level, and the customer-facing path for its provider is §3 (self-MFS) or COD.
@@ -227,7 +229,7 @@ Current codebase has both spellings: `bkash-merchant.service.js:173,237` compare
 `POST /api/webhooks/bkash/payment-status` (`payment-webhook.routes.js:32-37`, mounted `app.js:132`, rawBody captured `app.js:124-127`) keeps its **structure** (rate limit, atomic claim, replay dedupe — pins `payment-webhook.controller.test.js:41-250`, real-DB race pin `payment-webhook.courier-race.integration.test.js:152+`) but the trust chain changes:
 
 - **Replace** the invented `x-bkash-signature` HMAC scheme (`webhook.middleware.js:14-65` comments claim "B1/B17" — the docs sweep found no such browser-redirect HMAC in tokenized v2). New verification = the documented IPN/SNS-style handshake (certificate/subscribe model per onboarding; exact scheme pinned by the provider integration doc at implementation time). If, at implementation, the provider scheme cannot be verified with the artifacts we hold, the webhook is **disabled** and confirmation rides on: customer-return → single Execute + Query, plus scheduled Query-reconciliation for stale `processing`/`initiated` rows (§4.3).
-- **Callback body status alone is never settlement evidence.** Even after signature verification, `handleBkashWebhook` must call server-side **Query Payment** and require `Completed + verificationStatus pass + merchantInvoice === order_number + amount minor-units equality` (the existing amount/invoice/txnId strictness at `payment-webhook.controller.js:87-102` stays — its tests keep pinning it) before invoking `processSuccessfulPayment`. Order: verify scheme → load transaction by paymentId → atomic claim to `processing` (unchanged `:106-118`) → **Query** → confirmed ⇒ fulfill (unchanged `:188-379`, reconciliation flags, invoice generation `:312-314`, no session touch `:294-306`, transaction terminal `paid` only after fulfillment attempt `:347-357`) → Query-not-completed ⇒ release claim back to `pending` (existing error path `:134-144`) and defer to §4.3.
+- **Callback body status alone is never settlement evidence.** Even after signature verification, `handleBkashWebhook` must call server-side **Query Payment** and require `Completed + verificationStatus pass + merchantInvoice === order_number + amount minor-units equality` (the existing amount/invoice/txnId strictness at `payment-webhook.controller.js:87-102` stays — its tests keep pinning it) before invoking `processSuccessfulPayment`. Order: verify scheme → load transaction by paymentId → atomic claim to `processing` (unchanged `:106-118`) → **Query** → confirmed ⇒ fulfill (unchanged `:188-379`, reconciliation flags, invoice generation `:312-314`, no session touch `:294-306`, transaction terminal `paid` only after fulfillment attempt `:347-357`) → Query-not-completed ⇒ release claim back to the PRE-CLAIM status **`initiated`** — A9-R2/F-1 2026-11-26 corrected the original `pending` ruling: `pending` is invisible to `ACTIVE_ATTEMPT_STATUSES` (re-initiation 409), to the 20261127_002 partial unique on (`initiated`,`processing`) and to the §4.3 reconciler scan, so releasing there opened a duplicate-charge hole (a second live link could coexist with the still-payable first one while nobody reconciled it); CAS (`WHERE status = 'processing'`) unchanged and defer to §4.3.
 
 ### 4.3 Failure / timeout / reconciliation
 
@@ -498,3 +500,66 @@ an undecryptable row stays honest (null), never coerced to cod. FE taxonomy:
 canonical mirror `src/app/components/payment/taxonomy.ts` pinned against the
 backend module by `payment-taxonomy.mirror.test.ts`; `payment-settings/taxonomy.ts`
 projects it (single vocabulary source, closing A2-Q6).
+
+---
+
+## ROLLBACK RUNBOOK (R-16) — image revert safety after migration 20261127_001/002
+
+Added by the A9 round-2 fix wave (2026-11-26, F-4). The adversarial finding:
+the reader/rollback **floor image** (main lineage ≤ `ad79cd9c`, backend `53c6ebb1`)
+ships a `PaymentConfig` model bound to table **`payment_configs`** — after the
+001 rename that table does not exist, so reverting ONLY the app image (the
+documented fast rollback path on the OCI host) would have produced a total
+payment table outage (every read AND write of the old image).
+
+**The fix lives in the migration, not in runbook discipline:**
+`20261127_001.up()` now ends with
+
+```sql
+CREATE OR REPLACE VIEW payment_configs AS
+SELECT id, shop_id, gateway, is_enabled, credentials, config, created_at, updated_at
+  FROM payment_accounts;
+```
+
+which reproduces the floor image's legacy attribute set (verified via
+`git show 53c6ebb1:EasyMod-backend/src/modules/payment/payment-config.entity.js`)
+verbatim, in legacy names. It is a **single-table view**, hence automatically
+updatable in PostgreSQL: the old image's SELECTs, INSERTs, UPDATEs and DELETEs
+against `payment_configs` pass through to `payment_accounts` transparently
+(columns the view omits take their DB defaults on old-image inserts — the
+legacy model never reads them). `down()` drops the view FIRST
+(`DROP VIEW IF EXISTS payment_configs`) before the rename-back, so the guarded
+`to_regclass('payment_configs') IS NULL` rename check is never poisoned by the
+view's existence. Both are idempotent (`CREATE OR REPLACE` / `IF EXISTS`).
+
+**Operator rules — absolute:**
+
+1. **Rollback = image revert is SAFE** once 001 has been applied (it has, if
+   the current release ran its migrations). Revert the backend image; the old
+   code reads/writes `payment_configs` (the view) over the new table. No
+   schema action is needed for a rollback.
+2. **`db:sync` (sequelize `sync()`) must NEVER run against the migrated live
+   DB.** The legacy model's sync would attempt `CREATE TABLE payment_configs`
+   — colliding with the existing VIEW (name clash) — and an alter-style sync
+   could orphan/destroy rows through the view or fail mid-way. Any tool or
+   script path that calls sync must stay off production/staging DBs; this is
+   the standing rule from the §1.4 compat window, now R-16 hardened.
+3. **Migration 002's rollback rejects multi-account data LOUDLY.** `down()`
+   throws rather than recreating the legacy `UNIQUE(shop_id, gateway)` when a
+   shop holds several accounts on one gateway, and likewise for >1 `self-mfs`
+   rows per shop (no rows are ever dropped). If a rollback is demanded while
+   production holds multi-account data: (a) export the affected
+   `payment_accounts` rows; (b) reconcile manually to one row per
+   (shop, gateway) — merge credentials/config deliberately, keeping preferred
+   account IDs — or keep the current schema and roll forward instead;
+   (c) run `down()` only after the unique can legally hold. Re-running 001
+   after a partial 002 rollback is safe (guards + `IF NOT EXISTS`).
+4. **View hygiene:** the view exposes legacy columns only. If a future release
+   drops `gateway` dual-write (§1.4 window end), the compat view must be
+   dropped in the SAME migration that removes a listed column, and the
+   rollback floor must be re-pointed to an image that no longer needs it.
+5. Verification receipts for these pins live in the migration suite:
+   `20261127_001_payment_accounts.migration.test.js` (view creation, legacy
+   SELECT resolution, down-order, re-up idempotence, PG-only) and
+   `20261127_002_payment_account_constraints.migration.test.js` (F-1 release-
+   status coverage of the partial unique predicate).

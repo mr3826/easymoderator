@@ -14,9 +14,14 @@
  *       owner endpoints — every settlement guard stays byte-for-byte.
  *
  * Honesty rules enforced here:
- *  - The amount is always SERVER-recomputed (policy advance via
- *    payment-policy.computeAdvance against the zone delivery charge, else the
- *    full order total). A customer-supplied figure is never the claim amount.
+ *  - The amount is always SERVER-recomputed, and self-MFS claims collect the
+ *    FULL order total (2026-11-26 ruling, F1/BLOCK): an advance (partial)
+ *    claim number must never settle an order as fully paid, and nothing
+ *    enforces a "remainder on delivery" for self-MFS — so the claim amount IS
+ *    the order total. The shop's advance policy stays recorded in the claim
+ *    snapshot with the machine field amount_basis='full' that every surface
+ *    (chatbot copy, merchant UI) renders against. A customer-supplied figure
+ *    is never the claim amount.
  *  - A displayed-vs-server amount mismatch is RECORDED and SURFACED to the
  *    merchant (gateway_response + notification), never auto-accepted and
  *    never auto-rejected (D-7/R tolerance rule).
@@ -54,8 +59,9 @@ const TRXID_PATTERN = /^[A-Z0-9]{6,16}$/;
 const amountTolerance = (expected) => Math.max(5, Math.ceil((Number(expected) || 0) * 0.05));
 
 // OwnerNotification lifetime required by the §3.3 fix / D-10 ratified defect
-// correction: 24 h, after which handleOwnerResponse honestly returns 410 (D-4:
-// expired claims are SURFACED, never auto-failed).
+// correction: 24 h. F3/D-4 (2026-11-26): past expires_at the row is SURFACED
+// as 'expired' — approve/reject REMAIN functional (owner judgment outranks the
+// SLA); there is no 410 dead end, and expired claims are never auto-failed.
 const CLAIM_TTL_MS = 24 * 60 * 60 * 1000;
 
 // Optional screenshot: a URL string only — supporting evidence for the
@@ -211,11 +217,22 @@ async function resolvePaymentWallet(shopId, { provider = null } = {}) {
 
 // ── amount authority (§5.2 #1 — server-side, never customer-supplied) ────────
 /**
- * Compute what the customer must send NOW for this order under the shop's
- * advance policy: the policy advance when one exists (delivery_charge /
- * percentage / fixed with advance > 0), else the full order total
- * (none/full). REFERENCES the zone delivery charge passed in — never
- * recomputes a fee (§5.2 hard rule, delegated to payment-policy.computeAdvance).
+ * What the customer must send NOW for this order — the SERVER-side claim
+ * amount. RULING 2026-11-26 (F1/BLOCK): a self-MFS claim collects the FULL
+ * order total, NEVER the policy advance number — merchant approval settles the
+ * order as fully paid, so a partial claim amount would fabricate settlement of
+ * the unpaid remainder, and nothing in the self-MFS path enforces a
+ * "remaining X on delivery". (The gateway posture is unchanged: percentage/
+ * fixed policies still NEVER auto-initiate a gateway link — D-7 ratified.)
+ *
+ * The policy is still computed (via payment-policy.computeAdvance, which
+ * REFERENCES the zone delivery charge and never recomputes a fee, §5.2) and
+ * recorded in the snapshot, together with the machine field
+ * amount_basis='full' that chatbot and merchant surfaces render honest copy
+ * against (copy keys themselves are frontend-owned).
+ *
+ * @returns {Promise<{amount: number, partial: false, amount_basis: 'full',
+ *          policy_advance: boolean, snapshot: object}>}
  */
 async function computeClaimAmount(shopId, { orderTotal, deliveryCharge }) {
     const total = Number(orderTotal) || 0;
@@ -235,17 +252,19 @@ async function computeClaimAmount(shopId, { orderTotal, deliveryCharge }) {
         // total rather than inventing a partial amount.
         computed = { policy: 'none', advance_amount: 0, remainder: total, note: 'policy_unreadable_full_total' };
     }
-    const partial = ['delivery_charge', 'percentage', 'fixed'].includes(computed.policy)
+    const policyAdvance = ['delivery_charge', 'percentage', 'fixed'].includes(computed.policy)
         && Number(computed.advance_amount) > 0;
-    const amount = partial ? computed.advance_amount : total;
     return {
-        amount,
-        partial,
+        amount: total,                   // F1 ruling: claims collect the full total
+        partial: false,                  // no self-MFS partial collection exists
+        amount_basis: 'full',            // machine field surfaces render against
+        policy_advance: policyAdvance,   // the shop's policy wanted an advance (display truth only)
         snapshot: {
             policy: computed.policy,
             value: Number.isInteger(policy.advance_value) ? policy.advance_value : null,
             advance_amount: computed.advance_amount,
             remainder: computed.remainder,
+            amount_basis: 'full',
             snapshot_at: new Date().toISOString(),
             ...(computed.note ? { note: computed.note } : {}),
         },
@@ -351,8 +370,14 @@ async function performClaim({
         }
     }
 
-    // 4. Server-side amount authority + tolerance (§3.2-3, D-7).
-    const { amount: expectedAmount, partial, snapshot } = await computeClaimAmount(shopId, {
+    // 4. Server-side amount authority + tolerance (§3.2-3, D-7). F1/BLOCK
+    //    ruling: expectedAmount is the FULL order total — an advance-policy
+    //    shop still shows its policy via the snapshot with amount_basis='full'.
+    const {
+        amount: expectedAmount,
+        policy_advance: policyAdvance,
+        snapshot,
+    } = await computeClaimAmount(shopId, {
         orderTotal: order.total,
         deliveryCharge: order.delivery_fee,
     });
@@ -385,59 +410,122 @@ async function performClaim({
         return { created: false, duplicate: true, reason: existingDup, trxId, duplicateReply: { bn: duplicateReply.bn(trxId), en: duplicateReply.en(trxId) } };
     }
 
-    // TrxIDLog FIRST — audit ledger; nothing is "verified" here.
-    try {
-        await TrxIDLog.create({
-            shop_id: shopId,
-            order_id: order.id,
-            trx_id: trxId,
-            mfs_type: wallet.provider,
-            amount: expectedAmount,
-            sender_phone: senderPhone,
-            receiver_phone: wallet.number,
-            ocr_raw: null,
-            verified_at: null,
-        });
-    } catch (err) {
-        if (isUniqueViolation(err)) {
-            return { created: false, duplicate: true, reason: 'trx_id_log', trxId, duplicateReply: { bn: duplicateReply.bn(trxId), en: duplicateReply.en(trxId) } };
-        }
-        // Fail CLOSED exactly like the merchant-side helper: no audit ledger
-        // row means no claim, no notification, no pending transaction.
-        const { AppError } = require('../../utils/AppError');
-        throw new AppError('Payment claim could not be recorded. Please try again.', 500, 'PAYMENT_CLAIM_AUDIT_WRITE_FAILED');
-    }
-
     const gatewayResponse = {
         source: 'self_mfs_claim',
         sender_phone: senderPhone,
         ...(screenshot ? { screenshot_url: screenshot, screenshot_evidence: 'supporting_only' } : {}),
         wallet_number: wallet.number,
-        ...(partial ? { payment_policy: snapshot, amount_kind: 'advance' } : {}),
+        // F1 ruling: the claim collects the full total; an advance-policy shop
+        // still rides its snapshot for honest merchant review, with the
+        // amount_basis='full' machine field inside it.
+        ...(policyAdvance ? { payment_policy: snapshot, amount_kind: 'full' } : {}),
         ...(amountMismatch ? { amount_mismatch: amountMismatch } : {}),
         ...(accountStale ? { account_stale: true } : {}),
         ...(sessionId ? { order_session_id: sessionId } : {}),
     };
 
-    let transaction;
-    try {
-        transaction = await PaymentTransaction.create({
-            order_id: order.id,
-            shop_id: shopId,
-            payment_method: wallet.provider,
-            payment_gateway: null,
-            transaction_id: trxId,
-            amount: expectedAmount,
-            status: CLAIM_STATUS,
-            payment_account_id: wallet.account_id || null,
-            gateway_response: gatewayResponse,
-        });
-    } catch (err) {
-        if (isUniqueViolation(err)) {
-            return { created: false, duplicate: true, reason: 'payment_transaction', trxId, duplicateReply: { bn: duplicateReply.bn(trxId), en: duplicateReply.en(trxId) } };
+    // TrxIDLog FIRST — audit ledger; nothing is "verified" here.
+    //
+    // F-9 (A9-R2, 2026-11-26): the ledger + PaymentTransaction writes are now
+    // ATOMIC. Previously they were two independent inserts: when the txn
+    // insert failed (DB error, or a legacy duplicate on (shop, transaction_id)
+    // that the pre-check raced past), the LEDGER ROW STAYED — permanently
+    // BURNING a legitimate TrxID: every honest retry hit the ledger-duplicate
+    // reply while no claim row ever existed. Now: one sequelize transaction
+    // when the driver supports it (both inserts commit or neither does);
+    // otherwise a compensating delete of the ledger row on any txn-write
+    // failure, so a failed claim never poisons the customer's TrxID.
+    const ledgerPayload = {
+        shop_id: shopId,
+        order_id: order.id,
+        trx_id: trxId,
+        mfs_type: wallet.provider,
+        amount: expectedAmount,
+        sender_phone: senderPhone,
+        receiver_phone: wallet.number,
+        ocr_raw: null,
+        verified_at: null,
+    };
+    const txnPayload = {
+        order_id: order.id,
+        shop_id: shopId,
+        payment_method: wallet.provider,
+        payment_gateway: null,
+        transaction_id: trxId,
+        amount: expectedAmount,
+        status: CLAIM_STATUS,
+        payment_account_id: wallet.account_id || null,
+        gateway_response: gatewayResponse,
+    };
+    const duplicateResult = (reason) => ({
+        created: false, duplicate: true, reason, trxId,
+        duplicateReply: { bn: duplicateReply.bn(trxId), en: duplicateReply.en(trxId) },
+    });
+
+    const driver = (TrxIDLog.sequelize && typeof TrxIDLog.sequelize.transaction === 'function')
+        ? TrxIDLog.sequelize
+        : (PaymentTransaction.sequelize && typeof PaymentTransaction.sequelize.transaction === 'function'
+            ? PaymentTransaction.sequelize
+            : null);
+
+    let transaction = null;
+    if (driver) {
+        // Atomic path: a failed txn insert rolls the ledger insert back WITH IT
+        // (no burned TrxID, no orphan audit row).
+        try {
+            transaction = await driver.transaction(async (t) => {
+                await TrxIDLog.create(ledgerPayload, { transaction: t });
+                return PaymentTransaction.create(txnPayload, { transaction: t });
+            });
+        } catch (err) {
+            if (isUniqueViolation(err)) {
+                // Race with a concurrent claim: one of the two rows already
+                // exists — the duplicate reply stays honest, and the rollback
+                // guarantees WE left no new ledger row behind.
+                const reason = (await duplicateExisting()) || 'trx_id_log';
+                return duplicateResult(reason);
+            }
+            const { AppError } = require('../../utils/AppError');
+            throw new AppError('Payment claim could not be recorded. Please try again.', 500, 'PAYMENT_CLAIM_WRITE_FAILED');
         }
-        const { AppError } = require('../../utils/AppError');
-        throw new AppError('Payment claim could not be recorded. Please try again.', 500, 'PAYMENT_CLAIM_WRITE_FAILED');
+    } else {
+        // Degraded surface (mocks / driver without transactions): keep the
+        // ledger-first order, add the compensating delete (F-9).
+        let ledger;
+        try {
+            ledger = await TrxIDLog.create(ledgerPayload);
+        } catch (err) {
+            if (isUniqueViolation(err)) {
+                return duplicateResult('trx_id_log');
+            }
+            // Fail CLOSED exactly like the merchant-side helper: no audit ledger
+            // row means no claim, no notification, no pending transaction.
+            const { AppError } = require('../../utils/AppError');
+            throw new AppError('Payment claim could not be recorded. Please try again.', 500, 'PAYMENT_CLAIM_AUDIT_WRITE_FAILED');
+        }
+        const releaseLedgerRow = async () => {
+            try {
+                if (ledger && typeof ledger.destroy === 'function') await ledger.destroy();
+                else if (typeof TrxIDLog.destroy === 'function') {
+                    await TrxIDLog.destroy({ where: { shop_id: shopId, trx_id: trxId } });
+                }
+            } catch (cleanupErr) {
+                // Loud: the only remaining failure mode for a burned TrxID.
+                console.error('[PaymentClaim] compensating ledger delete FAILED — TrxID needs manual cleanup', {
+                    orderId: order.id, shopId, errorCode: String(cleanupErr?.code || 'LEDGER_COMPENSATION_FAILED'),
+                });
+            }
+        };
+        try {
+            transaction = await PaymentTransaction.create(txnPayload);
+        } catch (err) {
+            await releaseLedgerRow();
+            if (isUniqueViolation(err)) {
+                return duplicateResult('payment_transaction');
+            }
+            const { AppError } = require('../../utils/AppError');
+            throw new AppError('Payment claim could not be recorded. Please try again.', 500, 'PAYMENT_CLAIM_WRITE_FAILED');
+        }
     }
 
     // 6. Merchant notification through the FIXED sendPaymentConfirmationRequest
@@ -458,7 +546,12 @@ async function performClaim({
             screenshotUrl: screenshot,
             customerMessage: message,
             claim_amount: expectedAmount,
-            amount_kind: partial ? 'advance' : 'full',
+            // F1 ruling: a self-MFS claim is a FULL-total claim — the merchant
+            // approving it settles the whole order. amount_basis is the machine
+            // field the merchant UI renders copy against.
+            amount_kind: 'full',
+            amount_basis: 'full',
+            policy_advance: policyAdvance,
             amount_mismatch: amountMismatch,
             wallet_number: wallet.number,
         });
@@ -480,7 +573,9 @@ async function performClaim({
         trxId,
         transactionId: transaction.id,
         amount: expectedAmount,
-        amountKind: partial ? 'advance' : 'full',
+        amountKind: 'full',   // F1 ruling: claims collect the full total
+        amountBasis: 'full',
+        policyAdvance,
         provider: wallet.provider,
         paymentAccountId: wallet.account_id || null,
         accountStale,

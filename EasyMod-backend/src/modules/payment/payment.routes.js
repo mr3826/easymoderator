@@ -15,6 +15,7 @@ const {
     paymentPolicyBodyValidator,
     transactionIdParamValidator,
     refundValidator,
+    createSelfMfsClaimValidator,
 } = require('./payment.validator');
 const validate = require('../../middleware/validate.middleware');
 
@@ -71,7 +72,11 @@ router.patch('/policy', authenticate, verifyShopAccess, requireOwner, validate({
 router.post('/transactions/:id/refund', authenticate, verifyShopAccess, requireOwner, validate({ params: transactionIdParamValidator, body: refundValidator }), paymentController.refundPaymentTransaction);
 
 // ── Self-MFS claim (dispatch to A4, §3.2) — created during checkout, not a settings UI ──
-router.post('/claims', authenticate, verifyShopAccess, paymentController.createSelfMfsClaim);
+// F-7 (A9-R2): edge shape validation (uuid order id + ^[A-Z0-9]{6,16}$ trx id
+// + optional sender/screenshot/message bounds). ALL business rules stay in
+// payment-claim.service (defense in depth); this only stops malformed payloads
+// from reaching the service/DB and surfacing a 500 instead of a 400.
+router.post('/claims', authenticate, verifyShopAccess, validate({ body: createSelfMfsClaimValidator }), paymentController.createSelfMfsClaim);
 
 
 module.exports = router;

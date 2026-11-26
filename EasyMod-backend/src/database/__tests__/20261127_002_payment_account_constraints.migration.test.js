@@ -94,6 +94,29 @@ describe('20261127_002_payment_account_constraints', () => {
         expect(preflight).not.toMatch(/payment_claimed/);
     });
 
+    // F-1(b) (A9-R2, 2026-11-26) — MIGRATION-TEST DOCUMENTATION PIN:
+    // the webhook claim-release status is 'initiated' (see
+    // payment-webhook.controller.js CLAIM_RELEASE_STATUS). That choice is
+    // pinned here because the partial unique idx_payment_txn_one_active_attempt_per_order
+    // is one of the three duplicate-charge guards the release target must be
+    // visible to: 'initiated' IS inside the predicate, 'pending' is NOT.
+    // If the predicate ever changes, CLAIM_RELEASE_STATUS and the reconciler
+    // scan set must change WITH it — all three layers (service 409 over
+    // ACTIVE_ATTEMPT_STATUSES, this index, reconcileStaleGatewayAttempts)
+    // must cover the released status simultaneously.
+    test('F-1: the partial unique predicate covers the webhook release status', async () => {
+        const s = makeSequelize();
+        await migration.up(s);
+        const idx = s.calls.find((sql) => /CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_txn_one_active_attempt_per_order/.test(sql));
+        expect(idx).toMatch(/status IN \('initiated','processing'\)/);
+        expect(idx).toContain("'initiated'");            // == CLAIM_RELEASE_STATUS
+        expect(idx).not.toContain("'pending'");          // the OLD release target — deliberately excluded
+        // pre-flight uses the same predicate shape:
+        const preflight = s.calls.find((sql) => /GROUP BY order_id/.test(sql));
+        expect(preflight).toContain("'initiated'");
+        expect(preflight).not.toContain("'pending'");
+    });
+
     test('REFUSES to enforce when payment_transactions already duplicate (shop, transaction_id)', async () => {
         const s = makeSequelize({ txnDupes: [{ shop_id: 'x', transaction_id: 'T1', occurrences: 2 }] });
         await expect(migration.up(s)).rejects.toThrow(/duplicated rows exist/i);

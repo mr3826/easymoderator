@@ -79,11 +79,11 @@ router.get(
 
             const shopId = req.user?.shopId || req.shopId;
             const limit = Number(req.query.limit || 20);
-            const notifications = await OwnerNotification.findAll({
-                where: { shop_id: shopId },
-                order: [['created_at', 'DESC']],
-                limit
-            });
+            // F3/D-4 (2026-11-26): the list read goes through the service so the
+            // expiry writer runs on read — past-expiry payment confirmations
+            // surface as 'expired', never a stale 'pending', and remain
+            // actionable (owner judgment outranks the SLA; D-4 ratified).
+            const notifications = await ownerNotificationService.listShopNotifications(shopId, { limit });
 
             res.json({ success: true, data: notifications });
         } catch (error) {

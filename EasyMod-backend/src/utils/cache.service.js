@@ -289,6 +289,73 @@ class CacheService {
         return redis.incrby(rawKey, amount);
     }
 
+    // ─── F-3 (A9-R2, 2026-11-26): atomic rolling-budget consumption ──────────
+    //
+    // One EVAL command performs ZREMRANGEBYSCORE → ZCARD → ZADD → PEXPIRE, so
+    // the ≤2-per-rolling-hour provider hammer budget can NEVER be checked and
+    // written non-atomically (the old get→filter→push→set sequence let two
+    // concurrent grants both observe "0 used" and consume "1" — zero slots
+    // actually recorded for two real grants). Unlike every other helper here,
+    // this one does NOT swallow Redis failures: provider-hammer protection
+    // must fail CLOSED, so an unavailable/erroring Redis THROWS and the caller
+    // must refuse the grant.
+    static GRANT_WINDOW_LUA = `
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local max = tonumber(ARGV[3])
+local member = ARGV[4]
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+local count = redis.call('ZCARD', key)
+if count >= max then
+  return -1
+end
+redis.call('ZADD', key, now, member)
+redis.call('PEXPIRE', key, window + 1000)
+return count + 1
+`;
+
+    /**
+     * Consume one slot of a rolling-window budget atomically.
+     * @returns {Promise<number>} 1-based slot index, or -1 when spent.
+     * @throws when the budget state cannot be reliably read OR written
+     *         (fail-closed by contract — callers refuse the action).
+     */
+    async consumeSlotForShopStrict(shopId, key, { max, windowMs, member, now = Date.now() }) {
+        if (!(Number(max) >= 1) || !(Number(windowMs) >= 1000) || !member) {
+            throw new Error('consumeSlotForShopStrict requires max>=1, windowMs>=1000 and a member token');
+        }
+        const rawKey = this._tenantKey(shopId, key);
+        if (cacheRedis && cacheRedis._isMemoryFallback === true) {
+            // Dev/test fallback (single process): replay the Lua steps on the
+            // memory ZSET shim. Each fallback method resolves without real I/O;
+            // this path is explicitly documented NOT cross-process-safe
+            // (config/redis.js header) and only local runs can observe its
+            // microtask interleave — the real-Redis EVAL below is atomic.
+            const window = Number(windowMs);
+            await cacheRedis.zremrangebyscore(rawKey, '-inf', now - window);
+            const count = await cacheRedis.zcard(rawKey);
+            if (count >= max) return -1;
+            await cacheRedis.zadd(rawKey, now, member);
+            return count + 1;
+        }
+        // Real Redis: one EVAL round-trip, atomic server-side. NO catch here:
+        // connection loss / non-ready status / EVAL rejection all THROW.
+        const redis = await this._getStrictRedis();
+        if (typeof redis.eval !== 'function') {
+            throw new Error('Redis EVAL unavailable — atomic budget cannot be verified');
+        }
+        const result = await redis.eval(
+            CacheService.GRANT_WINDOW_LUA, 1, rawKey,
+            String(now), String(Math.ceil(windowMs)), String(Math.floor(max)), String(member),
+        );
+        const slot = Number(result);
+        if (!Number.isInteger(slot)) {
+            throw new Error('Unexpected EVAL reply for rolling budget — refusing open');
+        }
+        return slot;
+    }
+
     /**
      * Atomically claim a tenant-scoped key for a TTL. Used for notification
      * dedupe where a get-then-set sequence would allow concurrent workers to

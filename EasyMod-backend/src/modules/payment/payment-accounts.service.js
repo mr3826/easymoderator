@@ -20,6 +20,7 @@
  * functions are delegated to their own service modules (loaded lazily so this
  * module and its tests do not depend on files other roles still own).
  */
+const { Op } = require('sequelize');
 const { PaymentConfig, PaymentAccountVerification, UserShop, Shop } = require('../entities');
 const { AppError } = require('../../utils/AppError');
 const taxonomy = require('./payment-taxonomy');
@@ -135,6 +136,68 @@ const validateCredentialsForKind = ({ provider, accountType, credentials, isEnab
     return normalized;
 };
 
+// ── gateway password merge (M8, 2026-11-26) — "blank means keep" ─────────────
+/**
+ * bKash merchant_gateway credentials carry a stored `password` the form never
+ * re-echoes (write-only secret). On a REPLACE payload, an incoming credentials
+ * object that omits `password` or sends it blank/empty must KEEP the stored one
+ * instead of dropping it. A non-empty value replaces as normal. Returns the
+ * (possibly merged) object for validation; non-objects pass through untouched.
+ */
+function mergeGatewayPassword(incoming, stored) {
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return incoming;
+    const storedPassword = stored && typeof stored === 'object' ? stored.password : null;
+    const sent = typeof incoming.password === 'string' ? incoming.password.trim() : incoming.password;
+    if (storedPassword && (incoming.password == null || sent === '')) {
+        return { ...incoming, password: storedPassword };
+    }
+    return incoming;
+}
+
+// ── environment-change ladder invalidation (F-2(c), A9-R2 2026-11-26) ───────
+/**
+ * config.environment is the account's PROVEN posture: the sandbox handshake
+ * (§2.2) was exercised against it and — since A9-R2 — live certification
+ * REQUIRES it to be explicitly 'production' (§2.3). Changing it therefore
+ * invalidates every ladder rung above `configured_unverified` exactly like a
+ * credential write does: a sandbox_verified/live_certified stamp earned in one
+ * environment says NOTHING about the other. Mirrors the credentials-change
+ * policy (demote + append-only record), and additionally clears the Redis
+ * token/grant cache — an id_token minted against the OLD environment's
+ * credentials must never ride into the new one.
+ *
+ * Precedence: if the SAME write also changed credentials (demoted to
+ * `unverified`), the stronger demotion is KEPT — an environment flip must
+ * never soft-demote back up to configured_unverified.
+ */
+const envOf = (config) => String(config?.environment ?? '').trim().toLowerCase();
+async function applyEnvironmentChangeDemotion(account, nextConfig, userId) {
+    const from = envOf(account.config);
+    const to = envOf(nextConfig);
+    if (from === to) {
+        account.config = nextConfig;
+        return false;
+    }
+    account.config = nextConfig;
+    if (account.verification_level !== DEMOTED_LEVEL) {
+        account.verification_level = DEFAULT_CONFIGURED_LEVEL;
+    }
+    await appendVerificationRecord({
+        paymentAccountId: account.id, level: account.verification_level, method: 'configured',
+        performedByUserId: userId, providerEnvironment: to || 'unknown',
+        evidence: { reason: 'environment_changed', from: from || null, to: to || null },
+    });
+    // Token cache belongs to the old environment. The demotion (security act)
+    // is already written; a cache that cannot be reached must not abort the
+    // save — tokens expire within their TTL (3500 s) and every money path
+    // re-checks the ladder level on load.
+    try {
+        const tokenized = lazyRequire('./bkash-tokenized.service');
+        if (tokenized?.client?.clearTokenCache) await tokenized.client.clearTokenCache(account);
+    } catch (_) { /* bounded staleness by TTL, ladder already demoted */ }
+    return true;
+}
+
 // ── list ────────────────────────────────────────────────────────────────────
 async function listPaymentAccounts(shopId, userId) {
     await verifyShopAccess(userId, shopId);
@@ -170,12 +233,19 @@ async function savePaymentAccount(shopId, userId, payload = {}) {
     }
     const isEnabled = payload.is_enabled === undefined ? undefined : Boolean(payload.is_enabled);
 
-    const normalizedCredentials = validateCredentialsForKind({
-        provider, accountType, credentials: payload.credentials, isEnabled: isEnabled === true,
-    });
-
     const existing = await PaymentConfig.findOne({
         where: { shop_id: shopId, provider, account_type: accountType },
+    });
+
+    // M8 (2026-11-26): an upsert REPLACE on an existing gateway row follows the
+    // same blank-means-keep rule as the PATCH — a payload that omits/empties
+    // the stored password keeps it instead of silently dropping the secret.
+    const credentialsInput = (accountType === GATEWAY_ACCOUNT_TYPE && existing)
+        ? mergeGatewayPassword(payload.credentials, existing.credentials)
+        : payload.credentials;
+
+    const normalizedCredentials = validateCredentialsForKind({
+        provider, accountType, credentials: credentialsInput, isEnabled: isEnabled === true,
     });
 
     let account;
@@ -194,7 +264,12 @@ async function savePaymentAccount(shopId, userId, payload = {}) {
             // enabling a wallet with no stored credentials must not pass (§7 row 3).
             if (provider !== 'cod') throw new AppError('Cannot enable a wallet account without credentials', 400);
         }
-        if (payload.config !== undefined) existing.config = payload.config;
+        if (payload.config !== undefined) {
+            // F-2(c): same environment-flip invalidation on the upsert REPLACE
+            // path (a POST /accounts with a flipped environment must not slip
+            // past the PATCH guard — one policy, both writers).
+            await applyEnvironmentChangeDemotion(existing, payload.config, userId);
+        }
         existing.provider = provider;
         existing.account_type = accountType;
         existing.gateway = legacyGatewayFor(provider); // §1.4 dual-write
@@ -246,10 +321,22 @@ async function updatePaymentAccount(shopId, userId, accountId, patch = {}) {
     const accountType = account.account_type || (provider === 'cod' ? COD_ACCOUNT_TYPE : null);
 
     if (patch.credentials !== undefined && patch.credentials !== null) {
+        // M8 (2026-11-26) — BLANK MEANS KEEP, documented contract: the settings
+        // form treats the gateway password as a write-only secret. A replace
+        // payload for a merchant_gateway account that OMITS `password` (or
+        // sends it empty) merges the stored password back in instead of
+        // dropping it — a no-op secret edit must neither break the merchant's
+        // Tokenized credentials nor falsely demote the ladder. A non-empty
+        // incoming password still REPLACES, and any real field change still
+        // demotes exactly as before (credentialsComplete semantics untouched —
+        // the ladder demotes on actual credential changes).
+        const credentialsInput = accountType === GATEWAY_ACCOUNT_TYPE
+            ? mergeGatewayPassword(patch.credentials, account.credentials)
+            : patch.credentials;
         const normalized = validateCredentialsForKind({
             provider,
             accountType,
-            credentials: patch.credentials,
+            credentials: credentialsInput,
             isEnabled: patch.is_enabled !== undefined ? Boolean(patch.is_enabled) : account.is_enabled,
         });
         const changed = JSON.stringify(normalized || {}) !== JSON.stringify(account.credentials || {});
@@ -263,7 +350,12 @@ async function updatePaymentAccount(shopId, userId, accountId, patch = {}) {
             });
         }
     }
-    if (patch.config !== undefined) account.config = patch.config;
+    if (patch.config !== undefined) {
+        // F-2(c) (A9-R2): ANY change to config.environment demotes the ladder
+        // (configured_unverified event 'environment_changed') + clears the
+        // account token/grant cache — the credentials-change policy mirror.
+        await applyEnvironmentChangeDemotion(account, patch.config, userId);
+    }
     if (patch.is_enabled !== undefined) {
         const nextEnabled = Boolean(patch.is_enabled);
         if (nextEnabled && provider !== 'cod' && (!account.credentials || Object.keys(account.credentials).length === 0)) {
@@ -281,6 +373,49 @@ async function deletePaymentAccount(shopId, userId, accountId) {
     await verifyShopAccess(userId, shopId);
     const account = await PaymentConfig.findOne({ where: { id: accountId, shop_id: shopId } });
     if (!account) throw new AppError('Payment account not found', 404);
+
+    // F4 delete safety (2026-11-26): this account is the STAMPED receiver of
+    // every claim recorded against it. Verified FK behavior (migration
+    // 20261127_001): payment_transactions.payment_account_id → ON DELETE SET
+    // NULL (transaction history survives; only the account stamp goes null),
+    // orders.payment_method_id → SET NULL, and payment_account_verifications →
+    // ON DELETE CASCADE (the append-only ladder-evidence ledger leaves with the
+    // account). The cascade is acceptable ONLY for TERMINAL references: while
+    // a NON-TERMINAL payment_transaction (pending / initiated / processing /
+    // payment_claimed — the taxonomy's awaiting-owner-confirmation set, single
+    // source, never a local array) still points here, deleting would strand a
+    // live claim from its verification evidence mid-judgment. Refuse clearly;
+    // historical-only references remain deletable.
+    const { PaymentTransaction } = require('../entities');
+    if (!PaymentTransaction || typeof PaymentTransaction.count !== 'function') {
+        // Fail CLOSED: an unverifiable account is never silently destroyed.
+        throw new AppError(
+            'Payment account usage cannot be verified right now — nothing was deleted',
+            503, 'ACCOUNT_USAGE_CHECK_UNAVAILABLE',
+        );
+    }
+    let openReferences;
+    try {
+        openReferences = await PaymentTransaction.count({
+            where: {
+                payment_account_id: accountId,
+                status: { [Op.in]: taxonomy.APPROVABLE_STATUSES },
+            },
+        });
+    } catch (_) {
+        throw new AppError(
+            'Payment account usage check failed — nothing was deleted',
+            503, 'ACCOUNT_USAGE_CHECK_UNAVAILABLE',
+        );
+    }
+    if (Number(openReferences) > 0) {
+        throw new AppError(
+            `This payment account still has ${Number(openReferences)} unsettled payment transaction(s). `
+            + 'Settle them (approve/reject) first, or disable the account instead of deleting it.',
+            409, 'ACCOUNT_IN_USE',
+        );
+    }
+
     await account.destroy();
     await syncBdFromAccounts(shopId).catch(() => {});
     return { success: true, message: 'Payment account deleted' };
@@ -378,6 +513,7 @@ async function syncBdFromAccounts(shopId) {
         const accountType = row.account_type
             || (normalizeAccountType(creds.mfs_mode, provider) || (provider === 'cod' ? COD_ACCOUNT_TYPE : 'self'));
         wallets.push({
+            account_id: row.id,
             provider,
             account_type: accountType,
             number,
@@ -385,6 +521,18 @@ async function syncBdFromAccounts(shopId) {
             is_preferred: Boolean(row.is_preferred),
         });
     }
+
+    // M7 (2026-11-26): DETERMINISTIC tie-break, the exact comparator of
+    // payment-claim.resolvePaymentWallet (§6): preferred → provider →
+    // account_id (locale-sorted). Without it the legacy `bd.mfs_*` mirror
+    // (self-mfs-handler + owner-notification + AI operating context read it)
+    // could elect a DIFFERENT wallet than the number the chatbot displays —
+    // two "preferred" truths for the same shop.
+    wallets.sort((a, b) => (
+        (Number(b.is_preferred) - Number(a.is_preferred))
+        || String(a.provider).localeCompare(String(b.provider))
+        || String(a.account_id).localeCompare(String(b.account_id))
+    ));
 
     const preferred = wallets.find((w) => w.is_preferred) || wallets[0] || null;
 
@@ -481,5 +629,5 @@ module.exports = {
     certifyLiveAccount,
     refundPaymentTransaction,
     createSelfMfsClaim,
-    _private: { verifyShopAccess, validateCredentialsForKind, delegate, lazyRequire },
+    _private: { verifyShopAccess, validateCredentialsForKind, mergeGatewayPassword, delegate, lazyRequire },
 };

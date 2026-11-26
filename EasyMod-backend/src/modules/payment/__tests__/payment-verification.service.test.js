@@ -63,10 +63,16 @@ beforeEach(() => {
     mockAccounts.writeLadderLevel.mockImplementation(async (id, level) => ({ id, verification_level: level }));
 });
 
-const GATEWAY_ACCOUNT = () => ({
+const GATEWAY_ACCOUNT = (over = {}) => ({
     id: 'acc-gw', shop_id: 'shop-1', provider: 'bkash', account_type: 'merchant_gateway',
     verification_level: 'configured_unverified', is_enabled: true,
     credentials: { app_key: 'AK', app_secret: 'AS', username: 'u@x', password: 'pw', mfs_type: 'bkash', mfs_mode: 'business' },
+    // F-2(a) (A9-R2): certification requires the EXPLICIT production posture
+    // recorded on the row itself (config.environment). Most ladder tests are
+    // environment-agnostic (resolveEnvironment is mocked), but certify-live
+    // pins read this — fixtures override via `over`.
+    config: { environment: 'production' },
+    ...over,
 });
 
 // ── provider-inert wallets (§2, R-12/R-13) ──────────────────────────────────
@@ -227,6 +233,18 @@ describe('verifyPaymentAccount — bKash merchant_gateway ladder rules', () => {
         expect(mockAccounts.appendVerificationRecord).not.toHaveBeenCalled();
     });
 
+    test('F-3: fail-closed GRANT_BUDGET_UNAVAILABLE propagates as 503 (never relabeled PROVIDER_UNREACHABLE)', async () => {
+        mockPaymentConfig.findOne.mockResolvedValue(GATEWAY_ACCOUNT());
+        setEnv({ BKASH_ENABLED: 'true' });
+        const { AppError } = require('../../../utils/AppError');
+        mockTokenized.client.grantToken.mockRejectedValue(new AppError('rate-limit state down', 503, 'GRANT_BUDGET_UNAVAILABLE'));
+
+        await expect(service.verifyPaymentAccount('shop-1', 'user-1', 'acc-gw'))
+            .rejects.toMatchObject({ status: 503, code: 'GRANT_BUDGET_UNAVAILABLE' });
+        expect(mockAccounts.appendVerificationRecord).not.toHaveBeenCalled();
+        expect(mockAccounts.writeLadderLevel).not.toHaveBeenCalled();
+    });
+
     test('provider 401 → credentials_invalid recorded; ladder untouched', async () => {
         mockPaymentConfig.findOne.mockResolvedValue(GATEWAY_ACCOUNT());
         setEnv({ BKASH_ENABLED: 'true' });
@@ -313,12 +331,76 @@ describe('certifyLiveAccount — recorded, never self-declared', () => {
             .rejects.toMatchObject({ status: 409, code: 'LADDER_CEILING' });
     });
 
-    test('only a sandbox_verified gateway account can be certified (§2.3)', async () => {
+    // ── F-2(a) (A9-R2, 2026-11-26): the sandbox_verified PREREQUISITE IS GONE ──
+    // §2.2 forbids running the sandbox handshake on production credentials, so
+    // a production-only merchant could never certify while §2.3 required the
+    // sandbox rung — a ladder contradiction A9 confirmed. Certification is now
+    // gated on the EXPLICIT production posture recorded on the row.
+
+    test('F-2(a): certify is REFUSED when config.environment is unset (legacy row) — honest 400', async () => {
+        mockPaymentConfig.findOne.mockResolvedValue({
+            ...GATEWAY_ACCOUNT({ config: undefined }), verification_level: 'sandbox_verified',
+        });
+        await expect(service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'bKash onboarding email 2026-11-30'))
+            .rejects.toMatchObject({ status: 400, code: 'PROVIDER_ENVIRONMENT_NOT_PRODUCTION' });
+        expect(mockAccounts.writeLadderLevel).not.toHaveBeenCalled();
+        expect(mockAccounts.appendVerificationRecord).not.toHaveBeenCalled();
+        expect(mockAuditLog.create).not.toHaveBeenCalled();
+    });
+
+    test('F-2(a): certify is REFUSED for a sandbox-environment account (posture mismatch)', async () => {
+        mockPaymentConfig.findOne.mockResolvedValue({
+            ...GATEWAY_ACCOUNT({ config: { environment: 'sandbox' } }), verification_level: 'sandbox_verified',
+        });
+        await expect(service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'bKash onboarding email 2026-11-30'))
+            .rejects.toMatchObject({ status: 400, code: 'PROVIDER_ENVIRONMENT_NOT_PRODUCTION' });
+        expect(mockAccounts.writeLadderLevel).not.toHaveBeenCalled();
+    });
+
+    test('F-2(a): certify SUCCEEDS from configured_unverified with explicit production (no sandbox rung needed)', async () => {
         mockPaymentConfig.findOne.mockResolvedValue({
             ...GATEWAY_ACCOUNT(), verification_level: 'configured_unverified',
         });
-        await expect(service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'bKash onboarding email 2026-11-30'))
-            .rejects.toMatchObject({ status: 409, code: 'SANDBOX_HANDSHAKE_REQUIRED' });
+        mockAuditLog.create.mockResolvedValue({});
+
+        const res = await service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'bKash production go-live email 2026-11-26');
+        expect(res.verification_level).toBe('live_certified');
+        expect(mockAccounts.writeLadderLevel).toHaveBeenCalledWith('acc-gw', 'live_certified');
+    });
+
+    test('F-2(a): unverified rung is also certifiable from production posture; an unknown/archived rung is refused', async () => {
+        mockPaymentConfig.findOne.mockResolvedValue({
+            ...GATEWAY_ACCOUNT(), verification_level: 'unverified',
+        });
+        await expect(service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'provider approval letter'))
+            .resolves.toMatchObject({ verification_level: 'live_certified' });
+
+        mockPaymentConfig.findOne.mockResolvedValue({
+            ...GATEWAY_ACCOUNT(), verification_level: 'archived',
+        });
+        await expect(service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'provider approval letter'))
+            .rejects.toMatchObject({ status: 409, code: 'LADDER_STATE_NOT_CERTIFIABLE' });
+    });
+
+    test('F-2(a): an already live_certified row refuses re-certification instead of double-recording', async () => {
+        mockPaymentConfig.findOne.mockResolvedValue({
+            ...GATEWAY_ACCOUNT(), verification_level: 'live_certified',
+        });
+        await expect(service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'another email'))
+            .rejects.toMatchObject({ status: 409, code: 'ALREADY_LIVE_CERTIFIED' });
+    });
+
+    test('F-2(a): recorded providerEnvironment must EQUAL the resolved environment — mismatch aborts honestly', async () => {
+        // config says production but resolution disagrees (defensive seam —
+        // guards the ledger against a hardcoded 'production' attestation).
+        mockPaymentConfig.findOne.mockResolvedValue({
+            ...GATEWAY_ACCOUNT(), verification_level: 'configured_unverified',
+        });
+        mockTokenized.resolveEnvironment.mockReturnValueOnce('sandbox');
+        await expect(service.certifyLiveAccount('shop-1', 'user-1', 'acc-gw', 'provider approval letter'))
+            .rejects.toMatchObject({ status: 500, code: 'PROVIDER_ENVIRONMENT_MISMATCH' });
+        expect(mockAccounts.writeLadderLevel).not.toHaveBeenCalled();
+        expect(mockAccounts.appendVerificationRecord).not.toHaveBeenCalled();
     });
 
     test('empty evidence is rejected (§2.3)', async () => {
@@ -339,13 +421,17 @@ describe('certifyLiveAccount — recorded, never self-declared', () => {
         expect(mockAccounts.appendVerificationRecord).toHaveBeenCalledWith(expect.objectContaining({
             level: 'live_certified',
             method: 'certify_live',
-            providerEnvironment: 'production',
+            providerEnvironment: 'production', // == resolved, NOT a bare hardcode (see mismatch pin)
             evidence: expect.objectContaining({ source: 'owner_recorded', self_declared: false }),
         }));
         expect(mockAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
             action: 'payment_account_live_certified',
             resource_type: 'payment_account',
             resource_id: 'acc-gw',
+            metadata: expect.objectContaining({
+                provider_environment: 'production',
+                level_before: 'sandbox_verified', // ACTUAL pre-state recorded, not a fixed string
+            }),
         }));
         // Honest: certification ≠ payment automation in this environment.
         expect(res.message).toContain('BKASH_ENABLED');
@@ -390,6 +476,56 @@ describe('refundPaymentTransaction — owner-only v2 gateway refund', () => {
         await expect(service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {}))
             .rejects.toMatchObject({ status: 503, code: 'GATEWAY_AUTOMATION_DISABLED' });
         expect(mockTokenized.client.refundPayment).not.toHaveBeenCalled();
+    });
+
+    // F-6 (A9-R2, 2026-11-26): a txn row that already carries a successful
+    // refund entry under gateway_response.refund must refuse the second
+    // submit with 409 BEFORE touching the provider — the row stays 'paid',
+    // so the status guard alone never stopped a double refund.
+    test('F-6: a second refund submit is refused 409 REFUND_ALREADY_RECORDED — provider NOT re-called', async () => {
+        const refundedTxn = {
+            ...settledTxn(),
+            gateway_response: {
+                trxID: 'TRX-9',
+                refund: { refund_id: 'RF-1', amount: '500.00', status: 'refunded', submitted_at: new Date().toISOString(), source: 'tokenized_v2_refund' },
+            },
+        };
+        mockPaymentTransaction.findOne.mockResolvedValue(refundedTxn);
+        setEnv({ BKASH_ENABLED: 'true' });
+        mockPaymentConfig.findOne.mockResolvedValue({ ...GATEWAY_ACCOUNT(), verification_level: 'live_certified' });
+
+        await expect(service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {}))
+            .rejects.toMatchObject({ status: 409, code: 'REFUND_ALREADY_RECORDED' });
+        expect(mockTokenized.client.refundPayment).not.toHaveBeenCalled();
+        expect(refundedTxn.update).not.toHaveBeenCalled();
+        expect(mockAuditLog.create).not.toHaveBeenCalled();
+    });
+
+    test('F-6: a recorded refund without a status but WITH a refund_id also blocks re-submit', async () => {
+        mockPaymentTransaction.findOne.mockResolvedValue({
+            ...settledTxn(),
+            gateway_response: { trxID: 'TRX-9', refund: { refund_id: 'RF-9', source: 'tokenized_v2_refund' } },
+        });
+        setEnv({ BKASH_ENABLED: 'true' });
+        mockPaymentConfig.findOne.mockResolvedValue({ ...GATEWAY_ACCOUNT(), verification_level: 'live_certified' });
+        await expect(service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {}))
+            .rejects.toMatchObject({ status: 409, code: 'REFUND_ALREADY_RECORDED' });
+        expect(mockTokenized.client.refundPayment).not.toHaveBeenCalled();
+    });
+
+    test('F-6: a FAILED refund marker (provider rejection recorded) does NOT block an honest retry', async () => {
+        mockPaymentTransaction.findOne.mockResolvedValue({
+            ...settledTxn(),
+            gateway_response: { trxID: 'TRX-9', refund: { status: 'failed', reason: 'provider_declined' } },
+        });
+        setEnv({ BKASH_ENABLED: 'true' });
+        mockPaymentConfig.findOne.mockResolvedValue({ ...GATEWAY_ACCOUNT(), verification_level: 'live_certified' });
+        mockTokenized.client.refundPayment.mockResolvedValue({ refundID: 'RF-2' });
+        mockAuditLog.create.mockResolvedValue({});
+
+        const res = await service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {});
+        expect(res.success).toBe(true);
+        expect(mockTokenized.client.refundPayment).toHaveBeenCalledTimes(1);
     });
 
     test('live_certified + enabled flag ⇒ provider refund recorded + audited, message stays honest (submitted, not provider-declared)', async () => {
