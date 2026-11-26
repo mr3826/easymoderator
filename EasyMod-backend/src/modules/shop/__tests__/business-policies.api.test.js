@@ -176,7 +176,7 @@ describe('business-policies validator matrix', () => {
         expect(res.body.data.policies.exchange.period_days).toBe(0);
     });
 
-    it.each(['unspecified', 'offered', 'not_offered', 'conditional'])(
+    it.each(['unspecified', 'offered', 'not_offered'])(
         'accepts stance "%s" (including explicit unspecified)',
         async (stance) => {
             const res = await put({ returns: { stance } });
@@ -184,6 +184,23 @@ describe('business-policies validator matrix', () => {
             expect(res.body.data.policies.returns.stance).toBe(stance);
         },
     );
+
+    // A9 Y2 server-authoritative rule: 'conditional' is a promise the merchant
+    // must actually describe — an empty conditional misleads customer answers.
+    it("accepts 'conditional' WITH a non-empty details description", async () => {
+        const res = await put({ returns: { stance: 'conditional', details: 'only if tags are intact' } });
+        expect(res.status).toBe(200);
+        // Partial merge: the sent fields update; untouched siblings persist.
+        expect(res.body.data.policies.returns).toEqual({
+            stance: 'conditional', details: 'only if tags are intact', period_days: 7, exclusions: 'innerwear',
+        });
+    });
+
+    it("rejects 'conditional' without (or with only whitespace) details", async () => {
+        expect((await put({ returns: { stance: 'conditional' } })).status).toBe(400);
+        expect((await put({ exchange: { stance: 'conditional', details: '   ' } })).status).toBe(400);
+        expect((await put({ returns: { stance: 'conditional', details: null } })).status).toBe(400);
+    });
 
     it('rejects an out-of-enum stance', async () => {
         const res = await put({ returns: { stance: 'maybe' } });
@@ -278,10 +295,10 @@ describe('GET /shop/business-policies', () => {
 
 describe('PUT /shop/business-policies merge semantics', () => {
     it('partial field merge: absent kinds/fields untouched; provided fields updated', async () => {
-        const res = await put({ returns: { stance: 'conditional' }, refunds: { stance: 'offered', process: 'original payment method' } });
+        const res = await put({ returns: { stance: 'conditional', details: 'tags intact' }, refunds: { stance: 'offered', process: 'original payment method' } });
         expect(res.status).toBe(200);
         expect(res.body.data.policies.returns).toEqual({
-            stance: 'conditional', period_days: 7, details: 'unused only', exclusions: 'innerwear',
+            stance: 'conditional', period_days: 7, details: 'tags intact', exclusions: 'innerwear',
         });
         expect(res.body.data.policies.exchange).toEqual({ stance: 'not_offered' }); // untouched
         expect(res.body.data.policies.refunds).toEqual({
@@ -332,9 +349,10 @@ describe('PUT /shop/business-policies merge semantics', () => {
         const res = await request(app)
             .patch('/shop/business-policies')
             .set('Authorization', authHeader)
-            .send({ returns: { stance: 'conditional' } });
+            .send({ returns: { stance: 'conditional', details: 'tags intact' } });
         expect(res.status).toBe(200);
         expect(res.body.data.policies.returns.stance).toBe('conditional');
+        expect(res.body.data.policies.returns.details).toBe('tags intact');
         expect(res.body.data.policies.returns.period_days).toBe(7); // merge preserved
     });
 
@@ -359,7 +377,7 @@ describe('PUT /shop/business-policies merge semantics', () => {
     it('a knowledge-sync failure must NOT fail the save', async () => {
         const knowledgeService = require('../../knowledge/knowledge.service');
         knowledgeService.syncBusinessInfoRagIndex.mockRejectedValueOnce(new Error('Qdrant unavailable'));
-        const res = await put({ refunds: { stance: 'conditional' } });
+        const res = await put({ refunds: { stance: 'offered', process: 'original payment method' } });
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
     });
@@ -421,8 +439,14 @@ describe('settings-level policies guard (defense-in-depth for general settings w
 
     it('validateSettings accepts the documented bounds', () => {
         expect(() => validateSettings({
-            policies: { returns: { stance: 'unspecified' }, warranty: { stance: 'conditional', duration: '2 years', coverage: 'motor' } },
+            policies: { returns: { stance: 'unspecified' }, warranty: { stance: 'conditional', details: 'within warranty period, manufacturing defects only', duration: '2 years', coverage: 'motor' } },
         })).not.toThrow();
+    });
+
+    it('settings-level guard rejects an empty conditional (A9 Y2)', () => {
+        expect(() => mergeSettingsPreservingRtoConsent(baseSettings(), {
+            policies: { refunds: { stance: 'conditional' } },
+        })).toThrow(/requires a non-empty details/);
     });
 
     it('businessInfo schema bounds the new identity fields', () => {

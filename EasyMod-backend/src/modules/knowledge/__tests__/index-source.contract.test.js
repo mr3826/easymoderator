@@ -128,7 +128,7 @@ describe('Qdrant reindex PostgreSQL source contract', () => {
             if (text.includes('FROM faq_responses')) {
                 return {
                     rows: [{
-                        id: 7, shop_id: 'shop-1', question: 'Real question?', category: 'TAG',
+                        id: 7, shop_id: 'shop-1', question: 'Real question?', category: 'Real question?',
                         template_en: 'A', template_bn: null, sync_version: 3,
                     }],
                 };
@@ -149,13 +149,36 @@ describe('Qdrant reindex PostgreSQL source contract', () => {
         expect(faqSource.text).toBe('Q: Real question?\nA (EN): A');
     });
 
+    it('resolves mirror-drifted rows to the fresh category in the bulk path too (A9 invariant)', async () => {
+        const query = jest.fn(async (sql) => {
+            const text = String(sql);
+            if (text.includes('FROM shops')) return { rows: [{ id: 'shop-1', settings: {} }] };
+            if (text.includes('FROM faq_responses')) {
+                return {
+                    rows: [{
+                        id: 8, shop_id: 'shop-1', question: 'STALE question?', category: 'FRESH from old image',
+                        template_en: 'A', template_bn: null, sync_version: 1,
+                    }],
+                };
+            }
+            if (text.includes('FROM products')) return { rows: [] };
+            throw new Error(`unexpected query: ${text}`);
+        });
+
+        const sources = await collectShopSources(query, 'shop-1', { id: 'shop-1', settings: {} });
+        const faqSource = sources.find((s) => s.kind === 'faq');
+        expect(faqSource.text).toBe('Q: FRESH from old image\nA (EN): A');
+        expect(faqSource.metadata.embeddingTitle).toBe('FRESH from old image');
+    });
+
     // The incremental write path (knowledge.service) and the bulk reindex
     // (index-source.contract) MUST produce byte-identical embedding text for
     // the same input — otherwise the two paths grow two different embedding
     // spaces for one collection. This is the drift guard A5 promised A6.
     describe('builder lockstep (drift guard)', () => {
         const faqFixtures = [
-            { name: 'question preferred over category mirror', row: { question: 'Real?', category: 'TAG', template_en: 'A' } },
+            { name: 'mirrored row uses the question', row: { question: 'Real?', category: 'Real?', template_en: 'A' } },
+            { name: 'drifted row uses the fresh category (A9 invariant)', row: { question: 'STALE?', category: 'FRESH from old image', template_en: 'A' } },
             { name: 'legacy row without question falls back to category', row: { category: 'COD', template_bn: 'ক্যাশ অন ডেলিভারি' } },
             { name: 'private columns are ignored', row: { question: 'Q', category: 'Q', template_en: 'A', template_bn: 'B', keywords: ['kw-secret'], internal_notes: 'note-secret' } },
             { name: 'empty row', row: {} },
@@ -197,14 +220,17 @@ describe('Qdrant reindex PostgreSQL source contract', () => {
             },
         );
 
-        it('question preference + policies text + description composition hold in BOTH copies', () => {
-            const row = { question: 'Real question?', category: 'STALE TAG', template_en: 'Yes', keywords: ['kw-secret'], internal_notes: 'note-secret' };
+        it('mirror-invariant question resolution + policies text + description composition hold in BOTH copies', () => {
+            // New writes: question === category → the question is the label.
+            const mirrored = { question: 'Real question?', category: 'Real question?', template_en: 'Yes', keywords: ['kw-secret'], internal_notes: 'note-secret' };
+            // Rollback-window drift: both present, different → fresh category wins.
+            const drifted = { question: 'STALE q', category: 'FRESH from old image', template_en: 'Yes' };
             for (const build of [contractFaqText, knowledgeService.buildFaqIndexText]) {
-                const text = build(row);
+                const text = build(mirrored);
                 expect(text).toContain('Q: Real question?');
-                expect(text).not.toContain('STALE TAG');
                 expect(text).not.toContain('kw-secret');
                 expect(text).not.toContain('note-secret');
+                expect(build(drifted)).toContain('Q: FRESH from old image');
             }
 
             const info = { shopName: 'Rina', nameEn: 'Rina EN', tagline: 'Best fits', additionalInfo: 'Long note' };

@@ -32,6 +32,15 @@ jest.mock('src/modules/rag/rag.service', () => ({
 const mockEmbedProduct = jest.fn(() => Promise.resolve(true));
 jest.mock('src/modules/product/product-embedding.service', () => ({ embedProduct: (...a) => mockEmbedProduct(...a) }));
 
+// A9 honest settling: a SUCCESSFUL batch faq ingest settles the row through
+// the same version-CAS helper the single-write path uses (best effort — the
+// knowledge service surface is stubbed here; its semantics are pinned in
+// knowledge.test.js).
+const mockSettleFaqSync = jest.fn(() => Promise.resolve());
+jest.mock('src/modules/knowledge/knowledge.service', () => ({
+    settleFaqSync: (...a) => mockSettleFaqSync(...a),
+}));
+
 const mockQuery = jest.fn();
 jest.mock('src/utils/database/database-setup', () => ({ sequelize: { query: (...a) => mockQuery(...a) } }));
 
@@ -75,7 +84,39 @@ describe('auto-index.job — shared PostgreSQL source contract', () => {
                 (p) => p.documentId !== idOrDocumentId && String(p.id) !== String(idOrDocumentId),
             );
         });
+        mockSettleFaqSync.mockResolvedValue(undefined);
         installSourceQueryMock();
+    });
+
+    // ── honest settling of migrated rows (A9 review round) ────────────────────
+
+    it('settles a successful faq ingest through the version CAS so pending@0 rows reach synced', async () => {
+        faqRows = [{ id: 7, shop_id: 'shop-1', question: 'Q', category: 'Q', template_en: 'A', sync_version: 2 }];
+
+        const res = await indexShop('shop-1');
+
+        expect(res.errors).toBe(0);
+        expect(mockSettleFaqSync).toHaveBeenCalledWith(
+            '7', 2, expect.objectContaining({ sync_status: 'synced' }),
+        );
+    });
+
+    it('a failed faq ingest never settles — the row stays pending and honest', async () => {
+        faqRows = [{ id: 8, shop_id: 'shop-1', question: 'Q', category: 'Q', template_en: 'A', sync_version: 1 }];
+        mockIngest.mockResolvedValueOnce({ success: false, message: 'RAG service unavailable' });
+
+        const res = await indexShop('shop-1');
+
+        expect(res.errors).toBe(1);
+        expect(mockSettleFaqSync).not.toHaveBeenCalled();
+    });
+
+    it('settling is faq-only: business_info/product ingests never touch FAQ rows', async () => {
+        shopRow = { id: 'shop-1', settings: { businessInfo: { shopName: 'Rina Fashion' } } };
+
+        await indexShop('shop-1');
+
+        expect(mockSettleFaqSync).not.toHaveBeenCalled();
     });
 
     it('embeds FAQ category plus bilingual templates through the shared source selection', async () => {

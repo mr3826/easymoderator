@@ -1119,14 +1119,101 @@ describe('Knowledge API', () => {
             }));
         });
 
-        it('buildFaqIndexText prefers question over the category mirror and excludes private columns', () => {
+        it('buildFaqIndexText applies the mirror invariant (equal mirrors → question; drift → fresh category) and excludes private columns', () => {
             const { buildFaqIndexText } = require('src/modules/knowledge/knowledge.service');
+            // New writes keep question === category — question is the label.
             expect(buildFaqIndexText({
-                question: 'Real question?', category: 'TAG',
+                question: 'Real question?', category: 'Real question?',
                 keywords: ['kw-secret'], internal_notes: 'note-secret',
             })).toBe('Q: Real question?');
+            // A9 rollback-window drift: both present and DIFFERENT can only be
+            // an old-image write (which touched category only) → category wins
+            // until the next content save re-mirrors.
+            expect(buildFaqIndexText({ question: 'STALE q', category: 'FRESH from old image' }))
+                .toBe('Q: FRESH from old image');
             expect(buildFaqIndexText({ category: 'legacy only', template_bn: 'বাংলা', template_en: 'EN' }))
                 .toBe('Q: legacy only\nA (BN): বাংলা\nA (EN): EN');
+        });
+
+        // ── Review round (A9 M3 + mirror invariant) regression pins ──────────
+
+        it('resolveFaqQuestion truth table (shared faq-question module)', () => {
+            const { resolveFaqQuestion } = require('src/modules/knowledge/knowledge.service');
+            expect(resolveFaqQuestion({ question: 'Q', category: 'Q' })).toBe('Q');
+            expect(resolveFaqQuestion({ question: 'Q', category: 'C' })).toBe('C'); // drift → fresh category
+            expect(resolveFaqQuestion({ question: 'Q', category: '' })).toBe('Q');
+            expect(resolveFaqQuestion({ category: 'C' })).toBe('C');
+            expect(resolveFaqQuestion({ question: '  ', category: 'C' })).toBe('C');
+            expect(resolveFaqQuestion({})).toBe('General');
+            expect(resolveFaqQuestion({}, '')).toBe('');
+        });
+
+        it('formatFaq resolves a drifted row to the fresh category', async () => {
+            FaqResponse.findAll.mockResolvedValueOnce([
+                publishedRow({ question: 'STALE question?', category: 'FRESH from old image' }),
+            ]);
+            const res = await request(app).get('/api/knowledge/faqs');
+            expect(res.status).toBe(200);
+            expect(res.body.data[0].question).toBe('FRESH from old image');
+            expect(res.body.data[0].category).toBe('FRESH from old image');
+        });
+
+        it('A9 M3 regression: PATCH {category} alone NEVER changes the question or its mirror', async () => {
+            const row = publishedRow();
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+
+            const res = await request(app)
+                .patch('/api/knowledge/faqs/9')
+                .send({ category: 'Billing' }); // legacy client putting a tag where the question lives
+
+            expect(res.status).toBe(200);
+            // The incoming category is IGNORED for the question: stored
+            // (drift-resolved) question survives, and the mirror is REWRITTEN
+            // from it — 'Billing' can appear in neither column.
+            expect(row.update).toHaveBeenCalledWith(expect.objectContaining({
+                question: 'Delivery time?',
+                category: 'Delivery time?',
+            }));
+            const written = row.update.mock.calls[0][0];
+            expect(JSON.stringify(written)).not.toContain('Billing');
+            expect(res.body.data.question).toBe('Delivery time?');
+        });
+
+        it('a drifted row re-mirrors BOTH columns to the fresh truth on the next content save', async () => {
+            const row = publishedRow({ question: 'STALE question?', category: 'FRESH from old image' });
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+
+            const res = await request(app).patch('/api/knowledge/faqs/9').send({ answer: 'Updated answer' });
+            expect(res.status).toBe(200);
+            expect(row.update).toHaveBeenCalledWith(expect.objectContaining({
+                question: 'FRESH from old image',
+                category: 'FRESH from old image',
+            }));
+        });
+
+        it('POST legacy alias stays honored at the service (question-first payload)', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            FaqResponse.create.mockImplementationOnce(async (values) => ({ id: 1, created_at: new Date(), ...values }));
+
+            await knowledgeService.createFaq('user-1', 'shop-1', { answer: 'A', category: 'Refund?' });
+            expect(FaqResponse.create).toHaveBeenCalledWith(expect.objectContaining({
+                question: 'Refund?',
+                category: 'Refund?',
+            }));
+        });
+
+        it('a stale queued sync of an ineligible snapshot NEVER deletes a republished point', async () => {
+            const ragService = require('src/modules/rag/rag.service');
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            const deleteCallsBefore = ragService.deletePoint.mock.calls.length;
+            // Queued snapshot says archived… but the CURRENT row is published again.
+            FaqResponse.findByPk.mockResolvedValueOnce(publishedRow({ sync_version: 6 }));
+
+            await knowledgeService.syncFaqRagIndex('shop-1',
+                publishedRow({ status: 'archived', is_active: false, sync_version: 3 }));
+
+            expect(ragService.deletePoint.mock.calls.length).toBe(deleteCallsBefore); // not removed
+            expect(FaqResponse.update).not.toHaveBeenCalled();                       // no settle churn
         });
 
         it('buildBusinessInfoIndexText: description composition, English-name order, policies block, returnPolicy precedence, honest absence', () => {
