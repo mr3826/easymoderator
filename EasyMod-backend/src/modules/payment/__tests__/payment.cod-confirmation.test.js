@@ -35,6 +35,13 @@ jest.mock('../payment.controller', () => ({
     testPaymentConnection: jest.fn(),
     deletePaymentConfig: jest.fn(),
     confirmCodPayment: mockConfirmCodPayment,
+    // A5 canonical surface — stubbed so the widened router builds; this suite
+    // exercises only the COD confirm path.
+    getPaymentAccounts: jest.fn(), getPaymentAccount: jest.fn(), savePaymentAccount: jest.fn(),
+    updatePaymentAccount: jest.fn(), deletePaymentAccount: jest.fn(), setPreferredAccount: jest.fn(),
+    verifyPaymentAccountCredentials: jest.fn(), certifyLiveAccount: jest.fn(),
+    getPaymentPolicy: jest.fn(), updatePaymentPolicy: jest.fn(),
+    refundPaymentTransaction: jest.fn(), createSelfMfsClaim: jest.fn(),
 }));
 
 const { confirmCodPayment } = require('../payment.service');

@@ -2,9 +2,11 @@ const express = require('express');
 const request = require('supertest');
 const crypto = require('crypto');
 
+// D-9: the dead handleOwnerPaymentConfirmation export is gone — the mock
+// surface must not outlive the code it faked (route contract unchanged:
+// only /bkash/payment-status is mounted).
 jest.mock('./payment-webhook.controller', () => ({
-    handleBkashWebhook: jest.fn((_req, res) => res.status(200).json({ success: true })),
-    handleOwnerPaymentConfirmation: jest.fn((_req, res) => res.status(200).json({ success: true }))
+    handleBkashWebhook: jest.fn((_req, res) => res.status(200).json({ success: true }))
 }));
 
 jest.mock('./webhook.middleware', () => ({

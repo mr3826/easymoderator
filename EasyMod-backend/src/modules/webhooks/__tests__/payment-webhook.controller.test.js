@@ -14,6 +14,40 @@ const mockDatabase = {
 };
 const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 
+// ── contract-mock seam for the v2 client (§4.2 / R-12) ──────────────────────
+// These fixtures are derived from the OFFICIAL bKash Tokenized v2 docs sweep
+// (contract §4: query → transactionStatus + verificationStatus + merchantInvoice)
+// and are labeled contract-mock: NOTHING here is, or may be presented as,
+// live-provider-verified.
+const mockQuerySettlementEvidence = jest.fn();
+const mockEvaluateSettlement = jest.fn();
+const completedQuery = (over = {}) => ({
+    // contract-mock: official query/payment response shape
+    paymentID: 'gateway-payment-1',
+    transactionStatus: 'Completed',
+    verificationStatus: 'VERIFIED',
+    merchantInvoice: 'ORDER-1',
+    amount: '100.00',
+    trxID: 'trx-from-query-9',
+    ...over,
+});
+// faithful re-implementation of the §4.2 guards so a broken guard fails:
+const realEvaluate = (query, { expectedOrderNumber, expectedAmountMinor }) => {
+    const settled = String(query?.transactionStatus || '').toUpperCase() === 'COMPLETED';
+    const verificationOk = String(query?.verificationStatus || '').toUpperCase() === 'VERIFIED';
+    const invoiceOk = Boolean(expectedOrderNumber) && String(query?.merchantInvoice || '') === String(expectedOrderNumber);
+    const amountMinor = query?.amount != null ? Math.round(Number(query.amount) * 100) : null;
+    const amountOk = amountMinor !== null && expectedAmountMinor !== null
+        && BigInt(amountMinor) === BigInt(expectedAmountMinor);
+    return {
+        settled, verificationOk, invoiceOk, amountOk,
+        confirmed: settled && verificationOk && invoiceOk && amountOk,
+        trxId: query?.trxID || query?.trxId || null,
+        canonical: settled ? 'paid' : String(query?.transactionStatus || '').toLowerCase(),
+        providerStatus: String(query?.transactionStatus || '').toLowerCase() || 'unknown',
+    };
+};
+
 jest.mock('../../entities', () => ({
     PaymentTransaction: mockPaymentTransaction,
     Order: mockOrder,
@@ -23,7 +57,10 @@ jest.mock('../../entities', () => ({
 }));
 jest.mock('../../../utils/database/database-setup', () => ({ sequelize: mockDatabase }));
 jest.mock('../../../utils/structured-logger', () => ({ createLogger: () => mockLogger }));
-jest.mock('../../payment/bkash-merchant.service', () => ({}));
+jest.mock('../../payment/bkash-tokenized.service', () => ({
+    querySettlementEvidence: (...args) => mockQuerySettlementEvidence(...args),
+    evaluateSettlement: (...args) => mockEvaluateSettlement(...args),
+}));
 jest.mock('../../payment/payment.service', () => ({}));
 jest.mock('../../order/order-session-standalone.service', () => ({}));
 jest.mock('../../order/order.service', () => ({ bookForOrder: jest.fn() }));
@@ -47,6 +84,9 @@ describe('bKash payment webhook replay protection', () => {
         mockOrderSession.findOne.mockResolvedValue(null);
         mockCourierDispatch.findOne.mockResolvedValue(null);
         mockDeliveryTracking.findOne.mockResolvedValue(null);
+        // default: the provider Query confirms settlement
+        mockQuerySettlementEvidence.mockResolvedValue({ available: true, query: completedQuery() });
+        mockEvaluateSettlement.mockImplementation(realEvaluate);
     });
 
     afterEach(() => jest.restoreAllMocks());
@@ -171,6 +211,7 @@ describe('bKash payment webhook replay protection', () => {
         expect(res.status).toHaveBeenCalledWith(202);
         expect(res.json).toHaveBeenCalledWith({ success: true, pending: true });
         expect(fulfillment).not.toHaveBeenCalled();
+        expect(mockQuerySettlementEvidence).not.toHaveBeenCalled();
     });
 
     test('rejects a completed callback with a different merchant invoice', async () => {
@@ -190,7 +231,7 @@ describe('bKash payment webhook replay protection', () => {
         expect(mockPaymentTransaction.update).not.toHaveBeenCalled();
     });
 
-    test('returns a failed fulfillment claim to pending for webhook retry', async () => {
+    test('F-1 (A9-R2): a failed fulfillment claim releases to INITIATED — never pending — for webhook retry', async () => {
         const payment = {
             id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
             update: jest.fn(),
@@ -209,10 +250,27 @@ describe('bKash payment webhook replay protection', () => {
 
         expect(res.status).toHaveBeenCalledWith(500);
         expect(mockPaymentTransaction.update).toHaveBeenLastCalledWith(
-            { status: 'pending', gateway_response: expect.any(Object) },
+            // RELEASE TARGET PIN: the row returns to the PRE-CLAIM status
+            // 'initiated', not 'pending'.
+            { status: 'initiated', gateway_response: expect.any(Object) },
+            // CAS kept: only a row still holding the claim is released.
             { where: { id: 'payment-1', status: 'processing' } },
         );
         expect(payment.update).not.toHaveBeenCalled();
+
+        // F-1(a)+F-1(c) vocabulary pins: the released status must be a LIVE
+        // attempt status so that (a) initiateGatewayPayment's service-level
+        // re-initiation guard (409 PAYMENT_IN_PROGRESS over
+        // ACTIVE_ATTEMPT_STATUSES) blocks a second link, and (c) it is inside
+        // reconcileStaleGatewayAttempts' initiated/processing scan set, so an
+        // unconfirmed webhook release can never leave a second active attempt
+        // possible AND unreconciled. ('pending' satisfied neither — that was
+        // the duplicate-charge hole A9 found.)
+        const taxonomy = require('../../payment/payment-taxonomy');
+        expect(taxonomy.ACTIVE_ATTEMPT_STATUSES).toContain('initiated');
+        expect(['initiated', 'processing']).toContain('initiated'); // reconciler scan set
+        // 20261127_002 partial unique covers (initiated, processing) — a
+        // released 'initiated' row is inside it (migration-test comment pin).
     });
 
     test('a processing callback remains pending and cannot repeat fulfillment', async () => {
@@ -257,6 +315,182 @@ describe('bKash payment webhook replay protection', () => {
 
         expect(res.status).toHaveBeenCalledWith(409);
         expect(res.json).toHaveBeenCalledWith({ error: 'Invalid payment state transition' });
+    });
+
+    // ── §4.2 required new tests: server-side Query before settle ─────────────
+    test('confirmation performs a server-side Query BEFORE any fulfillment (§4.2)', async () => {
+        const payment = {
+            id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
+            update: jest.fn(),
+        };
+        mockPaymentTransaction.findOne.mockResolvedValue(payment);
+        mockPaymentTransaction.update.mockResolvedValue([1]);
+        const callOrder = [];
+        mockQuerySettlementEvidence.mockImplementation(async (txn) => {
+            callOrder.push('query');
+            return { available: true, query: completedQuery({ trxID: 'TRX-FROM-QUERY', amount: '100.00' }) };
+        });
+        jest.spyOn(controller, 'processSuccessfulPayment').mockImplementation(async () => { callOrder.push('settle'); });
+        const res = response();
+
+        await controller.handleBkashWebhook({
+            body: {
+                paymentID: 'gateway-payment-1', transactionStatus: 'COMPLETED', trxID: 'trx-body-1',
+                merchantInvoiceNumber: 'ORDER-1', amount: '100.00',
+            },
+        }, res);
+
+        expect(callOrder).toEqual(['query', 'settle']);
+        // The settled transaction id is the QUERY's, never the body's (§4.2):
+        expect(controller.processSuccessfulPayment).toHaveBeenCalledWith(payment, expect.objectContaining({
+            transactionId: 'TRX-FROM-QUERY',
+        }));
+        expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test('a completed body claim alone NEVER settles when no Query is available (R-12)', async () => {
+        const payment = {
+            id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
+            gateway_response: {}, update: jest.fn(),
+        };
+        mockPaymentTransaction.findOne.mockResolvedValue(payment);
+        mockPaymentTransaction.update.mockResolvedValue([1]);
+        mockQuerySettlementEvidence.mockResolvedValue({ available: false, reason: 'automation_inert' });
+        const fulfillment = jest.spyOn(controller, 'processSuccessfulPayment');
+        const res = response();
+
+        await controller.handleBkashWebhook({
+            body: {
+                paymentID: 'gateway-payment-1', transactionStatus: 'Completed', trxID: 'trx-1',
+                merchantInvoiceNumber: 'ORDER-1', amount: '100.00',
+            },
+        }, res);
+
+        expect(fulfillment).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(202);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            success: true, pending: true, verification: 'query_unavailable', reason: 'automation_inert',
+        }));
+        // claim released back to the PRE-CLAIM status 'initiated' (F-1) for
+        // reconciliation (§4.2 error path) — never 'pending': the row must
+        // stay visible to ACTIVE_ATTEMPT_STATUSES + the 002 partial unique +
+        // the §4.3 reconciler scan:
+        expect(mockPaymentTransaction.update).toHaveBeenLastCalledWith(
+            expect.objectContaining({ status: 'initiated' }),
+            { where: { id: 'payment-1', status: 'processing' } },
+        );
+    });
+
+    test('a Query that is not confirmed releases the claim instead of settling', async () => {
+        const payment = {
+            id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
+            gateway_response: {}, update: jest.fn(),
+        };
+        mockPaymentTransaction.findOne.mockResolvedValue(payment);
+        mockPaymentTransaction.update.mockResolvedValue([1]);
+        mockQuerySettlementEvidence.mockResolvedValue({
+            available: true,
+            query: completedQuery({ transactionStatus: 'Pending', verificationStatus: null, trxID: null }),
+        });
+        const fulfillment = jest.spyOn(controller, 'processSuccessfulPayment');
+        const res = response();
+
+        await controller.handleBkashWebhook({
+            body: {
+                paymentID: 'gateway-payment-1', transactionStatus: 'Completed', trxID: 'trx-1',
+                merchantInvoiceNumber: 'ORDER-1', amount: '100.00',
+            },
+        }, res);
+
+        expect(fulfillment).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(202);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ verification: 'query_unconfirmed' }));
+        // F-1 (A9-R2): unconfirmed Query releases to 'initiated' (active,
+        // blocked, reconcilable) — NOT 'pending' (a duplicate-charge hole).
+        expect(mockPaymentTransaction.update).toHaveBeenLastCalledWith(
+            expect.objectContaining({ status: 'initiated' }),
+            { where: { id: 'payment-1', status: 'processing' } },
+        );
+    });
+
+    test('a Query whose invoice echo mismatches does not settle even when Completed', async () => {
+        const payment = {
+            id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
+            gateway_response: {}, update: jest.fn(),
+        };
+        mockPaymentTransaction.findOne.mockResolvedValue(payment);
+        mockPaymentTransaction.update.mockResolvedValue([1]);
+        mockQuerySettlementEvidence.mockResolvedValue({ available: true, query: completedQuery({ merchantInvoice: 'SOMETHING-ELSE' }) });
+        const fulfillment = jest.spyOn(controller, 'processSuccessfulPayment');
+
+        const res = response();
+        await controller.handleBkashWebhook({
+            body: {
+                paymentID: 'gateway-payment-1', transactionStatus: 'Completed', trxID: 'trx-1',
+                merchantInvoiceNumber: 'ORDER-1', amount: '100.00',
+            },
+        }, res);
+
+        expect(fulfillment).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(202);
+    });
+
+    test('a failure callback flips to failed ONLY when the provider Query says so', async () => {
+        const payment = {
+            id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
+            gateway_response: {}, update: jest.fn(),
+        };
+        mockPaymentTransaction.findOne.mockResolvedValue(payment);
+        mockPaymentTransaction.update.mockResolvedValue([1]);
+        mockQuerySettlementEvidence.mockResolvedValue({
+            available: true,
+            query: completedQuery({ transactionStatus: 'Failed', verificationStatus: null, merchantInvoice: 'ORDER-1', trxID: null }),
+        });
+        const fulfillment = jest.spyOn(controller, 'processSuccessfulPayment');
+        const res = response();
+
+        await controller.handleBkashWebhook({
+            body: {
+                paymentID: 'gateway-payment-1', transactionStatus: 'Failed',
+                merchantInvoiceNumber: 'ORDER-1', amount: '100.00',
+            },
+        }, res);
+
+        expect(fulfillment).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', verified_by: 'server_query' }));
+        expect(mockPaymentTransaction.update).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'failed' }),
+            expect.objectContaining({ where: expect.objectContaining({ id: 'payment-1' }) }),
+        );
+    });
+
+    test('a failure callback defers (no failed write) while the Query is unavailable', async () => {
+        const payment = {
+            id: 'payment-1', order_id: 'order-1', shop_id: 'shop-1', amount: '100.00', status: 'pending',
+            gateway_response: {}, update: jest.fn(),
+        };
+        mockPaymentTransaction.findOne.mockResolvedValue(payment);
+        mockQuerySettlementEvidence.mockResolvedValue({ available: false, reason: 'gateway_disabled' });
+        const res = response();
+
+        await controller.handleBkashWebhook({
+            body: {
+                paymentID: 'gateway-payment-1', transactionStatus: 'Cancelled',
+                merchantInvoiceNumber: 'ORDER-1', amount: '100.00',
+            },
+        }, res);
+
+        expect(res.status).toHaveBeenCalledWith(202);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ verification: 'query_unavailable' }));
+        expect(mockPaymentTransaction.update).not.toHaveBeenCalled();
+    });
+
+    test('rejects a callback without a payment id', async () => {
+        const res = response();
+        await controller.handleBkashWebhook({ body: { transactionStatus: 'Completed' } }, res);
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(mockPaymentTransaction.findOne).not.toHaveBeenCalled();
     });
 
     test('records a late verified non-COD payment without reopening or rebooking a claimed order', async () => {

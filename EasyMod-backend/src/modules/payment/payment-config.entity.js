@@ -28,6 +28,12 @@ const getEncryptionKey = () => {
 
 const ENCRYPTION_KEY = getEncryptionKey();
 
+// NOTE: the table was renamed payment_configs → payment_accounts by migration
+// 20261127_001 (D-1, Option A in-place rename; the orders FK follows by OID).
+// The model keeps the `PaymentConfig` runtime identity for backward-compat with
+// existing readers (§1.4 dual-write window) and is ALSO exported as
+// `PaymentAccount` (module.exports.PaymentAccount) as the canonical name the
+// redesign implies. One physical row = one account.
 const PaymentConfig = sequelize.define('PaymentConfig', {
     id: {
         type: DataTypes.UUID,
@@ -44,12 +50,51 @@ const PaymentConfig = sequelize.define('PaymentConfig', {
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE'
     },
+    // Canonical provider vocabulary (payment-taxonomy §1.1). Validated in the
+    // service layer against PROVIDERS; not a DB ENUM to survive the compat window.
+    provider: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+        comment: 'cod | bkash | nagad | rocket (canonical; backfilled in 20261127_001)'
+    },
+    // self | business | merchant_gateway | standard(cod). Distinguishes the
+    // merchant gateway from a business wallet that the legacy mfs_mode collapsed (§1.1).
+    account_type: {
+        type: DataTypes.STRING(24),
+        allowNull: true,
+        comment: 'standard | self | business | merchant_gateway'
+    },
+    // LEGACY gateway label, kept for one release and DUAL-WRITTEN (§1.4):
+    // cod → 'cod', any wallet → 'self-mfs'. Unchanged readers still key on it.
     gateway: {
-        type: DataTypes.ENUM('cod', 'self-mfs'),
-        allowNull: false
+        type: DataTypes.STRING(50),
+        allowNull: true,
+        comment: 'LEGACY compat value (cod | self-mfs); dual-written from provider'
     },
     is_enabled: {
         type: DataTypes.BOOLEAN,
+        defaultValue: false
+    },
+    // Squash-era flag, unused by the redesign; kept so an in-place schema/
+    // data comparison never loses a pre-existing column. Dropped in a later release.
+    is_active: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    },
+    // Verification ladder level (§2). Transitions happen ONLY via the A3 ladder
+    // service; the save path may stamp configured_unverified and demote on change.
+    verification_level: {
+        type: DataTypes.STRING(24),
+        allowNull: false,
+        defaultValue: 'unverified',
+        comment: 'unverified | configured_unverified | sandbox_verified | live_certified'
+    },
+    // DB truth for the single preferred account per shop (D-8). Partial unique
+    // (shop_id) WHERE is_preferred is enforced by migration 20261127_002.
+    is_preferred: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
         defaultValue: false
     },
     // Encrypted credentials stored as JSON
@@ -114,15 +159,28 @@ const PaymentConfig = sequelize.define('PaymentConfig', {
         defaultValue: DataTypes.NOW
     }
 }, {
-    tableName: 'payment_configs',
+    tableName: 'payment_accounts',
     timestamps: true,
     underscored: true,
     indexes: [
+        // One account per (shop, provider, account_type) — self / business /
+        // merchant_gateway coexist. Migration 20261127_002 owns the partial form.
         {
+            name: 'idx_payment_accounts_shop_provider_type',
             unique: true,
-            fields: ['shop_id', 'gateway']
-        }
+            fields: ['shop_id', 'provider', 'account_type'],
+            where: '"provider" IS NOT NULL AND "account_type" IS NOT NULL',
+        },
+        // Exactly one preferred account per shop (D-8).
+        {
+            name: 'idx_payment_accounts_one_preferred',
+            unique: true,
+            fields: ['shop_id'],
+            where: '"is_preferred" = TRUE',
+        },
     ]
 });
 
 module.exports = PaymentConfig;
+// Canonical redesign name for the same single-row-per-account model (§1.2).
+module.exports.PaymentAccount = PaymentConfig;

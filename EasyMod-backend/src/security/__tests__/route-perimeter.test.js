@@ -14,10 +14,17 @@ describe('launch route perimeter contracts', () => {
         expect(routes).not.toContain("require('./conversation/ai-chatbot.routes')");
     });
 
-    test('legacy Bangladesh payment router is unmounted', () => {
+    test('legacy Bangladesh payment router is REMOVED, not just unmounted (D-9)', () => {
+        // The old pin asserted the router was not mounted. After the ratified
+        // dead-surface deletion the honest perimeter is non-existence: nothing
+        // can (re)mount a file that is gone. The billing service that survived
+        // is payment/bangladesh-payment.service.js — a DIFFERENT file that
+        // stays (contract §4.6: platform billing depends on it).
         const routes = source('src/modules/routes.js');
         expect(routes).not.toContain("router.use('/payment/bangladesh'");
         expect(routes).not.toContain("require('./payment/bangladesh-payment.routes')");
+        expect(fs.existsSync(path.resolve(__dirname, '../../modules/payment/bangladesh-payment.routes.js'))).toBe(false);
+        expect(fs.existsSync(path.resolve(__dirname, '../../modules/payment/bangladesh-payment.controller.js'))).toBe(false);
     });
 
     test('public payment webhook router cannot approve owner payment actions', () => {

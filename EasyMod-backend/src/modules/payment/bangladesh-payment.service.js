@@ -1,5 +1,11 @@
 const axios = require('axios');
 const { AppError } = require('../../utils/AppError');
+// D-10 ratified DEFECT CORRECTION (contract §7 row 17, §4.1): the v1 execute
+// field docs return title-case 'Completed' while this file compared
+// 'COMPLETED'. Compared through the canonical, case-insensitive taxonomy set
+// instead — pinned by __tests__/bangladesh-payment.casing.test.js. The file
+// stays billing-owned (§4.6): platform env credentials only.
+const { isSettledStatus, canonicalStatus } = require('./payment-taxonomy');
 
 /**
  * bKash is a live-money integration. It is OFF unless it is switched on AND
@@ -119,7 +125,7 @@ class BangladeshPaymentService {
             }
         );
 
-        if (response.data?.transactionStatus === 'COMPLETED') {
+        if (isSettledStatus(response.data?.transactionStatus)) {
             return {
                 success: true,
                 transaction_id: response.data.trxID,
@@ -131,7 +137,7 @@ class BangladeshPaymentService {
                 status: 'completed'
             };
         }
-        if (response.data?.transactionStatus === 'INITIATED') {
+        if (canonicalStatus(response.data?.transactionStatus) === 'initiated') {
             return { success: false, status: 'pending', message: 'Payment is still being processed' };
         }
         return {

@@ -8,6 +8,10 @@ const NOTIFICATION_EVENTS = Object.freeze({
     COURIER_SETUP_REQUIRED: 'courier_setup_required',
     // RTO Shield v2: automatic courier booking paused until the order is verified/approved.
     ORDER_REVIEW_REQUIRED: 'order_review_required',
+    // Self-MFS merchant confirmation (§3.2): the OwnerNotification row created
+    // by sendPaymentConfirmationRequest uses exactly this type string; the
+    // dashboard list + the non-dismissible /read pin key on 'payment_confirmation'.
+    PAYMENT_CONFIRMATION: 'payment_confirmation',
     PAYMENT_SUBSCRIPTION_ISSUE: 'payment_subscription_issue',
     DAILY_SALES_SUMMARY: 'daily_sales_summary',
     TELEGRAM_TEST: 'telegram_test'
@@ -42,6 +46,15 @@ const NOTIFICATION_EVENT_META = Object.freeze({
     [NOTIFICATION_EVENTS.ORDER_REVIEW_REQUIRED]: {
         label: 'Order needs verification before courier booking',
         labelBn: 'কুরিয়ার বুকিংয়ের আগে অর্ডার যাচাই প্রয়োজন',
+        defaultEnabled: true
+    },
+    [NOTIFICATION_EVENTS.PAYMENT_CONFIRMATION]: {
+        // The merchant's own judgment settles a self-MFS claim — this event
+        // exists so the vocabulary (labels/preferences) covers the row the
+        // payment-confirmation flow writes; the dashboard row itself is always
+        // created and is non-dismissible regardless of channel preferences.
+        label: 'Payment confirmation needed',
+        labelBn: 'পেমেন্ট নিশ্চিতকরণ প্রয়োজন',
         defaultEnabled: true
     },
     [NOTIFICATION_EVENTS.PAYMENT_SUBSCRIPTION_ISSUE]: {

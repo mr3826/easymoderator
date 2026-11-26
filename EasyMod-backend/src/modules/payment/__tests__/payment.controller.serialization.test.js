@@ -148,7 +148,10 @@ describe('payment controller response serialization', () => {
 
             await expect(actualPaymentService.testPaymentConnection(
                 'shop-1', 'user-1', 'self-mfs', validCredentials(),
-            )).resolves.toEqual({ success: true, message: 'bkash number verified' });
+            // §7 row 1 (misleading-claim cleanup): testPaymentConnection is a LOCAL
+            // format check only; the old "number verified" wording implied a provider
+            // connection. Intent preserved (same validator); the honest shape replaces it.
+            )).resolves.toEqual({ success: true, status: 'format_validated', message: 'Number format validated — not a provider check' });
         });
 
         test('returns an approved summary without raw credentials on reads', async () => {

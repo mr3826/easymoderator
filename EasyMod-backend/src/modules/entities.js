@@ -41,6 +41,11 @@ const CustomerTag = require('./customer/customer-tag.entity');
 const CustomerTagAssignment = require('./customer/customer-tag-assignment.entity');
 const TrxIDLog = require('./payment/trx-id-log.entity');
 const PaymentTransaction = require('./billing/payment-transaction.entity');
+// Canonical redesign name for the renamed payment_accounts model (same object as
+// PaymentConfig — migration 20261127_001 renamed the table in place) + the
+// append-only ladder evidence ledger.
+const PaymentAccount = require('./payment/payment-config.entity').PaymentAccount;
+const PaymentAccountVerification = require('./payment/payment-account-verification.entity');
 const OwnerNotification = require('./notification/owner-notification.entity');
 const OrderInvoice = require('./billing/invoice.entity');
 const DeliveryTracking = require('./order/delivery-tracking.entity');
@@ -395,9 +400,16 @@ Shop.hasMany(ShopPickupLocation, { foreignKey: 'shop_id', as: 'pickup_locations'
 DeliveryIntegration.belongsTo(ShopPickupLocation, { foreignKey: 'pickup_location_id', as: 'pickup_location' });
 ShopPickupLocation.hasMany(DeliveryIntegration, { foreignKey: 'pickup_location_id', as: 'delivery_integrations' });
 
-// Define payment config relationships
+// Define payment config relationships (PaymentConfig === PaymentAccount alias,
+// table renamed payment_configs → payment_accounts by 20261127_001). The legacy
+// `payment_configs` accessor is kept so unchanged readers keep working (§1.4);
+// `payment_accounts` is the canonical accessor added alongside it.
 PaymentConfig.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
 Shop.hasMany(PaymentConfig, { foreignKey: 'shop_id', as: 'payment_configs' });
+Shop.hasMany(PaymentAccount, { foreignKey: 'shop_id', as: 'payment_accounts' });
+// Ladder evidence ledger (§2) — append-only.
+PaymentAccountVerification.belongsTo(PaymentAccount, { foreignKey: 'payment_account_id', as: 'payment_account' });
+PaymentAccount.hasMany(PaymentAccountVerification, { foreignKey: 'payment_account_id', as: 'verification_records' });
 
 // Define subscription relationships
 Subscription.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
@@ -475,6 +487,9 @@ Order.hasMany(TrxIDLog, { foreignKey: 'order_id', as: 'trx_logs' });
 // Payment Transaction relationships
 PaymentTransaction.belongsTo(Shop, { foreignKey: 'shop_id', as: 'shop' });
 PaymentTransaction.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+// Exact account that was displayed / used for this attempt (§6 number-locking).
+PaymentTransaction.belongsTo(PaymentAccount, { foreignKey: 'payment_account_id', as: 'payment_account' });
+PaymentAccount.hasMany(PaymentTransaction, { foreignKey: 'payment_account_id', as: 'transactions' });
 Shop.hasMany(PaymentTransaction, { foreignKey: 'shop_id', as: 'payment_transactions' });
 Order.hasMany(PaymentTransaction, { foreignKey: 'order_id', as: 'payment_transactions' });
 
@@ -649,6 +664,8 @@ module.exports = {
     KnownArea,
     ShopPickupLocation,
     PaymentConfig,
+    PaymentAccount,
+    PaymentAccountVerification,
     Subscription,
     Invoice,
     BillingLine,

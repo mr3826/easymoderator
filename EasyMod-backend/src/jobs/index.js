@@ -24,6 +24,10 @@ const OpportunityDetectorJob = require('./opportunity-detector.job');
 const GapSuggesterJob = require('./gap-suggester.job');
 // WP-03 — daily aggregate-only confidence-observation qualification snapshot
 const ConfidenceQualificationSnapshotJob = require('./confidence-qualification-snapshot.job');
+// Payment redesign §4.3 (A0 wiring) — bounded Query-reconciliation sweep for
+// stale bKash merchant-gateway attempts (1/5/15/30 per-row ladder; inert when
+// BKASH_ENABLED is off — zero provider traffic by construction).
+const GatewayAttemptReconcilerJob = require('./gateway-attempt-reconciler.job');
 
 module.exports = {
     MonthlyUsageReset,
@@ -39,4 +43,5 @@ module.exports = {
     OpportunityDetectorJob,
     GapSuggesterJob,
     ConfidenceQualificationSnapshotJob,
+    GatewayAttemptReconcilerJob,
 };

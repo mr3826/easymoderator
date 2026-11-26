@@ -19,6 +19,7 @@ const {
     GapSuggesterJob,
     CourierReconciliationJob,
     ConfidenceQualificationSnapshotJob,
+    GatewayAttemptReconcilerJob,
 } = require('./index');
 
 class QueueManager {
@@ -66,6 +67,11 @@ class QueueManager {
             // WP-03 — daily aggregate-only confidence-observation qualification
             // snapshot (AuditLog rows only; zero PII; manual trigger available).
             ['confidence-qualification-snapshot', 'confidenceQualificationSnapshot', ConfidenceQualificationSnapshotJob],
+            // Payment redesign §4.3 — stale gateway-attempt Query sweep. The
+            // service is BKASH_ENABLED-gated internally (skips with ZERO
+            // provider calls when inert, R-12), so unconditional queue
+            // registration is honest: on inert deployments the sweep no-ops.
+            ['gateway-attempt-reconciler', 'gatewayAttemptReconciler', GatewayAttemptReconcilerJob],
         ];
 
         this.workerDefinitions = billingQueues;
@@ -258,6 +264,20 @@ class QueueManager {
             { name: 'run', data: { dryRun: false } }
         );
 
+        // Payment redesign §4.3 — bKash gateway-attempt Query sweep. The clock
+        // is every minute; the 1/5/15/30-minute ladder is PER ROW inside
+        // bkash-tokenized.reconcileStaleGatewayAttempts (attempt ledger in
+        // gateway_response.reconcile), so a row receives at most four provider
+        // Queries before going quiet for the read-only admin report path. It
+        // NEVER executes a payment (execute-once, §4.4) and the job skips with
+        // zero HTTP when BKASH_ENABLED is off (R-12) — honest to schedule even
+        // while inert. Manual trigger: 'gateway_attempt_reconciler'.
+        await this.queues.gatewayAttemptReconciler.upsertJobScheduler(
+            'gateway-attempt-reconciler',
+            { pattern: '* * * * *', tz: 'UTC' },
+            { name: 'run', data: { dryRun: false } }
+        );
+
         // COD reconciliation — weekly Steadfast payout pull. The payments API's
         // account semantics are not live-verified yet (see
         // docs/mobile/COD_CAPABILITY_AUDIT.md), so the schedule stays OFF until
@@ -290,6 +310,7 @@ class QueueManager {
             'opportunity_detector': 'opportunityDetector',
             'courier_reconciliation': 'courierReconciliation',
             'confidence_qualification_snapshot': 'confidenceQualificationSnapshot',
+            'gateway_attempt_reconciler': 'gatewayAttemptReconciler',
         };
 
         const queueKey = queueMap[jobName];

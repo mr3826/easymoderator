@@ -1,7 +1,25 @@
 /**
  * Payment Webhook Controller
  * Handles webhook callbacks from bKash.
- * Updates payment status and triggers order confirmation.
+ *
+ * TRUST CHAIN (Payment Data Contract §4.2 — redesigned here):
+ *  - The middleware in front of this handler is a transport gate only
+ *    (webhook.middleware.js); signature/body claims are NEVER settlement
+ *    evidence.
+ *  - Order of operations per §4.2: verify transport → load transaction by
+ *    paymentId → body-shape/invoice/amount PRE-CLAIM guards (junk filter) →
+ *    atomic claim to 'processing' (unchanged) → SERVER-SIDE v2 QUERY →
+ *    confirmed (Completed + verificationStatus pass + merchantInvoice echo +
+ *    amount minor-units equality, case-insensitive per §4.1) ⇒ fulfill via
+ *    processSuccessfulPayment → NOT confirmed ⇒ release claim back to the
+ *    PRE-CLAIM status 'initiated' (F-1, A9-R2 2026-11-26: never 'pending' —
+ *    'pending' is invisible to ACTIVE_ATTEMPT_STATUSES, the migration
+ *    20261127_002 partial unique (initiated/processing) and the §4.3
+ *    reconciler scan, so releasing there would open a duplicate-charge hole)
+ *    and defer to scheduled Query reconciliation (§4.3).
+ *  - In the shipped inert configuration (R-12: BKASH_ENABLED=false or no
+ *    live_certified account) the Query seam returns unavailable and NOTHING
+ *    transitions — a body saying "Completed" cannot settle anything.
  */
 
 const { PaymentTransaction, Order, CourierDispatch, DeliveryTracking } = require('../entities');
@@ -9,8 +27,8 @@ const { Op } = require('sequelize');
 const { AppError } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
 const { createLogger } = require('../../utils/structured-logger');
-const bkashService = require('../payment/bkash-merchant.service');
-const paymentService = require('../payment/payment.service');
+const tokenized = require('../payment/bkash-tokenized.service');
+const { canonicalStatus, isSettledStatus } = require('../payment/payment-taxonomy');
 
 const safeErrorCode = (error) => {
     const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
@@ -36,29 +54,61 @@ function normalizeAmountToMinorUnits(value) {
     return BigInt(whole) * 100n + BigInt((fraction + '00').slice(0, 2));
 }
 
+// F-1 (A9-R2, 2026-11-26): the release target for a claimed row whose server
+// side Query did not confirm settlement is the PRE-CLAIM gateway status
+// 'initiated', NOT 'pending'. 'pending' was invisible to all three
+// duplicate-charge guards at once:
+//  - taxonomy.ACTIVE_ATTEMPT_STATUSES (initiateGatewayPayment's re-initiation
+//    409 PAYMENT_IN_PROGRESS),
+//  - the 20261127_002 partial UNIQUE idx_payment_txn_one_active_attempt_per_order
+//    (status IN ('initiated','processing')),
+//  - reconcileStaleGatewayAttempts' initiated/processing scan (§4.3).
+// Releasing a row to 'pending' therefore allowed a SECOND live attempt on the
+// same order while the first one was still payable at the provider — a
+// duplicate-charge hole. Releasing 'initiated' restores the original
+// one-active-attempt semantics and keeps the row reconcilable.
+const CLAIM_RELEASE_STATUS = 'initiated';
+
 class PaymentWebhookController {
     constructor() {
         this.logger = createLogger();
     }
 
     /**
-     * Handle bKash payment status webhook
+     * Handle bKash payment status webhook (§4.2).
+     * The body is an EVIDENCE-TRIGGER only: every terminal transition (both
+     * directions) is confirmed by a server-side v2 Query before the status
+     * moves. When the Query seam is unavailable (inert environment, no linked
+     * gateway account, provider unreachable) NOTHING settles and the claim is
+     * released for scheduled reconciliation.
      */
     async handleBkashWebhook(req, res) {
         try {
-            const { paymentID, transactionStatus, trxID, merchantInvoiceNumber, amount } = req.body;
+            const { paymentID, paymentId, transactionStatus, trxID, merchantInvoiceNumber, amount } = req.body;
+            const resolvedPaymentId = paymentID || paymentId;
+
+            if (!resolvedPaymentId) {
+                return res.status(400).json({ error: 'paymentID is required' });
+            }
 
             // Find payment transaction
             const paymentTransaction = await PaymentTransaction.findOne({
-                where: { transaction_id: paymentID }
+                where: { transaction_id: resolvedPaymentId }
             });
 
             if (!paymentTransaction) {
                 return res.status(404).json({ error: 'Payment transaction not found' });
             }
 
-            // If payment successful, update order and trigger fulfillment
-            if (transactionStatus === 'Completed') {
+            const bodyCanonical = canonicalStatus(transactionStatus);
+            const bodyClaimsCompleted = bodyCanonical === 'paid';
+            // 'Completed' from an older spelling also arrives as-is; isSettled
+            // stays case-insensitive so no branch depends on one spelling (§4.1).
+            const bodyClaimsSuccess = bodyClaimsCompleted || isSettledStatus(transactionStatus);
+
+            const claimableStatuses = ['pending', 'initiated', 'failed'];
+
+            if (bodyClaimsSuccess) {
                 if (['paid', 'verified'].includes(paymentTransaction.status)) {
                     return res.status(200).json({ success: true, duplicate: true });
                 }
@@ -67,7 +117,6 @@ class PaymentWebhookController {
                     return res.status(202).json({ success: true, pending: true });
                 }
 
-                const claimableStatuses = ['pending', 'initiated', 'failed'];
                 if (!claimableStatuses.includes(paymentTransaction.status)) {
                     return res.status(409).json({ error: 'Invalid payment state transition' });
                 }
@@ -84,6 +133,9 @@ class PaymentWebhookController {
                 if (!paymentOrder) {
                     return res.status(409).json({ error: 'Payment order could not be verified' });
                 }
+                // Pre-claim body guards are junk filters, not evidence. The
+                // authoritative re-check runs against the QUERY result below
+                // (§4.2: "its tests keep pinning it" — strictness preserved).
                 if (!merchantInvoiceNumber || String(merchantInvoiceNumber) !== String(paymentOrder.order_number)) {
                     return res.status(400).json({ error: 'Payment invoice mismatch' });
                 }
@@ -117,31 +169,29 @@ class PaymentWebhookController {
                     return res.status(202).json({ success: true, pending: true });
                 }
 
-                try {
-                    await this.processSuccessfulPayment(paymentTransaction, {
-                        gateway: 'bkash',
-                        transactionId: trxID,
-                        amount,
-                        order: paymentOrder,
-                        gatewayResponse: req.body,
-                        mutationAuthority: {
-                            kind: 'system',
-                            source: 'payment_webhook',
-                            signatureVerified: req.webhookSignatureVerified === true,
-                            eventId: req.webhookEventId || String(paymentID || trxID || merchantInvoiceNumber || ''),
-                        },
-                    });
-                } catch (processingError) {
-                    // A claimed callback must remain retryable if fulfillment
-                    // fails. Order and courier paths are independently idempotent.
-                    await PaymentTransaction.update({
-                        status: 'pending',
-                        gateway_response: req.body,
-                    }, {
-                        where: { id: paymentTransaction.id, status: 'processing' },
-                    });
-                    throw processingError;
+                // SERVER-SIDE QUERY — the only settlement evidence (§4.2).
+                const settlement = await this._confirmAndSettle(paymentTransaction, paymentOrder, req);
+                if (settlement.outcome === 'settled') {
+                    return res.status(200).json({ success: true });
                 }
+                // Query unavailable or not confirmed ⇒ release the claim back
+                // to the PRE-CLAIM status 'initiated' (CLAIM_RELEASE_STATUS,
+                // F-1: stays inside ACTIVE_ATTEMPT_STATUSES / the 002 partial
+                // unique / the §4.3 reconciler scan) and defer to scheduled
+                // Query reconciliation. CAS unchanged: only a row still holding
+                // the 'processing' claim is released.
+                await PaymentTransaction.update({
+                    status: CLAIM_RELEASE_STATUS,
+                    gateway_response: { ...(paymentTransaction.gateway_response || {}), ...req.body, webhook_verification: settlement.outcome },
+                }, {
+                    where: { id: paymentTransaction.id, status: 'processing' },
+                });
+                return res.status(202).json({
+                    success: true,
+                    pending: true,
+                    verification: settlement.outcome === 'unconfirmed' ? 'query_unconfirmed' : 'query_unavailable',
+                    ...(settlement.reason ? { reason: settlement.reason } : {}),
+                });
 
             } else {
                 // A late failure callback must never downgrade a completed payment.
@@ -149,7 +199,8 @@ class PaymentWebhookController {
                     return res.status(200).json({ success: true, duplicate: true });
                 }
 
-                if (['pending', 'initiated', 'failed'].includes(paymentTransaction.status)) {
+                let guardedOrder = null;
+                if (claimableStatuses.includes(paymentTransaction.status)) {
                     if (!paymentTransaction.order_id || !paymentTransaction.shop_id) {
                         return res.status(409).json({ error: 'Payment tenant binding is incomplete' });
                     }
@@ -160,26 +211,130 @@ class PaymentWebhookController {
                     if (!merchantInvoiceNumber || String(merchantInvoiceNumber) !== String(paymentOrder.order_number)) {
                         return res.status(400).json({ error: 'Payment invoice mismatch' });
                     }
+                    guardedOrder = paymentOrder;
                 }
 
-                await PaymentTransaction.update({
-                    status: 'failed',
-                    gateway_response: req.body,
-                    verified_at: null
-                }, {
-                    where: {
-                        id: paymentTransaction.id,
-                        status: { [Op.notIn]: ['paid', 'verified', 'processing'] }
-                    }
+                // Failure is also body-only until now: flip to 'failed' only
+                // when a server-side Query says Failed/Cancelled (§4.3); an
+                // unavailable Query defers, and a Query that says Completed
+                // settles instead — the body never wins either way.
+                const evidence = await tokenized.querySettlementEvidence(paymentTransaction);
+                if (!evidence.available) {
+                    return res.status(202).json({
+                        success: true,
+                        pending: true,
+                        verification: 'query_unavailable',
+                        reason: evidence.reason,
+                    });
+                }
+                const verdict = tokenized.evaluateSettlement(evidence.query, {
+                    expectedOrderNumber: guardedOrder ? guardedOrder.order_number : null,
+                    expectedAmountMinor: normalizeAmountToMinorUnits(paymentTransaction.amount),
+                });
+                if (verdict.confirmed) {
+                    // Body said failure, provider says Completed — settle from
+                    // the Query, never from the body claim.
+                    const settled = await this._settleFromQuery(paymentTransaction, guardedOrder, evidence.query, verdict, req);
+                    if (settled) return res.status(200).json({ success: true });
+                    return res.status(202).json({ success: true, pending: true, verification: 'settle_deferred' });
+                }
+                if (verdict.canonical === 'failed') {
+                    await PaymentTransaction.update({
+                        status: 'failed',
+                        gateway_response: { ...(paymentTransaction.gateway_response || {}), ...req.body, query_status: verdict.providerStatus },
+                        verified_at: null
+                    }, {
+                        where: {
+                            id: paymentTransaction.id,
+                            status: { [Op.notIn]: ['paid', 'verified', 'processing'] }
+                        }
+                    });
+                    return res.status(200).json({ success: true, status: 'failed', verified_by: 'server_query' });
+                }
+                // Provider says still-initiated/pending/unknown → defer.
+                return res.status(202).json({
+                    success: true,
+                    pending: true,
+                    verification: 'query_unconfirmed',
+                    provider_status: verdict.providerStatus,
                 });
             }
-
-            res.status(200).json({ success: true });
 
         } catch (error) {
             this.logger.error('bKash webhook error', { errorCode: safeErrorCode(error) });
             res.status(500).json({ error: 'Webhook processing failed' });
         }
+    }
+
+    /**
+     * Claimed-row confirmation path (§4.2): Query → strict guards → fulfill,
+     * releasing nothing here (the caller owns the claim release on failure).
+     */
+    async _confirmAndSettle(paymentTransaction, paymentOrder, req) {
+        const evidence = await tokenized.querySettlementEvidence(paymentTransaction);
+        if (!evidence.available) {
+            this.logger.warn('bKash webhook body claim deferred: no server-side Query available', {
+                paymentTransactionId: paymentTransaction.id,
+                errorCode: 'QUERY_UNAVAILABLE',
+                reason: evidence.reason,
+            });
+            return { outcome: 'unavailable', reason: evidence.reason };
+        }
+        const verdict = tokenized.evaluateSettlement(evidence.query, {
+            expectedOrderNumber: paymentOrder.order_number,
+            expectedAmountMinor: normalizeAmountToMinorUnits(paymentTransaction.amount),
+        });
+        if (!verdict.confirmed) {
+            this.logger.info('bKash webhook deferred: Query did not confirm settlement', {
+                paymentTransactionId: paymentTransaction.id,
+                providerStatus: verdict.providerStatus,
+            });
+            return { outcome: 'unconfirmed', verdict };
+        }
+        try {
+            const settled = await this._settleFromQuery(paymentTransaction, paymentOrder, evidence.query, verdict, req);
+            return settled ? { outcome: 'settled' } : { outcome: 'unconfirmed' };
+        } catch (processingError) {
+            // A claimed callback must remain retryable if fulfillment
+            // fails. Order and courier paths are independently idempotent.
+            // F-1 (A9-R2): release to 'initiated', never 'pending' — the row
+            // must stay an ACTIVE attempt (re-initiation 409 + partial unique
+            // + §4.3 reconciler scan) while its provider outcome is unknown.
+            await PaymentTransaction.update({
+                status: CLAIM_RELEASE_STATUS,
+                gateway_response: req.body,
+            }, {
+                where: { id: paymentTransaction.id, status: 'processing' },
+            });
+            throw processingError;
+        }
+    }
+
+    /** Fulfill on QUERY evidence — trxId/amount come from the provider query,
+     *  never from the callback body (§4.2: body claims are evidence-triggers). */
+    async _settleFromQuery(paymentTransaction, paymentOrder, query, verdict, req) {
+        const trxId = verdict.trxId || query.trxID || query.trxId;
+        if (!trxId) return false;
+        await this.processSuccessfulPayment(paymentTransaction, {
+            gateway: 'bkash',
+            transactionId: trxId,
+            amount: query.amount ?? paymentTransaction.amount,
+            order: paymentOrder,
+            gatewayResponse: {
+                source: 'tokenized_v2_query',
+                transactionStatus: verdict.providerStatus,
+                verificationStatus: String(query.verificationStatus || '').slice(0, 24) || null,
+                merchantInvoice: query.merchantInvoice || null,
+                callback_payment_id: paymentTransaction.transaction_id,
+            },
+            mutationAuthority: {
+                kind: 'system',
+                source: 'payment_webhook',
+                signatureVerified: req.webhookSignatureVerified === true,
+                eventId: req.webhookEventId || String(paymentTransaction.transaction_id),
+            },
+        });
+        return true;
     }
 
     /**
@@ -439,33 +594,12 @@ ${fulfillmentNoticeEn}`;
         }
     }
 
-    /**
-     * Handle owner payment confirmation webhook
-     */
-    async handleOwnerPaymentConfirmation(req, res) {
-        try {
-            const { notificationId, action } = req.params;
-            const ownerInfo = req.body;
-
-            this.logger.info('Owner payment confirmation', {
-                notificationId,
-                action,
-            });
-
-            const ownerNotificationService = require('../notification/owner-notification.service');
-            const result = await ownerNotificationService.handleOwnerResponse(
-                notificationId,
-                action,
-                ownerInfo
-            );
-
-            res.status(200).json(result);
-
-        } catch (error) {
-            this.logger.error('Owner payment confirmation error', { errorCode: safeErrorCode(error) });
-            res.status(500).json({ error: 'Processing failed' });
-        }
-    }
+    // D-9 (contract §7 row 16): handleOwnerPaymentConfirmation — an inbound
+    // "owner confirmation webhook" that NO route ever mounted — is DELETED.
+    // The dashboard path (notification.routes.js approve/reject +
+    // owner-notification.service.handleOwnerResponse) is the single,
+    // authenticated, audited owner-response surface; the payment claim flow
+    // (§3, R-13) feeds real rows into it now, so no webhook shim is needed.
 }
 
 module.exports = new PaymentWebhookController();

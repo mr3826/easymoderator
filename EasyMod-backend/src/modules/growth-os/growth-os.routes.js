@@ -28,10 +28,17 @@ const prospectMutationPermissions = [
   'growth_os.prospects.update_assigned',
 ];
 
+// B6 (A9-R3, 2026-11-26): F-7's global validate.middleware change re-tagged
+// boundary-shape 400s from the AppError default 'INTERNAL_ERROR' to
+// 'VALIDATION_ERROR' — which silently made these re-taggers dead for their
+// intended path and changed the DOCUMENTED wire contract
+// (docs/growth-os/EXECUTION_STATE.md: GROWTH_OS_{PROSPECT,WORK}_INVALID_INPUT
+// for validator-shape rejections). Both codes are matched now, so the edge
+// keeps its stable codes regardless of the middleware's generic label.
 function validateProspect(schema) {
   const middleware = validate(schema);
   return (req, res, next) => middleware(req, res, (error) => {
-    if (error instanceof AppError && error.code === 'INTERNAL_ERROR') {
+    if (error instanceof AppError && (error.code === 'INTERNAL_ERROR' || error.code === 'VALIDATION_ERROR')) {
       error.code = 'GROWTH_OS_PROSPECT_INVALID_INPUT';
       error.status = 400;
     }
@@ -42,7 +49,7 @@ function validateProspect(schema) {
 function validateWork(schema) {
   const middleware = validate(schema);
   return (req, res, next) => middleware(req, res, (error) => {
-    if (error instanceof AppError && error.code === 'INTERNAL_ERROR') {
+    if (error instanceof AppError && (error.code === 'INTERNAL_ERROR' || error.code === 'VALIDATION_ERROR')) {
       error.code = 'GROWTH_OS_WORK_INVALID_INPUT';
       error.status = 400;
     }

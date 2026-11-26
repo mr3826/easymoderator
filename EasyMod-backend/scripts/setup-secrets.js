@@ -92,11 +92,11 @@ BKASH_APP_KEY=your-bkash-app-key
 BKASH_APP_SECRET=your-bkash-app-secret
 BKASH_SANDBOX=false
 
-NAGAD_MERCHANT_ID=your-nagad-merchant-id
-NAGAD_MERCHANT_NUMBER=your-nagad-number
-NAGAD_PUBLIC_KEY=your-nagad-public-key
-NAGAD_PRIVATE_KEY=your-nagad-private-key
-NAGAD_SANDBOX=false
+# Nagad/Rocket intentionally have NO secrets here (contract D-10, ratified):
+# no public official merchant API exists for either provider, no code ever
+# read NAGAD_*, and collecting unread secrets is a liability. Wallet-number
+# payments to them run through the self-MFS merchant-confirmation flow —
+# merchant judgment, never automation.
 
 # Monitoring & Logging
 SENTRY_DSN=your-sentry-dsn

@@ -29,7 +29,11 @@ const ChannelsOverview = lazy(() => import("./components/channels/ChannelsOvervi
 const ChannelDetail = lazy(() => import("./components/channels/ChannelDetail"));
 const BusinessAutomationDefaults = lazy(() => import("./components/BusinessAutomationDefaults"));
 const DeliverySettings = lazy(() => import("./components/DeliverySettings"));
-const PaymentSettings = lazy(() => import("./components/PaymentSettings"));
+// Payment Settings redesign (contract 00_PAYMENT_DATA_CONTRACT.md): the two-tab
+// workspace replaces the legacy single-page PaymentSettings.tsx at the SAME URL
+// (nav + SettingsHub tile unchanged). The legacy component stays on disk for its
+// own unit pins only; nothing mounts it.
+const PaymentWorkspace = lazy(() => import("./components/payment-settings/PaymentWorkspace"));
 const NotificationSettings = lazy(() => import("./components/NotificationSettings"));
 const BusinessFaqWorkspace = lazy(() => import("./components/business-faq/BusinessFaqWorkspace"));
 const SignIn = lazy(() => import("./components/SignIn"));
@@ -207,7 +211,7 @@ export const router = createBrowserRouter([
 					{ path: "automation", Component: withSuspense(BusinessAutomationDefaults) },
 					{ path: "chat-settings", loader: () => redirect("/manage-shop/channels") },
 					{ path: "delivery-settings", Component: withSuspense(DeliverySettings) },
-					{ path: "payment-settings", Component: withSuspense(PaymentSettings) },
+					{ path: "payment-settings", Component: withSuspense(PaymentWorkspace) },
 					{ path: "notifications", Component: withSuspense(NotificationSettings) },
 					{ path: "faqs", Component: withSuspense(BusinessFaqWorkspace) },
 				],

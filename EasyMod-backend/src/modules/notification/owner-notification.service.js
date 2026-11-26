@@ -22,11 +22,36 @@ const { AppError } = require('../../utils/AppError');
 const { sendEmail } = require('../../utils/email.service');
 const { createLogger } = require('../../utils/structured-logger');
 const { _private: { normalizeGateway } } = require('../payment/payment.service');
+const paymentTaxonomy = require('../payment/payment-taxonomy');
+
+// §3.2-4 / D-10: the self-MFS claim state `payment_claimed` joins the
+// approvable set. It comes from the single canonical source (payment-taxonomy),
+// never a local array. Terminal states (paid/verified/failed/rejected) stay
+// rejected here — the existing guards remain byte-for-byte.
+const OWNER_APPROVABLE_TRANSACTION_STATUSES = paymentTaxonomy.APPROVABLE_STATUSES;
+
+// §3.3 / D-10 ratified defect correction: payment confirmations expire. The
+// column existed (owner-notification.entity.js:55-59) but nothing ever SET it.
+// F3/D-4 (2026-11-26 RATIFIED): expiry is a SURFACE, never a dead end — past
+// expires_at the row/list status is honestly marked 'expired' (the missing
+// writer, idempotent + append-only-safe) and approve/reject REMAIN functional:
+// the merchant's judgment outranks the SLA. The blanket 410 is removed.
+const PAYMENT_CONFIRMATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 const TERMINAL_ORDER_STATUSES = new Set([
     'completed', 'delivered', 'shipped', 'fulfilled', 'cancelled', 'refunded', 'returned', 'partial_returned',
 ]);
 const COD_PAYMENT_METHODS = new Set(['cod', 'cash', 'cash_on_delivery']);
+
+// The confirmation message interpolates customer-controlled text (TrxID,
+// message, screenshot URL). Escape once at the HTML boundary — the text/plain
+// body stays verbatim for the merchant.
+const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 const isCodPaymentMethod = (paymentMethod) => COD_PAYMENT_METHODS.has(
     String(paymentMethod || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
@@ -94,9 +119,22 @@ class OwnerNotificationService {
 
     /**
      * Send payment confirmation request to shop owner
-     * Uses all available channels for maximum reach
+     * Uses all available channels for maximum reach.
+     *
+     * §3.3 fixes (A4): the row now carries a real expires_at (24 h — the
+     * expiry SURFACE is no longer dead: past it, the row/list reads 'expired'
+     * and handleOwnerResponse keeps approve/reject functional, F3/D-4), stays
+     * non-dismissible (notification.routes.js /read pin), and keeps the
+     * merchant's evidence context additive: claim amount, amount kind/basis
+     * (the F1 machine field the merchant UI renders copy against) and the
+     * wallet number the customer was shown (from the stamped
+     * payment_account_id, §6 — the approve detail reads these, no silent
+     * number switching).
+     *
+     * @returns the created OwnerNotification row (reference) alongside the
+     *          channel summary — §3.3 "returns the created row".
      */
-    async sendPaymentConfirmationRequest(shopId, orderData, paymentInfo) {
+    async sendPaymentConfirmationRequest(shopId, orderData, paymentInfo = {}) {
         try {
             // Get shop owner information
             const shopOwner = await this.getShopOwner(shopId);
@@ -117,9 +155,25 @@ class OwnerNotificationService {
                     amount: orderData.total,
                     paymentMethod: paymentInfo.paymentMethod,
                     transactionId: paymentInfo.transactionId,
-                    screenshotUrl: paymentInfo.screenshotUrl
+                    screenshotUrl: paymentInfo.screenshotUrl,
+                    // additive merchant-evidence fields (self-MFS claim flow §3.2):
+                    ...(paymentInfo.claim_amount !== undefined && paymentInfo.claim_amount !== null
+                        ? {
+                            claimAmount: paymentInfo.claim_amount,
+                            amountKind: paymentInfo.amount_kind || 'full',
+                            // F1 machine field (copy keys are FE-owned): 'full'
+                            // = this claim settles the ENTIRE order total.
+                            ...(paymentInfo.amount_basis
+                                ? { amountBasis: paymentInfo.amount_basis } : {}),
+                            ...(paymentInfo.policy_advance !== undefined
+                                ? { policyAdvance: Boolean(paymentInfo.policy_advance) } : {}),
+                        }
+                        : {}),
+                    ...(paymentInfo.amount_mismatch ? { amountMismatch: paymentInfo.amount_mismatch } : {}),
+                    ...(paymentInfo.wallet_number ? { walletNumber: paymentInfo.wallet_number } : {}),
                 },
-                status: 'pending'
+                status: 'pending',
+                expiresAt: new Date(Date.now() + PAYMENT_CONFIRMATION_TTL_MS),
             });
 
             // Prepare notification content
@@ -129,11 +183,12 @@ class OwnerNotificationService {
                 notification.id
             );
 
-            // Send via all available channels
+            // Send via all available channels. The dashboard leg is served by
+            // the OwnerNotification row itself (§3.3 honesty fix) — pass it in.
             const results = await Promise.allSettled([
                 this.sendViaFacebook(shopId, shopOwner, notificationContent),
                 this.sendViaEmail(shopOwner, notificationContent),
-                this.createDashboardNotification(shopId, notificationContent)
+                this.createDashboardNotification(shopId, notificationContent, notification)
             ]);
 
             // Log results
@@ -155,6 +210,8 @@ class OwnerNotificationService {
                 success: true,
                 notificationId: notification.id,
                 channelsUsed: successfulChannels,
+                expiresAt: notification.expires_at || null,
+                row: notification, // §3.3: the caller can read the created row back
                 message: 'Payment confirmation request sent to shop owner'
             };
 
@@ -186,11 +243,20 @@ class OwnerNotificationService {
                 if (notification.type !== 'payment_confirmation') {
                     throw new AppError('Notification is not a payment confirmation', 400);
                 }
-                if (notification.status !== 'pending') {
+                // F3/D-4 (2026-11-26): 'expired' is a surfaced state, not a
+                // dead end — owner judgment outranks the SLA, so both
+                // 'pending' and 'expired' rows remain actionable. Anything
+                // else (completed) stays 409-rejected: no double settlement.
+                if (!['pending', 'expired'].includes(notification.status)) {
                     throw new AppError('Payment confirmation has already been completed', 409);
                 }
-                if (notification.expires_at && notification.expires_at <= new Date()) {
-                    throw new AppError('Payment confirmation has expired', 410);
+                const pastExpiry = Boolean(
+                    notification.expires_at && new Date(notification.expires_at) <= new Date(),
+                );
+                if (pastExpiry && notification.status === 'pending') {
+                    // Missing writer, done here idempotently (pending →
+                    // expired only; completed rows are never rewritten).
+                    await notification.update({ status: 'expired' }, { transaction });
                 }
 
                 const orderId = notification.customer_data?.orderId;
@@ -215,6 +281,24 @@ class OwnerNotificationService {
                     );
                 }
                 if (response === 'approve') {
+                    // B1(b) (A9-R3 money-integrity, 2026-11-26): an order whose
+                    // payment is ALREADY settled can never be re-settled by
+                    // approving a second claim — the txn-status guard below
+                    // only looks at THIS notification's row, so a different
+                    // still-`payment_claimed` row for the same order would
+                    // otherwise re-fire paid/paid_at/confirmed, mint a second
+                    // verified transaction and send the customer a SECOND
+                    // "payment confirmed" message. Guard sits on the LOCKED
+                    // order row, before any write in this transaction.
+                    const orderPaymentState = String(order.payment_status || '').trim().toLowerCase();
+                    if (orderPaymentState === 'paid') {
+                        throw new AppError(
+                            'This order is already settled as paid — approving another claim would double-settle it. '
+                            + 'Reject this claim or reconcile the duplicate payment with the customer.',
+                            409,
+                            'ALREADY_SETTLED',
+                        );
+                    }
                     const paymentGateway = await resolveApprovalPaymentGateway(
                         order,
                         notification.shop_id,
@@ -260,11 +344,34 @@ class OwnerNotificationService {
                     lock: transaction.LOCK.UPDATE,
                 });
                 if (!paymentTransaction) throw new AppError('Payment transaction not found', 404);
-                if (!['pending', 'initiated', 'processing'].includes(paymentTransaction.status)) {
+                // §3.2-4: the claim state `payment_claimed` is now part of the
+                // approvable set (single source: payment-taxonomy). The rest of
+                // this guard chain — terminal order, COD-path and courier-claim
+                // checks above — stays byte-for-byte: settlement evidence
+                // remains the merchant's own action on a matched claim.
+                if (!OWNER_APPROVABLE_TRANSACTION_STATUSES.includes(paymentTransaction.status)) {
                     throw new AppError('Payment transaction is not awaiting owner confirmation', 409);
                 }
 
                 if (response === 'approve') {
+                    // F1/BLOCK (2026-11-26 ruling): approve settles the order as
+                    // FULLY paid, so a claim below the order total must never
+                    // settle it. New self-MFS claims always mint the full-total
+                    // amount, but LEGACY rows may already hold partial advance
+                    // numbers — refuse with a machine-readable 409 and change
+                    // NOTHING (order stays pending, txn stays unverified; the
+                    // merchant reconciles via re-collect / reject).
+                    const orderTotal = Number(order.total);
+                    const claimedAmount = Number(paymentTransaction.amount);
+                    if (Number.isFinite(orderTotal) && Number.isFinite(claimedAmount)
+                        && claimedAmount < orderTotal) {
+                        throw new AppError(
+                            'Claimed payment is below the order total — approving would settle a partial payment as fully paid. '
+                            + 'Collect the remaining amount first (a new claim) or reject.',
+                            409,
+                            'CLAIM_AMOUNT_BELOW_ORDER_TOTAL',
+                        );
+                    }
                     await order.update({
                         payment_status: 'paid',
                         paid_at: new Date(),
@@ -293,6 +400,9 @@ class OwnerNotificationService {
                     owner_info: {
                         user_id: ownerInfo.userId,
                         source: 'authenticated_dashboard',
+                        // D-4 honesty: an expired row the owner still judged is
+                        // recorded as acted-after-expiry (surface, never hide).
+                        ...(pastExpiry ? { acted_after_expiry: true } : {}),
                     },
                 }, { transaction });
                 await AuditLog.create({
@@ -304,6 +414,7 @@ class OwnerNotificationService {
                     metadata: {
                         notification_id: notification.id,
                         order_id: order.id,
+                        ...(pastExpiry ? { expired_on_action: true } : {}),
                     },
                     idempotency_key: `owner-payment:${notification.id}:${response}`,
                 }, { transaction });
@@ -362,30 +473,59 @@ class OwnerNotificationService {
             customer_message: data.customerMessage,
             customer_data: data.customerData,
             status: data.status,
+            // §3.3 fix: payment confirmations carry a real 24 h expiry so the
+            // SURFACE is honest (D-10 defect pin; F3/D-4: expiry marks the row
+            // 'expired' — it does NOT block the owner's judgment).
+            ...(data.expiresAt ? { expires_at: data.expiresAt } : {}),
             created_at: new Date()
         });
     }
 
     /**
      * Format payment confirmation message
+     *
+     * §3.3 crash fix (A4): the delivery-failure misfire used to call this
+     * without a paymentMethod and the raw `.toUpperCase()` threw — swallowed
+     * only by the caller's try/catch. The label is now null-safe and taken
+     * through the payment taxonomy when a raw provider token arrives; a
+     * screenshot (when present) is labelled SUPPORTING evidence only, never a
+     * confirmation (§0 invariant — OCR/TrxID alone never auto-confirm).
      */
-    formatPaymentConfirmationMessage(orderData, paymentInfo, notificationId) {
+    formatPaymentConfirmationMessage(orderData, paymentInfo = {}, notificationId) {
+        const methodLabel = String(
+            paymentInfo.paymentMethod
+            || paymentTaxonomy.providerLabelSafe(paymentInfo.provider),
+        ).toUpperCase();
+        const customerMessage = typeof paymentInfo.customerMessage === 'string'
+            ? paymentInfo.customerMessage
+            : '';
+        const claimAmount = Number(paymentInfo.claim_amount);
+        const hasClaim = Number.isFinite(claimAmount) && claimAmount > 0;
+        const amountLine = hasClaim
+            ? `• Claimed payment: ৳${claimAmount}${paymentInfo.amount_kind === 'advance' ? ` (advance — remaining ৳${Math.max((Number(orderData.total) || 0) - claimAmount, 0)})` : ''}`
+            : null;
+        const mismatchLine = paymentInfo.amount_mismatch
+            ? `• ⚠️ AMOUNT MISMATCH — displayed ৳${paymentInfo.amount_mismatch.displayed_amount}, server computed ৳${paymentInfo.amount_mismatch.server_amount}; review before deciding`
+            : null;
+        const walletLine = paymentInfo.wallet_number
+            ? `• Number shown to customer: ${paymentInfo.wallet_number}`
+            : null;
+
         return `💰 পেমেন্ট নিশ্চিতকরণ প্রয়োজন!
 
 📋 অর্ডার তথ্য:
 • অর্ডার নম্বর: #${orderData.order_number}
 • কাস্টমার: ${orderData.customer_name}
 • ফোন: ${orderData.customer_phone}
-• পরিমাণ: ৳${orderData.total}
-• পেমেন্ট পদ্ধতি: ${paymentInfo.paymentMethod.toUpperCase()}
+• পরিমাণ: ৳${orderData.total}${Number.isFinite(claimAmount) && claimAmount > 0 && claimAmount !== Number(orderData.total) ? ` (দাবিকৃত: ৳${claimAmount})` : ''}
+• পেমেন্ট পদ্ধতি: ${methodLabel}${paymentInfo.wallet_number ? ` • যে নম্বরে পাঠানো হয়েছে: ${paymentInfo.wallet_number}` : ''}${paymentInfo.amount_mismatch ? `
+• ⚠️ পরিমাণ মিলছে না (দেখানো ৳${paymentInfo.amount_mismatch.displayed_amount}, সার্ভার ৳${paymentInfo.amount_mismatch.server_amount}) — যাচাই করে সিদ্ধান্ত নিন` : ''}
 
 💳 পেমেন্ট তথ্য:
 • ট্রানজেকশন ID: ${paymentInfo.transactionId}
-• কাস্টমার বার্তা: "${paymentInfo.customerMessage}"
-${paymentInfo.screenshotUrl ? `• স্ক্রিনশট: ${paymentInfo.screenshotUrl}` : ''}
-
+${customerMessage ? `• কাস্টমার বার্তা: "${customerMessage}"\n` : ''}${paymentInfo.screenshotUrl ? `• স্ক্রিনশট (শুধু সহায়ক প্রমাণ — নিজে মিলিয়ে নিন): ${paymentInfo.screenshotUrl}\n` : ''}
 🔘 সিদ্ধান্ত নিন:
-নিরাপদ EasyModerator ড্যাশবোর্ড খুলে অনুমোদন বা বাতিল করুন।
+নিরাপদ EasyModerator ড্যাশবোর্ড খুলে অনুমোদন বা বাতিল করুন। সময়সীমা: ২৪ ঘণ্টা।
 
 ---
 
@@ -395,16 +535,14 @@ ${paymentInfo.screenshotUrl ? `• স্ক্রিনশট: ${paymentInfo.sc
 • Order Number: #${orderData.order_number}
 • Customer: ${orderData.customer_name}
 • Phone: ${orderData.customer_phone}
-• Amount: ৳${orderData.total}
-• Payment Method: ${paymentInfo.paymentMethod.toUpperCase()}
+• Amount: ৳${orderData.total}${amountLine ? `\n${amountLine}` : ''}
+• Payment Method: ${methodLabel}${walletLine ? ` • ${walletLine}` : ''}${mismatchLine ? `\n${mismatchLine}` : ''}
 
 💳 Payment Info:
 • Transaction ID: ${paymentInfo.transactionId}
-• Customer Message: "${paymentInfo.customerMessage}"
-${paymentInfo.screenshotUrl ? `• Screenshot: ${paymentInfo.screenshotUrl}` : ''}
-
+${customerMessage ? `• Customer Message: "${customerMessage}"\n` : ''}${paymentInfo.screenshotUrl ? `• Screenshot (SUPPORTING EVIDENCE ONLY — verify yourself): ${paymentInfo.screenshotUrl}\n` : ''}
 🔘 Make Decision:
-Open the authenticated EasyModerator dashboard to approve or reject.
+Open the authenticated EasyModerator dashboard to approve or reject. Expires within 24 hours.
 
 Reference: ${notificationId}`;
     }
@@ -437,7 +575,7 @@ Reference: ${notificationId}`;
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                     <div style="background-color: #f8f9fa; padding: 20px; border-radius: 10px;">
                         <h2 style="color: #333; margin-bottom: 20px;">💰 Payment Confirmation Required</h2>
-                        <div style="background-color: white; padding: 20px; border-radius: 8px; white-space: pre-wrap;">${message}</div>
+                        <div style="background-color: white; padding: 20px; border-radius: 8px; white-space: pre-wrap;">${escapeHtml(message)}</div>
                         <p style="margin-top: 20px; font-size: 12px; color: #666;">
                             Open the authenticated EasyModerator dashboard to approve or reject the payment.
                         </p>
@@ -464,22 +602,39 @@ Reference: ${notificationId}`;
     }
 
     /**
-     * Create dashboard notification
+     * "Dashboard" leg of a payment confirmation — §3.3 honesty fix (A4).
+     *
+     * This method creates nothing; until now it logged "Dashboard notification
+     * created" and reported success anyway — misleading. The dashboard surface
+     * IS the OwnerNotification row created above (read by the merchant app at
+     * GET /api/notifications/in-app; notification.routes.js keeps
+     * payment_confirmation rows non-dismissible). So this leg reports exactly
+     * that truth instead of inventing a second channel.
      */
-    async createDashboardNotification(shopId, message) {
+    async createDashboardNotification(shopId, message, notificationRow = null) {
         try {
-            this.logger.info('Dashboard notification created', {
+            this.logger.info('Dashboard surface served by OwnerNotification row', {
                 shopId,
+                notificationId: notificationRow?.id || null,
+                // The row — not this call — is the dashboard notification.
+                mode: 'owner_notification_row',
             });
 
-            return { success: true, channel: 'dashboard' };
-
+            return {
+                success: Boolean(notificationRow),
+                channel: 'dashboard',
+                mode: 'owner_notification_row',
+                queued: Boolean(notificationRow),
+                detail: notificationRow
+                    ? 'Merchant sees this in the dashboard inbox via /api/notifications/in-app'
+                    : 'No OwnerNotification row — nothing queued',
+            };
         } catch (error) {
-            this.logger.warn('Dashboard notification failed', {
+            this.logger.warn('Dashboard notification leg failed', {
                 shopId,
                 error: error.message
             });
-            return { success: false, reason: 'creation_error', error: error.message };
+            return { success: false, reason: 'no_row', error: error.message };
         }
     }
 
@@ -528,10 +683,59 @@ Reference: ${notificationId}`;
     }
 
     /**
-     * Get pending notifications for shop
+     * F3/D-4 (2026-11-26): the missing EXPIRY WRITER. Past expires_at a pending
+     * payment confirmation is honestly marked 'expired' (the column's documented
+     * third state) — on read-list AND on owner action (handleOwnerResponse).
+     * Idempotent (only 'pending' rows past their expiry are touched, never
+     * 'completed'/'expired' ones) and append-only-safe (status progression
+     * only; no evidence rewrite; the payment row is NOT auto-failed — D-4
+     * RATIFIED: surface expired + retain merchant judgment). Best-effort on
+     * the read path: a marking failure must never break a list read; the next
+     * read retries.
+     *
+     * @param {Array} notifications loaded OwnerNotification rows/objects
+     * @returns the rows detected past expiry (marked or not)
+     */
+    async markExpiredOnRead(notifications = []) {
+        const now = Date.now();
+        const expiredRows = [];
+        for (const row of notifications) {
+            if (!row || row.status !== 'pending' || !row.expires_at) continue;
+            if (new Date(row.expires_at).getTime() > now) continue;
+            expiredRows.push(row);
+            try {
+                await row.update({ status: 'expired' });
+            } catch (_) {
+                this.logger.warn('Owner notification expiry marking failed (will retry on next read)', {
+                    notificationId: row.id,
+                });
+            }
+        }
+        return expiredRows;
+    }
+
+    /**
+     * Merchant dashboard read-list (GET /api/notifications/in-app surface).
+     * Same rows as before — plus the F3 expiry writer, so the list never shows
+     * a past-expiry payment confirmation as still-'pending'.
+     */
+    async listShopNotifications(shopId, { limit = 20 } = {}) {
+        const rows = await OwnerNotification.findAll({
+            where: { shop_id: shopId },
+            order: [['created_at', 'DESC']],
+            limit,
+        });
+        await this.markExpiredOnRead(rows);
+        return rows;
+    }
+
+    /**
+     * Get pending notifications for shop. F3/D-4: past-expiry rows are marked
+     * 'expired' and leave the PENDING set — they stay visible (and actionable)
+     * in the full in-app list as 'expired'.
      */
     async getPendingNotifications(shopId, limit = 10) {
-        return await OwnerNotification.findAll({
+        const rows = await OwnerNotification.findAll({
             where: {
                 shop_id: shopId,
                 status: 'pending'
@@ -539,6 +743,9 @@ Reference: ${notificationId}`;
             order: [['created_at', 'DESC']],
             limit
         });
+        const expired = await this.markExpiredOnRead(rows);
+        const expiredIds = new Set(expired.map((row) => row && row.id));
+        return rows.filter((row) => !expiredIds.has(row && row.id));
     }
 
     /**
