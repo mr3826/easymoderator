@@ -270,8 +270,18 @@ async function setupRoutes(page: Page, options: { accounts?: Acct[]; policy?: Re
             if (action === 'certify-live' && method === 'POST') {
                 state.certifyPosts.push({ id, body: request.postDataJSON() });
                 const a = find(id)!;
-                if (a.verification_level !== 'sandbox_verified') {
-                    return route.fulfill({ status: 409, json: { success: false, code: 'SANDBOX_HANDSHAKE_REQUIRED', message: 'Only a sandbox-verified account can be live-certified' } });
+                // Mirrors the R-17 server contract (payment-verification.service.js): certify
+                // requires EXPLICIT production environment + a certifiable rung. The old
+                // sandbox_verified-prerequisite rule was removed and must not live in mocks.
+                const CERTIFIABLE = ['unverified', 'configured_unverified', 'sandbox_verified'];
+                if (a.config?.environment !== 'production') {
+                    const msg = a.config?.environment === 'sandbox'
+                        ? 'This account is recorded as a SANDBOX environment — live certification describes production posture. Switch the account to production (this demotes the ladder) and certify with production evidence.'
+                        : 'The account environment is not explicitly recorded as "production" (legacy rows must be re-saved with config.environment="production" before they can be live-certified). Nothing was recorded.';
+                    return route.fulfill({ status: 400, json: { success: false, code: 'PROVIDER_ENVIRONMENT_NOT_PRODUCTION', message: msg } });
+                }
+                if (!CERTIFIABLE.includes(String(a.verification_level))) {
+                    return route.fulfill({ status: 409, json: { success: false, code: 'LADDER_STATE_NOT_CERTIFIABLE', message: `Verification level "${a.verification_level}" is not certifiable` } });
                 }
                 a.verification_level = 'live_certified';
                 return route.fulfill({ json: { success: true, verification_level: 'live_certified', message: 'Live certification recorded against owner evidence and audit. Automated checkout additionally remains gated on BKASH_ENABLED.' } });
