@@ -1529,17 +1529,21 @@ export default function UnifiedInbox() {
   return (
     <MotionConfig reducedMotion="user">
     <div className="em-inbox h-full flex flex-col overflow-hidden">
-      {/* Header-removal C1: the permanent signal band (breadcrumb + visible
-          duplicate title + dominant badge + why-here copy) is retired. The
-          sr-only h1 keeps the a11y landmark while the sticky AppBar owns the
-          visible name; the pills below are conversation/page-contextual
-          status (C4) and keep their exact logic and testids. */}
-      <div className="shrink-0">
+      {/* Header-removal C1 amendment (unified title rule): the signal band is
+          retired, and "Shared Inbox" ≠ the AppBar name ("Inbox"), so the h1
+          stays VISIBLE as a compact one-line title instead of sr-only. The
+          horizontal inset moved from the meta row to this wrapper so the
+          compact title and the pills align; the pills are conversation/
+          page-contextual status (C4) with exact logic and testids preserved.
+          Geometry: compact h1 (text-lg, one line ~28px) + pill row keeps the
+          header < 80px and the workbench above the 220px fold — pinned by
+          tests/e2e/inbox-guardrails.spec.ts. */}
+      <div className="shrink-0 px-4 md:px-6">
         <PageHeader
           title={t("inbox.title")}
-          titleMode="srOnly"
+          titleMode="compact"
           meta={
-            <div className="flex flex-wrap items-center gap-2 px-4 md:px-6">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
                 {t("inbox.active", { count: conversations.filter((c) => c.status === "active").length })}
               </span>

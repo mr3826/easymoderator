@@ -2,8 +2,9 @@
  * /inbox guardrails proof (mock-only, CI subset). Mirrors the ai-reply-mode
  * fixture discipline: every /api/* path outside the allowlist is aborted and
  * recorded, so a redesign that invents backend calls fails here. Covers the
- * header-removal contract (C1/C6: no permanent signal band — sr-only h1 plus
- * contextual pills only, no subtitle/CTA), reclaimed fold space,
+ * header-removal contract (C1 + C1 amendment: no permanent signal band —
+ * compact h1 ("Shared Inbox" ≠ AppBar "Inbox") plus contextual pills only, no
+ * subtitle/CTA), reclaimed fold space,
  * merchant-driven row navigation, keyboard focus, 390px overflow, scoped axe,
  * queue partial honesty and SSE-offline honesty.
  */
@@ -237,11 +238,16 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('no permanent header band: sr-only title + contextual pills, work area owns the fold', async ({ page }) => {
+test('no permanent header band: compact title + contextual pills, work area owns the fold', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    // C1: the h1 stays in the accessibility tree (AppBar owns the visible
-    // name), so the heading pin keeps passing via the sr-only landmark.
+    // C1 amendment (unified title rule): "Shared Inbox" ≠ the AppBar name
+    // ("Inbox"), so the h1 renders VISIBLE as a compact one-line title — the
+    // heading pin passes directly, not via an sr-only landmark. Geometry pins
+    // below stay honest: the compact title is one text-lg line (~28px) and the
+    // meta pill row lost its own px inset (moved to the header wrapper), so
+    // header < 80px and workbench y < 220px still hold without moving either
+    // threshold.
     await expect(page.getByRole('heading', { name: 'Shared Inbox', level: 1 })).toBeVisible();
     // C6: the page-level signal badge must NOT exist any more.
     await expect(page.getByTestId('inbox-signal')).toHaveCount(0);

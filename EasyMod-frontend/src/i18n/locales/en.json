@@ -587,15 +587,6 @@
         "resolved": "Resolved",
         "pending": "Pending"
       },
-      "whyHere": {
-        "loading": "Checking today's verified work and business signals.",
-        "error": "The dashboard could not load, so counts and tasks may be out of date.",
-        "setup": "Your shop needs a few setup steps before EasyModerator can turn conversations into confirmed orders.",
-        "setupComplete": "Setup steps are configured; live operational verification is shown on this page.",
-        "work": "Verified work is waiting — replies: {{replies}} · draft orders: {{drafts}} · delivery exceptions: {{exceptions}}.",
-        "caughtUp": "No verified work items remain.",
-        "partial": "Some work sources could not be verified, so this page shows only what is confirmed."
-      },
       "whereNext": {
         "loading": "The page fills in as soon as the sources respond.",
         "error": "Try again. If it keeps failing, check your connection and retry.",

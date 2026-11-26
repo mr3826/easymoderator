@@ -394,9 +394,10 @@ export default function PaymentSettings() {
     <MotionConfig reducedMotion="user">
     <div className="em-payment min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-6">
-        {/* Header-removal C1: no signal badge, breadcrumb or pill strip —
-            the AppBar owns the visible title; the h1 stays sr-only. */}
-        <PageHeader title={t('manageShop.paymentSettings.title')} titleMode="srOnly" />
+        {/* Header-removal C1 amendment (unified title rule): no signal badge,
+            breadcrumb or pill strip. "Payment Settings" is NOT the AppBar's
+            name ("Payment"), so the compact title stays visible. */}
+        <PageHeader title={t('manageShop.paymentSettings.title')} titleMode="compact" />
 
         {/* Success/Error Messages */}
         {error && (

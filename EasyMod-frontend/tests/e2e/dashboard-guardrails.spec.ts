@@ -233,8 +233,9 @@ test('dashboard answers the Core Design Test with a slim header — no signal ba
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
 
-  // C1: the sticky AppBar owns the visible page name; the h1 stays in the
-  // accessibility tree (titleMode srOnly) — the level-1 landmark pin survives.
+  // C1 amendment (unified title rule): "Today's work" is NOT the AppBar's name
+  // ("Home"), so the h1 renders as a compact VISIBLE title — exactly one
+  // level-1 heading in <main>, pinned by count (not by copy or position).
   await expect(page.getByRole('main').getByRole('heading', { level: 1, name: "Today's work" })).toHaveCount(1);
   await expect(page.getByText('Orders today')).toBeVisible();
 

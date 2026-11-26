@@ -125,7 +125,7 @@ export default function Dashboard() {
   const coverageComplete = pulseData ? hasAllWorkSources(pulseData) : false;
   const caughtUp = pulseData ? isCaughtUp(pulseData, workItems) : false;
   const deriveInput = { phase, pulse: pulseData, workItems, caughtUp, hasAllWorkSources: coverageComplete };
-  const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: formatTime || undefined, formatCount });
+  const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: formatTime || undefined });
 
   const shell = "em-dashboard min-h-full p-4 md:p-6";
   const inner = "mx-auto w-full max-w-[1440px]";
@@ -165,7 +165,9 @@ export default function Dashboard() {
     return (
       <div className={shell}>
         <div className={inner}>
-          <PageHeader title={t("dashboard.pulse.title")} titleMode="srOnly" />
+          {/* C1 amendment: "Today's work" is NOT the AppBar's name ("Home"),
+              so the compact title stays visible — same rule as the ready state. */}
+          <PageHeader title={t("dashboard.pulse.title")} titleMode="compact" />
           <ResultBanner
             status="error"
             className="mb-3"
@@ -207,11 +209,12 @@ export default function Dashboard() {
             initial={ANIMATE ? "hidden" : false}
             animate="visible"
           >
-            {/* C1: the sticky AppBar already shows the page name — the h1
-                stays in the accessibility tree only. No signal band, no
-                why-here summary, no action band; the work items and their
-                CTAs live in AttentionQueue below. */}
-            <PageHeader title={t("dashboard.pulse.title")} titleMode="srOnly" />
+            {/* C1 amendment (unified title rule): srOnly is legal ONLY when the
+                h1 text equals the AppBar name — "Today's work" ≠ "Home", so the
+                h1 renders as a compact visible title. No signal band, no
+                why-here summary, no action band; the work items and their CTAs
+                live in AttentionQueue below. */}
+            <PageHeader title={t("dashboard.pulse.title")} titleMode="compact" />
 
             {SETUP_DASHBOARD_ENABLED && Boolean(setupError) && (
               <div

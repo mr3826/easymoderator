@@ -1,7 +1,8 @@
 /**
  * Notification-channel guardrails proof (mock-only, CI subset). Settings /
- * execution page (§29): title + signal + pills header, per-panel primaries,
- * connect-command flow, switch preferences, destructive disconnect confirm.
+ * execution page (§29 + header-removal C1): slim sr-only title (AppBar owns
+ * the visible name), per-panel pills, per-panel primaries, connect-command
+ * flow, switch preferences, destructive disconnect confirm.
  * Allowlist+abort discipline: invented backend calls fail here.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -160,6 +161,17 @@ test('page header: compact title, no signal band, channel panels own the pills',
     await expect(page.getByTestId('notification-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Enable browser notifications' })).toBeVisible();
+    // Round-1 F3 — positive default-state pin (baseStatus mock: configured,
+    // connected:false, status 'disconnected'). The Telegram panel's pill must
+    // render statusLabel t(manageShop.notifications.telegram.disconnected) =
+    // "Disconnected" on the MUTED tone (NotificationSettings.tsx statusTone
+    // ternary); asserting the tone classes directly so a regression flipping
+    // the default to tone-ok (green "Connected-looking" pill) cannot pass
+    // silently on the absence-pins alone.
+    const telegramPill = page.getByText('Disconnected', { exact: true });
+    await expect(telegramPill).toBeVisible();
+    await expect(telegramPill).toHaveClass(/bg-em-bg-muted/);
+    await expect(telegramPill).not.toHaveClass(/bg-em-success-100/);
     expect(state.unexpected).toEqual([]);
 });
 

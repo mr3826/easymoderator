@@ -1,8 +1,10 @@
 /**
  * Guardrails contracts for /inbox as an EXECUTION page (header-removal
- * contract C1/C6): the permanent signal band is gone — only the sr-only h1
- * landmark plus conversation/page-contextual pills remain; no WHY HERE
- * paragraph, no header CTA, no dominant badge; the merchant drives work from
+ * contract C1 + C1 amendment): the permanent signal band is gone — only the
+ * compact visible h1 ("Shared Inbox" ≠ AppBar "Inbox") plus
+ * conversation/page-contextual pills remain; no header CTA, no dominant badge
+ * (the evidence-rail WHY HERE paragraph is inbox-namespace contextual copy,
+ * untouched by the dashboard whyHere removal); the merchant drives work from
  * rows/composer/queue; evidence rail carries PROVEN RESULT / WHERE NEXT;
  * resolve dialog semantics; composer proof hook. Additive suite — the legacy
  * UnifiedInbox contract is untouched.
@@ -122,12 +124,13 @@ beforeEach(() => {
 })
 
 describe('inbox execution-page header (header-removal C1/C6)', () => {
-  it('keeps only the sr-only title + contextual pills: no signal band, subtitle or header CTA', async () => {
+  it('keeps only the compact title + contextual pills: no signal band, subtitle or header CTA', async () => {
     vi.mocked(apiClient.getConversations).mockResolvedValue(
       list([conv('conv-1', 'Alice'), conv('conv-2', 'Bob', { needs_merchant_reply: true, needs_merchant_reply_reason: 'CUSTOMER_UNANSWERED' })]) as never,
     )
     renderInbox()
-    // C1: the h1 survives in the accessibility tree; the visible band is gone.
+    // C1 amendment: "Shared Inbox" ≠ AppBar "Inbox" → compact visible h1; the
+    // signal band is still gone (absence pins below).
     await screen.findByRole('heading', { name: 'Shared Inbox', level: 1 })
     await waitFor(() => expect(screen.getByTestId('inbox-ai-reply-mode')).toBeInTheDocument())
     // C6: the page-level signal testid must NOT exist any more.

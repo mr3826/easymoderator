@@ -142,98 +142,46 @@ export function isCaughtUp(pulse: PulseData, workItems: WorkItem[]): boolean {
   return hasAllWorkSources(pulse) && workItems.length === 0;
 }
 
-export interface DeriveCountFormat {
-  /**
-   * A8 MAJOR-3: every interpolated count reaches the locale string through
-   * this formatter (the proven QueueSignalChips pattern — Dashboard.tsx passes
-   * an Intl.NumberFormat bound to the active locale, so bn renders Bangla
-   * numerals instead of raw Latin digits). Default keeps raw numbers for the
-   * pure unit pins.
-   */
-  formatCount?: (value: number) => string;
-}
-
-/**
- * A8 MAJOR-2 (hero-number authority): the "delivery exceptions" figure must
- * come from the SAME exhaustive bucket count the Orders nav badge uses
- * (`worklistNeedsActionCount` = GET /api/order/counts `needs_action`) — never
- * from the capped 10-row sample length, which understated the true count
- * while claiming verification. The sample is a projection: when the bucket
- * source failed (null) the sample length is the FALLBACK, and an incomplete
- * exception scan is then rendered as an explicit lower bound ("10+"), never
- * as exhaustive.
- */
-export function deliveryExceptionAuthority(pulse: PulseData | null): { count: number; lowerBound: boolean } {
-  const exact = pulse?.worklistNeedsActionCount ?? null;
-  if (exact !== null && Number.isFinite(exact) && exact >= 0) return { count: exact, lowerBound: false };
-  const sample = pulse?.atRiskOrders?.length ?? 0;
-  return { count: sample, lowerBound: pulse?.exceptionCoverageComplete === false };
-}
-
-const exceptionDisplay = (
-  pulse: PulseData | null,
-  formatCount: (value: number) => string,
-): { count: number; display: string } => {
-  const authority = deliveryExceptionAuthority(pulse);
-  return {
-    count: authority.count,
-    display: `${formatCount(authority.count)}${authority.lowerBound ? '+' : ''}`,
-  };
-};
-
-export interface NarrativeOptions extends DeriveCountFormat {
+export interface NarrativeOptions {
   lastSyncLabel?: string;
   provenResultOverride?: string;
 }
 
 /** Core Design Test (§4): the answers that feed the evidence footer and the
- *  work queue. `whatNow` left with the header action band — the next action
- *  now IS the AttentionQueue row the work item links to (C2). */
+ *  inbox rail. `whatNow` left with the header action band (C2) and `whyHere`
+ *  with its last render consumer (round-1 F2) — the counts reach the page via
+ *  AttentionQueue, QueueSignalChips and BusinessHealth, all of which keep the
+ *  A8 MAJOR-3 locale formatter at the component edge. A8 MAJOR-2's
+ *  bucket-count authority survives the same way: Dashboard.tsx hands the
+ *  BusinessHealth tile the exhaustive `worklistNeedsActionCount`
+ *  (GET /api/order/counts needs_action) directly — null renders
+ *  "unavailable", never a capped-sample figure presented as verified. */
 export function deriveNarrative(
   input: DeriveInput,
   t: Translate,
   options: NarrativeOptions = {},
 ): DashboardNarrative {
-  const formatCount = options.formatCount ?? ((value: number) => String(value));
-  const replies = input.pulse?.replyTasks?.length ?? 0;
-  const drafts = input.pulse?.draftOrders?.length ?? 0;
-  // Same authority as the Orders badge (A8 MAJOR-2), same Intl formatter
-  // (A8 MAJOR-3) — the hero sentence and the badge can never disagree.
-  const exceptions = exceptionDisplay(input.pulse, formatCount);
-
-  let whyHere: string;
   let whereNext: string;
   switch (input.phase) {
     case "setup-loading":
     case "pulse-loading":
-      whyHere = t("dashboard.pulse.whyHere.loading");
       whereNext = t("dashboard.pulse.whereNext.loading");
       break;
     case "pulse-error":
-      whyHere = t("dashboard.pulse.whyHere.error");
       whereNext = t("dashboard.pulse.whereNext.error");
       break;
     case "setup":
-      whyHere = t("dashboard.pulse.whyHere.setup");
       whereNext = t("dashboard.pulse.whereNext.setup");
       break;
     case "setup-complete":
-      whyHere = t("dashboard.pulse.whyHere.setupComplete");
       whereNext = t("dashboard.pulse.whereNext.setupComplete");
       break;
     case "ready":
       if (input.workItems.length > 0) {
-        whyHere = t("dashboard.pulse.whyHere.work", {
-          replies: formatCount(replies),
-          drafts: formatCount(drafts),
-          exceptions: exceptions.display,
-        });
         whereNext = t("dashboard.pulse.whereNext.work");
       } else if (input.caughtUp) {
-        whyHere = t("dashboard.pulse.whyHere.caughtUp");
         whereNext = t("dashboard.pulse.whereNext.caughtUp");
       } else {
-        whyHere = t("dashboard.pulse.whyHere.partial");
         whereNext = t("dashboard.pulse.whereNext.partial");
       }
       break;
@@ -245,7 +193,6 @@ export function deriveNarrative(
       : t("dashboard.pulse.timeUnavailable"));
 
   return {
-    whyHere,
     whereNext,
     provenResult,
   };

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Building2, MessagesSquare, Bot, Truck, CreditCard, ChevronRight, Bell, BookOpen } from "lucide-react";
+import { PageHeader } from "./dashboard/PageHeader";
 
 const FOCUS_RING =
   "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none";
@@ -60,9 +61,12 @@ export default function SettingsHub() {
   const { t } = useTranslation();
   return (
     <div className="p-4 md:p-8 max-w-3xl">
-      {/* Compact title only (C1): the explanatory subtitle band is retired —
-          the link grid below is the page. */}
-      <h1 className="mb-3 text-lg font-semibold text-em-text-primary">{t('manageShop.hub.title')}</h1>
+      {/* Header-removal C1 amendment (unified title rule): hub.title =
+          "Settings"/"সেটিংস" is byte-identical to the sticky AppBar's fallback
+          nav.settings name on /manage-shop, so the h1 goes sr-only (landmark
+          kept, no visible duplicate) — same treatment as NotificationSettings.
+          The explanatory subtitle band stays retired; the link grid is the page. */}
+      <PageHeader title={t('manageShop.hub.title')} titleMode="srOnly" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {items.map((item) => {

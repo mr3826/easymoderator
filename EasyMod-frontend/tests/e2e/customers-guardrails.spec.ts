@@ -137,9 +137,11 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('pilot page: compact title, no signal band or header CTA, tabpanel + honest counts', async ({ page }) => {
+test('pilot page: sr-only title (customer360.title == AppBar "Customers" in en+bn), no signal band or header CTA, tabpanel + honest counts', async ({ page }) => {
     const state = await setupRoutes(page, { pilot: true });
     await loginAndGo(page);
+    // C1 amendment: byte-identical to the AppBar nav name → srOnly legal; the
+    // heading pin keeps passing via the preserved accessible name.
     await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
     // C6: the page-level signal badge must NOT exist any more.
     await expect(page.getByTestId('customers-signal')).toHaveCount(0);

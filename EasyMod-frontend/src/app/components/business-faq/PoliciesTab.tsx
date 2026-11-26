@@ -396,10 +396,14 @@ export default function PoliciesTab() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="space-y-6">
-        {/* Header-removal C1: tab signal band and header pills retired — the
-            tablist orients visibly, the h1 stays sr-only, and the server-truth
-            stated tally + unsaved pill moved into the save footer below. */}
-        <PageHeader title={t("manageShop.businessFaq.policies.title")} titleMode="srOnly" />
+        {/* Header-removal C1 amendment (unified title rule): "Business
+            Policies" is NOT the AppBar name on either host route
+            ("FAQs" on /manage-shop/faqs, "Business Info" on
+            /manage-shop/business-info), so this h1 stays VISIBLE compact —
+            unlike the profile/FAQ tab h1s, which equal their canonical nav
+            names and keep sr-only. Tab signal band and header pills stay
+            retired; the stated tally + unsaved pill live in the save footer. */}
+        <PageHeader title={t("manageShop.businessFaq.policies.title")} titleMode="compact" />
 
         {/* Mission §7 / Y4 disclosure — plain language, never color-only. */}
         <p className="rounded-xl border border-em-border bg-em-bg-muted px-4 py-3 text-sm text-em-text-secondary">

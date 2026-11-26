@@ -1,8 +1,9 @@
 /**
- * Pure derivation tests: Core Design Test narrative completeness (incl. the
- * A8 exception-authority + locale-numeral rules the retired header hero used
- * to render — the same deriveNarrative output is pinned so the honesty rules
- * survive the header removal), coverage honesty, and en/bn key parity (the
+ * Pure derivation tests: Core Design Test narrative completeness (whereNext +
+ * provenResult — the `whyHere` hero answer was deleted with its last render
+ * consumer in header-removal round-1 F2; its A8 exception-authority and
+ * locale-numeral rules are now pinned at the component edge where the counts
+ * actually render), coverage honesty, and en/bn key parity (the
  * app falls back to bn, so a missing en key would silently render Bengali).
  * deriveSignal/derivePrimaryAction were deleted with the page header band
  * (header-removal C2/C3); their DOM pins were flipped to absence in the e2e
@@ -87,59 +88,13 @@ const atRiskOrder = (id: string, overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 }) as never;
 
-// A8 MAJOR-2 — exception-number authority. The header's dominant-signal
-// derivation was retired with the band (header-removal C3), but the SAME
-// rule still feeds deriveNarrative (and, through it, every count that reaches
-// the page): bucket count 12 (the number the Orders nav badge reads) over a
-// capped 10-row queue sample must never make the screen show two disagreeing
-// numbers, and when that source failed the sample may only ever speak as a
-// lower bound. Pinned through the narrative so the honesty survives the flip.
-describe("hero exceptions authority in the narrative (A8 MAJOR-2)", () => {
-  const cappedPulse = (overrides: Partial<PulseData> = {}) => basePulse({
-    worklistNeedsActionCount: 12,
-    atRiskOrders: Array.from({ length: 10 }, (_, i) => atRiskOrder(`cap-${i}`)),
-    exceptionCoverageComplete: false,
-    ...overrides,
-  });
-
-  it("hero number == the Orders badge bucket count (12), never the 10-row sample length", () => {
-    const pulse = cappedPulse();
-    const narrative = deriveNarrative(input("ready", pulse), t);
-    expect(narrative.whyHere).toContain(" 12");
-    expect(narrative.whyHere).not.toMatch(/ 10(\+| )/);
-  });
-
-  it("failed bucket source + capped sample renders the lower bound 10+", () => {
-    const pulse = cappedPulse({ worklistNeedsActionCount: null });
-    expect(deriveNarrative(input("ready", pulse), t).whyHere).toContain("10+");
-  });
-
-  it("an EXHAUSTIVE sample (coverage complete, under cap) falls back without a +", () => {
-    const pulse = cappedPulse({
-      worklistNeedsActionCount: null,
-      atRiskOrders: [atRiskOrder("single")],
-      exceptionCoverageComplete: true,
-    });
-    const narrative = deriveNarrative(input("ready", pulse), t);
-    expect(narrative.whyHere).toContain(" 1");
-    expect(narrative.whyHere).not.toContain("+");
-  });
-});
-
-describe("locale numeral formatting (A8 MAJOR-3)", () => {
-  const bnDigits = (value: number) => new Intl.NumberFormat("bn-BD").format(value);
-
-  it("every interpolated count flows through formatCount (Bangla digits, never raw Latin)", () => {
-    const pulse = basePulse({
-      worklistNeedsActionCount: 12,
-      atRiskOrders: [atRiskOrder("e1")],
-      replyTasks: [conversation("c1")],
-    });
-    const narrative = deriveNarrative(input("ready", pulse), t, { formatCount: bnDigits });
-    expect(narrative.whyHere).toContain(bnDigits(12));
-    expect(narrative.whyHere).not.toMatch(/12/);
-  });
-});
+// A8 MAJOR-2 (exception-number authority) and A8 MAJOR-3 (locale numerals)
+// were re-pinned where they now live: the BusinessHealth tile receives the
+// exhaustive worklistNeedsActionCount directly from Dashboard.tsx, and every
+// displayed count flows through the component-edge formatCount. Their former
+// unit surface — the deriveNarrative `whyHere` hero sentence — was deleted
+// with its last render consumer (header-removal round-1 F2); derive.test no
+// longer pins copy that cannot reach the screen.
 
 describe("deriveNarrative — Core Design Test, all answers non-empty", () => {
   const cases: Array<[string, DeriveInput]> = [
@@ -152,7 +107,7 @@ describe("deriveNarrative — Core Design Test, all answers non-empty", () => {
     ["ready-caughtUp", input("ready", basePulse())],
     ["ready-partial", input("ready", basePulse({ replyTaskCoverageComplete: false }))],
   ];
-  it.each(cases)("%s answers whyHere/whereNext/provenResult", (_name, deriveInput) => {
+  it.each(cases)("%s answers whereNext/provenResult", (_name, deriveInput) => {
     const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: "14:22" });
     for (const value of Object.values(narrative)) {
       expect(typeof value).toBe("string");
@@ -265,7 +220,9 @@ describe("en/bn parity for every redesign key", () => {
     // healthy/review/blocked died with deriveSignal, and the signal.reason.*
     // and pulse.primary.* groups die with deriveSignal/derivePrimaryAction.
     ...["attention", "resolved", "pending"].map((k) => `dashboard.pulse.signal.${k}`),
-    ...["loading", "error", "setup", "setupComplete", "work", "caughtUp", "partial"].map((k) => `dashboard.pulse.whyHere.${k}`),
+    // dashboard.pulse.whyHere.* was deleted from both locales with the
+    // header-fed field itself (round-1 F2) — no render consumer existed.
+    // inbox.whyHere.* stays: UnifiedInbox renders inboxNarrative.whyHere.
     ...["loading", "error", "setup", "setupComplete", "work", "caughtUp", "partial"].map((k) => `dashboard.pulse.whereNext.${k}`),
     "dashboard.pulse.staleWarning",
     "dashboard.pulse.queueChips.note",

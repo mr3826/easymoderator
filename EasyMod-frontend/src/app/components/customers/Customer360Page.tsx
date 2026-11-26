@@ -321,10 +321,12 @@ export default function Customer360Page() {
     <MotionConfig reducedMotion="user">
     <div className="em-customers min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-6">
-        {/* Header-removal C1: signal band retired. This is the /customers
-            title surface, so the compact heading stays; the live counts are
-            already honest in the tab strip badges below. */}
-        <PageHeader title={t("customer360.title")} />
+        {/* Header-removal C1 amendment (unified title rule): this <h1> renders
+            customer360.title = "Customers"/"কাস্টমার" — byte-identical to the
+            sticky AppBar's nav.customers in BOTH locales — so it is sr-only
+            (landmark kept, no visible duplicate). Signal band stays retired;
+            live counts are honest in the tab strip badges below. */}
+        <PageHeader title={t("customer360.title")} titleMode="srOnly" />
 
         <RtoNetworkSettings />
 

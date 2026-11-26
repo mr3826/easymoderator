@@ -642,7 +642,7 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('header removed: sr-only title kept, NO signal band, no header CTA (C1/C6)', async ({ page }) => {
+test('header removed: compact title kept ("Delivery Settings" ≠ AppBar "Delivery"), NO signal band, no header CTA (C1/C6)', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Delivery Settings', exact: true })).toBeVisible();

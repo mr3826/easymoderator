@@ -13,9 +13,12 @@ import type { BreadcrumbItem } from "./types";
 interface PageHeaderProps {
   title?: string;
   /**
-   * 'compact' renders a visible small heading — required on record pages and
-   * anywhere the sticky AppBar does not show the same name. 'srOnly' keeps the
-   * h1 in the accessibility tree while the AppBar owns the visible title.
+   * Unified title rule (C1 amendment): 'srOnly' is legal ONLY when the h1 text
+   * is byte-identical to the sticky AppBar's visible name for this route
+   * (verified in en AND bn). Any different page title — even a near-duplicate
+   * like "Shared Inbox" vs "Inbox" or "Delivery Settings" vs "Delivery" —
+   * MUST render 'compact': a visible small heading. 'srOnly' otherwise keeps
+   * the h1 in the accessibility tree while the AppBar owns the visible title.
    */
   titleMode?: "compact" | "srOnly";
   breadcrumb?: BreadcrumbItem[];

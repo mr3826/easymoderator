@@ -235,10 +235,12 @@ export default function DeliverySettings() {
     <MotionConfig reducedMotion="user">
       <div className="em-delivery min-h-full p-4 md:p-6">
         <div className="mx-auto w-full max-w-[1440px] space-y-6">
-          {/* Header-removal C1: signal badge, shop-name breadcrumb and count
-              pills are retired — the AppBar owns the visible title, per-provider
-              status lives on the provider cards, COD truth lives in Charges. */}
-          <PageHeader title={t('manageShop.deliverySettings.title')} titleMode="srOnly" />
+          {/* Header-removal C1 amendment (unified title rule): signal badge,
+              shop-name breadcrumb and count pills are retired. "Delivery
+              Settings" is NOT the AppBar's name ("Delivery"), so the compact
+              title stays visible; per-provider status lives on the provider
+              cards, COD truth lives in Charges. */}
+          <PageHeader title={t('manageShop.deliverySettings.title')} titleMode="compact" />
 
           {/* Success Message */}
           {successMessage && (

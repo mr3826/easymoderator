@@ -21,6 +21,47 @@ New slim shape (props): `title?`, `breadcrumb?`, `meta?` (ReactNode), `titleMode
 - Vertical: `mb-3` max; no reserved space when meta/breadcrumb absent (conditional
   rendering only).
 
+### C1 amendment (round-1 review, 2026-11-26) — unified title rule
+
+- `srOnly` is legal ONLY when the resolved h1 text is BYTE-IDENTICAL to the
+  sticky AppBar's visible name for that route (DashboardLayout `pageTitle` =
+  matched nav item name, or the `/manage-shop` fallback `nav.settings`),
+  verified in BOTH shipped locales (en.json + bn.json). Any DIFFERENT page
+  title — even a near-duplicate ("Shared Inbox" vs "Inbox", "Today's work" vs
+  "Home", "Delivery Settings" vs "Delivery") — MUST render
+  `titleMode="compact"`.
+- Rationale: with srOnly the only visible page title is the AppBar, so a
+  hidden title that says something different silently deletes the page's
+  identity; hiding one that is byte-equal to the AppBar is pure de-duplication.
+- Flips applied by this amendment: Dashboard ("Today's work"→compact, both
+  states), UnifiedInbox ("Shared Inbox"→compact; the meta row's px inset moved
+  to the header wrapper so the compact line aligns — inbox-guardrails geometry
+  pins header <80px / workbench y <220px hold with thresholds UNCHANGED),
+  DeliverySettings ("Delivery Settings"≠"Delivery"→compact), PaymentSettings
+  ("Payment Settings"≠"Payment"→compact), PoliciesTab ("Business Policies" ≠
+  AppBar on either host route →compact), Customer360Page (tabbed customer hub:
+  `customer360.title` = "Customers"/"কাস্টমার" == `nav.customers`
+  byte-for-byte → srOnly; the record page CustomerDetailPage keeps its visible
+  record-name h1), SettingsHub ("Settings" == AppBar fallback `nav.settings` →
+  sr-only h1 via PageHeader, matching NotificationSettings).
+- Verified-kept srOnly: Orders, Subscription ("Billing"=="Billing" both
+  locales), Notifications, FaqSettings/FaqTab ("FAQs"), BusinessInfoSettings/
+  ProfileTab (same `nav.*` key as the AppBar). Recorded residual:
+  `orders.title` is byte-identical to `nav.orders` in EN but differs in BN
+  only by the plural marker ("অর্ডার" vs "অর্ডারসমূহ"); it keeps srOnly
+  because flipping would double-render the identical EN title — the honest
+  long-term fix is a separate i18n alignment (bn `orders.title` wording), a
+  founder call outside this branch. Tab-workspace aliasing
+  (`/manage-shop/faqs` and `/manage-shop/business-info` render the same
+  BusinessFaqWorkspace): tab h1s pair with their canonical nav route; on the
+  alias route the visible tablist orients — accepted residual.
+- Verified-kept compact: Products ("Products & Inventory" ≠ "Products"),
+  Customers-list ("Customer Management" ≠ "Customers"), ChannelsOverview
+  ("Channels & Automation" ≠ "Chat"), BusinessAutomationDefaults
+  ("Automation defaults" ≠ "Chat"), FirstTimeSetupDashboard ×3 (onboarding
+  titles ≠ "Home"), CustomerDetailPage (record name). No PageHeader site may
+  add `srOnly` without the byte-identity proof for both locales.
+
 ## C2 — ActionBar.tsx deleted
 Sole importer was PageHeader. Primary CTAs keep their existing homes: Refresh in
 EvidenceFooter (Dashboard/FTS), Create in the Orders/Customers toolbars, Save inside
