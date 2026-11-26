@@ -283,6 +283,88 @@ describe('duplicate handling (§3.2-3 race-safe)', () => {
         expect(mockOwnerNotification.sendPaymentConfirmationRequest).not.toHaveBeenCalled();
     });
 
+    // ── B1 (A9-R3 money-integrity, 2026-11-26): ORDER-level dedupe ───────────
+    // Two claims with DIFFERENT TrxIDs for one pending order used to coexist
+    // (002's comment claimed the claim service policed this; it did not), and
+    // a later approve of the stale second row re-settled + double-messaged the
+    // customer. Now the second submission answers the honest already-
+    // awaiting-review duplicate BEFORE any insert — no second ledger row, no
+    // second txn, no second notification. (The settlement half is guarded in
+    // handleOwnerResponse — pinned in payment-confirmation.claim-flow.test.js.)
+
+    test('B1: different TrxID on an order that already has a payment_claimed row → honest duplicate, nothing written', async () => {
+        mockTrxIDLog.findOne.mockResolvedValue(null); // the NEW TrxID is unused…
+        mockPaymentTransaction.findOne
+            .mockResolvedValueOnce(null) // …so the trx-id checks miss…
+            .mockResolvedValueOnce({ id: 'txn-open', status: 'payment_claimed', order_id: 'order-1' }); // …but an open claim exists
+
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: '9b7xq2lm', account: WALLET,
+        });
+
+        expect(res).toMatchObject({
+            created: false, duplicate: true, pendingClaim: true,
+            reason: 'claim_already_awaiting_review', trxId: '9B7XQ2LM',
+        });
+        // honest copy — NOT the "TrxID already used" line (this TrxID is new):
+        expect(res.duplicateReply.en).toMatch(/already awaiting the shop owner/i);
+        expect(res.duplicateReply.en).not.toMatch(/already used/i);
+        expect(mockTrxIDLog.create).not.toHaveBeenCalled();
+        expect(mockPaymentTransaction.create).not.toHaveBeenCalled();
+        expect(mockOwnerNotification.sendPaymentConfirmationRequest).not.toHaveBeenCalled();
+    });
+
+    test('B1: a settled (verified) transaction for the same order blocks a new claim before any insert too', async () => {
+        // Defense-in-depth: order row lagging (payment_status still pending)
+        // must not let a second claim through while a verified row exists.
+        mockTrxIDLog.findOne.mockResolvedValue(null);
+        mockPaymentTransaction.findOne
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ id: 'txn-verified', status: 'verified', order_id: 'order-1' });
+
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ZZ112233', account: WALLET,
+        });
+        expect(res).toMatchObject({ created: false, duplicate: true, reason: 'claim_already_awaiting_review' });
+        expect(mockTrxIDLog.create).not.toHaveBeenCalled();
+        expect(mockPaymentTransaction.create).not.toHaveBeenCalled();
+    });
+
+    test('B1: the order check reads the tenant-scoped open-claim set (shop + order + claim/verified statuses)', async () => {
+        await claim.performClaim({ shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: WALLET });
+        const orderCheckCall = mockPaymentTransaction.findOne.mock.calls
+            .find((c) => c[0]?.where?.order_id === 'order-1');
+        expect(orderCheckCall).toBeDefined();
+        expect(orderCheckCall[0].where).toMatchObject({
+            shop_id: 'shop-1',
+            order_id: 'order-1',
+            status: ['payment_claimed', 'verified'],
+        });
+    });
+
+    test('B1: a REJECTED prior claim does not block an honest re-claim (order still pending)', async () => {
+        mockTrxIDLog.findOne.mockResolvedValue(null);
+        mockPaymentTransaction.findOne
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null); // where-filters rejected rows; mock shows no OPEN claim
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'RECLAIM77', account: WALLET,
+        });
+        expect(res.created).toBe(true);
+    });
+
+    // B3 (A9-R3): mixed-case resend of the SAME TrxID keeps its honest
+    // duplicate answer — case is normalized BEFORE the ledger lookup, so the
+    // service and the (now uppercase-normalizing) edge agree on identity.
+    test('B3: mixed-case resend of an already-used TrxID → same trx_id_log duplicate answer (normalization order pinned)', async () => {
+        mockTrxIDLog.findOne.mockImplementation(async ({ where }) => (where.trx_id === '9B7XQ2LM' ? { id: 'old-log' } : null));
+        const res = await claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: '9b7xq2lm', account: WALLET,
+        });
+        expect(res).toMatchObject({ created: false, duplicate: true, reason: 'trx_id_log' });
+        expect(mockPaymentTransaction.create).not.toHaveBeenCalled();
+    });
+
     test('TrxIDLog unique violation race → duplicate reply', async () => {
         const err = new Error('d key already exists');
         err.name = 'SequelizeUniqueConstraintError';
@@ -420,6 +502,20 @@ describe('wallet resolution (§6 preferred + no silent switching)', () => {
         expect(w.account_id).toBe('acct-self'); // gateway excluded despite preferred; bkash before nagad deterministically
         const n = await claim.resolvePaymentWallet('shop-1', { provider: 'নগদ' });
         expect(n).toMatchObject({ provider: 'nagad', number: '01844444444' });
+    });
+
+    // B5 (A9-R3) agreement half: the gateway exclusion is the SINGLE rule the
+    // legacy mirror (payment-accounts.syncBdFromAccounts) now shares — a
+    // merchant_gateway row whose stored credentials carry a phone must give
+    // the chatbot NOTHING, never that number (§6 "no silent number switching").
+    test('B5: a merchant_gateway row carrying credentials.phone is NOT a wallet source — chatbot stays null', async () => {
+        mockPaymentConfig.findAll.mockResolvedValue([
+            { id: 'acct-gw', provider: 'bkash', account_type: 'merchant_gateway', gateway: 'self-mfs', is_preferred: true, is_enabled: true, credentials: { app_key: 'AK', app_secret: 'AS', username: 'u@x', phone: '01712345678' } },
+        ]);
+        expect(await claim.resolvePaymentWallet('shop-1', {})).toBeNull();
+        await expect(claim.performClaim({
+            shopId: 'shop-1', orderId: 'order-1', trxIdRaw: 'ABC123', account: null,
+        })).rejects.toMatchObject({ status: 400, code: 'PAYMENT_ACCOUNT_NOT_CONFIGURED' });
     });
 
     test('legacy drift row classified from credentials, never assumed bkash', async () => {

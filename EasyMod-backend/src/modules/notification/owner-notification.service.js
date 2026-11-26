@@ -281,6 +281,24 @@ class OwnerNotificationService {
                     );
                 }
                 if (response === 'approve') {
+                    // B1(b) (A9-R3 money-integrity, 2026-11-26): an order whose
+                    // payment is ALREADY settled can never be re-settled by
+                    // approving a second claim — the txn-status guard below
+                    // only looks at THIS notification's row, so a different
+                    // still-`payment_claimed` row for the same order would
+                    // otherwise re-fire paid/paid_at/confirmed, mint a second
+                    // verified transaction and send the customer a SECOND
+                    // "payment confirmed" message. Guard sits on the LOCKED
+                    // order row, before any write in this transaction.
+                    const orderPaymentState = String(order.payment_status || '').trim().toLowerCase();
+                    if (orderPaymentState === 'paid') {
+                        throw new AppError(
+                            'This order is already settled as paid — approving another claim would double-settle it. '
+                            + 'Reject this claim or reconcile the duplicate payment with the customer.',
+                            409,
+                            'ALREADY_SETTLED',
+                        );
+                    }
                     const paymentGateway = await resolveApprovalPaymentGateway(
                         order,
                         notification.shop_id,

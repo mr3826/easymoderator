@@ -546,3 +546,132 @@ describe('refundPaymentTransaction — owner-only v2 gateway refund', () => {
         expect(mockAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment_transaction_refund' }));
     });
 });
+
+// B4 (A9-R3, 2026-11-26): the F-6 guard was a NON-ATOMIC check-then-act —
+// two CONCURRENT refunds both read gateway_response before either record
+// landed and both reached the provider. Now the whole read-guard →
+// submitted-marker → provider-call → record sequence runs inside ONE
+// transaction holding the txn row FOR UPDATE (the locked-read shape handleOwner
+// Response uses): the fake driver below emulates that serialization, so the
+// second caller must (a) never touch the provider and (b) be refused with the
+// honest 409 seeing the recorded refund. A failed/absent marker stays
+// retryable, and when the driver offers no transaction surface the guards
+// still run (identical pre-B4 behavior — never a skipped check).
+describe('refundPaymentTransaction — B4 concurrent double-refund guard (A9-R3)', () => {
+    const liveTxnRow = () => {
+        const row = {
+            id: 'txn-1', order_id: 'order-1', shop_id: 'shop-1', status: 'verified',
+            payment_gateway: 'bkash', payment_account_id: 'acc-gw', transaction_id: 'PID-1',
+            amount: '500.00', verified_at: new Date(), gateway_response: { trxID: 'TRX-9' },
+        };
+        row.update = jest.fn(async (patch) => { Object.assign(row, patch); return row; });
+        return row;
+    };
+    afterEach(() => { delete mockPaymentTransaction.sequelize; });
+
+    test('two concurrent refunds on the same row reach the provider EXACTLY once; the second sees the recorded refund and 409s', async () => {
+        setEnv({ BKASH_ENABLED: 'true' });
+        mockPaymentConfig.findOne.mockResolvedValue({ ...GATEWAY_ACCOUNT(), verification_level: 'live_certified' });
+        mockAuditLog.create.mockResolvedValue({});
+
+        const row = liveTxnRow();
+        mockPaymentTransaction.findOne.mockImplementation(async () => row);
+
+        // Fake driver: emulates SELECT ... FOR UPDATE serialization — the
+        // second transaction() waits for the first to settle (as Postgres
+        // row-locking does for the same txn row).
+        let chain = Promise.resolve();
+        mockPaymentTransaction.sequelize = {
+            transaction: async (cb) => {
+                const prev = chain;
+                let release;
+                chain = new Promise((r) => { release = r; });
+                await prev.catch(() => {});
+                try { return await cb({ LOCK: { UPDATE: 'FOR UPDATE' } }); }
+                finally { release(); }
+            },
+        };
+
+        let releaseProvider;
+        const providerGate = new Promise((resolve) => { releaseProvider = resolve; });
+        mockTokenized.client.refundPayment
+            .mockImplementationOnce(() => providerGate)
+            .mockImplementation(async () => { throw new Error('PROVIDER_MUST_NOT_BE_REACHED'); });
+
+        const first = service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {});
+        await new Promise((r) => setImmediate(r)); // let the first take the lock and hit the provider
+        const second = service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {});
+        await new Promise((r) => setImmediate(r)); // second is now queued on the row lock
+        releaseProvider({ refundID: 'RF-1' });
+
+        await expect(first).resolves.toMatchObject({ success: true, refund_id: 'RF-1' });
+        await expect(second).rejects.toMatchObject({ status: 409, code: 'REFUND_ALREADY_RECORDED' });
+
+        expect(mockTokenized.client.refundPayment).toHaveBeenCalledTimes(1);
+        expect(row.gateway_response.refund).toMatchObject({ refund_id: 'RF-1', status: 'refunded' });
+        expect(mockAuditLog.create).toHaveBeenCalledTimes(1);
+    });
+
+    test('the locked read uses FOR UPDATE + transaction-scoped writes when the driver supports them', async () => {
+        setEnv({ BKASH_ENABLED: 'true' });
+        mockPaymentConfig.findOne.mockResolvedValue({ ...GATEWAY_ACCOUNT(), verification_level: 'live_certified' });
+        mockAuditLog.create.mockResolvedValue({});
+        const row = liveTxnRow();
+        const fakeT = { LOCK: { UPDATE: 'FOR UPDATE' } };
+        mockPaymentTransaction.sequelize = { transaction: async (cb) => cb(fakeT) };
+        mockPaymentTransaction.findOne.mockImplementation(async () => row);
+        mockTokenized.client.refundPayment.mockResolvedValue({ refundID: 'RF-3' });
+
+        await service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {});
+
+        expect(mockPaymentTransaction.findOne).toHaveBeenCalledWith(expect.objectContaining({
+            transaction: fakeT, lock: 'FOR UPDATE',
+        }));
+        // submitted marker written INSIDE the tx before the provider call:
+        const markerCall = row.update.mock.calls.find((c) => c[0]?.gateway_response?.refund?.status === 'submitted');
+        expect(markerCall).toBeDefined();
+        expect(markerCall[1]).toEqual({ transaction: fakeT });
+        // final record inside the SAME tx:
+        const finalCall = row.update.mock.calls.find((c) => c[0]?.gateway_response?.refund?.refund_id === 'RF-3');
+        expect(finalCall[1]).toEqual({ transaction: fakeT });
+        expect(mockAuditLog.create).toHaveBeenCalledWith(
+            expect.objectContaining({ action: 'payment_transaction_refund' }), { transaction: fakeT },
+        );
+    });
+
+    test('a provider failure aborts the record — a failed/absent submitted-marker keeps the refund retryable', async () => {
+        setEnv({ BKASH_ENABLED: 'true' });
+        mockPaymentConfig.findOne.mockResolvedValue({ ...GATEWAY_ACCOUNT(), verification_level: 'live_certified' });
+        mockAuditLog.create.mockResolvedValue({});
+        const row = liveTxnRow();
+        mockPaymentTransaction.findOne.mockImplementation(async () => row);
+        mockTokenized.client.refundPayment.mockRejectedValueOnce(new Error('socket hang up'));
+
+        await expect(service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {}))
+            .rejects.toThrow(/socket hang up/);
+        // NO refunded record was written (a real tx rolls the marker back):
+        expect(row.update.mock.calls.every((c) => c[0]?.gateway_response?.refund?.refund_id == null)).toBe(true);
+        expect(mockAuditLog.create).not.toHaveBeenCalled();
+
+        // And a row that still carries ONLY a submitted marker (no refund_id)
+        // is honestly retryable — the guard must not block on it:
+        row.gateway_response.refund = { status: 'submitted', source: 'tokenized_v2_refund' };
+        mockTokenized.client.refundPayment.mockResolvedValueOnce({ refundID: 'RF-4' });
+        await expect(service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {}))
+            .resolves.toMatchObject({ success: true, refund_id: 'RF-4' });
+    });
+
+    test('degraded driver (no transaction surface) still guards sequentially — check-then-act runs, never skipped', async () => {
+        // mockPaymentTransaction has NO .sequelize → runRefund(null):
+        // guards identical to the pre-B4 path, writes stay transaction-free.
+        setEnv({ BKASH_ENABLED: 'true' });
+        mockPaymentConfig.findOne.mockResolvedValue({ ...GATEWAY_ACCOUNT(), verification_level: 'live_certified' });
+        mockPaymentTransaction.findOne.mockResolvedValue({
+            ...liveTxnRow(),
+            gateway_response: { trxID: 'TRX-9', refund: { refund_id: 'RF-X', status: 'refunded' } },
+        });
+        await expect(service.refundPaymentTransaction('shop-1', 'user-1', 'txn-1', {}))
+            .rejects.toMatchObject({ status: 409, code: 'REFUND_ALREADY_RECORDED' });
+        expect(mockTokenized.client.refundPayment).not.toHaveBeenCalled();
+    });
+});

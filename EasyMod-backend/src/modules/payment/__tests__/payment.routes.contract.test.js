@@ -150,7 +150,11 @@ describe('payment.routes — self-MFS claims edge validation (F-7, A9-R2)', () =
     });
 
     test('trx_id outside the mirrored service pattern (^[A-Z0-9]{6,16}$) ⇒ 400', async () => {
-        for (const bad of ['short1', 'has space', 'punc!123', 'x'.repeat(17)]) {
+        // B3 (A9-R3) note: 'short' is OUT OF RANGE (5 chars) — 6-char values
+        // like the former 'short1' fixture are valid TrxIDs once case is
+        // normalized, exactly as the service's validateTrxIdInput accepts
+        // them (the two edges must agree — lowercase acceptance pinned below).
+        for (const bad of ['short', 'has space', 'punc!123', 'x'.repeat(17)]) {
             const res = await request(app()).post('/api/payment/claims').send({ orderId: UUID, trxId: bad });
             expect(res.status).toBe(400);
         }
@@ -166,6 +170,38 @@ describe('payment.routes — self-MFS claims edge validation (F-7, A9-R2)', () =
             orderId: UUID, trxId: 'ABC123456', customerMessage: 'm'.repeat(501),
         });
         expect(res2.status).toBe(400);
+    });
+
+    // B3 (A9-R3, 2026-11-26): the edge pattern is applied AFTER
+    // .uppercase()-normalization so the API edge and the service
+    // (validateTrxIdInput uppercases + strips before matching) AGREE on
+    // acceptability. Lowercase/mixed-case answers — e.g. '9b7xq2lm', the
+    // shape the FE e2e fixture posts — must be ACCEPTED (201), not 400'd.
+    test('B3: lowercase/mixed-case trxId is accepted at the edge (201) and arrives upper-normalized', async () => {
+        mockAccounts.createSelfMfsClaim.mockResolvedValue({ created: true, status: 'payment_claimed' });
+        const res = await request(app()).post('/api/payment/claims').send({ orderId: UUID, trxId: '9b7xq2lm' });
+        expect(res.status).toBe(201);
+        expect(mockAccounts.createSelfMfsClaim).toHaveBeenCalledWith('shop-1', 'user-1', expect.objectContaining({
+            orderId: UUID, trxId: '9B7XQ2LM', // normalized before the service call
+        }));
+
+        const snakeMixed = await request(app()).post('/api/payment/claims').send({ order_id: UUID, trx_id: 'Ab12Cd34' });
+        expect(snakeMixed.status).toBe(201);
+        const lastCall = mockAccounts.createSelfMfsClaim.mock.calls.at(-1)[2];
+        expect(lastCall.trx_id).toBe('AB12CD34');
+    });
+
+    test('B3: mixed-case duplicate semantics unchanged — an honest service duplicate still answers with its shape', async () => {
+        // The service (payment-claim.service.test.js pins the real ledger
+        // side) reports the same-normalized TrxID as a duplicate; the edge
+        // must not alter that verdict on the way out.
+        mockAccounts.createSelfMfsClaim.mockResolvedValue({
+            created: false, duplicate: true, reason: 'trx_id_log', trxId: '9B7XQ2LM',
+            duplicateReply: { bn: '…', en: 'This TrxID (9B7XQ2LM) was already used.' },
+        });
+        const res = await request(app()).post('/api/payment/claims').send({ orderId: UUID, trxId: '9b7xq2lm' });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ success: true, created: false, duplicate: true, reason: 'trx_id_log' });
     });
 
     test('valid payload dispatches unchanged (camel + snake aliases admitted)', async () => {

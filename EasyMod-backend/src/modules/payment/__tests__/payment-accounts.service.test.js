@@ -457,6 +457,53 @@ describe('payment-accounts.service — environment-change demotion (F-2c, A9-R2 
     });
 });
 
+describe('payment-accounts.service — gateway rows never enter the mirror (B5, A9-R3 2026-11-26)', () => {
+    // Adverse case from the finding: a merchant_gateway row whose stored
+    // credentials happen to carry a phone number (the validator passes unknown
+    // keys through) and NO wallet rows. The chatbot (resolvePaymentWallet,
+    // §6) excludes gateway rows and shows NO number — before B5 the legacy
+    // mfs_* mirror accepted credentials.phone from gateway rows, so the
+    // mirror could advertise a number the chatbot refuses to display: a
+    // silent-number-switching edge in the opposite direction. Now the
+    // candidate sets are EXACTLY the same rule.
+    test('ONLY a merchant_gateway row with credentials.phone ⇒ mirror writes NOTHING (uncategorized mfs_*), never the gateway number', async () => {
+        mockPaymentAccount.findAll.mockResolvedValue([
+            {
+                id: 'acct-gw', provider: 'bkash', account_type: 'merchant_gateway', gateway: 'self-mfs',
+                is_enabled: true, is_preferred: true,
+                credentials: { app_key: 'AK', app_secret: 'AS', username: 'u@x', phone: '01712345678', mfs_type: 'bkash', mfs_mode: 'business' },
+            },
+        ]);
+        const shopUpdate = jest.fn().mockResolvedValue(true);
+        mockShop.findByPk.mockResolvedValue({ settings: { bd: {} }, update: shopUpdate });
+
+        const wallets = await accounts.syncBdFromAccounts('shop-1');
+
+        expect(wallets).toEqual([]);                 // candidate set excludes the gateway row
+        const bd = shopUpdate.mock.calls[0][0].settings.bd;
+        expect(bd.wallets).toEqual([]);              // mirror writes NOTHING / stays uncategorized
+        expect(bd.mfs_number).toBeNull();
+        expect(bd.mfs_type).toBeNull();
+        expect(bd.mfs_mode).toBeNull();
+        expect(String(JSON.stringify(bd))).not.toContain('01712345678'); // the gateway number NEVER lands
+    });
+
+    test('a preferred gateway row cannot hijack the legacy mirror away from the real wallet (§6 agreement)', async () => {
+        mockPaymentAccount.findAll.mockResolvedValue([
+            { id: 'acct-gw', provider: 'bkash', account_type: 'merchant_gateway', gateway: 'self-mfs', is_enabled: true, is_preferred: true, credentials: { app_key: 'AK', app_secret: 'AS', username: 'u@x', mfs_number: '01700000000' } },
+            { id: 'acct-self', provider: 'bkash', account_type: 'self', gateway: 'self-mfs', is_enabled: true, is_preferred: false, credentials: { mfs_number: '01711111111' } },
+        ]);
+        const shopUpdate = jest.fn().mockResolvedValue(true);
+        mockShop.findByPk.mockResolvedValue({ settings: { bd: {} }, update: shopUpdate });
+
+        await accounts.syncBdFromAccounts('shop-1');
+
+        const bd = shopUpdate.mock.calls[0][0].settings.bd;
+        expect(bd.wallets.map((w) => w.account_id)).toEqual(['acct-self']);
+        expect(bd.mfs_number).toBe('01711111111'); // the SAME wallet the chatbot would show
+    });
+});
+
 describe('payment-accounts.service — A3/A4 dispatch (services LANDED; R-12 stays inert)', () => {
     // These two pins were written by A5 as "honest 501 while the owner module
     // is absent" (open question in the A5 handoff). A3 (payment-verification

@@ -297,6 +297,7 @@ async function savePaymentConfig(shopId, userId, gateway, isEnabled, credentials
 
     // Retry-safe processing
     let paymentConfig;
+    let legacyCredentialsChanged = false;
     try {
         paymentConfig = await PaymentConfig.findOne({ where: { shop_id: shopId, gateway } });
         if (paymentConfig) {
@@ -308,16 +309,62 @@ async function savePaymentConfig(shopId, userId, gateway, isEnabled, credentials
                 validateSelfMfsCredentials(effectiveCredentials);
             }
 
+            // Lazy so the payment.service ↔ payment-accounts.service module
+            // cycle never deadlocks at load, and so partial mocks of either
+            // half keep working (both expose the needed surface when real).
+            const accountsService = require('./payment-accounts.service');
+            const taxonomy = require('./payment-taxonomy');
+
             if (isEnabled !== undefined) {
                 paymentConfig.is_enabled = isEnabled;
             }
             if (validatedIncomingCredentials) {
+                // B2 (A9-R3, 2026-11-26): §2 credential-change invalidation
+                // for this THIRD writer. The legacy route could replace a
+                // self-MFS (or dual-written merchant_gateway) row's
+                // credentials while leaving the ladder rung standing — the
+                // canonical PATCH/POST writers demote + append
+                // 'credentials_changed'. Same rule here, before the env check
+                // so the STRONGER demotion wins (environment flips must not
+                // soft-demote back up to configured_unverified — the policy's
+                // own precedence rule relies on this order).
+                legacyCredentialsChanged = gateway === 'self-mfs'
+                    && JSON.stringify(validatedIncomingCredentials) !== JSON.stringify(storedCredentials || null);
                 paymentConfig.credentials = validatedIncomingCredentials;
+                if (legacyCredentialsChanged && paymentConfig.verification_level !== taxonomy.DEMOTED_LEVEL) {
+                    paymentConfig.verification_level = taxonomy.DEMOTED_LEVEL;
+                }
             }
             if (config) {
-                paymentConfig.config = config;
+                // B2 (A9-R3): ONE environment policy for all three writers —
+                // flipping config.environment through the legacy route demotes
+                // the ladder + records the append-only 'environment_changed'
+                // event + clears the token cache, exactly like PATCH and the
+                // POST /accounts upsert (payment-accounts.service F-2(c)).
+                if (typeof accountsService.applyEnvironmentChangeDemotion === 'function') {
+                    await accountsService.applyEnvironmentChangeDemotion(paymentConfig, config, userId);
+                } else {
+                    // Degraded/partially-mocked surface only (the shipped
+                    // module always exports the policy fn): preserve the
+                    // historic wholesale write rather than inventing a fork.
+                    paymentConfig.config = config;
+                }
             }
             await paymentConfig.save();
+            if (legacyCredentialsChanged) {
+                await accountsService.appendVerificationRecord({
+                    paymentAccountId: paymentConfig.id, level: taxonomy.DEMOTED_LEVEL, method: 'configured',
+                    performedByUserId: userId, providerEnvironment: 'unknown',
+                    evidence: { reason: 'credentials_changed' },
+                });
+                // A replaced credential set invalidates tokens minted against
+                // the OLD one (the same bounded-staleness rule the env-flip
+                // policy applies; legacy rows may dual-face merchant_gateway).
+                try {
+                    const tokenized = require('./bkash-tokenized.service');
+                    if (tokenized?.client?.clearTokenCache) await tokenized.client.clearTokenCache(paymentConfig);
+                } catch (_) { /* bounded by TTL; ladder already demoted */ }
+            }
         } else {
             const nextEnabled = isEnabled !== undefined ? isEnabled : false;
             if (gateway === 'self-mfs' && nextEnabled) {

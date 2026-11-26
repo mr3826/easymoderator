@@ -191,6 +191,67 @@ describe('F1/BLOCK: a below-total claim can NEVER settle the order as fully paid
     });
 });
 
+// B1(b) (A9-R3 money-integrity, 2026-11-26): the double-claim double-settle
+// closure. performClaim now refuses a second open claim per order
+// (payment-claim.service.test.js pins the entry half) — this is the
+// settlement half: even when a stale `payment_claimed` row exists for an
+// order whose payment is ALREADY settled (row predating the entry guard, or
+// two claims raced in before it), approving it must REFUSE 409
+// ALREADY_SETTLED on the LOCKED order row, before any write — no second
+// paid/paid_at/confirmed, no second verified txn, and NO second customer
+// "payment confirmed" message.
+describe('B1/A9-R3: an already-settled order can never be re-settled by a second approve', () => {
+    test('approve of a second claim after the order is paid → 409 ALREADY_SETTLED, order untouched, no second customer message', async () => {
+        const { notification, order, payment } = claimFixtures(paymentTaxonomy.CLAIM_STATUS);
+        order.payment_status = 'paid'; // the FIRST claim already settled it
+
+        await expect(service.handleOwnerResponse(notification.id, 'approve', { userId: 'owner-1' }))
+            .rejects.toMatchObject({ status: 409, code: 'ALREADY_SETTLED' });
+
+        expect(order.update).not.toHaveBeenCalled();      // no re-settle
+        expect(payment.update).not.toHaveBeenCalled();    // txn2 stays payment_claimed
+        expect(notification.update).not.toHaveBeenCalled(); // stays pending — merchant can reject
+        expect(mockModels.AuditLog.create).not.toHaveBeenCalled();
+        expect(service.sendCustomerResponse).not.toHaveBeenCalled(); // NO second confirmation
+    });
+
+    test('case/whitespace tolerant: a stored "Paid " still blocks the approve', async () => {
+        const { notification, order } = claimFixtures(paymentTaxonomy.CLAIM_STATUS);
+        order.payment_status = 'Paid ';
+        await expect(service.handleOwnerResponse(notification.id, 'approve', { userId: 'owner-1' }))
+            .rejects.toMatchObject({ status: 409, code: 'ALREADY_SETTLED' });
+        expect(order.update).not.toHaveBeenCalled();
+    });
+
+    test('guard is approve-only — REJECT of a stale claim on a paid order remains the merchant recovery path', async () => {
+        const { notification, payment } = claimFixtures(paymentTaxonomy.CLAIM_STATUS);
+        notification.customer_data = { ...notification.customer_data };
+        const orderRow = { id: 'order-1', shop_id: 'shop-1', payment_status: 'paid', update: jest.fn() };
+        mockModels.Order.findOne.mockResolvedValue(orderRow);
+        mockCancelOrderInTransaction.mockResolvedValue({ id: 'order-1', update: jest.fn() });
+        await expect(service.handleOwnerResponse(notification.id, 'reject', { userId: 'owner-1' }))
+            .resolves.toMatchObject({ success: true });
+        expect(payment.update).toHaveBeenCalledWith({ status: 'rejected' }, { transaction: mockTransaction });
+    });
+
+    test('unsettled orders approve green exactly as before (no false block on pending/unpaid)', async () => {
+        for (const state of ['pending', 'unpaid', undefined]) {
+            const { notification, order, payment } = claimFixtures(paymentTaxonomy.CLAIM_STATUS);
+            order.payment_status = state;
+            await expect(service.handleOwnerResponse(notification.id, 'approve', { userId: 'owner-1' }))
+                .resolves.toMatchObject({ success: true });
+            expect(order.update).toHaveBeenCalledWith(
+                expect.objectContaining({ payment_status: 'paid', order_status: 'confirmed' }),
+                { transaction: mockTransaction },
+            );
+            expect(payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({ status: 'verified' }),
+                { transaction: mockTransaction },
+            );
+        }
+    });
+});
+
 describe('F3/D-4: expiry is a surface, never a dead end', () => {
     test('post-expiry APPROVE works; the row is marked expired, then completed with the judgment', async () => {
         const { notification, payment } = claimFixtures(paymentTaxonomy.CLAIM_STATUS, {

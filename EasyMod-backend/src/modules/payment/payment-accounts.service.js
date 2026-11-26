@@ -33,6 +33,7 @@ const {
     providerFromCredentials,
     GATEWAY_ACCOUNT_TYPE,
     COD_ACCOUNT_TYPE,
+    SELF_MFS_ACCOUNT_TYPES,
     WALLET_ONLY_PROVIDERS,
     DEFAULT_CONFIGURED_LEVEL,
     DEMOTED_LEVEL,
@@ -508,16 +509,28 @@ async function syncBdFromAccounts(shopId) {
         const provider = row.provider || normalizeProvider(row.gateway);
         if (!provider || provider === 'cod') continue;
         const creds = row.credentials || {};
+        // B5 (A9-R3, 2026-11-26): EXACT same account-type eligibility as
+        // payment-claim.resolvePaymentWallet (§6): classify first, EXCLUDE
+        // merchant_gateway rows, and drop unknown non-null types. A gateway
+        // row's stored credentials may carry a phone/mfs_number key (the
+        // shape validator passes unknown keys through) — that number is NOT
+        // a customer-facing wallet, so the legacy mfs_* mirror must never
+        // point at it while the chatbot (gateway-excluded) shows no wallet.
+        // Before this pin the candidate sets differed and "mirror and
+        // chatbot can never disagree" was overstated.
+        const accountType = row.account_type
+            || normalizeAccountType(creds.mfs_mode, provider)
+            || 'self';
+        if (accountType === GATEWAY_ACCOUNT_TYPE) continue; // §4, not §3
+        if (!SELF_MFS_ACCOUNT_TYPES.includes(accountType) && row.account_type != null) continue;
         const number = creds.mfs_number || creds.phone || null;
         if (!number) continue;
-        const accountType = row.account_type
-            || (normalizeAccountType(creds.mfs_mode, provider) || (provider === 'cod' ? COD_ACCOUNT_TYPE : 'self'));
         wallets.push({
             account_id: row.id,
             provider,
             account_type: accountType,
             number,
-            mfs_mode: accountType === GATEWAY_ACCOUNT_TYPE ? 'business' : (accountType || 'self'),
+            mfs_mode: accountType === 'business' ? 'business' : 'self',
             is_preferred: Boolean(row.is_preferred),
         });
     }
@@ -624,6 +637,10 @@ module.exports = {
     writeLadderLevel,
     syncBdFromAccounts,
     serializeAccount,
+    // B2 (A9-R3): single environment-change policy, now THREE writers —
+    // PATCH /accounts/:id, POST /accounts (upsert) and the legacy
+    // POST /api/payment/config existing-row branch (payment.service).
+    applyEnvironmentChangeDemotion,
     // A3/A4 dispatch
     verifyPaymentAccount,
     certifyLiveAccount,

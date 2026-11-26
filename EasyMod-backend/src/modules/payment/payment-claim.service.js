@@ -127,6 +127,15 @@ const duplicateReply = {
     en: (trxId) => `This TrxID (${trxId}) was already used. Please pay with a new transaction or contact the shop.`,
 };
 
+// B1 (A9-R3 money-integrity, 2026-11-26): a DIFFERENT TrxID for an order that
+// already has a claim awaiting merchant judgment is an ORDER-level duplicate —
+// honest reply names the real state (a claim is under review), never the
+// "TrxID was already used" text (which would be a lie here).
+const pendingClaimReply = {
+    bn: 'এই অর্ডারের payment দাবি ইতিমধ্যে দোকান মালিকের পর্যালোচনার অপেক্ষায় আছে। আলাদা payment পাঠানোর আগে অপেক্ষা করুন বা দোকানকে জানান।',
+    en: 'A payment claim for this order is already awaiting the shop owner\'s review. Please wait for their confirmation before sending another payment, or contact the shop.',
+};
+
 // ── entity access (lazy + direct module paths) ───────────────────────────────
 // Lazy so the chatbot machine can import this service before any DB surface
 // exists, and so existing mocked-entity tests keep resolving what they mock.
@@ -410,6 +419,40 @@ async function performClaim({
         return { created: false, duplicate: true, reason: existingDup, trxId, duplicateReply: { bn: duplicateReply.bn(trxId), en: duplicateReply.en(trxId) } };
     }
 
+    // 5b. B1 (A9-R3 money-integrity, 2026-11-26): ORDER-level dedupe BEFORE
+    //     any insert. The 002 fold-in comment claims multiple payment_claimed
+    //     rows per order are "policed at the claim service" — without this
+    //     check that was false: two claims with DIFFERENT TrxIDs for one
+    //     pending order coexist, and a later approve of the stale second row
+    //     re-settles + double-messages the customer (the owner-side
+    //     ALREADY_SETTLED guard in owner-notification closes the settlement
+    //     half; this closes the honest-duplicate half at the entry). A row
+    //     already awaiting review (`payment_claimed`) OR already settled
+    //     through this path (`verified`) for the same (shop, order) answers
+    //     with the honest "a claim is already awaiting review" duplicate —
+    //     no second ledger row, no second txn row, no second notification.
+    //     (The `002` partial unique stays gateway-attempt-scoped per D-4;
+    //     claim rows are policed HERE, matching that comment.)
+    if (typeof PaymentTransaction.findOne === 'function') {
+        const OPEN_CLAIM_STATUSES = [CLAIM_STATUS, 'verified'];
+        const openClaim = await PaymentTransaction.findOne({
+            where: { shop_id: shopId, order_id: order.id, status: OPEN_CLAIM_STATUSES },
+        });
+        // Defensive: the WHERE already filters; re-check on the row so a
+        // mock/partial row without a status can never be mistaken for an
+        // open claim (race-detection callers rely on the same shape).
+        if (openClaim && OPEN_CLAIM_STATUSES.includes(String(openClaim.status))) {
+            return {
+                created: false,
+                duplicate: true,
+                pendingClaim: true,
+                reason: 'claim_already_awaiting_review',
+                trxId,
+                duplicateReply: { bn: pendingClaimReply.bn, en: pendingClaimReply.en },
+            };
+        }
+    }
+
     const gatewayResponse = {
         source: 'self_mfs_claim',
         sender_phone: senderPhone,
@@ -655,4 +698,5 @@ module.exports = {
     createSelfMfsClaim,
     claimReply,
     duplicateReply,
+    pendingClaimReply,
 };

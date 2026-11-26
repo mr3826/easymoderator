@@ -124,13 +124,22 @@ const transactionIdParamValidator = Joi.object({
  * service tolerates (§3.2 payload). The trx-id pattern mirrors the service's
  * TRXID_PATTERN (^[A-Z0-9]{6,16}$) applied to real-world uppercase TrxIDs;
  * the service remains the authority that normalizes and re-validates.
+ *
+ * B3 (A9-R3, 2026-11-26): the edge UPPERASES BEFORE pattern-matching, exactly
+ * like the service's normalizeTrxId (payment-claim.service.js:71-74) — the two
+ * entry points (POST /claims edge vs chatbot → performClaim direct) must AGREE
+ * on acceptability. Mixed-case answers ('9b7xq2lm' — the shape the FE e2e
+ * fixture uses) are pre-normalized to the canonical uppercase here, so the
+ * same value never 400s at the edge while succeeding on the chatbot path.
+ * The service still strips labels and re-validates; this is normalization
+ * agreement, not rule migration.
  */
 const CLAIM_TRXID_PATTERN = /^[A-Z0-9]{6,16}$/;
 const createSelfMfsClaimValidator = Joi.object({
     orderId: Joi.string().uuid(),
     order_id: Joi.string().uuid(),
-    trxId: Joi.string().trim().pattern(CLAIM_TRXID_PATTERN),
-    trx_id: Joi.string().trim().pattern(CLAIM_TRXID_PATTERN),
+    trxId: Joi.string().trim().uppercase().pattern(CLAIM_TRXID_PATTERN),
+    trx_id: Joi.string().trim().uppercase().pattern(CLAIM_TRXID_PATTERN),
     // optional sender — never an OTP; kept a plain string, phone semantics
     // belong to the service (normalizeSenderPhone).
     senderPhone: Joi.string().trim().max(20).allow('', null),

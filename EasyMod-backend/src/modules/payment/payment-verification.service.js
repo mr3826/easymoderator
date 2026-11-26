@@ -418,97 +418,163 @@ function WALLET_ONLY_PROVIDERS_MSG(provider) {
 }
 
 // ── refund (owner-only, §4.5) ────────────────────────────────────────────────
+//
+// B4 (A9-R3, 2026-11-26): the F-6 double-submit guard used to be a
+// non-atomic check-then-act — two concurrent refunds could both read
+// gateway_response BEFORE either record landed and both reach the provider
+// (the fix closed sequential double-clicks only). Now the whole
+// read-guard → submitted-marker → provider call → record sequence runs
+// INSIDE one transaction holding the txn row FOR UPDATE (same locking
+// pattern as owner-notification.handleOwnerResponse): the second concurrent
+// request blocks on the row lock and, once the first commits, sees the
+// recorded refund and is refused 409 REFUND_ALREADY_RECORDED with ZERO
+// provider traffic. The submitted marker is written inside the same
+// transaction: if the provider call throws, the transaction ROLLS BACK and
+// the marker is gone — a failed/absent marker keeps the refund honestly
+// retryable (the pre-existing 'failed'/no-refund_id semantics below).
+// Holding the lock across one HTTP call is bounded by the axios timeout and
+// only ever serializes refunds of the SAME payment row. When the driver has
+// no transaction surface (degraded/mocked models) the guards run without
+// locking — identical to the pre-B4 behavior, never a silently skipped
+// check.
 async function refundPaymentTransaction(shopId, userId, transactionId, payload = {}) {
     await requireOwner(userId, shopId);
-    const txn = await PaymentTransaction.findOne({ where: { id: transactionId, shop_id: shopId } });
-    if (!txn) throw new AppError('Payment transaction not found', 404);
-    if (!['paid', 'verified'].includes(txn.status)) {
-        throw new AppError('Only a confirmed payment can be refunded through the gateway', 409, 'NOT_REFUNDABLE');
-    }
-    // F-6 (A9-R2, 2026-11-26): double-submit guard. The refund record lives
-    // inside gateway_response.refund; once a SUCCESSFUL entry is there, a
-    // second submission must be refused BEFORE any provider call — otherwise
-    // a double-click / retry issues a second v2 refund against the same
-    // payment (the row stays 'paid', so the status guard alone never stops it).
-    const gr = txn.gateway_response && typeof txn.gateway_response === 'object' ? txn.gateway_response : {};
-    const priorRefund = gr.refund && typeof gr.refund === 'object' ? gr.refund : null;
-    if (priorRefund) {
-        const priorStatus = String(priorRefund.status || '').trim().toLowerCase();
-        const alreadyRecorded = priorRefund.refund_id != null
-            || ['refunded', 'success', 'successful', 'completed'].includes(priorStatus);
-        if (alreadyRecorded) {
+
+    const driver = PaymentTransaction.sequelize && typeof PaymentTransaction.sequelize.transaction === 'function'
+        ? PaymentTransaction.sequelize
+        : null;
+
+    const runRefund = async (t) => {
+        const findQuery = { where: { id: transactionId, shop_id: shopId } };
+        if (t) {
+            findQuery.transaction = t;
+            if (t.LOCK?.UPDATE) findQuery.lock = t.LOCK.UPDATE;
+        }
+        const txn = await PaymentTransaction.findOne(findQuery);
+        if (!txn) throw new AppError('Payment transaction not found', 404);
+        if (!['paid', 'verified'].includes(txn.status)) {
+            throw new AppError('Only a confirmed payment can be refunded through the gateway', 409, 'NOT_REFUNDABLE');
+        }
+        // F-6 (A9-R2, 2026-11-26): double-submit guard. The refund record lives
+        // inside gateway_response.refund; once a SUCCESSFUL entry is there, a
+        // second submission must be refused BEFORE any provider call — otherwise
+        // a double-click / retry issues a second v2 refund against the same
+        // payment (the row stays 'paid', so the status guard alone never stops it).
+        // B4 (A9-R3): the read of this marker now happens on the LOCKED row,
+        // making the check atomic (previously two concurrent requests could
+        // both pass it before either record landed).
+        const gr = txn.gateway_response && typeof txn.gateway_response === 'object' ? txn.gateway_response : {};
+        const priorRefund = gr.refund && typeof gr.refund === 'object' ? gr.refund : null;
+        if (priorRefund) {
+            const priorStatus = String(priorRefund.status || '').trim().toLowerCase();
+            // B4: a plain 'submitted' marker WITHOUT a refund_id is NOT
+            // blocking — failed/absent markers keep the retry path open.
+            const alreadyRecorded = priorRefund.refund_id != null
+                || ['refunded', 'success', 'successful', 'completed'].includes(priorStatus);
+            if (alreadyRecorded) {
+                throw new AppError(
+                    'A refund has already been recorded for this payment — the provider was not contacted again.',
+                    409, 'REFUND_ALREADY_RECORDED',
+                );
+            }
+        }
+        if (txn.payment_gateway !== 'bkash' || !txn.payment_account_id) {
+            // Self-MFS claims settle by merchant judgment, not by API — refunds
+            // there are manual wallet transfers and are never pretended here.
             throw new AppError(
-                'A refund has already been recorded for this payment — the provider was not contacted again.',
-                409, 'REFUND_ALREADY_RECORDED',
+                'This payment was not captured through the bKash merchant gateway. Refund it manually from your wallet and keep the record in your books.',
+                409, 'REFUND_NOT_SUPPORTED',
             );
         }
-    }
-    if (txn.payment_gateway !== 'bkash' || !txn.payment_account_id) {
-        // Self-MFS claims settle by merchant judgment, not by API — refunds
-        // there are manual wallet transfers and are never pretended here.
-        throw new AppError(
-            'This payment was not captured through the bKash merchant gateway. Refund it manually from your wallet and keep the record in your books.',
-            409, 'REFUND_NOT_SUPPORTED',
-        );
-    }
 
-    const basis = txn.verified_at || txn.updated_at || txn.created_at;
-    if (basis && (Date.now() - new Date(basis).getTime()) > tokenized.REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
-        throw new AppError('bKash refunds are only available within 60 days of settlement', 409, 'REFUND_WINDOW_EXPIRED');
-    }
+        const basis = txn.verified_at || txn.updated_at || txn.created_at;
+        if (basis && (Date.now() - new Date(basis).getTime()) > tokenized.REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+            throw new AppError('bKash refunds are only available within 60 days of settlement', 409, 'REFUND_WINDOW_EXPIRED');
+        }
 
-    const account = await PaymentConfig.findOne({ where: { id: txn.payment_account_id, shop_id: shopId } });
-    if (!account) throw new AppError('Payment account not found', 404, 'PAYMENT_ACCOUNT_NOT_FOUND');
-    if (!isAutomatable(account)) {
-        // Honest inert state (R-12): never simulate a refund.
-        throw new AppError(
-            'Gateway refunds require a live_certified bKash merchant account with the gateway enabled — nothing was sent to the provider.',
-            503, 'GATEWAY_AUTOMATION_DISABLED',
-        );
-    }
+        const accountQuery = { where: { id: txn.payment_account_id, shop_id: shopId } };
+        if (t) accountQuery.transaction = t;
+        const account = await PaymentConfig.findOne(accountQuery);
+        if (!account) throw new AppError('Payment account not found', 404, 'PAYMENT_ACCOUNT_NOT_FOUND');
+        if (!isAutomatable(account)) {
+            // Honest inert state (R-12): never simulate a refund.
+            throw new AppError(
+                'Gateway refunds require a live_certified bKash merchant account with the gateway enabled — nothing was sent to the provider.',
+                503, 'GATEWAY_AUTOMATION_DISABLED',
+            );
+        }
 
-    // (gr already loaded above for the F-6 double-submit guard)
-    const trxId = gr.trxID || gr.trxId || null;
-    if (!trxId) {
-        throw new AppError(
-            'The provider transaction id is missing from this record; refund it through bKash merchant support instead.',
-            409, 'REFUND_EVIDENCE_MISSING',
-        );
-    }
+        // (gr already loaded above for the F-6 double-submit guard)
+        const trxId = gr.trxID || gr.trxId || null;
+        if (!trxId) {
+            throw new AppError(
+                'The provider transaction id is missing from this record; refund it through bKash merchant support instead.',
+                409, 'REFUND_EVIDENCE_MISSING',
+            );
+        }
 
-    const result = await gatewayClient.refundPayment(account, {
-        paymentId: txn.transaction_id,
-        trxId,
-        refundAmount: txn.amount,
-        reason: payload?.reason,
-    });
-    const refundId = result?.refundTrxID || result?.refundID || result?.refundId || null;
-    await txn.update({
-        gateway_response: {
-            ...gr,
-            refund: {
-                refund_id: refundId,
-                amount: txn.amount,
-                status: 'refunded',
-                submitted_at: new Date().toISOString(),
-                source: 'tokenized_v2_refund',
+        // B4 submitted-marker, written INSIDE the locked transaction BEFORE
+        // any provider traffic: still invisible to other sessions until
+        // commit (they block on the row lock), but it makes the in-flight
+        // state explicit on the row for anything reading the committed
+        // record and keeps the marker → record → audit sequence atomic.
+        if (t && typeof txn.update === 'function') {
+            await txn.update({
+                gateway_response: {
+                    ...gr,
+                    refund: {
+                        status: 'submitted',
+                        submitted_at: new Date().toISOString(),
+                        source: 'tokenized_v2_refund',
+                    },
+                },
+            }, { transaction: t });
+        }
+
+        const result = await gatewayClient.refundPayment(account, {
+            paymentId: txn.transaction_id,
+            trxId,
+            refundAmount: txn.amount,
+            reason: payload?.reason,
+        });
+        const refundId = result?.refundTrxID || result?.refundID || result?.refundId || null;
+        const record = {
+            gateway_response: {
+                ...gr,
+                refund: {
+                    refund_id: refundId,
+                    amount: txn.amount,
+                    status: 'refunded',
+                    submitted_at: new Date().toISOString(),
+                    source: 'tokenized_v2_refund',
+                },
             },
-        },
-    });
-    await AuditLog.create({
-        user_id: userId,
-        shop_id: shopId,
-        action: 'payment_transaction_refund',
-        resource_type: 'payment_transaction',
-        resource_id: txn.id,
-        metadata: { order_id: txn.order_id, refund_id: refundId, amount: txn.amount },
-        idempotency_key: `payment-refund:${txn.id}:${refundId || 'submitted'}`,
-    });
-    return {
-        success: true,
-        refund_id: refundId,
-        message: 'Refund submitted to bKash. Provider completion is tracked via Query — the record shows your submission, not a provider-declared success.',
+        };
+        const audit = {
+            user_id: userId,
+            shop_id: shopId,
+            action: 'payment_transaction_refund',
+            resource_type: 'payment_transaction',
+            resource_id: txn.id,
+            metadata: { order_id: txn.order_id, refund_id: refundId, amount: txn.amount },
+            idempotency_key: `payment-refund:${txn.id}:${refundId || 'submitted'}`,
+        };
+        if (t) {
+            await txn.update(record, { transaction: t });
+            await AuditLog.create(audit, { transaction: t });
+        } else {
+            await txn.update(record);
+            await AuditLog.create(audit);
+        }
+        return {
+            success: true,
+            refund_id: refundId,
+            message: 'Refund submitted to bKash. Provider completion is tracked via Query — the record shows your submission, not a provider-declared success.',
+        };
     };
+
+    if (driver) return driver.transaction(runRefund);
+    return runRefund(null);
 }
 
 module.exports = {
