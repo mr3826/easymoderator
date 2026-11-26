@@ -3559,6 +3559,9 @@
         "profile": "Business Profile",
         "faqs": "FAQs",
         "policies": "Business Policies"
+      },
+      "profile": {
+        "unsaved": "Unsaved changes"
       }
     }
   },

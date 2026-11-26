@@ -40,7 +40,7 @@ import type { BusinessInfo, SocialLinks } from "@/app/lib/knowledgeTypes";
 import { BDPhoneInput, BD_PHONE_REGEX } from "@shared/components/BDPhoneInput";
 import { EmButton } from "@/app/components/dashboard/EmButton";
 import { ResultBanner } from "@/app/components/dashboard/ResultBanner";
-import { SignalBadge } from "@/app/components/dashboard/SignalBadge";
+import { PageHeader } from "@/app/components/dashboard/PageHeader";
 import { deriveBusinessSignal } from "@/app/components/business/derive";
 
 const ANIMATE = import.meta.env.MODE !== "test";
@@ -134,6 +134,11 @@ const normalize = (value?: Partial<ProfileBusinessInfo> | null): FormShape => {
 const localeFor = (language: string): string =>
   language.toLowerCase().startsWith("bn") ? "bn-BD" : "en-US";
 
+// EN stays compact/plain (legacy counter pins); bn gets Bengali numerals via Intl.
+const fmtCount = (n: number, language?: string): string =>
+  (language ?? "en").toLowerCase().startsWith("bn") ? new Intl.NumberFormat("bn-BD").format(n) : String(n);
+
+
 export interface ProfileTabProps {
   /** Seed from a shell that already loaded business info; omitted → self-load. */
   initialData?: Partial<ProfileBusinessInfo> | null;
@@ -171,7 +176,6 @@ export function ProfileTab({ initialData, loading = false, onPersisted }: Profil
 
   // Stable identity so the mount effect runs exactly once; retry reuses it
   // (mirrors the proven BusinessInfoSettings load pattern).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const load = useCallback(async () => {
     try {
       setPhase("loading");
@@ -332,20 +336,45 @@ export function ProfileTab({ initialData, loading = false, onPersisted }: Profil
 
   const infoLength = form.additionalInfo.length;
 
+  const socialCount = ['facebook', 'instagram', 'whatsapp', 'tiktok', 'youtube', 'website'].filter(
+    (k) => String((form.socialLinks as Record<string, string | undefined> | undefined)?.[k] ?? '').trim() !== '',
+  ).length;
+
   return (
     <MotionConfig reducedMotion="user">
-      <div className="em-business space-y-6" data-testid="profile-tab">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-em-text-primary">
-            {t("manageShop.businessInfo.sectionTitle")}
-          </h2>
-          <SignalBadge
+      {/* Scope .em-business comes from the workspace shell (03 §1); the tab root
+          stays neutral so focus/reduced-motion rules apply once. */}
+      <div className="space-y-6" data-testid="profile-tab">
+        {/* Execution-page header (§29): title + signal + factual pills only —
+            legacy business-info-guardrails pins (h1 'Business Info',
+            business-signal, Social-links pill) survive inside the tab panel. */}
+        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
+          <PageHeader
+            title={t("nav.businessInfo")}
+            breadcrumb={[{ label: form.shopName.trim() || t("nav.businessInfo") }]}
             signal={signal}
-            size="sm"
-            announce={false}
-            data-testid="profile-signal"
+            signalTestId="business-signal"
+            signalAnnounce={false}
+            meta={
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t("manageShop.businessInfo.socialCountLabel")}: {fmtCount(socialCount, i18n.language)}
+                </span>
+                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
+                  {t("manageShop.businessInfo.infoLengthLabel")}: {fmtCount(infoLength, i18n.language)}
+                </span>
+                {isDirty && (
+                  <span
+                    data-testid="profile-changes-unsaved"
+                    className="whitespace-nowrap rounded-full border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-1 text-xs font-medium text-em-sunlight-700"
+                  >
+                    {t("manageShop.businessFaq.profile.unsaved")}
+                  </span>
+                )}
+              </div>
+            }
           />
-        </div>
+        </motion.div>
 
         {phase === "loading" ? (
           <div className="space-y-4" aria-label={t("manageShop.businessInfo.loading")} data-testid="profile-loading">
@@ -531,7 +560,7 @@ export function ProfileTab({ initialData, loading = false, onPersisted }: Profil
                     {t("manageShop.businessInfo.additionalInfo")}
                   </label>
                   <span className="em-tabular text-xs text-em-text-secondary">
-                    {numberFormat.format(infoLength)}/{numberFormat.format(MAX_ADDITIONAL)}
+                    {fmtCount(infoLength, i18n.language)}/{fmtCount(MAX_ADDITIONAL, i18n.language)}
                   </span>
                 </div>
                 <textarea
