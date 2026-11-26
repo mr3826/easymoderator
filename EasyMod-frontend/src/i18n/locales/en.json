@@ -3565,7 +3565,8 @@
       },
       "profile": {
         "unsaved": "Unsaved changes"
-      }
+      },
+      "savedDraftToast": "Saved"
     }
   },
   "faqSettings": {

@@ -416,8 +416,10 @@ test('create lands as DRAFT with a pending sync chip — saved ≠ live for AI',
     await expect(rowChip(page, 'faq-new')).toHaveText('Draft');
     await expect(syncChip(page, 'faq-new')).toHaveText('Not indexed');
     await expect(syncChip(page, 'faq-new')).toHaveAttribute('title', 'Only published FAQs can reach customer replies.');
-    // Honest toast: "Saved", never "live" (the chip tells the index story).
-    await expect(page.getByText('Saved — syncing to AI knowledge')).toBeVisible();
+    // Honest toast (A9b second pass): a DRAFT save says plain 'Saved' —
+    // 'syncing to AI knowledge' would contradict the 'Not indexed' chip.
+    await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+    await expect(page.getByText('Saved — syncing to AI knowledge')).toHaveCount(0);
     // Internal notes never render on the list surface.
     await expect(page.getByText('NOTE-MARKER-create never customer-visible')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);

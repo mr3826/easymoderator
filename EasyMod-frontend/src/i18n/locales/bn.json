@@ -3565,7 +3565,8 @@
       },
       "profile": {
         "unsaved": "অসংরক্ষিত পরিবর্তন"
-      }
+      },
+      "savedDraftToast": "সংরক্ষিত হয়েছে"
     }
   },
   "faqSettings": {

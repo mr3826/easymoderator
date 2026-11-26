@@ -50,7 +50,7 @@ module.exports = {
               ADD COLUMN IF NOT EXISTS status          VARCHAR(16)   NOT NULL DEFAULT 'published',
               ADD COLUMN IF NOT EXISTS keywords        JSON          NULL,
               ADD COLUMN IF NOT EXISTS internal_notes  TEXT          NULL,
-              ADD COLUMN IF NOT EXISTS updated_at      TIMESTAMPTZ   NULL DEFAULT NOW(),
+              ADD COLUMN IF NOT EXISTS updated_at      TIMESTAMPTZ   NULL,
               ADD COLUMN IF NOT EXISTS sync_status     VARCHAR(12)   NOT NULL DEFAULT 'pending',
               ADD COLUMN IF NOT EXISTS sync_version    INTEGER       NOT NULL DEFAULT 0,
               ADD COLUMN IF NOT EXISTS synced_at       TIMESTAMPTZ   NULL;

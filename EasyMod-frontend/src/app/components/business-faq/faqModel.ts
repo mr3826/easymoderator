@@ -246,8 +246,8 @@ export function countByStatus(rows: FaqRow[]): Record<FaqStatus, number> & { all
   };
   for (const row of rows) {
     counts[row.status] += 1;
-    // A8 minor #2: 'All' is ONE denominator with the Total pill — archived
-    // included; they stay reachable (and restorable) from the list.
+    // A8 minor #2: 'All' is ONE denominator with the Total pill — EVERY row
+    // including archived; archived stay visible and restorable in the list.
     counts.all += 1;
   }
   return counts;

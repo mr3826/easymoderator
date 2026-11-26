@@ -43,10 +43,17 @@ const createFakeDb = ({ rows = [] } = {}) => {
             if (!state.columns.has(column)) {
                 state.columns.add(column);
                 const defMatch = def.match(/NOT NULL DEFAULT '([^']+)'/) || def.match(/NOT NULL DEFAULT (\d+)/);
+                let fillValue;
                 if (defMatch) {
                     const raw = defMatch[1];
-                    const value = /^\d+$/.test(raw) ? Number(raw) : raw;
-                    for (const row of state.rows) if (row[column] === undefined) row[column] = value;
+                    fillValue = /^\d+$/.test(raw) ? Number(raw) : raw;
+                } else if (/DEFAULT\s+NOW\(\)/i.test(def)) {
+                    // PG fills existing rows for ANY default on ADD COLUMN —
+                    // model it so a DEFAULT NOW() regression stamps rows here.
+                    fillValue = '1970-01-01T00:00:00Z';
+                }
+                if (fillValue !== undefined) {
+                    for (const row of state.rows) if (row[column] === undefined) row[column] = fillValue;
                 }
             }
         }
@@ -102,7 +109,12 @@ describe('20261126_001_faq_question_lifecycle', () => {
         expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS\s+status\s+VARCHAR\(16\)\s+NOT NULL DEFAULT 'published'/);
         expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS\s+keywords\s+JSON\s+NULL/);
         expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS\s+internal_notes\s+TEXT\s+NULL/);
-        expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS\s+updated_at\s+TIMESTAMPTZ\s+NULL DEFAULT NOW\(\)/);
+        // A9b/A8 second pass: updated_at must be plain NULL — PostgreSQL fills
+        // existing rows with ANY ADD COLUMN default; a DEFAULT NOW() there would
+        // fabricate edit stamps on every legacy FAQ (honest-timestamps invariant).
+        expect(sql).toContain("ADD COLUMN IF NOT EXISTS updated_at      TIMESTAMPTZ   NULL,");
+        expect(sql).not.toContain("DEFAULT NOW()");
+        expect(db.rows.every((r) => r.updated_at === undefined)).toBe(true);
         expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS\s+sync_status\s+VARCHAR\(12\)\s+NOT NULL DEFAULT 'pending'/);
         expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS\s+sync_version\s+INTEGER\s+NOT NULL DEFAULT 0/);
         expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS\s+synced_at\s+TIMESTAMPTZ\s+NULL/);
@@ -146,6 +158,10 @@ describe('20261126_001_faq_question_lifecycle', () => {
         expect(sql).toMatch(/is_active\s*=\s*FALSE/i);               // guarded CASE
         expect(sql).not.toMatch(/SET\s+category_tag/i);              // never invented
         expect(sql).not.toMatch(/SET\s+updated_at\s*=/i);            // never a fabricated edit stamp
+        // A9b second pass: NO volatile default on updated_at — PostgreSQL fills
+        // existing rows on ADD COLUMN with ANY default, fabricating edit stamps.
+        expect(sql).not.toMatch(/updated_at[^,\n]*DEFAULT\s+NOW\(\)/i);
+        expect(db.rows.every((r) => r.updated_at === undefined)).toBe(true);
     });
 
     test('up is idempotent: running it twice converges with no extra state change', async () => {

@@ -1,9 +1,11 @@
 /**
  * Tab 2 — FAQs workspace (A3).
  *
- * The FAQ list IS the work surface (02 §2): search (server `POST
- * /api/knowledge/faq/search` while a query is typed, client filter otherwise —
- * the server search is published-only per contract), status filter chips with
+ * The FAQ list IS the work surface (02 §2): search is a CLIENT-SIDE filter
+ * across ALL statuses while a query is typed (server POST /api/knowledge/faq/
+ * search remains an allowlisted endpoint but the UI never calls it — the
+ * published-only server search hid drafts/disabled rows merchants were
+ * actively fixing, A8 MAJOR #2), status filter chips with
  * accurate per-status counts, a category filter incl. Uncategorized, per-row
  * dual chips (lifecycle = server `status`, sync = `sync_status`), honest
  * created/updated timestamps (NULL → "—", never a fabricated date), replies
@@ -81,9 +83,6 @@ const FOCUS_RING =
 
 type StatusFilter = 'all' | FaqStatus;
 const STATUS_FILTERS: StatusFilter[] = ['all', 'draft', 'review', 'published', 'disabled', 'archived'];
-
-/** Server search is capped by `limit` (default 10); request generously so a
- *  query surfaces every match the merchant list can then hydrate. */
 
 interface EditorState {
   mode: 'create' | 'edit';
@@ -268,7 +267,12 @@ export default function FaqTab({ className }: { className?: string }) {
     setEditor(null);
     // "Saved" wording only — the sync chip (pending from the response) tells
     // the real index story; never claim "live for AI" from a save (F18).
-    toast.success(t('manageShop.businessFaq.savedToast'));
+    // A9b second pass: rows that are NOT published never "sync toward the
+    // reply index" — the chip already says 'Not indexed', so the toast must
+    // not contradict it with syncing language.
+    toast.success(t(saved.status === 'published'
+      ? 'manageShop.businessFaq.savedToast'
+      : 'manageShop.businessFaq.savedDraftToast'));
   };
 
   const handleDeleteFaq = async () => {
@@ -512,36 +516,22 @@ export default function FaqTab({ className }: { className?: string }) {
               </div>
             ) : loadError ? null : visibleRows.length === 0 && !filtersActive ? (
               <div className="px-4 py-12 text-center">
-                {faqs.length === 0 ? (
-                  <>
-                    <MessageCircle className="mx-auto mb-3 h-12 w-12 text-em-border-strong" aria-hidden="true" />
-                    <h4 className="text-base font-semibold text-em-text-primary">{t('manageShop.faqs.emptyTitle')}</h4>
-                    <p className="mx-auto mt-1 max-w-md text-sm text-em-text-secondary">{t('manageShop.faqs.emptyDescription')}</p>
-                    <EmButton
-                      variant="primary"
-                      onClick={() => setEditor({ mode: 'create', row: null })}
-                      className="mt-4 gap-2"
-                      data-testid="faq-add"
-                    >
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                      {t('manageShop.faqs.addFaq')}
-                    </EmButton>
-                  </>
-                ) : (
-                  // Only archived rows exist outside the default filter — a
-                  // factual pointer, not a fabricated "no answers" claim.
-                  <>
-                    <h4 className="text-sm font-semibold text-em-text-primary">{t('manageShop.businessFaq.onlyArchived')}</h4>
-                    <EmButton
-                      variant="secondary"
-                      className="mt-3 gap-2"
-                      onClick={() => setStatusFilter('archived')}
-                    >
-                      <Archive className="h-4 w-4" aria-hidden="true" />
-                      {t('manageShop.businessFaq.filter.status.archived')}
-                    </EmButton>
-                  </>
-                )}
+                {/* A9b second pass: with the one-denominator fix, the no-filter
+                    empty list can ONLY mean zero FAQs — archived rows are part
+                    of "All" now, so the old "only archived exist" dead branch
+                    is gone. */}
+                <MessageCircle className="mx-auto mb-3 h-12 w-12 text-em-border-strong" aria-hidden="true" />
+                <h4 className="text-base font-semibold text-em-text-primary">{t('manageShop.faqs.emptyTitle')}</h4>
+                <p className="mx-auto mt-1 max-w-md text-sm text-em-text-secondary">{t('manageShop.faqs.emptyDescription')}</p>
+                <EmButton
+                  variant="primary"
+                  onClick={() => setEditor({ mode: 'create', row: null })}
+                  className="mt-4 gap-2"
+                  data-testid="faq-add"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  {t('manageShop.faqs.addFaq')}
+                </EmButton>
               </div>
             ) : filtersEmpty ? (
               <div className="px-4 py-10 text-center">

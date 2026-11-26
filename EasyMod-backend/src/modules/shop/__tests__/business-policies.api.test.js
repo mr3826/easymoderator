@@ -196,6 +196,14 @@ describe('business-policies validator matrix', () => {
         });
     });
 
+    it("rejects a details-only write that would leave a STORED 'conditional' stance undescribed (A9b service guard)", async () => {
+        shopRow.settings.policies = { exchange: { stance: 'conditional', details: 'keep packaging' } };
+        const res = await put({ exchange: { details: '   ' } });
+        expect(res.status).toBe(400); // same envelope as the validator-matrix rejections
+        // nothing merged: the stored description must survive untouched
+        expect(shopRow.update).not.toHaveBeenCalled();
+    });
+
     it("rejects 'conditional' without (or with only whitespace) details", async () => {
         expect((await put({ returns: { stance: 'conditional' } })).status).toBe(400);
         expect((await put({ exchange: { stance: 'conditional', details: '   ' } })).status).toBe(400);

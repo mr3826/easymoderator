@@ -1148,6 +1148,28 @@ const updateShopBusinessPolicies = async (shopId, body) => {
         patch[kind] = fields;
     }
 
+    // A9 second pass (Y2 completeness): a kind patch that OMITS `stance` must
+    // still be judged against the STORED stance — otherwise a details-only
+    // write ({exchange:{details:'   '}}) could leave a 'conditional' stance
+    // with no description. Resolve the effective stance pre-merge and refuse.
+    const shopRow = await Shop.findByPk(shopId, { attributes: ['settings'] });
+    const storedPolicies = (shopRow && shopRow.settings && shopRow.settings.policies) || {};
+    for (const [kind, fields] of Object.entries(patch)) {
+        if (fields === undefined) continue; // explicit clear is always valid
+        const stored = storedPolicies[kind] || {};
+        const effectiveStance = fields.stance !== undefined ? fields.stance : stored.stance;
+        if (effectiveStance === 'conditional') {
+            const effectiveDetails = fields.details !== undefined ? fields.details : stored.details;
+            if (typeof effectiveDetails !== 'string' || effectiveDetails.trim() === '') {
+                throw new AppError(
+                    `${kind}.stance 'conditional' requires a non-empty details description`,
+                    400,
+                    'VALIDATION_ERROR'
+                );
+            }
+        }
+    }
+
     const mergedSettings = await updateShopSettingsPreservingRtoConsent(shopId, { policies: patch });
     // Explicit (the dedicated writer already invalidates; this keeps the
     // contract readable at the call site and is idempotent).
