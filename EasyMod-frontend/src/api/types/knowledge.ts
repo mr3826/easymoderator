@@ -2,6 +2,9 @@
  * Knowledge Base types
  */
 
+export type FaqStatus = 'draft' | 'review' | 'published' | 'disabled' | 'archived';
+export type FaqSyncStatus = 'pending' | 'synced' | 'failed' | 'pruned';
+
 export interface FAQ {
   id: string;
   question: string;
@@ -11,8 +14,41 @@ export interface FAQ {
   source: 'manual' | 'ai' | 'import';
   active: boolean;
   usageCount: number;
-  createdAt: string;
-  updatedAt: string;
+  // Honest nullability: never fabricated by the client (A5 contract).
+  createdAt: string | null;
+  updatedAt: string | null;
+  status?: FaqStatus;
+  category_tag?: string | null;
+  answers?: { en?: string | null; bn?: string | null };
+  keywords?: string[];
+  notes?: string | null;
+  sync_status?: FaqSyncStatus;
+  sync_version?: number;
+  synced_at?: string | null;
+  use_count?: number;
+  priority?: number;
+}
+
+/** Write payload for POST/PATCH /api/knowledge/faqs (A5 contract). */
+export interface FaqWritePayload {
+  question?: string;
+  answer?: string;
+  answer_en?: string;
+  answer_bn?: string;
+  template_en?: string;
+  template_bn?: string;
+  /** Legacy alias — server maps it to the question ONLY when question is
+   *  absent; it can never overwrite an existing question. */
+  category?: string;
+  category_tag?: string | null;
+  keywords?: string[];
+  notes?: string | null;
+  status?: FaqStatus;
+  priority?: number;
+  active?: boolean;
+  confidence?: number;
+  usageCount?: number;
+  source?: string;
 }
 
 export interface KnowledgeGap {

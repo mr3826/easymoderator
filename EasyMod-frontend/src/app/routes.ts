@@ -31,8 +31,7 @@ const BusinessAutomationDefaults = lazy(() => import("./components/BusinessAutom
 const DeliverySettings = lazy(() => import("./components/DeliverySettings"));
 const PaymentSettings = lazy(() => import("./components/PaymentSettings"));
 const NotificationSettings = lazy(() => import("./components/NotificationSettings"));
-const BusinessInfoSettings = lazy(() => import("./components/BusinessInfoSettings"));
-const FaqSettings = lazy(() => import("./components/FaqSettings"));
+const BusinessFaqWorkspace = lazy(() => import("./components/business-faq/BusinessFaqWorkspace"));
 const SignIn = lazy(() => import("./components/SignIn"));
 const Signup = lazy(() => import("./components/Signup"));
 const ForgotPassword = lazy(() => import("./components/ForgotPassword"));
@@ -202,7 +201,7 @@ export const router = createBrowserRouter([
 				Component: withSuspense(ManageShop),
 				children: [
 					{ index: true, Component: withSuspense(SettingsHub) },
-					{ path: "business-info", Component: withSuspense(BusinessInfoSettings) },
+					{ path: "business-info", Component: withSuspense(BusinessFaqWorkspace) },
 					{ path: "channels", Component: withSuspense(ChannelsOverview) },
 					{ path: "channels/:channelId", Component: withSuspense(ChannelDetail) },
 					{ path: "automation", Component: withSuspense(BusinessAutomationDefaults) },
@@ -210,7 +209,7 @@ export const router = createBrowserRouter([
 					{ path: "delivery-settings", Component: withSuspense(DeliverySettings) },
 					{ path: "payment-settings", Component: withSuspense(PaymentSettings) },
 					{ path: "notifications", Component: withSuspense(NotificationSettings) },
-					{ path: "faqs", Component: withSuspense(FaqSettings) },
+					{ path: "faqs", Component: withSuspense(BusinessFaqWorkspace) },
 				],
 			},
 			{ path: "/products", Component: withSuspense(Products) },

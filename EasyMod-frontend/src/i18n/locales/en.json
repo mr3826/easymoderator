@@ -2519,7 +2519,16 @@
         "facebookPlaceholder": "https://facebook.com/yourpage",
         "websitePlaceholder": "https://yourshop.com",
         "facebookLabel": "Facebook",
-        "websiteLabel": "Website"
+        "websiteLabel": "Website",
+        "instagramLabel": "Instagram",
+        "instagramPlaceholder": "https://instagram.com/yourshop",
+        "whatsappLabel": "WhatsApp",
+        "whatsappPlaceholder": "01XXXXXXXXX or https://wa.me/8801XXXXXXXXX",
+        "whatsappHint": "Use a phone number (01XXXXXXXXX) or a wa.me link.",
+        "tiktokLabel": "TikTok",
+        "tiktokPlaceholder": "https://tiktok.com/@yourshop",
+        "youtubeLabel": "YouTube",
+        "youtubePlaceholder": "https://youtube.com/@yourshop"
       },
       "automationLink": {
         "title": "Automation defaults",
@@ -2539,6 +2548,23 @@
           "profileReady": "Your shop name is set for customer replies.",
           "needsName": "Add a shop name so replies can identify your shop."
         }
+      },
+      "nameEn": "Shop name (English)",
+      "nameEnHelp": "Optional English display name. Your Bangla shop name stays the primary identity customers see.",
+      "tagline": "Tagline",
+      "taglineHelp": "A short line that may appear in greetings and replies.",
+      "email": "Email",
+      "emailHelp": "Customer-facing contact only. This does not change your login and is never used for sign-in.",
+      "city": "City",
+      "shopNameHelp": "This is the name customers see in replies. It stays the primary identity.",
+      "identityTitle": "Shop identity",
+      "savedAll": "All changes saved",
+      "unsavedChanges": "Unsaved changes",
+      "fixBeforeSave": "Fix the details before saving",
+      "errors": {
+        "emailInvalid": "Enter a valid email address.",
+        "tooLong": "Maximum {max} characters.",
+        "phoneInvalid": "Enter a valid mobile number (01XXXXXXXXX)."
       }
     },
     "faqs": {
@@ -3371,6 +3397,169 @@
       "triggerKeywordsPlaceholder": "e.g. complain, refund",
       "addKeyword": "Add keyword",
       "removeKeyword": "Remove keyword {{value}}"
+    },
+    "businessFaq": {
+      "policies": {
+        "title": "Business Policies",
+        "stated": "Stated",
+        "unsavedPill": "Unsaved changes",
+        "informational": "These policies inform customer answers. They do not automatically approve or reject cancellations, refunds, exchanges or warranty claims.",
+        "emptyHint": "Until you state them, replies will not guess these terms.",
+        "retryLoad": "Try again",
+        "loading": "Loading policies",
+        "stance": "Position",
+        "notStated": "Not stated yet",
+        "offered": "We offer this",
+        "notOffered": "We do not offer this",
+        "conditional": "Offered with conditions",
+        "card": {
+          "returns": "Returns",
+          "exchange": "Exchange",
+          "refunds": "Refunds",
+          "warranty": "Warranty"
+        },
+        "periodDays": "Window (days)",
+        "periodDaysHelp": "Whole days between 0 and 365. Leave empty if the window varies.",
+        "details": "Details",
+        "detailsConditionalHelp": "Required — describe the conditions in your own words.",
+        "exclusions": "Exclusions",
+        "process": "Refund process",
+        "duration": "Warranty period",
+        "coverage": "What the warranty covers",
+        "coverageExclusions": "What the warranty does not cover",
+        "notSet": "—",
+        "save": "Save policies",
+        "saving": "Saving…",
+        "saved": "Policies saved",
+        "reset": "Discard changes",
+        "ownerOnly": "Only the shop owner can change these policies.",
+        "lastSaved": "Last saved",
+        "help": {
+          "aiProjection": "Saved facts flow into the assistant's knowledge for customer replies; they never authorize actions by themselves."
+        },
+        "errors": {
+          "load": "Could not load business policies.",
+          "save": "Policies were not saved.",
+          "periodRange": "Enter a whole number of days between 0 and 365.",
+          "detailsRequired": "Conditions are required when the position is conditional.",
+          "fixBeforeSave": "Fix the highlighted fields before saving."
+        },
+        "signal": {
+          "pending": "Policies loading",
+          "blocked": "Policies unavailable",
+          "attention": "Policies need attention",
+          "healthy": "Policies stated",
+          "reason": {
+            "unavailable": "Business policies could not be loaded. Try again to view them.",
+            "noneStated": "No policies stated yet",
+            "stated": "{{count}} of 4 policies stated"
+          }
+        }
+      },
+      "searchPlaceholder": "Search FAQs…",
+      "searchAria": "Search FAQs",
+      "search": {
+        "searching": "Searching…"
+      },
+      "filter": {
+        "label": "FAQ filters",
+        "all": "All",
+        "status": {
+          "draft": "Draft",
+          "review": "Needs review",
+          "published": "Published",
+          "disabled": "Disabled",
+          "archived": "Archived"
+        },
+        "category": {
+          "all": "All categories",
+          "none": "Uncategorized"
+        },
+        "noResults": "No FAQs match these filters",
+        "clear": "Clear filters",
+        "categoryLabel": "Category"
+      },
+      "onlyArchived": "Your remaining FAQs are archived",
+      "bulk": {
+        "select": "Select",
+        "selected": "{{formatted}} selected",
+        "enable": "Enable",
+        "disable": "Pause",
+        "enableConfirm": "Publish {{formatted}} selected FAQs for AI replies?",
+        "disableConfirm": "Pause {{formatted}} selected FAQs?",
+        "done": "{{formatted}} FAQs updated",
+        "partial": "{{ok}} updated, {{failed}} failed",
+        "clear": "Clear selection"
+      },
+      "chip": {
+        "status": {
+          "draft": "Draft",
+          "review": "Needs review",
+          "published": "Published",
+          "disabled": "Disabled",
+          "archived": "Archived"
+        },
+        "sync": {
+          "pending": "Syncing",
+          "synced": "Synced",
+          "failed": "Sync failed",
+          "pruned": "Removed from index"
+        }
+      },
+      "sync": {
+        "retry": "Retry"
+      },
+      "time": {
+        "created": "Created {{value}}",
+        "updated": "Updated {{value}}"
+      },
+      "repliesUsed": "Used in {{formatted}} replies",
+      "notSet": "—",
+      "keywordsLabel": "Internal keywords",
+      "metrics": {
+        "published": "Published FAQs",
+        "repliesUsed": "Replies used"
+      },
+      "publish": "Publish",
+      "published": "FAQ published",
+      "archive": "Archive",
+      "archived": "FAQ archived",
+      "restore": "Restore",
+      "restored": "FAQ restored as disabled",
+      "resynced": "Sync retry started",
+      "savedToast": "Saved — syncing to AI knowledge",
+      "deleteArchiveHint": "Delete is permanent. Archive keeps the FAQ restorable.",
+      "errors": {
+        "save": "Could not save the FAQ. Your edits are kept."
+      },
+      "editor": {
+        "questionHelp": "The question customers ask; the list shows this text.",
+        "answerEn": "Answer (English)",
+        "answerBn": "Answer (Bangla)",
+        "answerBnPlaceholder": "The Bangla answer customers receive",
+        "categoryTag": "Category tag",
+        "tagHelp": "Optional label for organizing; it never replaces the question.",
+        "keywords": "Keywords (internal)",
+        "keywordsPlaceholder": "Type a keyword, press Enter",
+        "keywordsHelp": "Internal organization only — never shown to customers.",
+        "keywordsAdd": "Add keyword",
+        "keywordsRemove": "Remove keyword",
+        "notes": "Internal notes",
+        "notesPlaceholder": "Reminders for your team",
+        "notesHelp": "Private to your team — never shown to customers, never used in AI replies.",
+        "status": "Status",
+        "statusHelp": "Only Published FAQs can be used in AI replies.",
+        "publishedWarn": "Publishing makes this answer available to AI replies once synced.",
+        "archivedLocked": "This FAQ is archived. Restore it from the list to change its status.",
+        "priority": "Priority",
+        "priorityHelp": "0–1000; higher wins when several FAQs match."
+      },
+      "tabs": {
+        "label": "Business and FAQ settings sections",
+        "profile": "Business Profile",
+        "faqs": "FAQs",
+        "policies": "Business Policies"
+      }
     }
   },
   "faqSettings": {

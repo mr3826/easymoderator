@@ -10,6 +10,14 @@ export interface SocialLinks {
 
 export interface BusinessInfo {
   shopName: string;
+  // Optional English display name. shopName (Bangla-first) remains THE single
+  // authoritative identity synced with shops.shop_name; nameEn never flows back.
+  nameEn?: string | null;
+  tagline?: string | null;
+  // Customer-facing contact email — strictly informational; account login
+  // credentials are a different system entirely.
+  email?: string | null;
+  city?: string | null;
   address: string;
   location?: string;
   phone: string;
@@ -25,6 +33,9 @@ export interface BusinessInfo {
   socialLinks?: SocialLinks;
 }
 
+export type FaqStatus = 'draft' | 'review' | 'published' | 'disabled' | 'archived';
+export type FaqSyncStatus = 'pending' | 'synced' | 'failed' | 'pruned';
+
 export interface FAQ {
   id: string;
   question: string;
@@ -34,8 +45,21 @@ export interface FAQ {
   source: string;
   active: boolean;
   usageCount: number;
-  createdAt: string;
-  updatedAt: string;
+  // Honest nullability (A5 contract): the client no longer fabricates
+  // timestamps; the UI renders '—' for null.
+  createdAt: string | null;
+  updatedAt: string | null;
+  // Extended lifecycle + knowledge-sync surface (2026-11-26 redesign).
+  status?: FaqStatus;
+  category_tag?: string | null;
+  answers?: { en?: string | null; bn?: string | null };
+  keywords?: string[];
+  notes?: string | null;
+  sync_status?: FaqSyncStatus;
+  sync_version?: number;
+  synced_at?: string | null;
+  use_count?: number;
+  priority?: number;
 }
 
 export interface BrandingRules {
