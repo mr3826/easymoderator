@@ -108,7 +108,7 @@ exposed (flagged NEW so reviewers do not call it invented).
 | E13 | `payment-settings.spec.ts:126-164` test→save endpoints; radio selection changes state | order + state machine | CHANGE | Same as E4/E7. |
 | E14 | CI inclusion: `payment-guardrails.spec.ts` is in the CI mock-only e2e list (`.github/workflows/ci-cd.yml:383`); `payment-settings.spec.ts` is NOT (local-only) | gate placement | KEEP | Both spec files stay; the CI list keeps `payment-guardrails.spec.ts` name unchanged. |
 
-## F. Vitest pins (FE) 
+## F. Vitest pins (FE)
 
 | # | Pin (file) | Status | Disposition |
 |---|---|---|---|
