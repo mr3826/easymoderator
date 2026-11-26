@@ -10,6 +10,7 @@ import {
 } from "@/api/domains/notification";
 import type { OwnerNotification } from "@/api/types/notification";
 import { getErrorMessage } from "@shared/lib/http/errors";
+import { authService } from "../lib/auth";
 import { useDialogFocus } from "./inbox/useDialogFocus";
 
 // The /in-app rows carry these columns (owner-notification.entity.js) even
@@ -73,6 +74,12 @@ function actionLink(notification: OwnerNotification) {
 
 export default function InAppNotificationCenter() {
   const { t } = useTranslation();
+  // F3 (A8 round-2): the payment-confirmation action route is owner-only
+  // (notification.routes.js:41-52 → 403 for staff). Follow the app's existing
+  // client-side owner-gating idiom (BusinessAutomationDefaults.tsx,
+  // PoliciesTab.tsx, ChannelDetail.tsx): staff keep seeing the claim row and
+  // its evidence, but get a stated reason instead of always-403 buttons.
+  const isOwner = authService.getCurrentShop()?.role?.toLowerCase() === "owner";
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
@@ -329,7 +336,20 @@ export default function InAppNotificationCenter() {
                           )
                         )}
                       </div>
-                      {actionable && (
+                      {actionable && !isOwner && (
+                        // Owner-only affordance (the endpoint 403s anyone else):
+                        // non-owners see the row + this note, never live buttons.
+                        <p
+                          role="status"
+                          className="mt-2 rounded-md border border-em-border bg-em-bg-muted px-3 py-2 text-xs text-em-text-secondary"
+                          data-testid={`claim-owner-only-${notification.id}`}
+                        >
+                          {t("shell.notifications.ownerOnlyNote", {
+                            defaultValue: "Only the shop owner can approve or reject payment confirmations. You can review the details here.",
+                          })}
+                        </p>
+                      )}
+                      {actionable && isOwner && (
                         <div className="mt-2 flex flex-wrap items-center gap-2 pl-5">
                           <button
                             type="button"

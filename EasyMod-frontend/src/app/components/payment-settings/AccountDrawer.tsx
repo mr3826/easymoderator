@@ -18,7 +18,17 @@
  *   action (§2.1, rate-limited by bKash to 2/hour); it renders the SERVER verdict
  *   honestly (CREDENTIALS_VALID / SANDBOX_VERIFIED / 429 cooldown / 501 not-yet
  *   wired) and never labels it "verified with provider". certify-live records an
- *   owner evidence note only, and only from a sandbox-verified gateway (§2.3).
+ *   owner evidence note only, and — per the A9-R2 rewrite of §2.3 — it mirrors
+ *   the server contract exactly: the certify field renders for a bKash
+ *   merchant_gateway row whose STORED config.environment is explicitly
+ *   'production' and whose verification level is a certifiable rung
+ *   (unverified / configured_unverified / sandbox_verified; the old
+ *   sandbox_verified prerequisite is REMOVED, live_certified is refused
+ *   server-side and hidden here). While the recorded environment is not
+ *   production the drawer shows an honest CTA instead of a dead-end button,
+ *   stating that switching resets the verification ladder — the server's own
+ *   400 PROVIDER_ENVIRONMENT_NOT_PRODUCTION message instructs exactly that
+ *   path, and the switch→save→reopen→certify flow is reachable in one flow.
  *
  * The drawer traps/restores focus and collapses its slide in unit tests via
  * `ANIMATE`, mirroring `delivery/ProviderDrawer`.
@@ -52,6 +62,13 @@ const FOCUS_RING =
 
 const INPUT_CLASSES =
   `w-full min-h-11 border border-em-border-input rounded-lg bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus:outline-none ${FOCUS_RING}`;
+
+/**
+ * Mirror of CERTIFIABLE_RUNGS in the backend certifyLiveAccount
+ * (payment-verification.service.js:315, A9-R2). `live_certified` and any
+ * unknown/archived rung are deliberately absent — the server refuses them.
+ */
+const CERTIFIABLE_RUNGS: readonly string[] = ['unverified', 'configured_unverified', 'sandbox_verified'];
 
 export interface AccountDrawerProps {
   mode: 'create' | 'edit';
@@ -269,7 +286,9 @@ export function AccountDrawer({
     }
   };
 
-  // §2.3 owner records live_certified evidence; only from a sandbox-verified gateway.
+  // §2.3 (A9-R2 rewrite) owner records live_certified evidence from ANY
+  // certifiable rung, but ONLY against an explicitly-recorded production
+  // posture — mirrors certifyLiveAccount (payment-verification.service.js).
   const certify = async () => {
     if (!account) return;
     const trimmed = evidence.trim();
@@ -304,10 +323,28 @@ export function AccountDrawer({
     }
   };
 
+  // F1 (A8 round-2): the server certifies when the STORED row says
+  // config.environment === 'production' AND the level is a CERTIFIABLE_RUNGS
+  // rung (unverified / configured_unverified / sandbox_verified — live_certified
+  // rows are refused 409 server-side and are not certifiable rungs; unknown/
+  // archived rungs likewise). Drive off the SAVED account, never the unsaved
+  // draft toggle: certify against a draft that was never persisted would 400.
+  const recordedEnvironment = String(account?.config?.environment ?? '').trim().toLowerCase();
+  const isCertifiableRung = CERTIFIABLE_RUNGS.includes(String(account?.verification_level ?? 'unverified'));
   const canCertify = isEdit
-    && account
+    && Boolean(account)
     && isGateway(provider, accountType)
-    && account.verification_level === 'sandbox_verified';
+    && isCertifiableRung
+    && recordedEnvironment === 'production';
+  // Honest CTA instead of a dead-end button: every non-production recorded
+  // state (sandbox or legacy unset) is exactly what the server 400s, and the
+  // 400's own instruction is "switch to production (this demotes the ladder)
+  // and certify" — so say that here and make the switch reachable.
+  const certifyNeedsProduction = isEdit
+    && Boolean(account)
+    && isGateway(provider, accountType)
+    && isCertifiableRung
+    && recordedEnvironment !== 'production';
   const showVerifyAction = isEdit && account && (
     isGateway(provider, accountType) || provider !== 'cod'
   );
@@ -555,6 +592,22 @@ export function AccountDrawer({
                       {t(`manageShop.paymentSettings.accounts.environmentNotRecorded`, { defaultValue: 'Not recorded — treated as sandbox.' })}
                     </p>
                   )}
+                  {/* F1 (A8 round-2): the server DEMOTES the verification ladder
+                      whenever the recorded environment changes
+                      (payment-accounts.service.js applyEnvironmentChangeDemotion,
+                      :174-187). The drawer must say that ON the control, before
+                      the merchant saves, not only after a refusal. */}
+                  {isEdit && envTouched && (isSandbox ? 'sandbox' : 'production') !== storedEnv && (
+                    <p
+                      role="status"
+                      className="mt-1 rounded-lg border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-2 text-xs text-em-sunlight-700"
+                      data-testid="environment-change-warning"
+                    >
+                      {t(`manageShop.paymentSettings.accounts.environmentChangeWarning`, {
+                        defaultValue: 'Saving this switch changes the recorded environment and resets this account’s verification ladder — a check earned in the other environment proves nothing here. Credentials are not re-checked automatically.',
+                      })}
+                    </p>
+                  )}
                 </div>
               )}
             </section>
@@ -581,6 +634,23 @@ export function AccountDrawer({
                     >
                       {t(`manageShop.paymentSettings.verify.checkCredentials`, { defaultValue: 'Check credentials (limited to 2 per hour by bKash)' })}
                     </EmButton>
+                    {/* F1 honest CTA: no certify button on a state the server
+                        would 400 — instead the exact one-flow path the server's
+                        own 400 message instructs (switch → save → certify). */}
+                    {certifyNeedsProduction && (
+                      <p
+                        className="mt-2 rounded-lg border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-2 text-xs text-em-sunlight-700"
+                        data-testid="certify-needs-production"
+                      >
+                        {envTouched && !isSandbox
+                          ? t(`manageShop.paymentSettings.verify.certifyAfterSave`, {
+                              defaultValue: 'Production will be recorded once you save. Save, then reopen this account — the certification field appears. The switch itself resets the verification ladder.',
+                            })
+                          : t(`manageShop.paymentSettings.verify.certifyNeedsProduction`, {
+                              defaultValue: 'Switch to Production to certify live credentials — this resets the verification ladder.',
+                            })}
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>

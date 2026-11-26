@@ -4,6 +4,8 @@
  * presentational: it never hits the API itself (that is the shell's one PUT).
  */
 import '@testing-library/jest-dom';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -16,12 +18,12 @@ function renderTab(o: Partial<PaymentPolicyView> = {}) {
   const onChange = vi.fn();
   const onSave = vi.fn();
   const policy = { ...base, ...o };
-  render(
+  const utils = render(
     <MemoryRouter>
       <PoliciesTab policy={policy} onChange={onChange} onSave={onSave} isDirty justSaved={false} />
     </MemoryRouter>,
   );
-  return { onChange, onSave, policy };
+  return { onChange, onSave, policy, ...utils };
 }
 
 describe('PoliciesTab validation + save', () => {
@@ -83,5 +85,76 @@ describe('PoliciesTab validation + save', () => {
       </MemoryRouter>,
     );
     expect(screen.getByTestId('policy-save')).toBeDisabled();
+  });
+});
+
+/**
+ * F2 (A8 round-2, policy-tab honesty): every self-MFS claim collects the FULL
+ * order total regardless of the merchant's advance rule
+ * (payment-claim.service.js computeClaimAmount → chatbot prompt). The tab may
+ * record the rules (for gateway automation, inert per R-12) but must never
+ * promise enforcement it no longer performs.
+ */
+describe('PoliciesTab enforcement honesty (F2)', () => {
+  const OLD_PROMISES = [
+    'Set how much customers need to pay in advance',
+    'Customer pays only the delivery charge upfront',
+    '% of total order amount',
+    'fixed advance amount',
+  ];
+
+  it('renders the honest caveat under the advance-rules header', () => {
+    renderTab();
+    const caveat = screen.getByTestId('advance-enforcement-caveat');
+    expect(caveat).toHaveTextContent(/recorded for gateway automation/i);
+    expect(caveat).toHaveTextContent(/full order total/i);
+    // …and no old promise survives anywhere in the rendered tab.
+    for (const promise of OLD_PROMISES) {
+      expect(screen.queryByText(promise, { exact: false })).toBeNull();
+    }
+  });
+
+  it('delivery-charge row states the enforced reality, not the upfront promise', () => {
+    renderTab();
+    const deliveryRow = screen.getByTestId('advance-radio-delivery_charge');
+    expect(deliveryRow).toHaveTextContent(/recorded for gateway automation/i);
+    expect(deliveryRow).toHaveTextContent(/full order total/i);
+    expect(deliveryRow).not.toHaveTextContent(/pays only the delivery charge upfront/i);
+  });
+
+  it('percentage + fixed suffixes state recorded-not-enforced', () => {
+    const { unmount } = renderTab({ advance_policy: 'percentage', advance_value: 50 });
+    const percentRow = screen.getByTestId('advance-radio-percentage');
+    expect(percentRow).toHaveTextContent(/recorded for gateway automation/i);
+    expect(percentRow).not.toHaveTextContent(/of total order amount/);
+    unmount();
+
+    renderTab({ advance_policy: 'fixed', advance_value: 100 });
+    const fixedRow = screen.getByTestId('advance-radio-fixed');
+    expect(fixedRow).toHaveTextContent(/recorded for gateway automation/i);
+    expect(fixedRow).not.toHaveTextContent(/fixed advance amount/);
+  });
+
+  it('en + bn locale coverage: caveat exists, every old promise string is deleted', () => {
+    const read = (file: string) => JSON.parse(readFileSync(path.join(__dirname, '../../../../i18n/locales', file), 'utf8'));
+    for (const file of ['en.json', 'bn.json']) {
+      const ps = read(file).manageShop.paymentSettings;
+      const GATEWAY_AUTOMATION = /gateway automation|গেটওয়ে অটোমেশন/i;
+      const FULL_TOTAL = /full order total|সম্পূর্ণ অর্ডার মূল্য/i;
+      expect(ps.policy.enforcementCaveat).toMatch(GATEWAY_AUTOMATION);
+      expect(ps.policy.enforcementCaveat).toMatch(FULL_TOTAL);
+      const joined = JSON.stringify([ps.advanceSubtitle, ps.deliveryOnlyDesc, ps.percentageSuffix, ps.fixedSuffix, ps.policy.enforcementCaveat]);
+      for (const promise of OLD_PROMISES) {
+        expect(joined).not.toContain(promise);
+      }
+      // The rewritten values keep their meaning in BOTH languages.
+      expect(ps.advanceSubtitle).toMatch(GATEWAY_AUTOMATION);
+      expect(ps.deliveryOnlyDesc).toMatch(GATEWAY_AUTOMATION);
+      expect(ps.percentageSuffix).toMatch(GATEWAY_AUTOMATION);
+      expect(ps.fixedSuffix).toMatch(GATEWAY_AUTOMATION);
+      expect(ps.deliveryOnlyDesc).toMatch(FULL_TOTAL);
+      expect(ps.percentageSuffix).toMatch(FULL_TOTAL);
+      expect(ps.fixedSuffix).toMatch(FULL_TOTAL);
+    }
   });
 });

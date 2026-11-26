@@ -909,7 +909,8 @@
       "actionFailedFallback": "The payment confirmation could not be updated. Try again.",
       "evidenceTrxId": "TrxID {{value}}",
       "evidenceAmount": "৳{{value}}",
-      "evidenceNumber": "Account {{value}}"
+      "evidenceNumber": "Account {{value}}",
+      "ownerOnlyNote": "Only the shop owner can approve or reject payment confirmations. You can review the details here."
     },
     "error": {
       "title": "Something went wrong",
@@ -2985,17 +2986,17 @@
       "disconnect": "Disconnect",
       "disconnecting": "Disconnecting...",
       "advanceTitle": "Advance Payment Rules",
-      "advanceSubtitle": "Set how much customers need to pay in advance",
+      "advanceSubtitle": "Recorded for gateway automation — not enforced yet. Until live-certified automation is active, the assistant asks customers for the full order total.",
       "noPayment": "No Payment",
       "noPaymentDesc": "No advance payment required",
       "fullPayment": "Full Payment",
       "fullPaymentDesc": "Customer pays the full order amount",
       "deliveryOnly": "Delivery Charge Only",
-      "deliveryOnlyDesc": "Customer pays only the delivery charge upfront",
+      "deliveryOnlyDesc": "The delivery-charge rule is recorded for gateway automation; until that is active, customers are asked for the full order total.",
       "percentage": "Percentage",
-      "percentageSuffix": "% of total order amount",
+      "percentageSuffix": "% — recorded for gateway automation; the full order total is asked until it is active",
       "fixedAmount": "Fixed Amount",
-      "fixedSuffix": "fixed advance amount",
+      "fixedSuffix": "fixed — recorded for gateway automation; the full order total is asked until it is active",
       "paymentMessage": "Payment Process Message",
       "paymentMessageSubtitle": "Customize the payment instructions shown to customers",
       "paymentMessagePlaceholder": "Enter payment instructions for customers...",
@@ -3111,6 +3112,8 @@
         "evidencePlaceholder": "e.g. bKash onboarding email 2026-11-30",
         "evidenceRequired": "A go-live evidence reference is required",
         "certify": "Record go-live certification",
+        "certifyNeedsProduction": "Switch to Production to certify live credentials — this resets the verification ladder.",
+        "certifyAfterSave": "Production will be recorded once you save. Save, then reopen this account — the certification field appears. The switch itself resets the verification ladder.",
         "environmentLine": "Environment exercised: {{env}}.",
         "envSandbox": "Sandbox",
         "envProduction": "Production"
@@ -3143,7 +3146,8 @@
         "preferredNeedsEnabled": "Enable this account before setting it preferred",
         "codAvailability": "Cash availability per delivery zone is set in Delivery Settings.",
         "actionFailedTitle": "Action not completed",
-        "environmentNotRecorded": "Not recorded — treated as sandbox."
+        "environmentNotRecorded": "Not recorded — treated as sandbox.",
+        "environmentChangeWarning": "Saving this switch changes the recorded environment and resets this account’s verification ladder — a check earned in the other environment proves nothing here. Credentials are not re-checked automatically."
       },
       "save": "Save account",
       "policy": {
@@ -3157,7 +3161,8 @@
         "messageTooLong": "The payment message must be at most {{max}} characters",
         "deliveryPointerPrefix": "Cash-on-delivery availability and the delivery-charge amount are set in",
         "deliveryLink": "Delivery Settings",
-        "deliveryPointerSuffix": "— the advance “delivery charge” rule references that number and never re-computes it."
+        "deliveryPointerSuffix": "— the advance “delivery charge” rule references that number and never re-computes it.",
+        "enforcementCaveat": "Advance rules are recorded for gateway automation. Until live-certified automation is active, the assistant always asks customers for the full order total — these rules change nothing about what is collected today."
       },
       "delete": {
         "title": "Delete this payment account?",

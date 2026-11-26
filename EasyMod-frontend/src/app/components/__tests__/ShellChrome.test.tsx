@@ -30,16 +30,29 @@ vi.mock('../BillingStandingBanner', () => ({ default: () => null }))
 vi.mock('../InstallPrompt', () => ({ default: () => null }))
 vi.mock('../BrandLogo', () => ({ default: () => <span>EasyModerator</span> }))
 vi.mock('../LanguageToggle', () => ({ default: () => null }))
-vi.mock('@/api/domains/notification', () => ({
+vi.mock('@/api/domains/notification', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/domains/notification')>()),
   getInAppNotifications: vi.fn(async () => []),
   markInAppNotificationRead: vi.fn(async () => undefined),
 }))
 // Shell read-models (D1 badges / D6 chip) are mocked here; C1/C2 ship with
 // A5 this wave, so the mocks ARE the contract (doc 05).
-vi.mock('@/api/domains/order', () => ({ getOrderCounts: vi.fn() }))
-vi.mock('@/api/domains/conversation', () => ({ getNeedsReplyCount: vi.fn() }))
-vi.mock('@/api/domains/product', () => ({ getStockExceptions: vi.fn() }))
-vi.mock('@/api/domains/meta-channels', () => ({ listMetaChannels: vi.fn() }))
+vi.mock('@/api/domains/order', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/domains/order')>()),
+   getOrderCounts: vi.fn()
+}))
+vi.mock('@/api/domains/conversation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/domains/conversation')>()),
+   getNeedsReplyCount: vi.fn()
+}))
+vi.mock('@/api/domains/product', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/domains/product')>()),
+  getStockExceptions: vi.fn(),
+}))
+vi.mock('@/api/domains/meta-channels', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/domains/meta-channels')>()),
+   listMetaChannels: vi.fn()
+}))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }))
 
 function rail(): HTMLElement {

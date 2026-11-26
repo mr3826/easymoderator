@@ -6,7 +6,12 @@
  * deployment would answer).
  *
  * Covers the four new invariants the builders escalated:
- *  1. Ladder chip states incl. the INERT Nagad/Rocket ceiling copy.
+ *  1. Ladder chip states incl. the INERT Nagad/Rocket ceiling copy, plus the
+ *     A9-R2 certify seam the FE must mirror: certify UI appears only for
+ *     recorded-production + a CERTIFIABLE_RUNGS level (sandbox_verified
+ *     prerequisite REMOVED), non-production rows get the honest switch-CTA,
+ *     a bypassed sandbox attempt 400s verbatim, and the recorded-environment
+ *     PATCH demotes the ladder like the real writer does.
  *  2. Credential replace NEVER echoes secrets on any response and DEMOTES the
  *     ladder (§2 credential-change invalidation).
  *  3. Policy five-rule validation round-trip incl. a server-400 bypass path.
@@ -135,6 +140,18 @@ async function setupRoutes(page: Page, seedRows: Row[] = []) {
             if (!m[2] && method === 'PATCH') {
                 const b = body();
                 if (b.is_enabled !== undefined) a.is_enabled = Boolean(b.is_enabled);
+                // A9-R2 (payment-accounts.service.js applyEnvironmentChangeDemotion,
+                // :174-187): a changed RECORDED environment demotes every rung
+                // above configured_unverified (an unverified row stays put).
+                const cfg = b.config as Record<string, unknown> | undefined;
+                if (cfg && cfg.environment !== undefined) {
+                    const from = String(a.config.environment ?? '').trim().toLowerCase();
+                    const to = String(cfg.environment ?? '').trim().toLowerCase();
+                    a.config = { ...a.config, ...cfg };
+                    if (from !== to && a.verification_level !== 'unverified') {
+                        a.verification_level = 'configured_unverified';
+                    }
+                }
                 const creds = b.credentials as Record<string, string> | undefined;
                 if (creds) {
                     // Server-side: validate then persist; ANY credential write
@@ -179,8 +196,28 @@ async function setupRoutes(page: Page, seedRows: Row[] = []) {
             }
             if (m[2] === 'certify-live' && method === 'POST') {
                 state.certifyPosts.push(id);
-                if (a.verification_level !== 'sandbox_verified') {
-                    return route.fulfill({ status: 409, json: { success: false, code: 'SANDBOX_HANDSHAKE_REQUIRED', message: 'Only a sandbox-verified account can be live-certified' } });
+                // Mirrors certifyLiveAccount EXACTLY as rewritten by A9-R2
+                // (payment-verification.service.js:296-375): the old
+                // sandbox_verified prerequisite is REMOVED; certification
+                // requires the STORED config.environment to be explicitly
+                // 'production', any CERTIFIABLE_RUNGS level, and 3–500-char
+                // owner evidence. Refusal messages are the server's verbatim.
+                const explicitEnvironment = String(a.config?.environment ?? '').trim().toLowerCase();
+                if (explicitEnvironment !== 'production') {
+                    return route.fulfill({ status: 400, json: { success: false, code: 'PROVIDER_ENVIRONMENT_NOT_PRODUCTION', message: explicitEnvironment === 'sandbox'
+                        ? 'This account is recorded as a SANDBOX environment — live certification describes production posture. Switch the account to production (this demotes the ladder) and certify with production evidence.'
+                        : 'The account environment is not explicitly recorded as "production" (legacy rows must be re-saved with config.environment="production" before they can be live-certified). Nothing was recorded.' } });
+                }
+                const levelBefore = a.verification_level || 'unverified';
+                if (levelBefore === 'live_certified') {
+                    return route.fulfill({ status: 409, json: { success: false, code: 'ALREADY_LIVE_CERTIFIED', message: 'This account is already live-certified — submit a new certification only after a credential/environment change demotes it.' } });
+                }
+                if (!['unverified', 'configured_unverified', 'sandbox_verified'].includes(levelBefore)) {
+                    return route.fulfill({ status: 409, json: { success: false, code: 'LADDER_STATE_NOT_CERTIFIABLE', message: `Verification level "${levelBefore}" is not certifiable` } });
+                }
+                const evidenceText = String(body().evidence ?? '').trim();
+                if (evidenceText.length < 3 || evidenceText.length > 500) {
+                    return route.fulfill({ status: 400, json: { success: false, code: 'INVALID_EVIDENCE', message: 'A non-empty live-certification evidence reference (3–500 chars) is required' } });
                 }
                 a.verification_level = 'live_certified';
                 return route.fulfill({ json: { success: true, verification_level: 'live_certified', message: 'Live certification recorded against owner evidence and audit.' } });
@@ -325,6 +362,7 @@ test('ladder chips: every rung renders its exact honest copy, and Nagad/Rocket a
         row({ id: 'a-unv', provider: 'bkash', account_type: 'self', verification_level: 'unverified', credential_summary: { has_credentials: true, mfs_type: 'bkash', mfs_mode: 'self', mfs_number: '01711000000' } }),
         row({ id: 'a-cfg', provider: 'nagad', account_type: 'self', verification_level: 'configured_unverified', provider_notice: { en: NOTICE_NAGAD_ROCKET, bn: '...' }, credential_summary: { has_credentials: true, mfs_type: 'nagad', mfs_mode: 'self', mfs_number: '01811000000' } }),
         row({ id: 'a-sbx', provider: 'bkash', account_type: 'merchant_gateway', verification_level: 'sandbox_verified', credential_summary: { has_credentials: true, mfs_type: 'bkash', mfs_mode: 'business', mfs_number: null } }),
+        row({ id: 'a-prod', provider: 'bkash', account_type: 'merchant_gateway', verification_level: 'configured_unverified', config: { environment: 'production' }, credential_summary: { has_credentials: true, mfs_type: 'bkash', mfs_mode: 'business', mfs_number: null } }),
         row({ id: 'a-cert', provider: 'rocket', account_type: 'business', verification_level: 'configured_unverified', provider_notice: { en: NOTICE_NAGAD_ROCKET, bn: '...' }, credential_summary: { has_credentials: true, mfs_type: 'rocket', mfs_mode: 'business', mfs_number: '01911000000' } }),
     ];
     const state = await setupRoutes(page, rows);
@@ -337,15 +375,31 @@ test('ladder chips: every rung renders its exact honest copy, and Nagad/Rocket a
     // D-3 mandated sentence, rendered verbatim:
     await expect(page.getByTestId('verification-chip-a-sbx').getByTestId('verification-honesty'))
         .toContainText('sandbox checkout handshake verified; no settlement implied');
-    // …and the ladder gate: certify UI only appears from sandbox_verified gateways.
+    // F1 certify seam (A9-R2 mirror): sandbox_verified WITHOUT a recorded
+    // production environment is a state the server 400s — no dead-end button
+    // may exist there; the honest switch-CTA renders instead.
     await page.getByTestId('manage-a-sbx').click();
+    await expect(page.getByTestId('certify-evidence')).toHaveCount(0);
+    await expect(page.getByTestId('drawer-certify-live')).toHaveCount(0);
+    expect(state.certifyPosts).toEqual([]);
+    await expect(page.getByTestId('certify-needs-production')).toContainText(
+        'Switch to Production to certify live credentials — this resets the verification ladder.',
+    );
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.getByTestId('account-drawer')).toHaveCount(0);
+
+    // …and the NEW server rule: configured_unverified + recorded production IS
+    // certifiable through the real UI (the old sandbox_verified prerequisite is
+    // gone — this pins certify-from-configured_unverified+production).
+    await page.getByTestId('manage-a-prod').click();
+    await expect(page.getByTestId('certify-needs-production')).toHaveCount(0);
     await expect(page.getByTestId('certify-evidence')).toBeVisible();
     await expect(page.getByTestId('drawer-certify-live')).toBeVisible();
     await page.getByTestId('certify-evidence').fill('bKash go-live approval email 2026-11-30');
     await page.getByTestId('drawer-certify-live').click();
-    await expect.poll(() => state.certifyPosts).toEqual(['a-sbx']);
+    await expect.poll(() => state.certifyPosts).toEqual(['a-prod']);
     await expect(page.getByText('Certification recorded')).toBeVisible();
-    await expect.poll(() => rows.find((r) => r.id === 'a-sbx')!.verification_level).toBe('live_certified');
+    await expect.poll(() => rows.find((r) => r.id === 'a-prod')!.verification_level).toBe('live_certified');
     // close the drawer before touching the rows behind it (overlay intercepts)
     await page.getByRole('button', { name: 'Close' }).click();
     await expect(page.getByTestId('account-drawer')).toHaveCount(0);
@@ -359,6 +413,70 @@ test('ladder chips: every rung renders its exact honest copy, and Nagad/Rocket a
     await page.getByTestId('drawer-validate-format').click();
     // scoped to the drawer (the same notice is also on the card chip behind it)
     await expect(page.getByTestId('account-drawer').getByText(NOTICE_NAGAD_ROCKET)).toBeVisible();
+    expect(state.unexpected).toEqual([]);
+});
+
+// F1 (A8 round-2): the full one-flow path the server's own 400 message
+// instructs — no dead end anywhere: the UI hides certify on the sandbox row,
+// a bypassed attempt returns the server message VERBATIM, then toggling the
+// environment (existing PATCH), saving, and reopening lands the merchant on
+// the certify field, which succeeds after the honest ladder demotion.
+test('certify seam: sandbox attempt 400s verbatim, then switch→save→reopen certifies (demotion honest)', async ({ page }) => {
+    const gw = row({
+        id: 'a-sbx2', provider: 'bkash', account_type: 'merchant_gateway', verification_level: 'sandbox_verified',
+        config: { environment: 'sandbox' },
+        credential_summary: { has_credentials: true, mfs_type: 'bkash', mfs_mode: 'business', mfs_number: null },
+    });
+    const state = await setupRoutes(page, [gw]);
+    await loginAndGo(page);
+    await page.getByTestId('expand-bkash').click();
+
+    // 1. Drawer state on the recorded-sandbox row: CTA, no button, zero traffic.
+    await page.getByTestId('manage-a-sbx2').click();
+    await expect(page.getByTestId('certify-evidence')).toHaveCount(0);
+    await expect(page.getByTestId('drawer-certify-live')).toHaveCount(0);
+    expect(state.certifyPosts).toEqual([]);
+    await expect(page.getByTestId('certify-needs-production')).toContainText('Switch to Production to certify live credentials');
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.getByTestId('account-drawer')).toHaveCount(0);
+
+    // 2. Bypassed certify attempt (client-side gate defeated) — the server's
+    //    verbatim 400 PROVIDER_ENVIRONMENT_NOT_PRODUCTION message.
+    const bypass = await page.evaluate(async () => {
+        const r = await fetch('/api/payment/accounts/a-sbx2/certify-live', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ evidence: 'self-declared go-live' }),
+        });
+        return { status: r.status, body: await r.json() };
+    });
+    expect(bypass.status).toBe(400);
+    expect(bypass.body.code).toBe('PROVIDER_ENVIRONMENT_NOT_PRODUCTION');
+    expect(bypass.body.message).toBe('This account is recorded as a SANDBOX environment — live certification describes production posture. Switch the account to production (this demotes the ladder) and certify with production evidence.');
+
+    // 3. Follow the instruction IN the UI: toggle environment (warning states
+    //    the demotion up front) → save persists config.environment (PATCH).
+    await page.getByTestId('manage-a-sbx2').click();
+    await page.getByTestId('drawer-environment').click();
+    await expect(page.getByTestId('environment-change-warning')).toContainText(/verification ladder/);
+    await expect(page.getByTestId('certify-needs-production')).toContainText(/once you save/i);
+    await page.getByTestId('account-drawer-save').click();
+    // The handler mutates the seeded row object in place — read it directly.
+    await expect.poll(() => gw.config.environment).toBe('production');
+    // The switch DEMOTED the ladder honestly (sandbox_verified → configured_unverified).
+    await expect.poll(() => gw.verification_level).toBe('configured_unverified');
+    await expect(page.getByTestId('account-drawer')).toHaveCount(0);
+    await expect(page.getByTestId('verification-chip-a-sbx2').getByTestId('verification-level-badge')).toContainText('Format validated');
+
+    // 4. Reopen → certify field NOW appears (no dead end) → certify succeeds.
+    await page.getByTestId('manage-a-sbx2').click();
+    await expect(page.getByTestId('certify-needs-production')).toHaveCount(0);
+    await expect(page.getByTestId('certify-evidence')).toBeVisible();
+    await page.getByTestId('certify-evidence').fill('bKash production go-live approval 2026-11-27');
+    await page.getByTestId('drawer-certify-live').click();
+    await expect.poll(() => state.certifyPosts).toEqual(['a-sbx2', 'a-sbx2']); // bypass + real UI
+    await expect(page.getByText('Certification recorded')).toBeVisible();
+    await expect.poll(() => gw.verification_level).toBe('live_certified');
     expect(state.unexpected).toEqual([]);
 });
 

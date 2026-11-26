@@ -151,17 +151,150 @@ describe('AccountDrawer — verification actions (honest)', () => {
     expect(alert).toHaveTextContent('Payment automation pending');
   });
 
-  it('hides live-certify unless the gateway is sandbox_verified (R-12 inert default)', async () => {
-    const { rerender } = render(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount()} onClose={vi.fn()} onSaved={vi.fn()} />);
+  // F1 (A8 round-2): the drawer must mirror the A9-R2 server contract, not the
+  // old rule: certify is gated on the STORED config.environment === 'production'
+  // AND a CERTIFIABLE_RUNGS level (unverified / configured_unverified /
+  // sandbox_verified) — the sandbox_verified prerequisite is GONE. A state the
+  // server 400s (PROVIDER_ENVIRONMENT_NOT_PRODUCTION) must never offer a live
+  // certify button; it shows the honest switch-CTA instead.
+  it('hides live-certify when the stored environment is not production — even at sandbox_verified (the old gate is dead)', () => {
+    render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={gwAccount({ verification_level: 'sandbox_verified', config: { environment: 'sandbox' } })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
     expect(screen.queryByTestId('drawer-certify-live')).not.toBeInTheDocument();
-    rerender(<AccountDrawer mode="edit" provider="bkash" lockProvider account={gwAccount({ verification_level: 'sandbox_verified' })} onClose={vi.fn()} onSaved={vi.fn()} />);
-    expect(screen.getByTestId('drawer-certify-live')).toBeInTheDocument();
+    expect(screen.queryByTestId('certify-evidence')).not.toBeInTheDocument();
+    const hint = screen.getByTestId('certify-needs-production');
+    expect(hint).toHaveTextContent('Switch to Production to certify live credentials — this resets the verification ladder.');
+  });
+
+  it('shows the switch-CTA for a legacy row with NO recorded environment either', () => {
+    render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={gwAccount({ verification_level: 'configured_unverified', config: {} })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('drawer-certify-live')).not.toBeInTheDocument();
+    expect(screen.getByTestId('certify-needs-production')).toBeInTheDocument();
+  });
+
+  it('certifies from configured_unverified once production is recorded (new server rule)', async () => {
+    render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={gwAccount({ verification_level: 'configured_unverified', config: { environment: 'production' } })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // Production + certifiable rung → the real field, no CTA.
+    expect(screen.queryByTestId('certify-needs-production')).not.toBeInTheDocument();
+    expect(screen.getByTestId('certify-evidence')).toBeInTheDocument();
     // Certify requires evidence.
     fireEvent.click(screen.getByTestId('drawer-certify-live'));
     expect(paymentApi.certifyLiveAccount).not.toHaveBeenCalled();
     fireEvent.change(screen.getByTestId('certify-evidence'), { target: { value: 'bKash onboarding email 2026-11-30' } });
     fireEvent.click(screen.getByTestId('drawer-certify-live'));
     await waitFor(() => expect(paymentApi.certifyLiveAccount).toHaveBeenCalledWith('gw-1', 'bKash onboarding email 2026-11-30'));
+  });
+
+  it('also certifies from sandbox_verified + production, and hides everything from live_certified', () => {
+    const { unmount } = render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={gwAccount({ verification_level: 'sandbox_verified', config: { environment: 'production' } })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('drawer-certify-live')).toBeInTheDocument();
+    unmount();
+
+    render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={gwAccount({ verification_level: 'live_certified', config: { environment: 'production' } })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // live_certified is NOT a certifiable rung (server refuses 409) — nothing
+    // to do, and no dead-end control is offered.
+    expect(screen.queryByTestId('drawer-certify-live')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('certify-needs-production')).not.toBeInTheDocument();
+  });
+
+  it('never offers the certify seam to wallet channels (ladder ceiling, §2)', () => {
+    render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={walletAccount({ config: { environment: 'production' } })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('drawer-certify-live')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('certify-needs-production')).not.toBeInTheDocument();
+  });
+});
+
+describe('AccountDrawer — F1 environment-change demotion honesty', () => {
+  it('warns under the environment toggle as soon as the switch diverges from the record, and rewords the CTA', () => {
+    render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={gwAccount({ verification_level: 'sandbox_verified', config: { environment: 'sandbox' } })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // Untouched: no warning, plain switch-CTA.
+    expect(screen.queryByTestId('environment-change-warning')).not.toBeInTheDocument();
+    expect(screen.getByTestId('certify-needs-production')).toHaveTextContent(/Switch to Production/);
+    // Toggle to production (unsaved draft): the demotion is stated up front…
+    fireEvent.click(screen.getByTestId('drawer-environment'));
+    expect(screen.getByTestId('environment-change-warning')).toHaveTextContent(/resets this account.s verification ladder/);
+    // …and the CTA now guides the one-flow path (save → reopen → certify).
+    expect(screen.getByTestId('certify-needs-production')).toHaveTextContent(/once you save/i);
+  });
+
+  it('writes config.environment production on save so the certify field appears after reload', async () => {
+    render(
+      <AccountDrawer
+        mode="edit"
+        provider="bkash"
+        lockProvider
+        account={gwAccount({ verification_level: 'sandbox_verified', config: { environment: 'sandbox' } })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('drawer-environment'));
+    fireEvent.click(screen.getByTestId('account-drawer-save'));
+    await waitFor(() => expect(paymentApi.updatePaymentAccount).toHaveBeenCalledTimes(1));
+    const [, patch] = vi.mocked(paymentApi.updatePaymentAccount).mock.calls[0] as [string, { config: Record<string, unknown> }];
+    expect(patch.config).toEqual({ environment: 'production' });
   });
 });
 

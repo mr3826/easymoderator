@@ -200,6 +200,17 @@ export default function PoliciesTab({
           </div>
         </div>
 
+        {/* F2 (A8 round-2 honesty): every self-MFS claim collects the FULL
+            order total (payment-claim.service.js computeClaimAmount) — the
+            advance rules below are recorded for gateway automation that is
+            inert (R-12). The tab must not promise enforcement it no longer
+            performs. */}
+        <p className="mb-4 rounded-xl border border-em-sunlight-500/40 bg-em-sunlight-100 px-4 py-3 text-sm text-em-sunlight-700" data-testid="advance-enforcement-caveat">
+          {t(`manageShop.paymentSettings.policy.enforcementCaveat`, {
+            defaultValue: 'Advance rules are recorded for gateway automation. Until live-certified automation is active, the assistant always asks customers for the full order total — these rules change nothing about what is collected today.',
+          })}
+        </p>
+
         <div className="space-y-3" role="radiogroup" aria-label={t(`manageShop.paymentSettings.advanceTitle`)}>
           {ADVANCE_POLICIES.map((value) => {
             const selected = policy.advance_policy === value;

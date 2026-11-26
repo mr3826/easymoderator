@@ -4,11 +4,19 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import InAppNotificationCenter from './InAppNotificationCenter';
 import type { OwnerNotification } from '@/api/types/notification';
 
-const { mockGetInAppNotifications, mockMarkInAppNotificationRead, mockRespondToPaymentConfirmation, mockToastError } = vi.hoisted(() => ({
+const { mockGetInAppNotifications, mockMarkInAppNotificationRead, mockRespondToPaymentConfirmation, mockToastError, mockGetCurrentShop } = vi.hoisted(() => ({
   mockGetInAppNotifications: vi.fn(),
   mockMarkInAppNotificationRead: vi.fn(),
   mockRespondToPaymentConfirmation: vi.fn(),
   mockToastError: vi.fn(),
+  mockGetCurrentShop: vi.fn(),
+}));
+
+// The owner-gate reads the app's auth singleton (the same getCurrentShop()?.role
+// idiom PoliciesTab/BusinessAutomationDefaults use) — default every existing
+// case to an OWNER session, and flip it per-test for the staff pin.
+vi.mock('../lib/auth', () => ({
+  authService: { getCurrentShop: mockGetCurrentShop },
 }));
 
 vi.mock('sonner', () => ({
@@ -74,6 +82,7 @@ async function openPanel() {
 describe('InAppNotificationCenter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetCurrentShop.mockReturnValue({ id: 'shop-1', role: 'owner' });
     mockMarkInAppNotificationRead.mockResolvedValue(undefined);
     mockRespondToPaymentConfirmation.mockResolvedValue({ success: true, message: 'Payment approved successfully', orderId: 'order-9' });
   });
@@ -249,5 +258,35 @@ describe('InAppNotificationCenter', () => {
     expect(await screen.findByTestId('expired-chip-notification-1')).toHaveTextContent('Expired');
     expect(screen.getByTestId('approve-notification-1')).toBeEnabled();
     expect(screen.getByTestId('reject-notification-1')).toBeEnabled();
+  });
+
+  // ── F3 (A8 round-2): the action endpoint is owner-only (403 for staff) ──────
+
+  it('shows a non-owner NO live buttons — only the claim row plus the owner-only note', async () => {
+    mockGetCurrentShop.mockReturnValue({ id: 'shop-1', role: 'staff' });
+    mockGetInAppNotifications.mockResolvedValue([claimNotification()]);
+    await openPanel();
+
+    // The row itself stays readable for staff (evidence + link to review)…
+    const evidence = await screen.findByTestId('confirmation-evidence-notification-1');
+    expect(evidence).toHaveTextContent('9B7XQ2LM');
+    expect(evidence).toHaveTextContent('01711000000');
+    // …but the always-403 affordance is not rendered to them at all…
+    expect(screen.queryByTestId('approve-notification-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reject-notification-1')).not.toBeInTheDocument();
+    // …with the app's owner-only reason stated instead (ownerOnly copy family).
+    expect(screen.getByTestId('claim-owner-only-notification-1')).toHaveTextContent(
+      'Only the shop owner can approve or reject payment confirmations',
+    );
+    expect(mockRespondToPaymentConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('keeps approve/reject live for the owner (the note never renders)', async () => {
+    mockGetInAppNotifications.mockResolvedValue([claimNotification()]);
+    await openPanel();
+
+    expect(await screen.findByTestId('approve-notification-1')).toBeEnabled();
+    expect(screen.getByTestId('reject-notification-1')).toBeEnabled();
+    expect(screen.queryByTestId('claim-owner-only-notification-1')).not.toBeInTheDocument();
   });
 });
