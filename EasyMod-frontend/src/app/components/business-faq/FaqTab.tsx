@@ -817,4 +817,3 @@ export default function FaqTab({ className }: { className?: string }) {
     </MotionConfig>
   );
 }
-
