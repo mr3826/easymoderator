@@ -223,11 +223,16 @@ test('workspace route truth: /manage-shop/business-info opens the Profile tab', 
 test('execution header: title + profile signal + pills, no header CTA', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
-    // Legacy §29 pins, now INSIDE the profile panel (01 S9/P1/P2):
-    await expect(page.getByRole('heading', { name: 'Business Info', exact: true })).toBeVisible();
+    // Legacy §29 pins, now INSIDE the profile panel (01 S9/P1/P2) — restored
+    // at 88f0328f (my D1): h1 + business-signal + factual pills.
+    await expect(page.getByRole('heading', { name: 'Business Info', exact: true, level: 1 })).toBeVisible();
     await expect(page.getByTestId('business-signal')).toContainText('Profile ready');
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
-    await expect(page.getByText(/Social links:/)).toBeVisible();
+    // P2: social tally must cover ALL SIX keys — fixture stores 1 (facebook).
+    await expect(page.getByText('Social links: 1')).toBeVisible();
+    await expect(page.getByText('Extra info: 0')).toBeVisible();
+    // Clean baseline: no unsaved pill (P7 dirty gate mirrors delivery-charges-unsaved).
+    await expect(page.getByTestId('profile-changes-unsaved')).toHaveCount(0);
 });
 
 test('save is dirty-gated and PUTs the 10-key extended payload then refreshes the shop list', async ({ page }) => {
@@ -249,6 +254,8 @@ test('save is dirty-gated and PUTs the 10-key extended payload then refreshes th
     await page.getByLabel('TikTok').fill('https://tiktok.com/@easymod.test');
     await page.getByLabel('YouTube').fill('https://youtube.com/@easymod.test');
     await expect(save).toBeEnabled();
+    // P7 (restored at 88f0328f): dirty state shows the amber unsaved pill.
+    await expect(page.getByTestId('profile-changes-unsaved')).toBeVisible();
     await save.click();
     await expect.poll(() => state.puts).toBe(1);
     const body = state.lastPutBody as Record<string, unknown>;
@@ -270,6 +277,8 @@ test('save is dirty-gated and PUTs the 10-key extended payload then refreshes th
     await expect.poll(() => state.shopListCalls).toBeGreaterThanOrEqual(1);
     // Server-confirmed only (P8): success lands after the awaited PUT resolves.
     await expect(page.getByRole('status')).toContainText('Business info saved');
+    // Re-baselined: the unsaved pill clears with the server row.
+    await expect(page.getByTestId('profile-changes-unsaved')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
 
@@ -295,12 +304,10 @@ test('social links are a labelled group with all six fields and extra info shows
     await expect(group.getByLabel('TikTok')).toBeVisible();
     await expect(group.getByLabel('YouTube')).toBeVisible();
     await page.getByLabel('Extra shop information').fill('Hello');
-    // P13 counter: legacy pin rendered '5/3000'; the new tab routes counts
-    // through Intl(localeFor) which groups as '5/3,000' in en-US (pinned so in
-    // ProfileTab.test.tsx bn case '৩/৩,০০০'). FLAGGED to A0 as a pin-evolution
-    // question — the guardrail here is "counter tracks length, 3000 bound",
-    // tolerant to either en grouping until A0 rules.
-    await expect(page.getByText(/^5\/(3000|3,000)$/)).toBeVisible();
+    // P13 counter — A0 ruled at 88f0328f (my D2 flag): EN stays the compact
+    // legacy form '5/3000' (fmtCount plain); bn renders Bengali numerals.
+    // This lane runs easymod_lang=en, so pin the exact legacy string.
+    await expect(page.getByText('5/3000', { exact: true })).toBeVisible();
 });
 
 test('ADR-0013 boundary across ALL tabs: automation link, no AI control/radiogroup/range', async ({ page }) => {
