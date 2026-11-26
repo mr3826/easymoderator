@@ -3479,7 +3479,6 @@
         "clear": "ফিল্টার মুছুন",
         "categoryLabel": "ক্যাটাগরি"
       },
-      "onlyArchived": "বাকি FAQ গুলো আর্কাইভ করা আছে",
       "bulk": {
         "select": "নির্বাচন করুন",
         "selected": "{{formatted}}টি নির্বাচিত",

@@ -1153,7 +1153,7 @@ const updateShopBusinessPolicies = async (shopId, body) => {
     // write ({exchange:{details:'   '}}) could leave a 'conditional' stance
     // with no description. Resolve the effective stance pre-merge and refuse.
     const shopRow = await Shop.findByPk(shopId, { attributes: ['settings'] });
-    const storedPolicies = (shopRow && shopRow.settings && shopRow.settings.policies) || {};
+    const storedPolicies = parseSettingsObject(shopRow && shopRow.settings).policies || {};
     for (const [kind, fields] of Object.entries(patch)) {
         if (fields === undefined) continue; // explicit clear is always valid
         const stored = storedPolicies[kind] || {};

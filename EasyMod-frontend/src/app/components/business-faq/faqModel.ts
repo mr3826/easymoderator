@@ -234,7 +234,8 @@ export function editorSeed(row: FaqRow | null): {
 }
 
 /** Per-status counts for the filter chips + header pills (accurate against
- *  the merchant list — no fabricated totals). "All" = non-archived rows. */
+ *  the merchant list — no fabricated totals). "All" = ONE denominator with
+ *  the Total pill — every row including archived (pass-3 doc alignment). */
 export function countByStatus(rows: FaqRow[]): Record<FaqStatus, number> & { all: number } {
   const counts: Record<FaqStatus, number> & { all: number } = {
     all: 0,

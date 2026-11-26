@@ -3479,7 +3479,6 @@
         "clear": "Clear filters",
         "categoryLabel": "Category"
       },
-      "onlyArchived": "Your remaining FAQs are archived",
       "bulk": {
         "select": "Select",
         "selected": "{{formatted}} selected",
