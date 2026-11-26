@@ -211,11 +211,23 @@ export const apiClient = {
   updateShop: shopDomain.updateShop,
   getSetupStatus: setupDomain.getSetupStatus,
 
-  // Payment config methods
+  // Payment config methods (legacy compat surface, §1.4 dual-write window)
   getPaymentConfig: paymentDomain.getPaymentConfig,
   updatePaymentConfig: paymentDomain.updatePaymentConfig,
   testPaymentConnection: paymentDomain.testPaymentConnection,
   deletePaymentConfig: paymentDomain.deletePaymentConfig,
+
+  // Payment Settings redesign — canonical multi-account + policies surface
+  // (contract §1/§2/§6 + R-14; bound 1:1 to paymentClient.ts in payment-settings)
+  getPaymentAccounts: paymentDomain.getPaymentAccounts,
+  savePaymentAccount: paymentDomain.savePaymentAccount,
+  updatePaymentAccount: paymentDomain.updatePaymentAccount,
+  deletePaymentAccount: paymentDomain.deletePaymentAccount,
+  setPreferredAccount: paymentDomain.setPreferredAccount,
+  verifyPaymentAccountCredentials: paymentDomain.verifyPaymentAccountCredentials,
+  certifyLiveAccount: paymentDomain.certifyLiveAccount,
+  getPaymentPolicy: paymentDomain.getPaymentPolicy,
+  updatePaymentPolicy: paymentDomain.updatePaymentPolicy,
 
   // Subscription invoice alias
   getSubscriptionInvoices: subscriptionDomain.getInvoices,

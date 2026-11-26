@@ -16,3 +16,4 @@ export * from './notification';
 export * from './setup';
 export * from './customer-intelligence';
 export * from './inbox';
+export * from './payment';

@@ -188,7 +188,8 @@
     "pageNotFound": "Page not found",
     "pageErrorMessage": "Refresh this page or return to a safe page.",
     "returnHome": "Go to home",
-    "returnToSignIn": "Back to sign in"
+    "returnToSignIn": "Back to sign in",
+    "manage": "Manage"
   },
   "landing": {
     "nav": {
@@ -3011,7 +3012,8 @@
         "contactRequired": "This payment method requires contacting us to set up.",
         "phoneRequired": "MFS phone number is required",
         "merchantCredentialsRequired": "Merchant API credentials (App Key & App Secret) are required",
-        "credentialsRequiredBkash": "Please provide bKash Merchant ID, API Key, Secret Key, Username and Password"
+        "credentialsRequiredBkash": "Please provide bKash Merchant ID, API Key, Secret Key, Username and Password",
+        "saveFailedTitle": "Could not save the account"
       },
       "setDefaultSuccess": "{{name}} set as default payment method",
       "savedSuccess": "{{name}} credentials verified and saved! Now use the toggle to activate this payment method.",
@@ -3028,7 +3030,7 @@
       "paymentMode": "Payment Mode",
       "modeSelf": "Self MFS (Personal)",
       "modeMerchant": "Merchant API",
-      "modeSelfHint": "Customer sends screenshot → AI verifies via OCR → you approve/reject",
+      "modeSelfHint": "Customer sends screenshot as supporting evidence — you verify against your MFS statement and confirm or reject. Screenshots never auto-confirm.",
       "modeMerchantHint": "Stores your merchant API credentials securely. Automated checkout is not active yet — you still verify payments manually.",
       "mfsPhoneNumber": "{{name}} Phone Number",
       "appKey": "App Key",
@@ -3051,6 +3053,98 @@
           "enabledCount": "{{count}} payment method(s) enabled for customers.",
           "noMethodEnabled": "Enable at least one payment method so customers can pay."
         }
+      },
+      "tabs": {
+        "label": "Payment settings sections",
+        "methods": "Payment Methods",
+        "policies": "Payment Policies"
+      },
+      "nagadName": "Nagad",
+      "rocketName": "Rocket",
+      "accountTypes": {
+        "standard": "Standard",
+        "self": "Personal wallet",
+        "business": "Business wallet",
+        "merchant_gateway": "Merchant API"
+      },
+      "ladder": {
+        "level": {
+          "unverified": "Not verified",
+          "configured": "Format validated",
+          "sandbox": "Sandbox tested",
+          "certified": "Owner-certified"
+        },
+        "unverified": "Not verified yet.",
+        "credentialsValidated": "Credentials validated (format) — not verified with bKash",
+        "sandboxVerified": "sandbox checkout handshake verified; no settlement implied",
+        "liveCertified": "Live-certified by the owner — payments are still confirmed manually. The app never declares this itself.",
+        "cod": "No verification needed — cash on delivery."
+      },
+      "verify": {
+        "notActiveYet": "Automated checkout is not active yet — you confirm payments manually.",
+        "credentialHelp": "bKash allows at most 2 credential checks per hour. This checks credentials only — it never confirms a payment.",
+        "checkCredentials": "Check credentials (limited to 2 per hour by bKash)",
+        "formatHelp": "This only validates the number format. It never contacts the provider.",
+        "validateFormat": "Validate format",
+        "resultTitle": "Provider response",
+        "failedTitle": "Check not completed",
+        "certifyTitle": "Certification recorded",
+        "certifyFailedTitle": "Could not record the certification",
+        "certifyHonesty": "This records the owner’s certification reference. The app never self-declares live certification.",
+        "evidenceLabel": "Go-live certification evidence",
+        "evidencePlaceholder": "e.g. bKash onboarding email 2026-11-30",
+        "evidenceRequired": "A go-live evidence reference is required",
+        "certify": "Record go-live certification",
+        "environmentLine": "Environment exercised: {{env}}.",
+        "envSandbox": "Sandbox",
+        "envProduction": "Production"
+      },
+      "accounts": {
+        "enabledCount": "{{formatted}} enabled",
+        "accountsCount": "{{formatted}} account(s) configured",
+        "preferred": "Preferred",
+        "add": "Add account",
+        "expandProvider": "Show {{name}} accounts",
+        "noneConfigured": "No accounts yet. Add one to offer this method to customers.",
+        "addTitle": "Add payment account",
+        "manageTitle": "Manage payment account",
+        "provider": "Provider",
+        "channelLocked": "The provider and account type cannot be changed. Add a new account to use another channel.",
+        "allChannelsConfigured": "Every channel for this provider is already configured.",
+        "credentials": "Credentials",
+        "replaceWarning": "Saving new credentials replaces the stored ones and resets this account’s verification. This cannot be undone from here.",
+        "walletHint": "This is the number customers send payments to. Payments are confirmed by you, never automatically.",
+        "gatewayStored": "Merchant API secrets are stored securely and are never shown back to you. Enter all values to replace them.",
+        "walletOnlyNotice": "Official automated verification is not available for Nagad/Rocket. Payments to these numbers are confirmed by you (the merchant), never automatically.",
+        "noCredentials": "No credentials saved yet",
+        "storedValue": "Stored value",
+        "available": "Offered to customers",
+        "enableLabel": "Make this account available to customers",
+        "enableHonesty": "Enabling only controls whether customers see this option. It does not verify anything with the provider.",
+        "verification": "Verification",
+        "setPreferred": "Set as preferred",
+        "alreadyPreferred": "Already preferred",
+        "preferredNeedsEnabled": "Enable this account before setting it preferred",
+        "codAvailability": "Cash availability per delivery zone is set in Delivery Settings.",
+        "actionFailedTitle": "Action not completed"
+      },
+      "save": "Save account",
+      "policy": {
+        "saved": "Payment policy saved",
+        "allSaved": "All changes saved",
+        "unsaved": "Unsaved changes",
+        "fixBeforeSave": "Fix these before saving",
+        "percentageRange": "Percentage must be a whole number from {{min}} to {{max}}",
+        "fixedRange": "Fixed advance must be a whole taka amount from {{min}} to {{max}}",
+        "valueNotAllowed": "This rule has no advance amount to set.",
+        "messageTooLong": "The payment message must be at most {{max}} characters",
+        "deliveryPointerPrefix": "Cash-on-delivery availability and the delivery-charge amount are set in",
+        "deliveryLink": "Delivery Settings",
+        "deliveryPointerSuffix": "— the advance “delivery charge” rule references that number and never re-computes it."
+      },
+      "delete": {
+        "title": "Delete this payment account?",
+        "body": "Existing orders keep their payment attribution, but this account stops being offered to new customers."
       }
     },
     "hub": {
@@ -4397,6 +4491,65 @@
     "footer": {
       "capabilitiesTitle": "Capability status",
       "versionLabel": "Pricing version"
+    }
+  },
+  "payment": {
+    "provider": {
+      "cod": "Cash on Delivery",
+      "bkash": "bKash",
+      "nagad": "Nagad",
+      "rocket": "Rocket"
+    },
+    "walletOnly": {
+      "notice": "Official automated verification is not available for Nagad/Rocket. Payments to these numbers are confirmed by you (the merchant), never automatically."
+    },
+    "connection": {
+      "validateFormat": "Number format validated — not a provider check"
+    },
+    "sandbox": {
+      "noSettlement": "sandbox checkout handshake verified; no settlement implied"
+    },
+    "ladder": {
+      "unverified": "Unverified",
+      "configured_unverified": "Credentials validated (format)",
+      "sandbox_verified": "Sandbox verified",
+      "live_certified": "Live certified"
+    },
+    "verify": {
+      "credentials_valid": "bKash accepted your app credentials (one of 2 hourly checks used).",
+      "format_validated": "Number format validated — not a provider check",
+      "wallet_only_notice": "Official automated verification is not available for Nagad/Rocket. Payments to these numbers are confirmed by you (the merchant), never automatically.",
+      "sandbox_no_settlement": "sandbox checkout handshake verified; no settlement implied",
+      "rate_limited": "bKash allows at most 2 credential grants per hour per app. Please retry later."
+    },
+    "refund": {
+      "manual_wallet_notice": "This payment was not captured through the bKash merchant gateway. Refund it manually from your wallet and keep the record in your books.",
+      "submitted": "Refund submitted to bKash. Provider completion is tracked via Query — the record shows your submission, not a provider-declared success."
+    },
+    "claim": {
+      "receipt": "We've received your payment details (TrxID {x}). The shop owner will confirm shortly.",
+      "duplicate": "This TrxID ({x}) was already used. Please pay with a new transaction or contact the shop."
+    },
+    "confirmation": {
+      "deadline": "Open the authenticated EasyModerator dashboard to approve or reject. Expires within 24 hours.",
+      "screenshot_supporting": "Screenshot (SUPPORTING EVIDENCE ONLY — verify yourself)"
+    }
+  },
+  "notification": {
+    "events": {
+      "payment_confirmation": "Payment confirmation needed"
+    }
+  },
+  "checkout": {
+    "wallet_payment": {
+      "prompt": "Order total ৳{t}. Send ৳{amount} to {providerLabel} {number}. Then type your Transaction ID. / Advance variant: Advance required now: ৳{a} (remaining ৳{r} on delivery)",
+      "otp_guard": "We never ask for an OTP. A screenshot is supporting evidence only, never confirmation."
+    },
+    "payment": {
+      "sender_prompt": "Which number did you send the {providerLabel} from? (enter 01XXXXXXXXX, or \"skip\")",
+      "claim_skip": "No problem — the order stays pending for payment. Send your TrxID to the shop after paying.",
+      "claim_record_failed": "Your TrxID could not be recorded — please send it to the shop directly. The order stays pending.",
+      "gateway_label_self_mfs": "bKash / Nagad / Rocket (Mobile Banking)"
     }
   }
 }
