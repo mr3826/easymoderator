@@ -1,7 +1,13 @@
 /**
- * Pure derivation tests: signal precedence, single primary action, Core Design
- * Test narrative completeness, coverage honesty, and en/bn key parity (the
+ * Pure derivation tests: Core Design Test narrative completeness (whereNext +
+ * provenResult — the `whyHere` hero answer was deleted with its last render
+ * consumer in header-removal round-1 F2; its A8 exception-authority and
+ * locale-numeral rules are now pinned at the component edge where the counts
+ * actually render), coverage honesty, and en/bn key parity (the
  * app falls back to bn, so a missing en key would silently render Bengali).
+ * deriveSignal/derivePrimaryAction were deleted with the page header band
+ * (header-removal C2/C3); their DOM pins were flipped to absence in the e2e
+ * suites and the record-level badges keep their own suites.
  */
 import { describe, expect, it } from "vitest";
 import en from "@/i18n/locales/en.json";
@@ -10,8 +16,6 @@ import {
   buildWorkGroups,
   buildWorkItems,
   deriveNarrative,
-  derivePrimaryAction,
-  deriveSignal,
   hasAllWorkSources,
   isCaughtUp,
 } from "../derive";
@@ -84,152 +88,15 @@ const atRiskOrder = (id: string, overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 }) as never;
 
-describe("deriveSignal — one dominant signal, first match wins", () => {
-  it.each([
-    ["setup-loading", "pending"],
-    ["pulse-loading", "pending"],
-    ["pulse-error", "blocked"],
-    ["setup", "attention"],
-    ["setup-complete", "resolved"],
-  ] as const)("phase %s → %s", (phase, kind) => {
-    expect(deriveSignal(input(phase, null), t).kind).toBe(kind);
-  });
+// A8 MAJOR-2 (exception-number authority) and A8 MAJOR-3 (locale numerals)
+// were re-pinned where they now live: the BusinessHealth tile receives the
+// exhaustive worklistNeedsActionCount directly from Dashboard.tsx, and every
+// displayed count flows through the component-edge formatCount. Their former
+// unit surface — the deriveNarrative `whyHere` hero sentence — was deleted
+// with its last render consumer (header-removal round-1 F2); derive.test no
+// longer pins copy that cannot reach the screen.
 
-  it("ready with exceptions → attention (severity over replies/drafts)", () => {
-    const pulse = basePulse({
-      // A8 MAJOR-2: fixtures are payload-consistent — the exhaustive bucket
-      // count (same field the Orders badge reads) agrees with the sample.
-      worklistNeedsActionCount: 1,
-      atRiskOrders: [atRiskOrder("1")],
-      replyTasks: [conversation("c1")],
-      draftOrders: [draftOrder("d1")],
-    });
-    expect(deriveSignal(input("ready", pulse), t).kind).toBe("attention");
-  });
-
-  it("ready with replies only → review", () => {
-    const pulse = basePulse({ replyTasks: [conversation("c1")] });
-    expect(deriveSignal(input("ready", pulse), t).kind).toBe("review");
-  });
-
-  it("ready with drafts only → review", () => {
-    const pulse = basePulse({ draftOrders: [draftOrder("d1")] });
-    expect(deriveSignal(input("ready", pulse), t).kind).toBe("review");
-  });
-
-  it("ready, verified zero work → healthy", () => {
-    expect(deriveSignal(input("ready", basePulse()), t).kind).toBe("healthy");
-  });
-
-  it("ready, partial coverage and zero visible items → pending, never healthy", () => {
-    const pulse = basePulse({ replyTaskCoverageComplete: false });
-    expect(deriveSignal(input("ready", pulse), t).kind).toBe("pending");
-  });
-
-  // A8 MAJOR-2 — hero-number authority. The 12-row / 10-item-cap / incomplete-
-  // coverage case is the exact shape A8 saw: bucket count 12 (the number the
-  // Orders nav badge reads) over a capped 10-row queue sample. The hero and
-  // the badge must agree STRUCTURALLY (same field), and when that source
-  // failed the sample may only ever speak as a lower bound.
-  describe("hero exceptions authority (A8 MAJOR-2)", () => {
-    const cappedPulse = (overrides: Partial<PulseData> = {}) => basePulse({
-      worklistNeedsActionCount: 12,
-      atRiskOrders: Array.from({ length: 10 }, (_, i) => atRiskOrder(`cap-${i}`)),
-      exceptionCoverageComplete: false,
-      ...overrides,
-    });
-
-    it("hero number == the Orders badge bucket count (12), never the 10-row sample length", () => {
-      const pulse = cappedPulse();
-      const signal = deriveSignal(input("ready", pulse), t);
-      expect(signal.kind).toBe("attention");
-      expect(signal.reason).toBe("dashboard.pulse.signal.reason.exceptions 12");
-      expect(signal.reason).not.toContain("+"); // exhaustive count: no bound
-      const narrative = deriveNarrative(input("ready", pulse), t);
-      expect(narrative.whyHere).toContain(" 12");
-      expect(narrative.whyHere).not.toMatch(/ 10(\+| )/);
-    });
-
-    it("failed bucket source + capped sample renders the lower bound 10+", () => {
-      const pulse = cappedPulse({ worklistNeedsActionCount: null });
-      expect(deriveSignal(input("ready", pulse), t).reason).toContain("10+");
-      expect(deriveNarrative(input("ready", pulse), t).whyHere).toContain("10+");
-    });
-
-    it("an EXHAUSTIVE sample (coverage complete, under cap) falls back without a +", () => {
-      const pulse = cappedPulse({
-        worklistNeedsActionCount: null,
-        atRiskOrders: [atRiskOrder("single")],
-        exceptionCoverageComplete: true,
-      });
-      expect(deriveSignal(input("ready", pulse), t).reason).toBe(
-        "dashboard.pulse.signal.reason.exceptions 1",
-      );
-    });
-  });
-});
-
-describe("locale numeral formatting (A8 MAJOR-3)", () => {
-  const bnDigits = (value: number) => new Intl.NumberFormat("bn-BD").format(value);
-
-  it("every interpolated hero count flows through formatCount (Bangla digits, never raw Latin)", () => {
-    const pulse = basePulse({
-      worklistNeedsActionCount: 12,
-      atRiskOrders: [atRiskOrder("e1")],
-      replyTasks: [conversation("c1")],
-    });
-    const signal = deriveSignal(input("ready", pulse), t, { formatCount: bnDigits });
-    expect(signal.reason).toBe(`dashboard.pulse.signal.reason.exceptions ${bnDigits(12)}`);
-    expect(signal.reason).not.toMatch(/12/);
-
-    const reviewPulse = basePulse({ replyTasks: [conversation("c1")], draftOrders: [draftOrder("d1")] });
-    const review = deriveSignal(input("ready", reviewPulse), t, { formatCount: bnDigits });
-    expect(review.reason).toBe(`dashboard.pulse.signal.reason.work ${bnDigits(1)} ${bnDigits(1)}`);
-
-    const narrative = deriveNarrative(input("ready", pulse), t, { formatCount: bnDigits });
-    expect(narrative.whyHere).toContain(bnDigits(12));
-    expect(narrative.whyHere).not.toMatch(/12/);
-  });
-});
-
-describe("derivePrimaryAction — exactly one, severity exception → reply → draft", () => {
-  it("error → retry", () => {
-    expect(derivePrimaryAction(input("pulse-error", null), t).label).toBe("dashboard.pulse.retry");
-  });
-
-  it("exception wins over reply and draft", () => {
-    const pulse = basePulse({
-      atRiskOrders: [atRiskOrder("e1")],
-      replyTasks: [conversation("c1")],
-      draftOrders: [draftOrder("d1")],
-    });
-    const action = derivePrimaryAction(input("ready", pulse), t);
-    expect(action.label).toBe("dashboard.pulse.primary.exception");
-    expect(action.to).toBe("/orders?orderId=e1");
-  });
-
-  it("reply wins over draft", () => {
-    const pulse = basePulse({ replyTasks: [conversation("c1")], draftOrders: [draftOrder("d1")] });
-    const action = derivePrimaryAction(input("ready", pulse), t);
-    expect(action.label).toBe("dashboard.pulse.primary.reply");
-    expect(action.to).toBe("/inbox?conversation=c1");
-  });
-
-  it("draft only", () => {
-    const pulse = basePulse({ draftOrders: [draftOrder("d1")] });
-    const action = derivePrimaryAction(input("ready", pulse), t);
-    expect(action.label).toBe("dashboard.pulse.primary.draft");
-    expect(action.to).toBe("/orders?orderId=d1");
-  });
-
-  it("caught up → open inbox", () => {
-    const action = derivePrimaryAction(input("ready", basePulse()), t);
-    expect(action.label).toBe("dashboard.pulse.attention.openInbox");
-    expect(action.to).toBe("/inbox");
-  });
-});
-
-describe("deriveNarrative — Core Design Test, all four answers non-empty", () => {
+describe("deriveNarrative — Core Design Test, all answers non-empty", () => {
   const cases: Array<[string, DeriveInput]> = [
     ["setup-loading", input("setup-loading", null)],
     ["pulse-loading", input("pulse-loading", null)],
@@ -240,7 +107,7 @@ describe("deriveNarrative — Core Design Test, all four answers non-empty", () 
     ["ready-caughtUp", input("ready", basePulse())],
     ["ready-partial", input("ready", basePulse({ replyTaskCoverageComplete: false }))],
   ];
-  it.each(cases)("%s answers whyHere/whatNow/whereNext/provenResult", (_name, deriveInput) => {
+  it.each(cases)("%s answers whereNext/provenResult", (_name, deriveInput) => {
     const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: "14:22" });
     for (const value of Object.values(narrative)) {
       expect(typeof value).toBe("string");
@@ -347,10 +214,15 @@ describe("en/bn parity for every redesign key", () => {
     path.split(".").reduce<unknown>((acc, part) => (acc && typeof acc === "object" ? (acc as Record<string, unknown>)[part] : undefined), obj);
 
   const keys = [
-    ...["healthy", "attention", "review", "blocked", "resolved", "pending"].map((k) => `dashboard.pulse.signal.${k}`),
-    ...["exceptions", "work", "partial"].map((k) => `dashboard.pulse.signal.reason.${k}`),
-    ...["reply", "draft", "exception"].map((k) => `dashboard.pulse.primary.${k}`),
-    ...["loading", "error", "setup", "setupComplete", "work", "caughtUp", "partial"].map((k) => `dashboard.pulse.whyHere.${k}`),
+    // Only the three signal LABEL keys with live in-content consumers survive
+    // the W5 sweep: ConnectionHealth (pending) and the FirstTimeSetup task
+    // rows (attention/resolved/pending) still consume them (00 inventory C3).
+    // healthy/review/blocked died with deriveSignal, and the signal.reason.*
+    // and pulse.primary.* groups die with deriveSignal/derivePrimaryAction.
+    ...["attention", "resolved", "pending"].map((k) => `dashboard.pulse.signal.${k}`),
+    // dashboard.pulse.whyHere.* was deleted from both locales with the
+    // header-fed field itself (round-1 F2) — no render consumer existed.
+    // inbox.whyHere.* stays: UnifiedInbox renders inboxNarrative.whyHere.
     ...["loading", "error", "setup", "setupComplete", "work", "caughtUp", "partial"].map((k) => `dashboard.pulse.whereNext.${k}`),
     "dashboard.pulse.staleWarning",
     "dashboard.pulse.queueChips.note",
@@ -377,8 +249,9 @@ describe("en/bn parity for every redesign key", () => {
     "dashboard.pulse.evidence.coverageComplete",
     "dashboard.pulse.evidence.auditLog",
     "dashboard.pulse.evidence.nextSteps",
+    // context.breadcrumb stays (PageHeader v2 still labels its optional breadcrumb
+    // nav); context.workspace died with the header breadcrumbs (C1).
     "dashboard.pulse.context.breadcrumb",
-    "dashboard.pulse.context.workspace",
     "dashboard.pulse.overview.trendSummary",
     // P04: "verifiedAt" claimed the computation timestamp was a verification —
     // the honest label is statusCheckedAt, and the operational ladder states

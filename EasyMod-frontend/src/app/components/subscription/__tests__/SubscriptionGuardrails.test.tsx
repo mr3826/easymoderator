@@ -1,9 +1,9 @@
 /**
- * Billing guardrails contracts (§8/§16/§18/§29 + ADR-0011 fail-closed pricing):
- * billing signal matrix, execution header without CTA, no price when the
- * contract cannot be validated, payment-banner roles, and invoice-table
- * semantics. Additive suite (real i18n en); the legacy Subscription /
- * BillingStandingBanner suites stay unchanged.
+ * Billing guardrails contracts (§8/§16/§18 + header-removal C1/C6 + ADR-0011
+ * fail-closed pricing): compact page title with no signal band or header CTA,
+ * no price when the contract cannot be validated, payment-banner roles, and
+ * invoice-table semantics. Additive suite (real i18n en); the legacy
+ * Subscription / BillingStandingBanner suites stay unchanged.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -12,7 +12,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Subscription from '../../Subscription';
-import { deriveBillingSignal } from '../derive';
 import { deriveUsageSummary, invoiceUsage, outcomeDateFor } from '../usage';
 import { useCommercialContract, useClaimDecisions } from '@/api/domains/commercialContract';
 import { getInvoices, getBillingLines, cancelInvoicePayment } from '@/api/domains/subscription';
@@ -110,33 +109,30 @@ beforeEach(() => {
   } as never);
 });
 
-describe('billing signal derivation', () => {
-  const t = (key: string, opts?: Record<string, unknown>) => (opts?.count !== undefined ? `${key}:${opts.count}` : key);
-  it('maps error / loading / due / current / empty to distinct signals', () => {
-    expect(deriveBillingSignal({ phase: 'error', invoiceCount: 0, outstandingCount: 0 }, t).kind).toBe('blocked');
-    expect(deriveBillingSignal({ phase: 'loading', invoiceCount: 0, outstandingCount: 0 }, t).kind).toBe('pending');
-    expect(deriveBillingSignal({ phase: 'ready', invoiceCount: 3, outstandingCount: 1 }, t).kind).toBe('attention');
-    expect(deriveBillingSignal({ phase: 'ready', invoiceCount: 3, outstandingCount: 1 }, t).label).toContain('due');
-    expect(deriveBillingSignal({ phase: 'ready', invoiceCount: 3, outstandingCount: 0 }, t).kind).toBe('healthy');
-    expect(deriveBillingSignal({ phase: 'ready', invoiceCount: 0, outstandingCount: 0 }, t).kind).toBe('attention');
-  });
-});
-
-describe('execution header', () => {
-  it('shows title + signal + count pills and no header CTA', async () => {
+describe('page chrome (header removal C1/C6)', () => {
+  it('keeps the accessible title, renders no signal band, no header CTA and no count pills', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByTestId('billing-signal').textContent).toContain('Invoice due'));
-    expect(screen.getByRole('heading', { level: 1, name: 'Billing' })).toBeInTheDocument();
+    // h1 survives as the sr-only accessible name (AppBar owns the visual title).
+    expect(await screen.findByRole('heading', { level: 1, name: 'Billing' })).toBeInTheDocument();
+    // Wait for the invoice rows (the old header signal's data-readiness role).
+    const row = await screen.findByRole('cell', { name: 'Pending' });
+    expect(row).toBeInTheDocument();
+    // The removal itself is pinned: no page-level signal badge exists anymore.
+    expect(screen.queryByTestId('billing-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
-    expect(screen.getByText(/Invoices: 1/)).toBeInTheDocument();
-    expect(screen.getByText(/Due: 1/)).toBeInTheDocument();
+    expect(screen.queryByText(/Invoices: 1/)).toBeNull();
+    expect(screen.queryByText(/Due: 1/)).toBeNull();
+    // The pay action survived band removal, relocated to the invoices section.
+    expect(screen.getByRole('button', { name: /payment is not available/i })).toBeDisabled();
   });
 
-  it('fails closed: a rejected contract blocks the signal and shows no price', async () => {
+  it('fails closed: a rejected contract shows no price and says so in the contract card', async () => {
     vi.mocked(useCommercialContract).mockReturnValue({ data: undefined, isLoading: false, error: new Error('rejected') } as never);
     renderPage();
-    await waitFor(() => expect(screen.getByTestId('billing-signal').textContent).toContain('Terms unavailable'));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Commercial terms could not be loaded/i);
     expect(screen.queryByText('৳10.00')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('billing-signal')).toBeNull();
   });
 });
 
@@ -241,9 +237,10 @@ describe('usage on the billing page', () => {
     renderPage();
 
     expect(await screen.findByText('Delivered orders billed')).toBeInTheDocument();
+    // Delivered/zero-rated counts survive on the usage tiles (the retired
+    // header pill repeated them; the tiles are the durable surface).
     expect(screen.getByText('64')).toBeInTheDocument();
     expect(screen.getByText('9')).toBeInTheDocument();
-    expect(screen.getByText(/Delivered billed: 64/)).toBeInTheDocument();
     // Period bounds are inclusive: the stored end is exclusive.
     expect(screen.getByText(/1 Oct – 31 Oct/)).toBeInTheDocument();
     expect(screen.getByText(/64 delivered · 9 zero-rated/)).toBeInTheDocument();

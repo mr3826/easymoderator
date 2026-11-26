@@ -1,9 +1,11 @@
 /**
  * First-time setup variant of /dashboard — guardrails restyle. Same props,
  * same localStorage gating, same three sub-variants (welcome / in-progress /
- * complete). One primary action per screen: welcome → Start, in-progress →
- * the NEXT incomplete task's CTA (other tasks secondary, completed tasks a
- * resolved badge with no CTA).
+ * complete). One primary action per screen: welcome → Start (relocated into
+ * the checklist section, header-removal C2), in-progress → the NEXT
+ * incomplete task's CTA (other tasks secondary, completed tasks a resolved
+ * badge with no CTA). No signal header band on any variant — the compact
+ * title plus the onboarding subtitle carry orientation (C1, guidance retained).
  *
  * P04 truthfulness: the complete branch reports CONFIGURATION complete, and a
  * separate operational ladder from the backend (configured / waiting_for_test /
@@ -150,10 +152,12 @@ export default function FirstTimeSetupDashboard({
 
   const shell = 'em-dashboard min-h-full p-4 md:p-6';
   const inner = 'mx-auto w-full max-w-[1440px]';
-  const breadcrumb = [{ label: t('dashboard.pulse.context.workspace') }, { label: t('dashboard.setup.eyebrow') }];
+  // Header-removal C1: NO band on these onboarding screens — the slim header
+  // carries only the title, and the onboarding subtitle is relocated into the
+  // screen body so guidance survives as content (signal badges live on the
+  // per-task rows below, ResultBanner states and EvidenceFooter stay unchanged).
   const attentionSignal: Signal = { kind: 'attention', label: t('dashboard.pulse.signal.attention') };
   const resolvedSignal: Signal = { kind: 'resolved', label: t('dashboard.pulse.signal.resolved') };
-  const pendingSignal: Signal = { kind: 'pending', label: t('dashboard.pulse.signal.pending') };
   const setupNarrative = (provenResultOverride?: string) =>
     deriveNarrative(
       { phase: setupStatus.isComplete ? 'setup-complete' : 'setup', pulse: null, workItems: [], caughtUp: false, hasAllWorkSources: false },
@@ -170,17 +174,12 @@ export default function FirstTimeSetupDashboard({
     return (
       <div className={shell}>
         <div className={inner}>
-          <PageHeader
-            title={t('dashboard.setup.welcomeTitle')}
-            breadcrumb={breadcrumb}
-            signal={attentionSignal}
-            whyHere={t('dashboard.setup.welcomeSubtitle')}
-            primaryAction={primary}
-          />
+          <PageHeader title={t('dashboard.setup.welcomeTitle')} />
           <section className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4" aria-labelledby="setup-welcome-list">
             <h2 id="setup-welcome-list" className="text-sm font-semibold text-em-text-primary">
               {t('dashboard.setup.eyebrow')}
             </h2>
+            <p className="mt-1 text-sm leading-6 text-em-text-secondary">{t('dashboard.setup.welcomeSubtitle')}</p>
             <ul className="mt-3 grid gap-2 md:grid-cols-2">
               {welcomeBullets.map((item) => (
                 <li key={item} className="flex items-start gap-2 rounded-lg bg-em-bg-app p-3">
@@ -189,7 +188,12 @@ export default function FirstTimeSetupDashboard({
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs font-medium text-em-text-secondary">{t('dashboard.setup.estimatedTime')}</p>
+            {/* C2: the "Start setup" primary lives inside the existing checklist
+                section (it only ever lived in the retired header band). */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium text-em-text-secondary">{t('dashboard.setup.estimatedTime')}</p>
+              <EmButton variant="primary" action={primary} data-testid="dashboard-primary-action" />
+            </div>
           </section>
           <EvidenceFooter
             provenResult={narrative.provenResult}
@@ -214,11 +218,9 @@ export default function FirstTimeSetupDashboard({
     const assistant = operational?.evidence.assistant;
 
     const narrative = setupNarrative(setupEvidence);
-    const headerSignal: Signal = verified
-      ? resolvedSignal
-      : state === 'action_required'
-        ? attentionSignal
-        : pendingSignal;
+    // The operational verdict already renders as the ResultBanner below (C4
+    // result banner, never a header badge) — the header chip is gone with the
+    // band, so no separate headerSignal exists anymore.
     const primary: Action = { label: t('dashboard.setup.goToDashboard'), onClick: onDismissCompletion };
     const secondary: Action = {
       label: t('dashboard.setup.reviewReplySettings'),
@@ -262,21 +264,21 @@ export default function FirstTimeSetupDashboard({
     return (
       <div className={shell}>
         <div className={inner}>
-          <PageHeader
-            title={t('dashboard.setup.completeTitle')}
-            breadcrumb={breadcrumb}
-            signal={headerSignal}
-            whyHere={t('dashboard.setup.completeSubtitle')}
-            primaryAction={primary}
-            secondaryActions={[secondary]}
-          />
+          <PageHeader title={t('dashboard.setup.completeTitle')} />
+          <p className="mb-4 text-sm leading-6 text-em-text-secondary">{t('dashboard.setup.completeSubtitle')}</p>
           <ResultBanner
             status={bannerByState[state]}
             title={t(`dashboard.setup.states.${state}.title`)}
             description={t(`dashboard.setup.states.${state}.description`, { windowDays })}
             evidenceId={setupEvidence}
-            className="mb-4"
+            className="mb-3"
           />
+          {/* C2: the complete-screen actions move from the retired header band
+              into the result region they act on — exactly one primary CTA. */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <EmButton variant="primary" action={primary} data-testid="dashboard-primary-action" />
+            <EmButton variant="secondary" action={secondary} />
+          </div>
           {warnings.length > 0 && (
             <section
               role="status"
@@ -347,18 +349,12 @@ export default function FirstTimeSetupDashboard({
 
   const nextTask = setupStatus.tasks.find((task) => task.status !== 'complete');
   const narrative = setupNarrative(setupEvidence);
-  const refreshAction: Action = { label: t('dashboard.setup.refresh'), onClick: () => void onRefresh?.() };
 
   return (
     <div className={shell}>
       <div className={inner}>
-        <PageHeader
-          title={t('dashboard.setup.title')}
-          breadcrumb={breadcrumb}
-          signal={attentionSignal}
-          whyHere={t('dashboard.setup.subtitle')}
-          secondaryActions={[refreshAction]}
-        />
+        <PageHeader title={t('dashboard.setup.title')} />
+        <p className="mb-4 text-sm leading-6 text-em-text-secondary">{t('dashboard.setup.subtitle')}</p>
 
         <section className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-4" aria-labelledby="setup-progress-heading">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

@@ -15,7 +15,6 @@ import { Claim } from "./claims/Claim";
 import { ClaimProvider } from "./claims/ClaimProvider";
 import { EmButton } from "./dashboard/EmButton";
 import { PageHeader } from "./dashboard/PageHeader";
-import { deriveAutomationSignal } from "./automation/derive";
 import { getErrorMessage } from "@shared/lib/http/errors";
 
 const ANIMATE = import.meta.env.MODE !== "test";
@@ -35,9 +34,10 @@ const PILL_CLASS =
  * emergency-stop card (channels/EmergencyStopCard) is mounted below so the
  * business scope exposes the same bypass-proof stop as the channels overview.
  *
- * Execution-page header (guardrails §29): title + one dominant signal + two
- * factual pills. No WHY HERE paragraph and no header CTA — the merchant edits
- * inside the work area, and the subtitle lives there too.
+ * Slim page title (header-removal contract C1): title + breadcrumb + the two
+ * contextual pills that read back the server-confirmed mode/confidence. No
+ * signal badge, no explanatory summary and no header CTA — the merchant edits
+ * inside the work area, where Save already lives.
  */
 export default function BusinessAutomationDefaults() {
   const { t } = useTranslation();
@@ -81,8 +81,8 @@ export default function BusinessAutomationDefaults() {
     };
   }, [load]);
 
-  // Adopt the persisted settings so the header pills/signal never describe a
-  // mode the server has already replaced. The form keeps its own copy.
+  // Adopt the persisted settings so the header pills never describe a mode the
+  // server has already replaced. The form keeps its own copy.
   const handleSaveAISettings = async (data: ShopAISettings) => {
     const persisted = await apiClient.updateShopAISettings(data);
     setAiSettings(persisted && Object.keys(persisted).length > 0 ? persisted : data);
@@ -99,31 +99,19 @@ export default function BusinessAutomationDefaults() {
   const mode = normalizeAiReplyMode(aiSettings?.automation_mode);
   const ready = !isLoading && !loadError && aiSettings !== null;
 
-  const signal = deriveAutomationSignal(
-    {
-      phase: loadError ? "error" : isLoading ? "loading" : "ready",
-      isOwner,
-      stopActive: emergencyStopActive,
-      mode,
-    },
-    t,
-  );
-
   return (
     <MotionConfig reducedMotion="user">
       <div className="em-automation min-h-full p-4 md:p-6">
         <div className="mx-auto w-full max-w-[1440px] space-y-6">
           <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-            {/* Execution-page header (§29): title + signal + factual pills only. */}
+            {/* Slim title + deep-context breadcrumb + server-confirmed
+                contextual pills (C1). */}
             <PageHeader
               title={t("manageShop.automation.title")}
               breadcrumb={[
                 { label: t("manageShop.channels.title"), to: "/manage-shop/channels" },
                 { label: t("manageShop.automation.title") },
               ]}
-              signal={signal}
-              signalTestId="automation-signal"
-              signalAnnounce={false}
               meta={ready ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={PILL_CLASS}>
@@ -136,10 +124,6 @@ export default function BusinessAutomationDefaults() {
               ) : undefined}
             />
           </motion.div>
-
-          <p className="max-w-[70ch] text-sm text-em-text-secondary">
-            {t("manageShop.automation.subtitle")}
-          </p>
 
           <ClaimProvider surface="subscription">
             <div className="space-y-6">

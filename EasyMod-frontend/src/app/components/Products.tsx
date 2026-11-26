@@ -13,7 +13,6 @@ import { getErrorMessage } from "@shared/lib/http/errors";
 import { fadeUp } from "@/lib/motion";
 import { PageHeader } from "./dashboard/PageHeader";
 import { useDialogFocus } from "./inbox/useDialogFocus";
-import { deriveProductsSignal } from "./products/derive";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
@@ -520,11 +519,6 @@ export default function Products() {
     setAppliedSearchQuery('');
   };
 
-  const lowStockCount = allProducts.filter(isLowStockProduct).length;
-  const signal = deriveProductsSignal(
-    { phase: isError ? "error" : isLoading ? "loading" : "ready", totalCount: allProducts.length, lowStockCount },
-    t,
-  );
   const uploadDialogRef = useRef<HTMLDivElement>(null);
   const reviewDialogRef = useRef<HTMLDivElement>(null);
   useDialogFocus(uploadDialogRef, showUploadModal);
@@ -535,23 +529,7 @@ export default function Products() {
     <div className="em-products min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-4">
         <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader
-            title={t('products.title')}
-            breadcrumb={[]}
-            signal={signal}
-            signalTestId="products-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('products.totalCountLabel')}: {allProducts.length}
-                </span>
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('products.lowStockCountLabel')}: {lowStockCount}
-                </span>
-              </div>
-            }
-          />
+          <PageHeader title={t('products.title')} />
         </motion.div>
       {error && (
         <div role="alert" className="mb-6 bg-em-danger-100 border border-em-danger-700/20 text-em-danger-700 px-4 py-3 rounded-lg">
@@ -806,6 +784,14 @@ export default function Products() {
                 </div>
               )}
             </div>
+
+            {/* Catalog count relocated from the retired header band (C2). */}
+            <span
+              className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary"
+              data-testid="products-total-count"
+            >
+              {t('products.totalCountLabel')}: {allProducts.length}
+            </span>
           </div>
 
           {/* Products Table */}

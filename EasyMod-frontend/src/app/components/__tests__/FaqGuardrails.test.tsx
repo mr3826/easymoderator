@@ -67,42 +67,41 @@ beforeEach(() => {
   vi.mocked(listGapSuggestions).mockResolvedValue({ featureDisabled: true } as never);
 });
 
-describe('FAQ execution header', () => {
-  it('shows title, signal and factual pills but no header CTA or subtitle', async () => {
+describe('FAQ page signal header removed (C1/C6 absence pins)', () => {
+  it('keeps the level-1 title, shows no signal band and no header CTA', async () => {
     renderPage();
     await screen.findByText('What is the delivery charge?');
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-    const signal = screen.getByTestId('faq-signal');
-    expect(signal.textContent).toContain('Knowledge ready');
+    expect(screen.queryByTestId('faq-signal')).toBeNull();
     expect(screen.queryByTestId('inbox-primary-action')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
     // The single screen-level primary lives in the work-area toolbar.
     expect(screen.getAllByTestId('faq-add')).toHaveLength(1);
   });
 
-  it('signals attention when customer questions are waiting', async () => {
+  it('keeps open questions visible in the gap card (no signal copy)', async () => {
     vi.mocked(listGapSuggestions).mockResolvedValue({ featureDisabled: false, data: [gap()] } as never);
     renderPage();
-    const signal = await screen.findByTestId('faq-signal');
-    await waitFor(() => expect(signal.textContent).toContain('Questions need answers'));
-    expect(signal.textContent).toContain('1');
+    // The gap card (data-testid='gap-suggestions') carries the attention truth.
+    await waitFor(() => expect(screen.getByTestId('gap-suggestions')).toBeInTheDocument());
+    expect(screen.getByText('How do I pay with bKash?')).toBeInTheDocument();
+    expect(screen.queryByTestId('faq-signal')).toBeNull();
   });
 
-  it('signals blocked with a retry when the list fails, and hides creation', async () => {
+  it('surfaces load failure through the alert and hides creation', async () => {
     vi.mocked(apiClient.listKnowledgeFaqs).mockRejectedValue(new Error('boom'));
     renderPage();
-    const signal = await screen.findByTestId('faq-signal');
-    await waitFor(() => expect(signal.textContent).toContain('Knowledge unavailable'));
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByTestId('faq-signal')).toBeNull();
     expect(screen.queryByTestId('faq-add')).toBeNull();
   });
 
-  it('signals empty and offers creation as the next step', async () => {
+  it('shows creation affordance when empty without a signal band', async () => {
     vi.mocked(apiClient.listKnowledgeFaqs).mockResolvedValue([] as never);
     renderPage();
-    const signal = await screen.findByTestId('faq-signal');
-    await waitFor(() => expect(signal.textContent).toContain('No answers yet'));
+    await screen.findByTestId('faq-add');
     expect(screen.getAllByTestId('faq-add').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByTestId('faq-signal')).toBeNull();
   });
 });
 

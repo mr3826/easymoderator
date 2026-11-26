@@ -2,9 +2,11 @@
  * Business-info guardrails proof (mock-only, CI subset). Execution-class
  * settings surface (§29) inside the Business & FAQ Settings redesign:
  * /manage-shop/business-info now renders the three-tab workspace
- * (business-faq-tab-{profile,faqs,policies}) with the PROFILE tab active and
- * the tab's legacy-style PageHeader INSIDE its panel. Every legacy pin is
- * preserved: signals, the payload exclusion rule (NOW the 10-key extended
+ * (business-faq-tab-{profile,faqs,policies}) with the PROFILE tab active
+ * INSIDE its panel. Header-removal C1: the per-tab signal band is retired
+ * (the visible tablist orients; each tab keeps one sr-only h1). Every
+ * functional pin is preserved: the payload exclusion rule (NOW the 10-key
+ * extended
  * profile PUT — nameEn/tagline/email/city + all six socialLinks — still
  * without deliveryAreas/paymentMethods), server-confirmed save + shop-list
  * refresh, dirty gating, char counter, social group, load-failure retry, the
@@ -34,8 +36,8 @@ const businessInfo = {
     paymentMethods: ['COD'],
 };
 
-// One published FAQ so the FAQ panel's legacy pins (faq-signal "Knowledge
-// ready", faq-add visible) hold when the ADR boundary test activates the tab.
+// One published FAQ so the FAQ panel's body anchors (toolbar, faq-add
+// visible) hold when the ADR boundary test activates the tab.
 const faqRow = {
     id: 'faq-1',
     question: 'What is the delivery charge?',
@@ -230,17 +232,17 @@ test('workspace route truth: /manage-shop/business-info opens the Profile tab', 
     expect(state.unexpected).toEqual([]);
 });
 
-test('execution header: title + profile signal + pills, no header CTA', async ({ page }) => {
+test('header removed: sr-only h1 kept, NO signal band, NO tally pills, no header CTA (C1/C6)', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
-    // Legacy §29 pins, now INSIDE the profile panel (01 S9/P1/P2) — restored
-    // at 88f0328f (my D1): h1 + business-signal + factual pills.
+    // Header-removal C1: the tab's signal band + social/info tally pills are
+    // retired; the form fields below carry those facts, so only the heading,
+    // the absence pins and the clean-baseline dirty gate remain.
     await expect(page.getByRole('heading', { name: 'Business Info', exact: true, level: 1 })).toBeVisible();
-    await expect(page.getByTestId('business-signal')).toContainText('Profile ready');
+    await expect(page.getByTestId('business-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
-    // P2: social tally must cover ALL SIX keys — fixture stores 1 (facebook).
-    await expect(page.getByText('Social links: 1')).toBeVisible();
-    await expect(page.getByText('Extra info: 0')).toBeVisible();
+    await expect(page.getByText('Social links: 1')).toHaveCount(0);
+    await expect(page.getByText('Extra info: 0')).toHaveCount(0);
     // Clean baseline: no unsaved pill (P7 dirty gate mirrors delivery-charges-unsaved).
     await expect(page.getByTestId('profile-changes-unsaved')).toHaveCount(0);
 });
@@ -330,7 +332,7 @@ test('cleared optional fields persist as cleared: empty strings are SENT (A8 MAJ
     // (fresh ProfileTab mount re-fetches GET) renders the fields empty; no
     // ghost value survives from a silent no-op.
     await page.goto('/manage-shop/faqs');
-    await expect(page.getByTestId('faq-signal')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('faq-search')).toBeVisible({ timeout: 15_000 });
     await page.goto('/manage-shop/business-info');
     await expect(page.getByLabel('Shop Name', { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByLabel('Tagline')).toHaveValue('');
@@ -370,13 +372,13 @@ test('ADR-0013 boundary across ALL tabs: automation link, no AI control/radiogro
     await expect(page.getByText('Save Reply Settings', { exact: true })).toHaveCount(0);
 
     await activateTab(page, 'faqs');
-    await expect(page.getByTestId('faq-signal')).toBeVisible();
+    await expect(page.getByTestId('faq-search')).toBeVisible();
     await expect(page.getByTestId('ai-reply-mode')).toHaveCount(0);
     await expect(page.getByRole('radiogroup')).toHaveCount(0);
     await expect(page.locator('input[type="range"]')).toHaveCount(0);
 
     await activateTab(page, 'policies');
-    await expect(page.getByTestId('policies-signal')).toBeVisible();
+    await expect(page.locator('#business-faq-panel-policies')).toBeVisible();
     // Stance controls are native <select>s — the radiogroup==0 boundary stays
     // true workspace-wide (02 §3 a11y decision).
     await expect(page.getByTestId('policy-card-returns')).toBeVisible();
@@ -405,9 +407,10 @@ test('load failure offers a retry that recovers the form', async ({ page }) => {
     expect(state.unexpected).toEqual([]);
 });
 
-test('blocked-load signal pin: business-signal reads "Profile unavailable"', async ({ page }) => {
+test('blocked-load pin: degraded truth lives in the body alert, NO signal band (C4/C6)', async ({ page }) => {
     // P1 blocked-kind pin (01 §8): separated from the retry mechanics so a
-    // header/label regression never hides the recovery proof.
+    // label regression never hides the recovery proof. With the header band
+    // retired, the in-body role=alert is the honest degraded surface.
     const state = await setupRoutes(page, { loadFails: 99 });
     await page.goto('/signin');
     await page.getByLabel(/email/i).fill('owner@shop.bd');
@@ -416,7 +419,7 @@ test('blocked-load signal pin: business-signal reads "Profile unavailable"', asy
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/business-info');
     await expect(page.getByRole('alert')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('business-signal')).toContainText('Profile unavailable');
+    await expect(page.getByTestId('business-signal')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
 

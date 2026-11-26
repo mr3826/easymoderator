@@ -162,7 +162,9 @@ async function loginAndGo(page: Page) {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/subscription');
-    await expect(page.getByTestId('billing-signal')).toBeVisible({ timeout: 15_000 });
+    // Page-mounted gate: the accessible h1 (sr-only — the AppBar owns the
+    // visual title after header removal) exists on every phase.
+    await expect(page.getByRole('heading', { name: 'Billing', exact: true })).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -173,11 +175,12 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + billing signal + pills, and the frozen contract price', async ({ page }) => {
+test('page title + frozen contract price, no signal band and no header CTA', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Billing', exact: true })).toBeVisible();
-    await expect(page.getByTestId('billing-signal')).toContainText('Invoice due');
+    // Removal pinned: no page-level signal badge.
+    await expect(page.getByTestId('billing-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
     await expect(page.getByText('৳10.00')).toBeVisible();
     await expect(page.getByText('Contract version 1.0.0')).toBeVisible();
@@ -210,7 +213,9 @@ test('usage is read from the invoices already fetched — no extra request', asy
     const state = await setupRoutes(page, { withUsage: true });
     await loginAndGo(page);
     await expect(page.getByText('Delivered orders billed')).toBeVisible();
-    await expect(page.getByText(/Delivered billed: 64/)).toBeVisible();
+    // The delivered count reads from the usage tile (the header pill it came
+    // from is retired).
+    await expect(page.getByText('64', { exact: true })).toBeVisible();
     await expect(page.getByText(/1 Oct – 31 Oct/)).toBeVisible();
     await expect(page.getByText(/64 delivered · 9 zero-rated/)).toBeVisible();
     await expect(page.getByText(/Due 8 Nov 2026/)).toBeVisible();

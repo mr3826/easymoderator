@@ -1,14 +1,13 @@
 /**
- * Products-catalog guardrails contracts (§8/§17/§18/§29): catalog signal matrix,
- * execution header without CTA, low-stock client semantics, and the upload
- * dialog focus trap + Escape + label. Additive suite (real i18n en); the legacy
- * Products/AddProduct suites stay unchanged.
+ * Products-catalog guardrails contracts (§8/§17/§18 + header-removal C1/C6):
+ * compact page title with NO signal band or header CTA, low-stock client
+ * semantics, and the upload dialog focus trap + Escape + label. Additive suite
+ * (real i18n en); the legacy Products/AddProduct suites stay unchanged.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import Products from '../../Products';
-import { deriveProductsSignal } from '../derive';
 import { useQuery } from '@tanstack/react-query';
 
 const navigate = vi.fn();
@@ -73,32 +72,23 @@ beforeEach(() => {
   mockQuery([product()]);
 });
 
-describe('catalog signal derivation', () => {
-  const t = (key: string, opts?: Record<string, unknown>) => (opts?.count !== undefined ? `${key}:${opts.count}` : key);
-  it('maps error / loading / low-stock / ready / empty to distinct signals', () => {
-    expect(deriveProductsSignal({ phase: 'error', totalCount: null, lowStockCount: null }, t).kind).toBe('blocked');
-    expect(deriveProductsSignal({ phase: 'loading', totalCount: null, lowStockCount: null }, t).kind).toBe('pending');
-    expect(deriveProductsSignal({ phase: 'ready', totalCount: 5, lowStockCount: 2 }, t).kind).toBe('attention');
-    expect(deriveProductsSignal({ phase: 'ready', totalCount: 5, lowStockCount: 2 }, t).label).toContain('lowStock');
-    expect(deriveProductsSignal({ phase: 'ready', totalCount: 5, lowStockCount: 0 }, t).kind).toBe('healthy');
-    expect(deriveProductsSignal({ phase: 'ready', totalCount: 0, lowStockCount: 0 }, t).kind).toBe('attention');
-  });
-});
-
-describe('execution header', () => {
-  it('shows title + signal + pills and no header CTA', async () => {
+describe('page chrome (header removal C1/C6)', () => {
+  it('renders a compact title, no signal band, no header CTA, and keeps the count in the toolbar', async () => {
     await act(async () => { render(<Products />); });
-    await waitFor(() => expect(screen.getByTestId('products-signal').textContent).toContain('Catalog ready'));
     expect(screen.getByRole('heading', { level: 1, name: 'Products & Inventory' })).toBeInTheDocument();
+    // The removal itself is pinned: the signal badge must not exist at all.
+    expect(screen.queryByTestId('products-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
     expect(screen.getByText(/Total:/)).toBeInTheDocument();
-    expect(screen.getByText(/Low stock:/)).toBeInTheDocument();
+    // The low-stock pill was header-only; the D2 stock filter owns that truth now.
+    expect(screen.queryByText(/Low stock:/)).toBeNull();
   });
 
-  it('surfaces low stock from the client-side threshold semantics', async () => {
+  it('keeps low stock observable from the client-side threshold semantics via the stock filter', async () => {
     mockQuery([product({ quantity: 3, low_stock_threshold: 3 })]);
     await act(async () => { render(<Products />); });
-    await waitFor(() => expect(screen.getByTestId('products-signal').textContent).toContain('Low stock needs attention'));
+    expect(await screen.findByTestId('products-stock-low')).toBeInTheDocument();
+    expect(screen.queryByTestId('products-signal')).toBeNull();
   });
 });
 

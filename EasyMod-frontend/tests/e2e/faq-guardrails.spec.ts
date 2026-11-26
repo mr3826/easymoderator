@@ -1,8 +1,9 @@
 /**
  * FAQ knowledge-manager guardrails proof (mock-only, CI subset). The route
  * /manage-shop/faqs renders the tabbed workspace with the FAQ tab active; the
- * FAQ panel still carries `.em-faqs` (axe include pin) and its own §29 header
- * inside the panel: title + `faq-signal` + factual pills, no header CTA.
+ * FAQ panel still carries `.em-faqs` (axe include pin). Header-removal C1:
+ * the panel's signal band is retired — one sr-only h1 stays, the visible
+ * tablist orients, and the worklist toolbar keeps the single primary.
  * Legacy pins preserved: toolbar primary (`faq-add` hidden on load error,
  * shown when empty), in-system drawer dialog for create (role=dialog, labels,
  * Escape/backdrop close, focus restored), danger delete confirm, gap-card
@@ -247,7 +248,9 @@ async function loginAndGo(page: Page) {
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/faqs');
     await expect(page.getByTestId('business-faq-tab-faqs')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('faq-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: the band is gone — the worklist toolbar is the stable
+    // mounted-page anchor for the FAQ panel.
+    await expect(page.getByTestId('faq-search')).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -258,15 +261,16 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + signal + pills, no header CTA; toolbar holds the primary', async ({ page }) => {
+test('header removed: sr-only h1 kept, NO signal band, no header CTA; toolbar holds the primary (C1/C6)', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'FAQs', level: 1 })).toBeVisible();
-    const signal = page.getByTestId('faq-signal');
-    await expect(signal).toContainText('Knowledge ready');
+    await expect(page.getByTestId('faq-signal')).toHaveCount(0);
     await expect(page.getByTestId('faq-add')).toHaveCount(1);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
     await expect(page.getByTestId('inbox-primary-action')).toHaveCount(0);
+    // The published/total facts survive verbatim in the worklist toolbar line.
+    await expect(page.getByText(/^Published \d+ · Total \d+$/)).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
 
@@ -368,7 +372,7 @@ test('390px: no horizontal overflow and five mobile destinations', async ({ page
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('faq-signal')).toBeVisible();
+    await expect(page.getByTestId('faq-search')).toBeVisible();
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
     await expect(mobile.getByRole('link')).toHaveCount(5);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -379,7 +383,7 @@ test('axe: no critical or serious violations in the FAQ surface', async ({ page 
     await setupRoutes(page, { withGaps: true });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('faq-signal')).toBeVisible();
+    await expect(page.getByTestId('faq-search')).toBeVisible();
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.em-faqs').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');

@@ -14,7 +14,6 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PoliciesTab from '../PoliciesTab';
-import { derivePoliciesSignal } from '../../policies/derive';
 import { apiClient } from '@/api';
 
 const { mockGetCurrentShop, mockLang } = vi.hoisted(() => ({
@@ -78,13 +77,6 @@ const LABELS: Record<string, string> = {
   'manageShop.businessFaq.policies.errors.detailsRequired':
     'Conditions are required when the position is conditional.',
   'manageShop.businessFaq.policies.errors.fixBeforeSave': 'Fix the highlighted fields before saving.',
-  'manageShop.businessFaq.policies.signal.pending': 'Loading',
-  'manageShop.businessFaq.policies.signal.blocked': 'Unavailable',
-  'manageShop.businessFaq.policies.signal.attention': 'Needs attention',
-  'manageShop.businessFaq.policies.signal.healthy': 'Complete',
-  'manageShop.businessFaq.policies.signal.reason.unavailable': 'Business policies could not be loaded.',
-  'manageShop.businessFaq.policies.signal.reason.noneStated': 'No policies stated yet',
-  'manageShop.businessFaq.policies.signal.reason.stated': '{{count}} of 4 stated',
 };
 
 vi.mock('react-i18next', () => ({
@@ -155,8 +147,9 @@ describe('PoliciesTab — absence honesty (Y3: absent ≠ {} ≠ not_offered)', 
     expect(saveButton()).toBeDisabled();
     expect(put).not.toHaveBeenCalled();
 
-    // Signal + factual pill agree with the empty server row.
-    expect(screen.getByTestId('policies-signal').textContent).toContain('No policies stated yet');
+    // C1/C6: the tab signal band is an absence pin; the relocated stated
+    // pill agrees with the empty server row.
+    expect(screen.queryByTestId('policies-signal')).toBeNull();
     expect(screen.getByText('Stated: 0/4')).toBeInTheDocument();
     expect(screen.getByText('Until you state them, replies will not guess.')).toBeInTheDocument();
 
@@ -374,7 +367,7 @@ describe('PoliciesTab — load error, retry and permission boundary', () => {
     renderTab();
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-    expect(screen.getByTestId('policies-signal').textContent).toContain('Unavailable');
+    expect(screen.queryByTestId('policies-signal')).toBeNull();
     expect(screen.queryByTestId('policy-card-returns')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -414,43 +407,5 @@ describe('PoliciesTab — localization', () => {
     await settled();
 
     expect(screen.getByText('Stated: ৩/৪')).toBeInTheDocument();
-  });
-});
-
-describe('derivePoliciesSignal (pure, §8 kinds for the tab phase only)', () => {
-  const t = (key: string, opts?: Record<string, unknown>) =>
-    (typeof opts?.count === 'number' ? `${key}:${opts.count}` : key);
-
-  it('maps loading to pending without inventing a phase', () => {
-    expect(derivePoliciesSignal({ phase: 'loading', statedCount: 0 }, t)).toEqual({
-      kind: 'pending',
-      label: 'manageShop.businessFaq.policies.signal.pending',
-    });
-  });
-
-  it('maps load failure to blocked', () => {
-    expect(derivePoliciesSignal({ phase: 'error', statedCount: 4 }, t)).toMatchObject({
-      kind: 'blocked',
-      reason: 'manageShop.businessFaq.policies.signal.reason.unavailable',
-    });
-  });
-
-  it('separates zero-stated from partial and complete, with an honest count', () => {
-    expect(derivePoliciesSignal({ phase: 'ready', statedCount: 0 }, t)).toMatchObject({
-      kind: 'attention',
-      reason: 'manageShop.businessFaq.policies.signal.reason.noneStated',
-    });
-    expect(derivePoliciesSignal({ phase: 'ready', statedCount: 1 }, t)).toMatchObject({
-      kind: 'attention',
-      reason: 'manageShop.businessFaq.policies.signal.reason.stated:1',
-    });
-    expect(derivePoliciesSignal({ phase: 'ready', statedCount: 4 }, t)).toMatchObject({
-      kind: 'healthy',
-      label: 'manageShop.businessFaq.policies.signal.healthy',
-      reason: 'manageShop.businessFaq.policies.signal.reason.stated:4',
-    });
-    // garbage-in clamp: never claims more than the four contract kinds.
-    expect(derivePoliciesSignal({ phase: 'ready', statedCount: 9 }, t).kind).toBe('healthy');
-    expect(derivePoliciesSignal({ phase: 'ready', statedCount: -3 }, t).kind).toBe('attention');
   });
 });

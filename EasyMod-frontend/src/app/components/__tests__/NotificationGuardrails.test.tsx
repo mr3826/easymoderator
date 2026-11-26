@@ -1,9 +1,10 @@
 /**
- * Notification-channel guardrails contracts (§8/§16/§17/§29): signal matrix,
- * execution header without CTA, connect-command flow, switch semantics with
- * optimistic rollback, destructive disconnect confirmation, browser enable
- * disabled states. Additive suite; NotificationSettings.test.tsx unchanged
- * except harness mock surface.
+ * Notification-channel guardrails contracts (§8/§16/§17 + header-removal
+ * C1/C6): compact page title with no signal band, per-panel contextual status
+ * (the relocated indicator coverage), connect-command flow, switch semantics
+ * with optimistic rollback, destructive disconnect confirmation, browser
+ * enable disabled states. Additive suite; NotificationSettings.test.tsx
+ * unchanged except harness mock surface.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -69,43 +70,44 @@ beforeEach(() => {
   vi.mocked(disconnectTelegramAlerts).mockResolvedValue(status());
 });
 
-describe('notification signal header', () => {
-  it('shows title + signal + pills and no header CTA', async () => {
+describe('page chrome + contextual status (header removal C1/C6)', () => {
+  it('keeps the accessible title and renders no signal band and no header CTA', async () => {
     render(<NotificationSettings />);
-    const signal = await screen.findByTestId('notification-signal');
-    expect(signal.textContent).toContain('Alerts need setup');
-    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1 })).toBeInTheDocument();
+    // The removal itself is pinned: the page-level signal badge must not exist.
+    expect(screen.queryByTestId('notification-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
     expect(screen.queryByTestId('faq-add')).toBeNull();
   });
 
-  it('maps connected / pending / unhealthy / empty status to distinct signals', async () => {
+  it('maps connected / pending / unhealthy / empty status onto the Telegram panel pill', async () => {
     vi.mocked(getTelegramNotificationStatus).mockResolvedValue(status({ connected: true, status: 'connected', chatTitle: 'Sapna Alerts' }));
     const { unmount } = render(<NotificationSettings />);
-    await waitFor(() => expect(screen.getByTestId('notification-signal').textContent).toContain('Alerts connected'));
+    await waitFor(() => expect(screen.getByText('Connected', { exact: true })).toBeInTheDocument());
     unmount();
 
     vi.mocked(getTelegramNotificationStatus).mockResolvedValue(status({ status: 'pending' }));
     const second = render(<NotificationSettings />);
-    await waitFor(() => expect(screen.getByTestId('notification-signal').textContent).toContain('Waiting for connection'));
+    await waitFor(() => expect(screen.getByText('Waiting for group command')).toBeInTheDocument());
     second.unmount();
 
     vi.mocked(getTelegramNotificationStatus).mockResolvedValue(status({ status: 'unhealthy' }));
     const third = render(<NotificationSettings />);
-    await waitFor(() => expect(screen.getByTestId('notification-signal').textContent).toContain('Alerts need setup'));
+    await waitFor(() => expect(screen.getByText('Needs reconnect')).toBeInTheDocument());
     third.unmount();
 
     vi.mocked(getTelegramNotificationStatus).mockResolvedValue({} as TelegramNotificationStatus);
     const fourth = render(<NotificationSettings />);
-    await waitFor(() => expect(screen.getByTestId('notification-signal').textContent).toContain('Alerts need setup'));
+    await waitFor(() => expect(screen.getByText('Disconnected')).toBeInTheDocument());
+    expect(screen.queryByTestId('notification-signal')).toBeNull();
     fourth.unmount();
   });
 
-  it('surfaces a load failure as blocked with a retry banner', async () => {
+  it('surfaces a load failure with a retry banner and no signal band', async () => {
     vi.mocked(getTelegramNotificationStatus).mockRejectedValue(new Error('boom'));
     render(<NotificationSettings />);
-    await waitFor(() => expect(screen.getByTestId('notification-signal').textContent).toContain('Alerts unavailable'));
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByTestId('notification-signal')).toBeNull();
   });
 });
 

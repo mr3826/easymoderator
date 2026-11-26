@@ -1,10 +1,11 @@
 /**
- * Business-automation guardrails contracts (§8/§11/§16/§18/§29): signal matrix,
- * execution header without a CTA, real switch semantics that the fieldset can
- * actually disable, named slider/tag controls, accordion disclosure state, and
- * honest helper copy for settings the runtime never reads. Additive suite (real
- * i18n en); the legacy BusinessAutomationDefaults/AISettingsForm suites stay
- * unchanged apart from documented harness migrations.
+ * Business-automation guardrails contracts (§8/§11/§16/§18 + header-removal
+ * C1/C6): slim page title with contextual pills and no signal band, real
+ * switch semantics that the fieldset can actually disable, named slider/tag
+ * controls, accordion disclosure state, and honest helper copy for settings
+ * the runtime never reads. Additive suite (real i18n en); the legacy
+ * BusinessAutomationDefaults/AISettingsForm suites stay unchanged apart from
+ * documented harness migrations.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -12,7 +13,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import BusinessAutomationDefaults from '../../BusinessAutomationDefaults';
-import { deriveAutomationSignal } from '../derive';
 import { apiClient } from '@/api';
 import { getShopAISettings } from '@/api/domains/shop';
 import { authService } from '@/app/lib/auth';
@@ -108,34 +108,14 @@ beforeEach(() => {
   vi.mocked(getShopAISettings).mockResolvedValue(settings() as never);
 });
 
-describe('automation signal derivation', () => {
-  const t = (key: string) => key;
-  const base = { phase: 'ready' as const, isOwner: true, stopActive: false, mode: 'MANUAL' as const };
-
-  it('maps each phase and mode to one dominant signal, first match wins', () => {
-    expect(deriveAutomationSignal({ ...base, phase: 'error' }, t).kind).toBe('blocked');
-    expect(deriveAutomationSignal({ ...base, phase: 'loading' }, t).kind).toBe('pending');
-    expect(deriveAutomationSignal({ ...base, stopActive: true }, t).kind).toBe('blocked');
-    expect(deriveAutomationSignal({ ...base, isOwner: false }, t).kind).toBe('review');
-    expect(deriveAutomationSignal({ ...base, mode: 'AUTO' }, t).kind).toBe('attention');
-    expect(deriveAutomationSignal({ ...base, mode: 'DRAFT' }, t).kind).toBe('review');
-    expect(deriveAutomationSignal({ ...base, mode: 'MANUAL' }, t).kind).toBe('healthy');
-  });
-
-  it('lets the stop and the owner gate outrank the mode', () => {
-    expect(deriveAutomationSignal({ ...base, mode: 'AUTO', stopActive: true }, t).label).toContain('stopped');
-    expect(deriveAutomationSignal({ ...base, mode: 'AUTO', isOwner: false }, t).label).toContain('readOnly');
-    expect(deriveAutomationSignal({ ...base, phase: 'error', stopActive: true }, t).label).toContain('blocked');
-  });
-});
-
-describe('execution header (§29)', () => {
-  it('carries title + signal + two factual pills and no header CTA', async () => {
+describe('page chrome (header removal C1/C6)', () => {
+  it('carries a compact title + contextual pills, no signal band and no header CTA', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByTestId('automation-signal').textContent).toContain('Drafts need review'));
+    await waitFor(() => expect(screen.getByText(/Mode:/)).toBeInTheDocument());
     expect(screen.getByRole('heading', { level: 1, name: 'Automation defaults' })).toBeInTheDocument();
+    // The removal itself is pinned: the page-level signal badge must not exist.
+    expect(screen.queryByTestId('automation-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
-    expect(screen.getByText(/Mode:/)).toBeInTheDocument();
     expect(screen.getByText(/Confidence: 75%/)).toBeInTheDocument();
   });
 
@@ -188,8 +168,9 @@ describe('honest controls (§18)', () => {
     const closing = await screen.findByRole('switch', { name: 'Closing message' });
     await waitFor(() => expect(closing).toBeDisabled());
     expect(screen.getByTestId('automation-settings-fieldset')).toBeDisabled();
+    // The read-only fact survives band removal as the inline body notice.
     expect(screen.getByText(/Only the shop owner can change automation defaults/i)).toBeInTheDocument();
-    expect(screen.getByTestId('automation-signal').textContent).toContain('Read-only');
+    expect(screen.queryByTestId('automation-signal')).toBeNull();
   });
 
   it('names the slider and the keyword controls, and discloses the accordion state', async () => {
@@ -223,15 +204,16 @@ describe('honesty copy for settings the runtime never reads', () => {
 });
 
 describe('save adoption and load recovery (§16)', () => {
-  it('adopts the persisted mode into the header after a successful save', async () => {
+  it('adopts the persisted mode into the contextual pills after a successful save', async () => {
     vi.mocked(apiClient.updateShopAISettings).mockResolvedValue(settings({ automation_mode: 'MANUAL' }) as never);
     renderPage();
-    await waitFor(() => expect(screen.getByTestId('automation-signal').textContent).toContain('Drafts need review'));
+    await waitFor(() => expect(screen.getByText(/Mode: Drafts for review/)).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('ai-reply-mode-manual'));
     fireEvent.click(screen.getByRole('button', { name: /Save Reply Settings/i }));
     await waitFor(() => expect(screen.getByText('Reply settings saved.')).toBeInTheDocument());
-    expect(screen.getByTestId('automation-signal').textContent).toContain('Manual mode');
+    // The mode readout never goes stale after save (same contract, new host).
     expect(screen.getByText(/Mode: Manual replies only/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('automation-signal')).toBeNull();
   });
 
   it('announces a load failure as an alert and recovers through retry', async () => {
@@ -239,7 +221,8 @@ describe('save adoption and load recovery (§16)', () => {
     renderPage();
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/could not load/i);
-    expect(screen.getByTestId('automation-signal').textContent).toContain('Defaults unavailable');
+    // The unavailable fact lives in the body alert now, not a header band.
+    expect(screen.queryByTestId('automation-signal')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Retry loading defaults/i }));
     await waitFor(() => expect(screen.getByTestId('ai-reply-mode')).toBeInTheDocument());
   });

@@ -254,7 +254,10 @@ function findPiiViolations(entries: Capture[]): string[] {
 async function driveInboxFlows() {
   render(<MemoryRouter><UnifiedInbox /></MemoryRouter>);
   await screen.findByRole("heading", { name: "Shared Inbox", level: 1 });
-  await waitFor(() => expect(screen.getByTestId("inbox-signal")).toBeInTheDocument());
+  // Header-removal C6: the signal band is gone; the contextual mode pill is
+  // the mount/readiness anchor now.
+  await waitFor(() => expect(screen.getByTestId("inbox-ai-reply-mode")).toBeInTheDocument());
+  expect(screen.queryByTestId("inbox-signal")).toBeNull();
 
   // Select the thread carrying PII-shaped fixtures; messages render through
   // the transcript, the context panel opens, the composer is typed into and

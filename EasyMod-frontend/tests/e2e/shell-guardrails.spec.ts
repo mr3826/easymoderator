@@ -198,7 +198,9 @@ test('collapse persists across reload and names the toggle both ways', async ({ 
 test('skip link is the first tab stop and focuses main', async ({ page }) => {
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('inbox-signal')).toBeVisible();
+    // Header-removal C6: the inbox page-level signal band is gone — the mount
+    // gate now anchors on the workbench itself (stable, functional body anchor).
+    await expect(page.locator('.mw-inbox-workbench')).toBeVisible();
     // The inbox scrolls its transcript into view on load, which moves Chromium's
     // sequential-focus starting point to the thread end. Anchor at the sidebar
     // logo (non-focusable, no navigation) and Shift+Tab backwards: the previous
@@ -216,7 +218,7 @@ test('keyboard: visible focus ring on a sidebar link', async ({ page }) => {
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('inbox-signal')).toBeVisible();
+    await expect(page.locator('.mw-inbox-workbench')).toBeVisible();
     let focused = false;
     for (let i = 0; i < 25; i += 1) {
         await page.keyboard.press('Tab');
@@ -359,7 +361,7 @@ test('W2 viewport matrix: no horizontal overflow 360→1920 (shell chrome on /in
     for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1024, 768], [1280, 800], [1440, 900], [1920, 1080]] as const) {
         await page.setViewportSize({ width, height });
         await page.goto('/inbox');
-        await expect(page.getByTestId('inbox-signal')).toBeVisible();
+        await expect(page.locator('.mw-inbox-workbench')).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         expect(overflow, `overflow at ${width}x${height}`).toBeLessThanOrEqual(0);
         if (width >= 768) {

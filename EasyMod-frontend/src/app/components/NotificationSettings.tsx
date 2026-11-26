@@ -27,9 +27,7 @@ import { fadeUp } from "@/lib/motion";
 import { EmButton } from "./dashboard/EmButton";
 import { PageHeader } from "./dashboard/PageHeader";
 import { ResultBanner } from "./dashboard/ResultBanner";
-import { deriveNotificationSignal } from "./notifications/derive";
 import { useDialogFocus } from "./inbox/useDialogFocus";
-import { authService } from "@/app/lib/auth";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
@@ -201,34 +199,15 @@ export default function NotificationSettings() {
     }
   };
 
-  const signal = deriveNotificationSignal(
-    { phase: loadError ? "error" : loading ? "loading" : "ready", telegram },
-    t,
-  );
-  const shopName = authService.getCurrentShop()?.shop_name || t("manageShop.notifications.title");
-
   return (
     <MotionConfig reducedMotion="user">
       <div className="em-notifications min-h-full p-4 md:p-6">
         <div className="mx-auto w-full max-w-[1440px] space-y-6">
-          {/* Execution-page header (§29): title + signal + factual pills only. */}
+          {/* Slim title only (C1): the AppBar already shows "Notifications",
+              and every status the old pills carried is repeated verbatim by
+              the per-panel StatusPills below, which stay. */}
           <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-            <PageHeader
-              title={t("manageShop.notifications.title")}
-              breadcrumb={[{ label: shopName }]}
-              signal={signal}
-              signalTestId="notification-signal"
-              signalAnnounce={false}
-              meta={
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusPill tone={pushPermission === "granted" ? "ok" : pushPermission === "denied" ? "warn" : "muted"}>
-                    {t("manageShop.notifications.browser.title")}: {pushPermission === "unsupported" ? t("manageShop.notifications.browser.unsupported") : pushPermission}
-                  </StatusPill>
-                  <StatusPill tone="ok">{t("manageShop.notifications.inApp.active")}</StatusPill>
-                  <StatusPill tone={statusTone}>{statusLabel}</StatusPill>
-                </div>
-              }
-            />
+            <PageHeader title={t("manageShop.notifications.title")} titleMode="srOnly" />
           </motion.div>
 
           <div className="grid gap-4 md:grid-cols-2">

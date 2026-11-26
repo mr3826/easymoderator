@@ -176,7 +176,8 @@ test('tab switching is local state: URL stays on the entry route (S6)', async ({
     await expect(page.getByTestId('business-faq-tab-profile')).toHaveAttribute('aria-selected', 'true');
     expect(page.url()).toContain('/manage-shop/faqs');
     await page.getByTestId('business-faq-tab-policies').click();
-    await expect(page.getByTestId('policies-signal')).toBeVisible();
+    // Header-removal C6: the band testid is gone — the panel mount is the gate.
+    await expect(page.locator('#business-faq-panel-policies')).toBeVisible();
     expect(page.url()).toContain('/manage-shop/faqs');
     expect(state.unexpected).toEqual([]);
 });
@@ -227,7 +228,8 @@ test('drawer focus trap cycles inside the dialog; Escape closes and restores foc
     const state = await setupRoutes(page);
     await signIn(page);
     await page.goto('/manage-shop/faqs');
-    await expect(page.getByTestId('faq-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: toolbar anchor — the signal band no longer exists.
+    await expect(page.getByTestId('faq-search')).toBeVisible({ timeout: 15_000 });
     const add = page.getByTestId('faq-add');
     await add.click();
     const dialog = page.getByRole('dialog');

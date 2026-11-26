@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from 'react-i18next';
-import { motion, MotionConfig } from "motion/react";
+import { MotionConfig } from "motion/react";
 import {
   Users,
   Search,
@@ -25,14 +25,10 @@ import RtoNetworkSettings from './RtoNetworkSettings';
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { getPilotStatus } from "@/api/domains/customer-intelligence";
 import { useAuth } from "@/features/auth/AuthProvider";
-import { fadeUp } from "@/lib/motion";
 import { EmButton } from "./dashboard/EmButton";
 import { PageHeader } from "./dashboard/PageHeader";
 import { useDialogFocus } from "./inbox/useDialogFocus";
-import { deriveCustomersSignal } from "./customers/derive";
 import Customer360Page from "./customers/Customer360Page";
-
-const ANIMATE = import.meta.env.MODE !== "test";
 
 type CustomerChannelFilter = ApiChannelType | 'all';
 
@@ -267,36 +263,16 @@ function LegacyCustomers() {
   useDialogFocus(drawerRef, Boolean(selectedCustomer));
   useDialogFocus(createRef, showCreateCustomer);
   useDialogFocus(deleteRef, Boolean(showDeleteConfirm));
-  const signal = deriveCustomersSignal(
-    { phase: error ? "error" : isLoading ? "loading" : "ready", totalCount: tableTotal, opportunityCount: 0 },
-    t,
-  );
 
   return (
     <MotionConfig reducedMotion="user">
     <div className="em-customers min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-4">
-        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader
-            title={t('customers.title')}
-            breadcrumb={currentShop?.shop_name ? [{ label: currentShop.shop_name }] : []}
-            signal={signal}
-            signalTestId="customers-signal"
-            signalAnnounce={false}
-            meta={!isLoading && !error ? (
-              <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary" data-testid="customers-result-count">
-                {t('customers.resultCount', { total: tableTotal })}
-              </span>
-            ) : undefined}
-          />
-        </motion.div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <EmButton variant="primary" onClick={() => setShowCreateCustomer(true)} className="gap-1.5">
-            <UserPlus className="w-4 h-4" aria-hidden="true" />
-            {t('customers.addCustomer')}
-          </EmButton>
-        </div>
+        {/* Header-removal C1: signal band retired. "Customer Management" is
+            not the AppBar's name ("Customers"), so the compact title stays
+            visible; the result count and Create button moved into the
+            existing search/filter toolbar below. */}
+        <PageHeader title={t('customers.title')} />
 
         {/* Search / filter strip — matches only fields this API queries */}
         <div className="bg-em-bg-surface rounded-lg shadow-sm border border-em-border p-2.5 mb-3">
@@ -350,6 +326,22 @@ function LegacyCustomers() {
                 {t('customers.clearFilters')}
               </button>
             )}
+            {/* C2/C4: toolbar-owned contextual count + create action (were
+                header/band affordances before the header removal). */}
+            <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+              {!isLoading && !error && (
+                <span
+                  data-testid="customers-result-count"
+                  className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary"
+                >
+                  {t('customers.resultCount', { total: tableTotal })}
+                </span>
+              )}
+              <EmButton variant="primary" onClick={() => setShowCreateCustomer(true)} className="gap-1.5">
+                <UserPlus className="w-4 h-4" aria-hidden="true" />
+                {t('customers.addCustomer')}
+              </EmButton>
+            </div>
           </div>
         </div>
 

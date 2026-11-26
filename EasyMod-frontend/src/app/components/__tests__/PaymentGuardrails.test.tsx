@@ -1,15 +1,16 @@
 /**
- * Payment-settings guardrails contracts (§8/§11/§16/§18/§29): channel signal
- * matrix, execution header without CTA, switch semantics + credential gating,
- * test-then-save order with secret hygiene, default election, advance-rule
- * state, banner roles/dismiss, and merchant-mode capability honesty. Additive
- * suite; the legacy PaymentSettings suite stays unchanged (real i18n en here).
+ * Payment-settings guardrails contracts (§8/§11/§16/§18): header-removal C1/C6
+ * absence pins (no signal band, no header CTA) with the enabled-methods count
+ * re-anchored to the gateways section header, switch semantics + credential
+ * gating, test-then-save order with secret hygiene, default election,
+ * advance-rule state, banner roles/dismiss, and merchant-mode capability
+ * honesty. Additive suite; the legacy PaymentSettings suite stays unchanged
+ * (real i18n en here).
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import PaymentSettings from '../PaymentSettings';
-import { derivePaymentSignal } from '../payment/derive';
 import { apiClient } from '@/api';
 
 vi.mock('@/api', () => ({
@@ -65,41 +66,28 @@ async function renderPage(configs: unknown[] = []) {
   return screen.findByTestId('gateway-card-cod');
 }
 
-describe('payment signal derivation', () => {
-  const t = (key: string, opts?: Record<string, unknown>) =>
-    opts?.count !== undefined ? `${key}:${opts.count}` : key;
-
-  it('maps error / loading / enabled / none to distinct signals', () => {
-    expect(derivePaymentSignal({ phase: 'error', enabledCount: 0 }, t).kind).toBe('blocked');
-    expect(derivePaymentSignal({ phase: 'loading', enabledCount: 0 }, t).kind).toBe('pending');
-    expect(derivePaymentSignal({ phase: 'ready', enabledCount: 2 }, t).kind).toBe('healthy');
-    expect(derivePaymentSignal({ phase: 'ready', enabledCount: 0 }, t).kind).toBe('attention');
-    expect(derivePaymentSignal({ phase: 'ready', enabledCount: 2 }, t).reason).toContain(':2');
-  });
-});
-
-describe('execution header', () => {
-  it('shows title + signal + factual pills and no header CTA', async () => {
+describe('page signal header removed (C1/C6 absence pins)', () => {
+  it('renders no signal band, keeps the title and the relocated enabled count, no header CTA', async () => {
     await renderPage();
-    const signal = await screen.findByTestId('payment-signal');
-    await waitFor(() => expect(signal.textContent).toContain('Accepting payments'));
+    expect(screen.queryByTestId('payment-signal')).toBeNull();
     expect(screen.getByRole('heading', { level: 1, name: 'Payment Settings' })).toBeInTheDocument();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
+    // The enabled-methods fact survives — relocated into the gateways section header.
     expect(screen.getByText(/Enabled methods:/)).toBeInTheDocument();
-    expect(screen.getByText(/Advance rule:/)).toBeInTheDocument();
   });
 
-  it('surfaces a blocked signal and alert when the load fails', async () => {
+  it('surfaces a load failure through the alert region with no signal band', async () => {
     vi.mocked(apiClient.getPaymentConfig).mockRejectedValue(new Error('boom'));
     render(<PaymentSettings />);
-    await waitFor(() => expect(screen.getByTestId('payment-signal').textContent).toContain('Configuration unavailable'));
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByTestId('payment-signal')).toBeNull();
   });
 
-  it('drops to attention when no method is enabled', async () => {
+  it('keeps the enabled count honest when no method is enabled', async () => {
     await renderPage();
     fireEvent.click(screen.getByRole('switch', { name: 'Cash on Delivery' }));
-    await waitFor(() => expect(screen.getByTestId('payment-signal').textContent).toContain('No method enabled'));
+    await waitFor(() => expect(screen.getByText('Enabled methods: 0')).toBeInTheDocument());
+    expect(screen.queryByTestId('payment-signal')).toBeNull();
   });
 });
 

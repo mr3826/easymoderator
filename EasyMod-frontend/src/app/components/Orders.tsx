@@ -15,13 +15,10 @@ import OrderConfidencePanel from './orders/OrderConfidencePanel';
 import ContextualEntityLink from './merchant-workspace/ContextualEntityLink';
 import { ShopRole, UserRole } from '@/shared/lib/rbac/types';
 import { useUserPermissions } from '@/shared/lib/rbac/useUserPermissions';
-import { useAuth } from '@/features/auth/AuthProvider';
-import { motion, MotionConfig } from 'motion/react';
-import { fadeUp } from '@/lib/motion';
+import { MotionConfig } from 'motion/react';
 import { EmButton } from './dashboard/EmButton';
 import { PageHeader } from './dashboard/PageHeader';
 import { useDialogFocus } from './inbox/useDialogFocus';
-import { deriveOrdersSignal } from './orders/derive';
 
 // Worklist chips. The keys mirror the backend bucket module — the server owns
 // the predicates, so a chip click sends the same key the counters were built
@@ -61,7 +58,6 @@ const statusColors = {
   cancelled: 'bg-em-danger-100 text-em-danger-700',
 };
 
-const ANIMATE = import.meta.env.MODE !== 'test';
 const FOCUS_RING = 'focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light focus-visible:transition-none';
 
 interface OrderItem {
@@ -152,17 +148,8 @@ export default function Orders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [deepLinkError, setDeepLinkError] = useState(false);
   const [deepLinkRetry, setDeepLinkRetry] = useState(0);
-  const { currentShop } = useAuth();
   const createModalRef = useRef<HTMLDivElement>(null);
   useDialogFocus(createModalRef, showCreateOrder);
-  const signal = deriveOrdersSignal(
-    {
-      phase: loadError ? 'error' : (isLoading || searchQuery !== appliedSearchQuery) ? 'loading' : 'ready',
-      totalCount: worklistCounts?.total ?? null,
-      needsActionCount: worklistCounts?.needs_action ?? null,
-    },
-    t,
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -732,62 +719,16 @@ export default function Orders() {
     <MotionConfig reducedMotion="user">
     <div className={`em-orders min-h-full p-4 md:p-6 ${selectedOrder ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] lg:items-start lg:gap-4' : ''}`}>
       <div className="min-w-0">
-        <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
-          <PageHeader
-            title={t('orders.title')}
-            breadcrumb={currentShop?.shop_name ? [{ label: currentShop.shop_name }] : []}
-            signal={signal}
-            signalTestId="orders-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('orders.totalCountLabel')}: {worklistCounts?.total ?? '—'}
-                </span>
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t('orders.needsActionCountLabel')}: {worklistCounts?.needs_action ?? '—'}
-                </span>
-              </div>
-            }
-          />
-        </motion.div>
-
-        <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              disabled={isLoading || loadError || orders.length === 0}
-              aria-haspopup="menu"
-              aria-expanded={showExportMenu}
-              className={`flex min-h-11 items-center gap-2 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-violet-700 hover:bg-em-bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
-            >
-              <Download className="h-4 w-4" />
-              {t('orders.export')}
-              <ChevronDown className="h-4 w-4" />
-            </button>
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-[9]" onClick={() => setShowExportMenu(false)} />
-                <div ref={exportMenuRef} className="absolute right-0 z-10 mt-2 w-40 rounded-lg border border-em-border bg-em-bg-surface shadow-lg">
-                  <button onClick={() => handleExport('csv')} className="w-full px-4 py-2 text-left text-sm text-em-violet-700 hover:bg-em-bg-muted">
-                    {t('orders.exportCSV')}
-                  </button>
-                  <button onClick={() => handleExport('excel')} className="w-full border-t border-em-border px-4 py-2 text-left text-sm text-em-violet-700 hover:bg-em-bg-muted">
-                    {t('orders.exportExcel')}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-          <EmButton variant="primary" onClick={() => setShowCreateOrder(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
-            {t('orders.createOrder')}
-          </EmButton>
-        </div>
+        {/* Header-removal C1: signal band retired. The sticky AppBar already
+            shows "Orders", so only the sr-only h1 landmark remains; the work
+            list's own toolbar below carries the actions and honest counts. */}
+        <PageHeader title={t('orders.title')} titleMode="srOnly" />
 
         <section aria-label={t('orders.toolbarLabel')} className="mb-4 rounded-xl border border-em-border bg-em-bg-surface p-3">
-          <div role="group" aria-label={t('orders.buckets.label')} className="mb-3 flex flex-wrap gap-2">
+          {/* C2: the standalone export/create strip was merged into this
+              existing toolbar row — Create keeps a toolbar home, no new band. */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div role="group" aria-label={t('orders.buckets.label')} className="flex flex-wrap gap-2">
             {[{ key: 'all' as const, labelKey: 'orders.buckets.all', count: worklistCounts?.total }, ...WORKLIST_BUCKETS.map((bucket) => ({
               ...bucket,
               count: worklistCounts ? worklistCounts[bucket.key] : undefined,
@@ -818,6 +759,40 @@ export default function Orders() {
                 </button>
               );
             })}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  disabled={isLoading || loadError || orders.length === 0}
+                  aria-haspopup="menu"
+                  aria-expanded={showExportMenu}
+                  className={`flex min-h-11 items-center gap-2 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm text-em-violet-700 hover:bg-em-bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
+                >
+                  <Download className="h-4 w-4" />
+                  {t('orders.export')}
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+                {showExportMenu && (
+                  <>
+                    <div className="fixed inset-0 z-[9]" onClick={() => setShowExportMenu(false)} />
+                    <div ref={exportMenuRef} className="absolute right-0 z-10 mt-2 w-40 rounded-lg border border-em-border bg-em-bg-surface shadow-lg">
+                      <button onClick={() => handleExport('csv')} className="w-full px-4 py-2 text-left text-sm text-em-violet-700 hover:bg-em-bg-muted">
+                        {t('orders.exportCSV')}
+                      </button>
+                      <button onClick={() => handleExport('excel')} className="w-full border-t border-em-border px-4 py-2 text-left text-sm text-em-violet-700 hover:bg-em-bg-muted">
+                        {t('orders.exportExcel')}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              <EmButton variant="primary" onClick={() => setShowCreateOrder(true)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                {t('orders.createOrder')}
+              </EmButton>
+            </div>
           </div>
           <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_repeat(2,minmax(145px,190px))] xl:grid-cols-[minmax(260px,1fr)_repeat(4,minmax(140px,180px))]">
             <label className="relative block min-w-0">

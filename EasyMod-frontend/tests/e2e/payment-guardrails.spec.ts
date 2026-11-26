@@ -130,7 +130,9 @@ async function loginAndGo(page: Page) {
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/payment-settings');
     // Wait for the Suspense-loaded page to mount before any assertion.
-    await expect(page.getByTestId('payment-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: the signal band is gone — the gateway cards are the
+    // stable mounted-page anchor (they also prove the load has landed).
+    await expect(page.getByTestId('gateway-card-cod')).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -141,12 +143,13 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + channel signal + pills, no header CTA', async ({ page }) => {
+test('header removed: compact title kept ("Payment Settings" ≠ AppBar "Payment"), NO signal band, count relocated, no header CTA (C1/C6)', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Payment Settings', exact: true })).toBeVisible();
-    await expect(page.getByTestId('payment-signal')).toContainText('Accepting payments');
+    await expect(page.getByTestId('payment-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
+    // The enabled-methods fact survives — relocated to the gateways section header.
     await expect(page.getByText(/Enabled methods:/)).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
@@ -211,7 +214,7 @@ test('390px: no horizontal overflow and five mobile destinations', async ({ page
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('payment-signal')).toBeVisible();
+    await expect(page.getByText(/Enabled methods:/)).toBeVisible();
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
     await expect(mobile.getByRole('link')).toHaveCount(5);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -222,7 +225,7 @@ test('axe: no critical or serious violations in the payment surface', async ({ p
     await setupRoutes(page, { savedConfigs: [savedRow({ is_enabled: true })] });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('payment-signal')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Payment Settings', exact: true })).toBeVisible();
     await page.getByTestId('gateway-expand-bkash').click();
     await expect(page.getByPlaceholder('01XXXXXXXXX')).toBeVisible();
     await page.waitForTimeout(800);

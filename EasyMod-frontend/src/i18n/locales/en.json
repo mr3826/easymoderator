@@ -505,7 +505,6 @@
         "pendingPayment": "Payment needs checking",
         "readyToDispatch": "Ready to dispatch",
         "atRisk": "Failed or returned orders",
-        "openInbox": "Open Inbox",
         "openOrders": "Open orders"
       },
       "sourceNames": {
@@ -584,31 +583,9 @@
       "lastChecked": "Task sources last checked: {{time}}",
       "timeUnavailable": "time unavailable",
       "signal": {
-        "healthy": "Healthy",
         "attention": "Attention",
-        "review": "Review",
-        "blocked": "Blocked",
         "resolved": "Resolved",
-        "pending": "Pending",
-        "reason": {
-          "exceptions": "Delivery exceptions: {{count}}",
-          "work": "Replies: {{replies}} · drafts: {{drafts}}",
-          "partial": "Cannot confirm all clear"
-        }
-      },
-      "primary": {
-        "reply": "Reply to customer",
-        "draft": "Review draft order",
-        "exception": "Review delivery exception"
-      },
-      "whyHere": {
-        "loading": "Checking today's verified work and business signals.",
-        "error": "The dashboard could not load, so counts and tasks may be out of date.",
-        "setup": "Your shop needs a few setup steps before EasyModerator can turn conversations into confirmed orders.",
-        "setupComplete": "Setup steps are configured; live operational verification is shown on this page.",
-        "work": "Verified work is waiting — replies: {{replies}} · draft orders: {{drafts}} · delivery exceptions: {{exceptions}}.",
-        "caughtUp": "No verified work items remain.",
-        "partial": "Some work sources could not be verified, so this page shows only what is confirmed."
+        "pending": "Pending"
       },
       "whereNext": {
         "loading": "The page fills in as soon as the sources respond.",
@@ -688,8 +665,7 @@
         "nextSteps": "Next steps"
       },
       "context": {
-        "breadcrumb": "Breadcrumb",
-        "workspace": "Workspace"
+        "breadcrumb": "Breadcrumb"
       }
     },
     "setup": {
@@ -747,7 +723,6 @@
       "eyebrow": "Business Setup Progress",
       "title": "Complete Your Shop Setup",
       "subtitle": "Finish these essentials so EasyModerator can help turn Messenger conversations into confirmed orders.",
-      "refresh": "Refresh status",
       "progressTitle": "Business Setup Progress",
       "progress": "{{completed}} of {{total}} complete",
       "progressPercent": "Your shop is {{percent}}% ready.",
@@ -943,24 +918,6 @@
     "modeLabel": "AI reply mode",
     "breadcrumb": {
       "workspace": "Workspace"
-    },
-    "signal": {
-      "blocked": "AI stopped",
-      "pending": "Loading",
-      "review": "Needs review",
-      "drafts": "AI drafts waiting",
-      "unread": "Unread messages",
-      "healthy": "All caught up",
-      "empty": "Waiting for messages",
-      "reason": {
-        "emergency": "Automatic replies are paused for every channel.",
-        "review": "{{count}} on this page need a reply.",
-        "drafts": "{{count}} on this page have a draft to review.",
-        "unread": "{{count}} unread on this page.",
-        "caughtUp": "No reply tasks on this page.",
-        "empty": "Customer messages will appear here.",
-        "error": "The conversation list could not load."
-      }
     },
     "whyHere": {
       "loading": "Loading your shared inbox.",
@@ -1309,20 +1266,6 @@
     "title": "Products & Inventory",
     "subtitle": "Add products so customer replies include the right price, stock, size, and delivery details.",
     "totalCountLabel": "Total",
-    "lowStockCountLabel": "Low stock",
-    "signal": {
-      "blocked": "Products unavailable",
-      "pending": "Loading products",
-      "lowStock": "Low stock needs attention",
-      "healthy": "Catalog ready",
-      "attention": "Catalog empty",
-      "reason": {
-        "unavailable": "The product list failed to load. Retry to see your catalog.",
-        "lowStockCount": "{{count}} product(s) at or below their low-stock threshold.",
-        "totalCount": "{{count}} product(s) in your catalog.",
-        "noProducts": "Add a product manually or upload a product file to build your catalog."
-      }
-    },
     "uploadFile": "Upload Product File",
     "addManually": "Add Manually",
     "downloadTemplate": "Download Upload Template",
@@ -1622,21 +1565,6 @@
     "title": "Orders",
     "subtitle": "Manage customer orders and fulfillment",
     "toolbarLabel": "Order worklist filters",
-    "totalCountLabel": "Total",
-    "needsActionCountLabel": "Needs action",
-    "signal": {
-      "blocked": "Orders unavailable",
-      "pending": "Loading orders",
-      "needsAction": "Orders need action",
-      "healthy": "Orders flowing",
-      "attention": "No orders yet",
-      "reason": {
-        "unavailable": "The order list failed to load. Retry to see your orders.",
-        "needsActionCount": "{{count}} order(s) need your action.",
-        "totalCount": "{{count}} order(s) in the worklist.",
-        "noOrders": "Create an order or wait for customer orders to arrive."
-      }
-    },
     "filterDate": "Created date",
     "dateAll": "All dates",
     "dateToday": "Today",
@@ -1916,21 +1844,7 @@
   "customers": {
     "title": "Customer Management",
     "subtitle": "Manage and track all your customers in one place",
-    "totalCountLabel": "Total",
     "opportunityCountLabel": "Opportunities",
-    "signal": {
-      "blocked": "Customers unavailable",
-      "pending": "Loading customers",
-      "opportunities": "Opportunities to action",
-      "healthy": "Customers active",
-      "attention": "No customers",
-      "reason": {
-        "unavailable": "The customer list failed to load. Retry to see your customers.",
-        "opportunityCount": "{{count}} open opportunity(ies) to action.",
-        "totalCount": "{{count}} customer(s) in your shop.",
-        "noCustomers": "Your customer list is empty. Customers appear here once they message you or you add them."
-      }
-    },
     "channels": {
       "facebook": "Facebook",
       "messenger": "Messenger",
@@ -2536,19 +2450,6 @@
         "cta": "Open automation defaults"
       },
       "retryLoad": "Retry loading",
-      "socialCountLabel": "Social links",
-      "infoLengthLabel": "Extra info",
-      "signal": {
-        "blocked": "Profile unavailable",
-        "pending": "Loading profile",
-        "healthy": "Profile ready",
-        "attention": "Profile needs a name",
-        "reason": {
-          "unavailable": "Business information could not be loaded. Retry to see your profile.",
-          "profileReady": "Your shop name is set for customer replies.",
-          "needsName": "Add a shop name so replies can identify your shop."
-        }
-      },
       "nameEn": "Shop name (English)",
       "nameEnHelp": "Optional English display name. Your Bangla shop name stays the primary identity customers see.",
       "tagline": "Tagline",
@@ -2592,11 +2493,6 @@
       "deactivated": "FAQ deactivated.",
       "saving": "Saving...",
       "save": "Save FAQ",
-      "metrics": {
-        "active": "Active FAQs",
-        "total": "Total FAQs",
-        "used": "Answers used"
-      },
       "status": {
         "active": "Active",
         "inactive": "Inactive"
@@ -2661,19 +2557,6 @@
       "saveConnect": "Save & Connect",
       "disconnectConfirm": "Are you sure you want to disconnect {{provider}}? This will deactivate the provider.",
       "disconnectConfirmBody": "Saved credentials are removed and parcels can no longer be booked with this courier until you reconnect.",
-      "signal": {
-        "blocked": "Delivery settings unavailable",
-        "pending": "Loading",
-        "attention": "Couriers need setup",
-        "healthy": "Couriers ready",
-        "reason": {
-          "error": "Delivery settings could not load.",
-          "actionRequired": "A courier needs attention before it can take parcels.",
-          "activeCount": "{{count}} courier(s) active for bookings.",
-          "setupIncomplete": "Connected couriers still need pickup details or activation.",
-          "notConfigured": "No courier is connected yet."
-        }
-      },
       "success": {
         "settingsSaved": "Delivery settings saved successfully",
         "connected": "{{provider}} connected successfully!",
@@ -3039,19 +2922,7 @@
       "merchantPasswordPlaceholder": "Merchant password",
       "saveGateway": "Save {{name}}",
       "configureGateway": "Configure {{name}}",
-      "enabledMethodsLabel": "Enabled methods",
-      "advanceRuleLabel": "Advance rule",
-      "signal": {
-        "blocked": "Configuration unavailable",
-        "pending": "Loading payment methods",
-        "attention": "No method enabled",
-        "healthy": "Accepting payments",
-        "reason": {
-          "loadFailed": "Payment configuration failed to load. Your methods may be out of date.",
-          "enabledCount": "{{count}} payment method(s) enabled for customers.",
-          "noMethodEnabled": "Enable at least one payment method so customers can pay."
-        }
-      }
+      "enabledMethodsLabel": "Enabled methods"
     },
     "hub": {
       "title": "Settings",
@@ -3221,21 +3092,6 @@
         "escalation": "Escalation reply template",
         "businessOnly": "Business only (read-only here)",
         "editAtBusiness": "Edit at business defaults"
-      },
-      "connectedCountLabel": "Connected",
-      "overrideTotalLabel": "Overrides",
-      "signal": {
-        "blocked": "Channels unavailable",
-        "pending": "Loading channels",
-        "stopped": "AI replies stopped",
-        "healthy": "Channels connected",
-        "attention": "Needs a channel",
-        "reason": {
-          "unavailable": "The channel list could not be loaded. Retry to see your Pages.",
-          "stopActive": "The emergency stop is active; AI replies are paused for every channel.",
-          "connectedCount": "{{count}} Facebook Page(s) connected.",
-          "noChannels": "Connect a Facebook Page to let customers reach you on Messenger."
-        }
       }
     },
     "automation": {
@@ -3247,23 +3103,6 @@
       "retryLoad": "Retry loading defaults",
       "modePillLabel": "Mode",
       "confidencePillLabel": "Confidence",
-      "signal": {
-        "blocked": "Defaults unavailable",
-        "pending": "Loading",
-        "stopped": "AI replies stopped",
-        "readOnly": "Read-only",
-        "autoUnverified": "AUTO unverified",
-        "draft": "Drafts need review",
-        "manual": "Manual mode",
-        "reason": {
-          "unavailable": "Settings could not be read from the server.",
-          "stopActive": "The editor is locked until the stop is resumed.",
-          "ownerOnly": "Owner access is required to edit.",
-          "autoUnverified": "Auto-send has not passed live verification.",
-          "draft": "You approve every reply before it is sent.",
-          "manual": "No AI replies are sent or drafted."
-        }
-      },
       "ownerOnly": "Only the shop owner can change automation defaults. You can review the current settings here.",
       "billingStandingTitle": "Billing and automation",
       "billingManage": "View billing",
@@ -3273,21 +3112,6 @@
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose where merchant alerts should appear.",
-      "signal": {
-        "blocked": "Alerts unavailable",
-        "pending": "Loading",
-        "attention": "Alerts need setup",
-        "healthy": "Alerts connected",
-        "waiting": "Waiting for connection",
-        "reason": {
-          "error": "Notification settings could not load.",
-          "notConfigured": "The Telegram alert bot is not set up for this shop yet.",
-          "unhealthy": "The Telegram connection is unhealthy — check the group and bot.",
-          "disconnected": "Telegram alerts are not connected.",
-          "connected": "Telegram alerts are delivering to your group.",
-          "pending": "Finish the connection steps in Telegram, then refresh."
-        }
-      },
       "errors": {
         "load": "Failed to load notification settings."
       },
@@ -3443,17 +3267,6 @@
           "periodRange": "Enter a whole number of days between 0 and 365.",
           "detailsRequired": "Conditions are required when the position is conditional.",
           "fixBeforeSave": "Fix the highlighted fields before saving."
-        },
-        "signal": {
-          "pending": "Policies loading",
-          "blocked": "Policies unavailable",
-          "attention": "Policies need attention",
-          "healthy": "Policies stated",
-          "reason": {
-            "unavailable": "Business policies could not be loaded. Try again to view them.",
-            "noneStated": "No policies stated yet",
-            "stated": "{{count}} of 4 policies stated"
-          }
         }
       },
       "searchPlaceholder": "Search FAQs…",
@@ -3518,8 +3331,6 @@
       "notSet": "—",
       "keywordsLabel": "Internal keywords",
       "metrics": {
-        "published": "Published FAQs",
-        "repliesUsed": "Replies used",
         "countsSummary": "Published {{published}} · Total {{total}}"
       },
       "publish": "Publish",
@@ -3569,19 +3380,6 @@
     }
   },
   "faqSettings": {
-    "signal": {
-      "blocked": "Knowledge unavailable",
-      "pending": "Loading",
-      "attention": "Questions need answers",
-      "healthy": "Knowledge ready",
-      "empty": "No answers yet",
-      "reason": {
-        "error": "The knowledge list could not load.",
-        "gaps": "{{count}} customer questions need answers.",
-        "empty": "Add the first answer customers can receive.",
-        "ready": "{{active}} of {{total}} answers active."
-      }
-    },
     "confirmTitle": "Delete this answer?",
     "gaps": {
       "title": "Questions customers keep asking",
@@ -3622,21 +3420,6 @@
   "subscription": {
     "title": "Billing",
     "subtitle": "Delivered-order billing, invoices, and payment",
-    "invoiceCountLabel": "Invoices",
-    "dueCountLabel": "Due",
-    "signal": {
-      "blocked": "Terms unavailable",
-      "pending": "Loading billing",
-      "due": "Invoice due",
-      "current": "Billing current",
-      "attention": "No invoices",
-      "reason": {
-        "termsUnavailable": "Commercial terms could not be validated, so no price is shown.",
-        "dueCount": "{{count}} invoice(s) awaiting payment.",
-        "invoiceCount": "{{count}} invoice(s) on record.",
-        "noInvoices": "Invoices appear here once orders are delivered and confirmed."
-      }
-    },
     "loading": "Loading billing details...",
     "entitlementsUnavailable": "Feature availability is temporarily unavailable.",
     "loadingFeatures": "Checking feature availability...",
@@ -3661,7 +3444,6 @@
     "usageOutstandingLabel": "Outstanding",
     "usagePeriodsLabel": "Periods with detail: {{count}}",
     "usageNoDetail": "Usage detail is available for invoices issued under the current contract. Older invoices show amounts only.",
-    "usageDeliveredPillLabel": "Delivered billed",
     "usagePerPeriod": "{{delivered}} delivered · {{zeroRated}} zero-rated",
     "usagePeriodRange": "{{start}} – {{end}}",
     "invoiceDueOn": "Due {{date}}",

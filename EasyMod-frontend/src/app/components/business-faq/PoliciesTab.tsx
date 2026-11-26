@@ -40,7 +40,7 @@ import { getErrorMessage } from "@shared/lib/http/errors";
 import { fadeUp } from "@/lib/motion";
 import { EmButton } from "../dashboard/EmButton";
 import { PageHeader } from "../dashboard/PageHeader";
-import { derivePoliciesSignal, POLICY_TOTAL } from "../policies/derive";
+import { POLICY_TOTAL } from "../policies/derive";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
@@ -272,7 +272,6 @@ export default function PoliciesTab() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const isOwner = authService.getCurrentShop()?.role?.toLowerCase() === "owner";
-  const shopName = authService.getCurrentShop()?.shop_name || t("manageShop.businessFaq.policies.title");
 
   const seed = (map: ShopBusinessPolicies) => {
     setServerPolicies(map);
@@ -392,38 +391,19 @@ export default function PoliciesTab() {
   const formatted = (value: number) => numberFormat.format(value);
 
   const phase = loadError ? "error" : isLoading ? "loading" : "ready";
-  const signal = derivePoliciesSignal({ phase, statedCount }, t);
   const allNotStated = phase === "ready" && statedCount === 0;
 
   return (
     <MotionConfig reducedMotion="user">
       <div className="space-y-6">
-        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader
-            title={t("manageShop.businessFaq.policies.title")}
-            breadcrumb={[{ label: shopName }]}
-            signal={signal}
-            signalTestId="policies-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                {phase === "ready" && (
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t("manageShop.businessFaq.policies.stated")}: {formatted(statedCount)}/{formatted(POLICY_TOTAL)}
-                  </span>
-                )}
-                {anyDirty && isOwner && (
-                  <span
-                    data-testid="policies-unsaved"
-                    className="whitespace-nowrap rounded-full border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-1 text-xs font-medium text-em-sunlight-700"
-                  >
-                    {t("manageShop.businessFaq.policies.unsavedPill")}
-                  </span>
-                )}
-              </div>
-            }
-          />
-        </motion.div>
+        {/* Header-removal C1 amendment (unified title rule): "Business
+            Policies" is NOT the AppBar name on either host route
+            ("FAQs" on /manage-shop/faqs, "Business Info" on
+            /manage-shop/business-info), so this h1 stays VISIBLE compact —
+            unlike the profile/FAQ tab h1s, which equal their canonical nav
+            names and keep sr-only. Tab signal band and header pills stay
+            retired; the stated tally + unsaved pill live in the save footer. */}
+        <PageHeader title={t("manageShop.businessFaq.policies.title")} titleMode="compact" />
 
         {/* Mission §7 / Y4 disclosure — plain language, never color-only. */}
         <p className="rounded-xl border border-em-border bg-em-bg-muted px-4 py-3 text-sm text-em-text-secondary">
@@ -594,6 +574,26 @@ export default function PoliciesTab() {
                     {notice.message}
                   </div>
                 )}
+
+                {/* C2/C4: the header's two contextual chips moved here, next
+                    to the Save they describe — stated stays server-truth
+                    (Y3: never the draft form state), unsaved keeps its testid. */}
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <span
+                    data-testid="policies-stated-count"
+                    className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary"
+                  >
+                    {t("manageShop.businessFaq.policies.stated")}: {formatted(statedCount)}/{formatted(POLICY_TOTAL)}
+                  </span>
+                  {anyDirty && isOwner && (
+                    <span
+                      data-testid="policies-unsaved"
+                      className="whitespace-nowrap rounded-full border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-1 text-xs font-medium text-em-sunlight-700"
+                    >
+                      {t("manageShop.businessFaq.policies.unsavedPill")}
+                    </span>
+                  )}
+                </div>
 
                 {isOwner ? (
                   <>

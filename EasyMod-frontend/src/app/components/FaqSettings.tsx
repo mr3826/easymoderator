@@ -20,8 +20,6 @@ import { EmButton } from "./dashboard/EmButton";
 import { PageHeader } from "./dashboard/PageHeader";
 import { ResultBanner } from "./dashboard/ResultBanner";
 import { useDialogFocus } from "./inbox/useDialogFocus";
-import { deriveFaqSignal } from "./faq/derive";
-import { authService } from "@/app/lib/auth";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
@@ -232,45 +230,14 @@ export default function FaqSettings() {
     }
   };
 
-  const openGapCount = (gapSuggestions ?? []).filter((suggestion) => suggestion.status === "OPEN").length;
-  const signal = deriveFaqSignal(
-    {
-      phase: loadError ? "error" : isLoading ? "loading" : faqs.length === 0 ? "empty" : "ready",
-      openGapCount,
-      activeCount: stats.active,
-      totalCount: stats.total,
-    },
-    t,
-  );
-  const shopName = authService.getCurrentShop()?.shop_name || t("manageShop.faqs.title");
-
   return (
     <MotionConfig reducedMotion="user">
       <div className="em-faqs min-h-full p-4 md:p-6">
         <div className="mx-auto w-full max-w-[1440px] space-y-6">
-          {/* Execution-page header (§29): title + signal + factual pills only. */}
-          <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-            <PageHeader
-              title={t("manageShop.faqs.title")}
-              breadcrumb={[{ label: shopName }]}
-              signal={signal}
-              signalTestId="faq-signal"
-              signalAnnounce={false}
-              meta={
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t("manageShop.faqs.metrics.active")}: {stats.active}
-                  </span>
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t("manageShop.faqs.metrics.total")}: {stats.total}
-                  </span>
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t("manageShop.faqs.metrics.used")}: {stats.used}
-                  </span>
-                </div>
-              }
-            />
-          </motion.div>
+          {/* Header-removal C1 (legacy page): signal band, shop-name breadcrumb
+              and metric pills retired — the gap-suggestions card below still
+              carries the open-gap truth, and the toolbar keeps the primary. */}
+          <PageHeader title={t("manageShop.faqs.title")} titleMode="srOnly" />
 
           {gapSuggestions && gapSuggestions.length > 0 && (
             <motion.section

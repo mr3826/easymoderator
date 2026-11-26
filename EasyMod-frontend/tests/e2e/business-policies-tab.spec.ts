@@ -154,7 +154,9 @@ async function loginAndOpenPolicies(page: Page) {
     await page.goto('/manage-shop/business-info');
     await expect(page.getByTestId('business-faq-tab-profile')).toBeVisible();
     await page.getByTestId('business-faq-tab-policies').click();
-    await expect(page.getByTestId('policies-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: the tab's signal band is gone — panel mount is the
+    // gate; body assertions below auto-wait for the GET to settle.
+    await expect(page.locator('#business-faq-panel-policies')).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -196,8 +198,10 @@ test('four cards render stance semantics — absence is never "not offered"', as
     // its conditions, not_offered/unspecified show no detail grid.
     await expect(page.getByTestId('policy-card-returns').getByLabel('Window (days)')).toHaveValue('7');
     await expect(page.getByTestId('policy-card-exchange').getByLabel('Details')).toHaveValue('Exchange only for size issues within 3 days.');
-    // Honest header: 3 of 4 stated (server truth, not the draft form state).
-    await expect(page.getByTestId('policies-signal')).toContainText('3 of 4 policies stated');
+    // Honest server truth, relocated to the save footer: 3 of 4 stated (never
+    // the draft form state). The signal band itself must NOT exist.
+    await expect(page.getByTestId('policies-signal')).toHaveCount(0);
+    await expect(page.getByTestId('policies-stated-count')).toContainText('Stated: 3/4');
     // Stance controls are native selects — the workspace-wide radiogroup==0
     // boundary stays honest (02 §3).
     await expect(page.getByRole('radiogroup')).toHaveCount(0);
@@ -213,7 +217,7 @@ test('empty GET fabricates nothing: all four Not stated, no defaults written, no
     for (const kind of POLICY_CONTRACT_KEYS) {
         await expect(page.getByTestId(`policy-stance-${kind}`)).toHaveValue('unspecified');
     }
-    await expect(page.getByTestId('policies-signal')).toContainText('No policies stated yet');
+    await expect(page.getByTestId('policies-stated-count')).toContainText('Stated: 0/4');
     await expect(page.getByText('Until you state them, replies will not guess these terms.')).toBeVisible();
     await expect(page.getByTestId('policies-save')).toBeDisabled();
     expect(state.puts).toBe(0);
@@ -313,7 +317,7 @@ test('390px: policies tab fits with five mobile destinations and no overflow', a
     await page.setViewportSize({ width: 390, height: 844 });
     const state = await setupRoutes(page, { policies: populated });
     await loginAndOpenPolicies(page);
-    await expect(page.getByTestId('policies-signal')).toBeVisible();
+    await expect(page.getByTestId('policies-stated-count')).toBeVisible();
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
     await expect(mobile.getByRole('link')).toHaveCount(5);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -325,7 +329,7 @@ test('axe: no critical or serious violations across the policies surface', async
     const state = await setupRoutes(page, { policies: populated });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndOpenPolicies(page);
-    await expect(page.getByTestId('policies-signal')).toBeVisible();
+    await expect(page.getByTestId('policies-stated-count')).toBeVisible();
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.em-business').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
