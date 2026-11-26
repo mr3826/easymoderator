@@ -2,8 +2,10 @@
  * Delivery Settings — three-tab Configuration/editor redesign (mission 2026-11-24).
  *
  * Tabs: Courier Providers / Pickup Locations / Delivery Charges & Policies.
- * The header keeps the execution-page contract (title + one page signal + factual
- * pills, no CTA). General, area and weight pricing still live in ONE settings
+ * The page-level signal header is retired (header-removal C1/C2/C7): the sticky
+ * AppBar owns the visible title, the h1 stays sr-only, per-provider status lives
+ * on the provider cards, and the unsaved-charges indicator rides the tab strip.
+ * General, area and weight pricing still live in ONE settings
  * object behind ONE PUT — the snapshot semantics, save-scope copy and weight-tier
  * validation are unchanged from the pre-tab page; only the affordance now sits in
  * the Charges tab. Providers/pickup mutations reload from the server so no success
@@ -13,12 +15,9 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, X, AlertCircle } from 'lucide-react';
-import { motion, MotionConfig } from 'motion/react';
+import { MotionConfig } from 'motion/react';
 import * as orderApi from '@/api/domains/order';
-import { fadeUp } from '@/lib/motion';
 import { PageHeader } from './dashboard/PageHeader';
-import { deriveDeliverySignal } from './delivery/derive';
-import { authService } from '@/app/lib/auth';
 import { getErrorMessage } from '@shared/lib/http/errors';
 import ProvidersTab from './delivery/ProvidersTab';
 import PickupTab from './delivery/PickupTab';
@@ -30,8 +29,6 @@ import type {
   PickupLocation,
   PickupLocationSummary,
 } from '@/api/types/order';
-
-const ANIMATE = import.meta.env.MODE !== 'test';
 
 const DEFAULT_DELIVERY_SETTINGS: DeliveryShopSettings = {
   default_delivery_charge: 60,
@@ -234,49 +231,14 @@ export default function DeliverySettings() {
     );
   }
 
-  const activeCount = providers.filter((provider) => provider.is_active).length;
-  const connectedCount = providers.filter((provider) => provider.is_connected).length;
-  const signal = deriveDeliverySignal(
-    { phase: error ? 'error' : 'ready', providers, activeCount, connectedCount },
-    t,
-  );
-  const shopName = authService.getCurrentShop()?.shop_name || t('manageShop.deliverySettings.title');
-
   return (
     <MotionConfig reducedMotion="user">
       <div className="em-delivery min-h-full p-4 md:p-6">
         <div className="mx-auto w-full max-w-[1440px] space-y-6">
-          {/* Execution-page header: title + signal + factual pills only. */}
-          <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
-            <PageHeader
-              title={t('manageShop.deliverySettings.title')}
-              breadcrumb={[{ label: shopName }]}
-              signal={signal}
-              signalTestId="delivery-signal"
-              signalAnnounce={false}
-              meta={
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t('manageShop.deliverySettings.statuses.active')}: {activeCount}
-                  </span>
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t('manageShop.deliverySettings.connected')}: {connectedCount}
-                  </span>
-                  <span className="whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t('manageShop.deliverySettings.enableCOD')}: {deliverySettings.cod_enabled ? t('manageShop.deliverySettings.statuses.active') : t('manageShop.deliverySettings.statuses.notConfigured')}
-                  </span>
-                  {chargesDirty && (
-                    <span
-                      data-testid="delivery-charges-unsaved"
-                      className="whitespace-nowrap rounded-full border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-1 text-xs font-medium text-em-sunlight-700"
-                    >
-                      {t('manageShop.deliverySettings.chargesUnsaved')}
-                    </span>
-                  )}
-                </div>
-              }
-            />
-          </motion.div>
+          {/* Header-removal C1: signal badge, shop-name breadcrumb and count
+              pills are retired — the AppBar owns the visible title, per-provider
+              status lives on the provider cards, COD truth lives in Charges. */}
+          <PageHeader title={t('manageShop.deliverySettings.title')} titleMode="srOnly" />
 
           {/* Success Message */}
           {successMessage && (
@@ -308,32 +270,44 @@ export default function DeliverySettings() {
             </div>
           )}
 
-          <div
-            role="tablist"
-            aria-label={t('manageShop.deliverySettings.tabs.label')}
-            className="flex gap-1 overflow-x-auto"
-          >
-            {TABS.map((tab, index) => (
-              <button
-                key={tab.id}
-                id={`delivery-tab-${tab.id}`}
-                type="button"
-                role="tab"
-                data-testid={`delivery-tab-${tab.id}`}
-                aria-selected={activeTab === tab.id}
-                aria-controls={`delivery-panel-${tab.id}`}
-                tabIndex={activeTab === tab.id ? 0 : -1}
-                onClick={() => setActiveTab(tab.id)}
-                onKeyDown={(event) => moveTabFocus(event, index)}
-                className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${
-                  activeTab === tab.id
-                    ? 'bg-em-violet-600 text-white'
-                    : 'bg-em-bg-surface text-em-text-secondary hover:bg-em-violet-50'
-                }`}
+          {/* The tab strip absorbs the header's one carried affordance: the
+              amber unsaved-charges indicator rides its right edge (C2/C4). */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div
+              role="tablist"
+              aria-label={t('manageShop.deliverySettings.tabs.label')}
+              className="flex gap-1 overflow-x-auto"
+            >
+              {TABS.map((tab, index) => (
+                <button
+                  key={tab.id}
+                  id={`delivery-tab-${tab.id}`}
+                  type="button"
+                  role="tab"
+                  data-testid={`delivery-tab-${tab.id}`}
+                  aria-selected={activeTab === tab.id}
+                  aria-controls={`delivery-panel-${tab.id}`}
+                  tabIndex={activeTab === tab.id ? 0 : -1}
+                  onClick={() => setActiveTab(tab.id)}
+                  onKeyDown={(event) => moveTabFocus(event, index)}
+                  className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${
+                    activeTab === tab.id
+                      ? 'bg-em-violet-600 text-white'
+                      : 'bg-em-bg-surface text-em-text-secondary hover:bg-em-violet-50'
+                  }`}
+                >
+                  {t(tab.labelKey)}
+                </button>
+              ))}
+            </div>
+            {chargesDirty && (
+              <span
+                data-testid="delivery-charges-unsaved"
+                className="shrink-0 whitespace-nowrap rounded-full border border-em-sunlight-500/40 bg-em-sunlight-100 px-3 py-1 text-xs font-medium text-em-sunlight-700"
               >
-                {t(tab.labelKey)}
-              </button>
-            ))}
+                {t('manageShop.deliverySettings.chargesUnsaved')}
+              </span>
+            )}
           </div>
 
           {activeTab === 'providers' && (

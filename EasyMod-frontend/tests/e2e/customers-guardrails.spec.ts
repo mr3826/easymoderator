@@ -1,10 +1,12 @@
 /**
  * Customers-worklist guardrails proof (mock-only, CI subset). Execution-class
- * worklist (§29): signal header + factual pills (pilot + legacy), tabpanel
- * semantics, docked detail sections, legacy create-dialog focus trap + Escape,
- * 390px no-overflow, axe `.em-customers`. Allowlist mirrors customer-intelligence
- * (no new endpoints). The detailed opportunity/confidence/deep-link contracts
- * remain covered by customer-intelligence.spec.ts.
+ * worklist (header-removal C1/C6): no permanent signal band — compact titles
+ * survive, counts relocated to the tab strip (pilot) / search toolbar
+ * (legacy); tabpanel semantics, docked detail sections, legacy create-dialog
+ * focus trap + Escape, 390px no-overflow, axe `.em-customers`. Allowlist
+ * mirrors customer-intelligence (no new endpoints). The detailed
+ * opportunity/confidence/deep-link contracts remain covered by
+ * customer-intelligence.spec.ts.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -122,7 +124,9 @@ async function loginAndGo(page: Page, target = '/customers') {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto(target);
-    await expect(page.getByTestId('customers-signal').or(page.getByTestId('customer-state')).first()).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: the signal testid is gone on list and detail alike;
+    // every surface keeps exactly one level-1 heading as the mount anchor.
+    await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -133,13 +137,17 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('pilot execution header: title + signal + pills + tabpanel, no header CTA', async ({ page }) => {
+test('pilot page: compact title, no signal band or header CTA, tabpanel + honest counts', async ({ page }) => {
     const state = await setupRoutes(page, { pilot: true });
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
-    await expect(page.getByTestId('customers-signal')).toContainText('Customers active');
+    // C6: the page-level signal badge must NOT exist any more.
+    await expect(page.getByTestId('customers-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
-    await expect(page.getByText(/Total:/)).toBeVisible();
+    // C4: the list total stays honest — relocated from the header pill to the
+    // 'all' tab badge (mock total 1); the opportunities tab badges its count.
+    await expect(page.getByTestId('customers-tab-all')).toContainText('1');
+    await expect(page.getByTestId('customers-tab-opportunities')).toBeVisible();
     await expect(page.getByRole('tabpanel')).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
@@ -195,7 +203,7 @@ test('axe: no critical or serious violations in the customers surface', async ({
     await setupRoutes(page, { pilot: true });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('customers-signal')).toBeVisible();
+    await expect(page.getByTestId('customers-tab-all')).toBeVisible();
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.em-customers').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');

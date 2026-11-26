@@ -3,9 +3,9 @@
  * (Business Profile / FAQs / Business Policies), founder mission 2026-11-26.
  *
  * Shell ownership (mirrors the Delivery Settings tabbed shell): tablist +
- * panel container ONLY. Each tab renders its own execution-page header inside
- * its panel, so the legacy `business-signal` / `faq-signal` pins survive
- * unchanged per tab and no second h1 or duplicate strip-level signal exists.
+ * panel container ONLY. The per-tab PageHeader signal bands are retired
+ * (header-removal C1): each tab body keeps exactly one sr-only h1 for the
+ * accessibility landmark, and the visible tablist provides the orientation.
  * URL compatibility: both /manage-shop/business-info and /manage-shop/faqs
  * render this workspace with the matching initial tab; nav/SettingsHub links
  * are untouched.

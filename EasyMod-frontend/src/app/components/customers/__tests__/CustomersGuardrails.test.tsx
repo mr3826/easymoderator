@@ -1,9 +1,10 @@
 /**
- * Customers-worklist guardrails contracts (§8/§17/§18/§29): worklist signal
- * matrix, execution header without CTA + tabpanel semantics (pilot), and the
- * legacy create-customer dialog focus trap + Escape + label. Additive suite
- * (real i18n en); the legacy Customers/Customer360/CustomerContextPanel suites
- * stay unchanged.
+ * Customers-worklist guardrails contracts (§8/§17/§18 + header-removal
+ * C1/C6): header band retired on both pilot and legacy surfaces (no signal
+ * badge, no header CTA) with counts relocated to the tab strip / search
+ * toolbar, plus tabpanel semantics (pilot) and the legacy create-customer
+ * dialog focus trap + Escape + label. Additive suite (real i18n en); the
+ * legacy Customers/Customer360/CustomerContextPanel suites stay unchanged.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -11,7 +12,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Customers from '../../Customers';
 import Customer360Page from '../Customer360Page';
-import { deriveCustomersSignal } from '../derive';
 import { listCustomers360, listOpportunities, getPilotStatus } from '@/api/domains/customer-intelligence';
 import { apiClient } from '@/api';
 
@@ -64,25 +64,17 @@ beforeEach(() => {
   vi.mocked(apiClient.getCustomers).mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 20 } as never);
 });
 
-describe('worklist signal derivation', () => {
-  const t = (key: string, opts?: Record<string, unknown>) => (opts?.count !== undefined ? `${key}:${opts.count}` : key);
-  it('maps error / loading / opportunities / active / empty to distinct signals', () => {
-    expect(deriveCustomersSignal({ phase: 'error', totalCount: null, opportunityCount: null }, t).kind).toBe('blocked');
-    expect(deriveCustomersSignal({ phase: 'loading', totalCount: null, opportunityCount: null }, t).kind).toBe('pending');
-    expect(deriveCustomersSignal({ phase: 'ready', totalCount: 5, opportunityCount: 2 }, t).kind).toBe('attention');
-    expect(deriveCustomersSignal({ phase: 'ready', totalCount: 5, opportunityCount: 2 }, t).label).toContain('opportunities');
-    expect(deriveCustomersSignal({ phase: 'ready', totalCount: 5, opportunityCount: 0 }, t).kind).toBe('healthy');
-    expect(deriveCustomersSignal({ phase: 'ready', totalCount: 0, opportunityCount: 0 }, t).kind).toBe('attention');
-  });
-});
-
-describe('pilot execution header', () => {
-  it('shows title + signal + pills, no header CTA, and a tabpanel', async () => {
+describe('pilot page header (header-removal C1/C6)', () => {
+  it('keeps the compact visible title, drops the signal band, counts live in the tab strip', async () => {
     render(<MemoryRouter><Customer360Page /></MemoryRouter>);
-    await waitFor(() => expect(screen.getByTestId('customers-signal').textContent).toContain('Customers active'));
+    // C4: the list total is honest on the 'all' tab badge (were header pills).
+    await waitFor(() => expect(screen.getByTestId('customers-tab-all').textContent).toContain('1'));
+    // C1: record-page style compact heading stays visible for orientation.
     expect(screen.getByRole('heading', { level: 1, name: 'Customers' })).toBeInTheDocument();
+    // C6: the page-level signal badge must NOT exist any more.
+    expect(screen.queryByTestId('customers-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
-    expect(screen.getByText(/Total:/)).toBeInTheDocument();
+    expect(screen.queryByText(/Total:/)).toBeNull();
     expect(screen.getByRole('tabpanel')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /opportunities/i })).toHaveAttribute('aria-controls', 'customers-tabpanel');
   });

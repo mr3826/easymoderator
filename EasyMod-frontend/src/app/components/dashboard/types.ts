@@ -115,10 +115,11 @@ export type DashboardPhase =
   | "pulse-error"
   | "ready";
 
-/** Core Design Test (§4) — every state must answer all four, non-empty. */
+/** Core Design Test (§4) — every state must answer all, non-empty. The
+ *  former `whatNow` header answer retired with the page action band
+ *  (header-removal C2/C3): the next action is the AttentionQueue row itself. */
 export interface DashboardNarrative {
   whyHere: string;
-  whatNow: string;
   whereNext: string;
   provenResult: string;
 }

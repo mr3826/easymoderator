@@ -1,6 +1,8 @@
 /**
- * Delivery-settings guardrails contracts (§8/§16/§17/§29) — tabbed shell edition.
- * Channel signal matrix, execution header without CTA, provider heading/AI-default
+ * Delivery-settings guardrails contracts (§8/§16/§17) — tabbed shell edition.
+ * Header-removal C1/C6 flip: the `delivery-signal` band is an ABSENCE pin, the
+ * honest status matrix is re-anchored to the record-level provider chips, and
+ * the no-header-CTA guard stays as a positive absence pin. Provider heading/AI-default
  * sibling structure, capability honesty ceiling, disconnect danger confirmation
  * (now type-to-confirm inside the management drawer), activation-409 → Pickup TAB
  * routing (with the legacy PickupDetailsModal fallback pinned for unwired shells),
@@ -91,7 +93,7 @@ const mockSettings = (providers: unknown[]) => {
 };
 
 const openChargesTab = async () => {
-  await screen.findByTestId('delivery-signal');
+  await screen.findByTestId('delivery-tab-providers');
   fireEvent.click(screen.getByTestId('delivery-tab-charges'));
   return screen.findByTestId('charges-tab');
 };
@@ -101,30 +103,32 @@ beforeEach(() => {
   mockSettings([status('pathao'), status('steadfast'), status('redx')]);
 });
 
-describe('delivery signal header', () => {
-  it('shows title + signal + pills and no header CTA', async () => {
+describe('page signal header removed (C1/C6 absence pins)', () => {
+  it('renders no signal band, keeps the level-1 title and no header CTA', async () => {
     render(<DeliverySettings />);
-    const signal = await screen.findByTestId('delivery-signal');
-    expect(signal.textContent).toContain('Couriers need setup');
+    await screen.findByTestId('delivery-tab-providers');
+    expect(screen.queryByTestId('delivery-signal')).toBeNull();
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
   });
 
-  it('maps active / action-required / load-failure to distinct signals', async () => {
+  it('keeps active / action-required / load-failure truth at record level', async () => {
     mockSettings([status('pathao', { is_connected: true, is_active: true, activation_status: 'ACTIVE' })]);
     const { unmount } = render(<DeliverySettings />);
-    await waitFor(() => expect(screen.getByTestId('delivery-signal').textContent).toContain('Couriers ready'));
+    await waitFor(() => expect(screen.getByTestId('activation-status-pathao').textContent).toContain('Active'));
+    expect(screen.queryByTestId('delivery-signal')).toBeNull();
     unmount();
 
     mockSettings([status('pathao', { is_connected: true, activation_status: 'ACTION_REQUIRED' })]);
     const second = render(<DeliverySettings />);
-    await waitFor(() => expect(screen.getByTestId('delivery-signal').textContent).toContain('Couriers need setup'));
+    await waitFor(() => expect(screen.getByTestId('activation-status-pathao').textContent).toContain('Action required'));
+    expect(screen.queryByTestId('delivery-signal')).toBeNull();
     second.unmount();
 
     vi.mocked(orderApi.getDeliverySettings).mockRejectedValue(new Error('boom'));
     const third = render(<DeliverySettings />);
-    await waitFor(() => expect(screen.getByTestId('delivery-signal').textContent).toContain('Delivery settings unavailable'));
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByTestId('delivery-signal')).toBeNull();
     third.unmount();
   });
 });
@@ -132,7 +136,7 @@ describe('delivery signal header', () => {
 describe('tab shell', () => {
   it('exposes a real tablist: roles, controlled panels and roving arrow-key focus', async () => {
     render(<DeliverySettings />);
-    await screen.findByTestId('delivery-signal');
+    await screen.findByTestId('delivery-tab-providers');
     const providersTab = screen.getByTestId('delivery-tab-providers');
     const pickupTab = screen.getByTestId('delivery-tab-pickup');
     const chargesTab = screen.getByTestId('delivery-tab-charges');

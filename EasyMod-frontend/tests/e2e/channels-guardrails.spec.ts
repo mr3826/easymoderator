@@ -149,7 +149,13 @@ async function loginAndGo(page: Page, target = '/manage-shop/channels') {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto(target);
-    await expect(page.getByTestId('channels-signal').or(page.getByTestId('channel-effective-mode')).first()).toBeVisible({ timeout: 15_000 });
+    // Page-mounted gate: overview owns its compact title; the detail record
+    // page exposes the resolver-backed effective mode (record-level, survives).
+    await expect(
+        page.getByRole('heading', { name: 'Channels & Automation', exact: true })
+            .or(page.getByTestId('channel-effective-mode'))
+            .first(),
+    ).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -160,13 +166,16 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + workspace signal + pills, no header CTA', async ({ page }) => {
+test('page header: compact title, no signal band, no header CTA; status lives per card', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Channels & Automation', exact: true })).toBeVisible();
-    await expect(page.getByTestId('channels-signal')).toContainText('Channels connected');
+    // Removal pinned: no page-level signal badge and no shop-level count band.
+    await expect(page.getByTestId('channels-signal')).toHaveCount(0);
+    await expect(page.getByText(/Connected:/)).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
-    await expect(page.getByText(/Connected:/)).toBeVisible();
+    // The connected fact survives at record level inside the channel card.
+    await expect(page.getByTestId('channel-card-c1')).toContainText('Connected');
     expect(state.unexpected).toEqual([]);
 });
 
@@ -203,7 +212,7 @@ test('390px: no horizontal overflow on the workspace', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('channels-signal')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Channels & Automation', exact: true })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
 });
@@ -212,7 +221,7 @@ test('axe: no critical or serious violations in the channels surface', async ({ 
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('channels-signal')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Channels & Automation', exact: true })).toBeVisible();
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.em-channels').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');

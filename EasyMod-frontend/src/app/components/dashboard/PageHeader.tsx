@@ -1,52 +1,34 @@
 /**
- * Page header (guardrails §24): context bar → title + dominant signal +
- * WHY HERE → primary action bar (WHAT NOW). signalTestId/primaryTestId/meta
- * are additive slots so other redesigned pages (inbox) reuse the anatomy
- * without forking it; defaults preserve the dashboard proof hooks.
+ * Slim page title (header-removal contract C1): optional breadcrumb → ONE h1 →
+ * optional record-level meta row. The permanent page-level signal badge,
+ * explanatory summary and action band are RETIRED on every merchant page —
+ * do not re-add them here or at any call site (docs/header-removal/03_CONTRACT.md).
  */
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { ActionBar } from "./ActionBar";
-import { SignalBadge } from "./SignalBadge";
-import type { Action, BreadcrumbItem, Signal } from "./types";
+import type { BreadcrumbItem } from "./types";
 
 interface PageHeaderProps {
-  title: string;
-  breadcrumb: BreadcrumbItem[];
-  signal?: Signal;
-  /** Overview pages answer WHY HERE in the header; execution pages (guardrails
-   *  §29) answer it inside the work area and omit this paragraph entirely. */
-  whyHere?: string;
-  primaryAction?: Action;
-  secondaryActions?: Action[];
-  loading?: boolean;
-  signalTestId?: string;
-  primaryTestId?: string;
+  title?: string;
+  /**
+   * 'compact' renders a visible small heading — required on record pages and
+   * anywhere the sticky AppBar does not show the same name. 'srOnly' keeps the
+   * h1 in the accessibility tree while the AppBar owns the visible title.
+   */
+  titleMode?: "compact" | "srOnly";
+  breadcrumb?: BreadcrumbItem[];
+  /** Record-level/contextual status only — never a global shop pulse. */
   meta?: ReactNode;
-  /** Inbox keeps role="status" reserved for thread-level claims; the header
-   *  signal still announces politely through a live-region wrapper. */
-  signalAnnounce?: boolean;
 }
 
-export function PageHeader({
-  title,
-  breadcrumb,
-  signal,
-  whyHere,
-  primaryAction,
-  secondaryActions,
-  loading,
-  signalTestId = "dashboard-signal",
-  primaryTestId,
-  meta,
-  signalAnnounce = true,
-}: PageHeaderProps) {
+export function PageHeader({ title, titleMode = "compact", breadcrumb, meta }: PageHeaderProps) {
   const { t } = useTranslation();
+  if (!title && (!breadcrumb || breadcrumb.length === 0) && !meta) return null;
   return (
-    <header className="mb-6">
-      {breadcrumb.length > 0 && (
+    <header className="mb-3">
+      {breadcrumb && breadcrumb.length > 0 && (
         <nav aria-label={t("dashboard.pulse.context.breadcrumb")} className="mb-2">
           <ol className="flex flex-wrap items-center gap-1 text-xs font-medium text-em-text-secondary">
             {breadcrumb.map((item, index) => (
@@ -64,27 +46,12 @@ export function PageHeader({
           </ol>
         </nav>
       )}
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold text-em-text-primary">{title}</h1>
-        {signal && (signalAnnounce ? (
-          <SignalBadge signal={signal} size="md" announce data-testid={signalTestId} />
-        ) : (
-          <span aria-live="polite">
-            <SignalBadge signal={signal} size="md" data-testid={signalTestId} />
-          </span>
-        ))}
-      </div>
-      {whyHere && <p className="mt-1 max-w-[70ch] text-sm text-em-text-secondary">{whyHere}</p>}
-      {meta && <div className="mt-3">{meta}</div>}
-      {primaryAction && (
-        <ActionBar
-          className="mt-4"
-          primaryAction={primaryAction}
-          secondaryActions={secondaryActions}
-          loading={loading}
-          primaryTestId={primaryTestId}
-        />
+      {title && (
+        <h1 className={titleMode === "srOnly" ? "sr-only" : "text-lg font-semibold text-em-text-primary"}>
+          {title}
+        </h1>
       )}
+      {meta && <div className="mt-1">{meta}</div>}
     </header>
   );
 }

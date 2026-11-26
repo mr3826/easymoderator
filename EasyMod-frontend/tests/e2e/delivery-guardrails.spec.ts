@@ -642,12 +642,14 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + channel signal + pills, no header CTA', async ({ page }) => {
+test('header removed: sr-only title kept, NO signal band, no header CTA (C1/C6)', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Delivery Settings', exact: true })).toBeVisible();
-    await expect(page.getByTestId('delivery-signal')).toContainText('Couriers need setup');
+    await expect(page.getByTestId('delivery-signal')).toHaveCount(0);
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
+    // Record-level truth survives: the provider cards render their own status.
+    await expect(page.getByTestId('activation-status-pathao')).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
 
@@ -1265,7 +1267,7 @@ test('390px: no horizontal overflow + five mobile destinations + wrapped long ho
         cache: { pathao: ['s1', 's2'] },
     });
     await loginAndGo(page);
-    await expect(page.getByTestId('delivery-signal')).toBeVisible();
+    await expect(page.getByTestId('delivery-tab-providers')).toBeVisible();
     const mobile = page.locator('nav[aria-label="Workspace navigation"]').nth(1);
     await expect(mobile.getByRole('link')).toHaveCount(5);
     await expectNoOverflow(page);
@@ -1318,7 +1320,7 @@ test('axe: no critical or serious violations in the delivery surface across all 
     });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('delivery-signal')).toBeVisible();
+    await expect(page.getByTestId('delivery-tab-providers')).toBeVisible();
     await page.waitForTimeout(800);
 
     for (const tab of ['providers', 'pickup', 'charges'] as const) {

@@ -3,8 +3,10 @@
  * Slim orchestrator: data (useDashboardData), pure derivation (derive), and
  * page-scoped contract components. Setup gating, polling cadence, coverage
  * honesty and deep links are preserved from the baseline; presentation follows
- * EasyModerator-UI-UX-Guardrails.md (screen anatomy §5, signals §8, one primary
- * action §11, states §16, dashboard template §21.1).
+ * EasyModerator-UI-UX-Guardrails.md (states §16, dashboard template §21.1).
+ * The page-level signal header/action band is retired (header-removal C1/C2):
+ * the sticky AppBar shows the page name, the h1 stays sr-only, and status lives
+ * in the record-level modules (chips, queue, ConnectionHealth).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,8 +20,6 @@ import {
   buildWorkGroups,
   buildWorkItems,
   deriveNarrative,
-  derivePrimaryAction,
-  deriveSignal,
   hasAllWorkSources,
   isCaughtUp,
 } from "./dashboard/derive";
@@ -36,7 +36,7 @@ import { QueueSignalChips, formatAccountingDay } from "./dashboard/QueueSignalCh
 import { RecentOrders } from "./dashboard/RecentOrders";
 import { RecentActivity } from "./dashboard/RecentActivity";
 import { ResultBanner } from "./dashboard/ResultBanner";
-import type { Action, DashboardPhase } from "./dashboard/types";
+import type { DashboardPhase } from "./dashboard/types";
 
 const SETUP_DASHBOARD_ENABLED = import.meta.env.VITE_ENABLE_FIRST_TIME_SETUP_DASHBOARD !== "false";
 // Unit tests run without WAAPI; skip entrance animation there so content is
@@ -125,22 +125,7 @@ export default function Dashboard() {
   const coverageComplete = pulseData ? hasAllWorkSources(pulseData) : false;
   const caughtUp = pulseData ? isCaughtUp(pulseData, workItems) : false;
   const deriveInput = { phase, pulse: pulseData, workItems, caughtUp, hasAllWorkSources: coverageComplete };
-  // A8 MAJOR-3: the hero sentence's interpolated counts go through the same
-  // locale-bound Intl formatter the chips/badges use (Bangla digits in bn) —
-  // the proven QueueSignalChips pattern, applied to derive.
-  const signal = deriveSignal(deriveInput, t, { formatCount });
   const narrative = deriveNarrative(deriveInput, t, { lastSyncLabel: formatTime || undefined, formatCount });
-
-  const primaryAction: Action = { ...derivePrimaryAction(deriveInput, t) };
-  if (phase === "pulse-error") {
-    primaryAction.onClick = () => refreshPulse(true);
-  }
-  const refreshAction: Action = { label: t("dashboard.pulse.refresh"), onClick: () => refreshAll(false) };
-
-  // Single context crumb (shop name): the h1 is the only "Today's work" node —
-  // repeating the title here would break strict-mode text queries.
-  const shopName = authService.getCurrentShop()?.shop_name;
-  const breadcrumb = [{ label: shopName || t("dashboard.pulse.context.workspace") }];
 
   const shell = "em-dashboard min-h-full p-4 md:p-6";
   const inner = "mx-auto w-full max-w-[1440px]";
@@ -180,18 +165,20 @@ export default function Dashboard() {
     return (
       <div className={shell}>
         <div className={inner}>
-          <PageHeader
-            title={t("dashboard.pulse.title")}
-            breadcrumb={breadcrumb}
-            signal={signal}
-            whyHere={narrative.whyHere}
-            primaryAction={primaryAction}
-            secondaryActions={[refreshAction]}
-          />
+          <PageHeader title={t("dashboard.pulse.title")} titleMode="srOnly" />
           <ResultBanner
             status="error"
+            className="mb-3"
             title={t("dashboard.pulse.errorTitle")}
             description={error ?? t("dashboard.pulse.errorMsg")}
+          />
+          {/* C2: the error retry keeps EXACTLY ONE primary action, now anchored
+              inside the error result region (it lived only in the retired
+              header ActionBar before). Manual refresh lives in the footer. */}
+          <EmButton
+            variant="primary"
+            action={{ label: t("dashboard.pulse.retry"), onClick: () => refreshPulse(true) }}
+            data-testid="dashboard-primary-action"
           />
           <EvidenceFooter
             provenResult={narrative.provenResult}
@@ -220,16 +207,11 @@ export default function Dashboard() {
             initial={ANIMATE ? "hidden" : false}
             animate="visible"
           >
-            <motion.div variants={fadeUp}>
-              <PageHeader
-                title={t("dashboard.pulse.title")}
-                breadcrumb={breadcrumb}
-                signal={signal}
-                whyHere={narrative.whyHere}
-                primaryAction={primaryAction}
-                secondaryActions={[refreshAction]}
-              />
-            </motion.div>
+            {/* C1: the sticky AppBar already shows the page name — the h1
+                stays in the accessibility tree only. No signal band, no
+                why-here summary, no action band; the work items and their
+                CTAs live in AttentionQueue below. */}
+            <PageHeader title={t("dashboard.pulse.title")} titleMode="srOnly" />
 
             {SETUP_DASHBOARD_ENABLED && Boolean(setupError) && (
               <div

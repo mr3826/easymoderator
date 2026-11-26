@@ -289,18 +289,23 @@ test('D5 dayCount plural: a single delivered order reads "1 order", never "1 ord
     expect(state.unexpected).toEqual([]);
 });
 
-// A8 MAJOR-2 (fix-7): the hero exceptions number and the Orders nav badge
-// read the SAME exhaustive bucket count — 12 rows reported over the capped
-// 10-row sample must not make the screen show two disagreeing numbers.
-test('hero exceptions number == Orders badge count (12) over a capped 10-row sample', async ({ page }) => {
+// A8 MAJOR-2 (fix-7): the exceptions figure and the Orders nav badge read the
+// SAME exhaustive bucket count — 12 rows reported over the capped 10-row
+// sample must not make the screen show two disagreeing numbers. Header-
+// removal C6: the hero badge is gone (absence-pinned); the honesty check
+// relocates to the record-level BusinessHealth tile, which shares the same
+// worklistNeedsActionCount authority.
+test('exceptions figure == Orders badge count (12) over a capped 10-row sample, no header band', async ({ page }) => {
     const { state } = await setupRoutes(page, { needsActionCount: 12, exceptionSampleRows: 10 });
     await loginAndDashboard(page);
-    await expect(page.getByTestId('dashboard-signal')).toContainText('Delivery exceptions: 12');
+    await expect(page.getByTestId('dashboard-signal')).toHaveCount(0);
+    const exceptionsTile = page.getByRole('link', { name: /Delivery exceptions/ });
+    await expect(exceptionsTile).toContainText('12');
     const rail = page.locator('aside nav').first();
     await expect(rail.getByRole('link', { name: 'Orders 12 orders need action' })).toBeVisible();
     // Exhaustive bucket count → no lower-bound sign even though the sample
     // was capped at 10.
-    await expect(page.getByTestId('dashboard-signal')).not.toContainText('12+');
+    await expect(exceptionsTile).not.toContainText('12+');
     expect(state.unexpected).toEqual([]);
 });
 
@@ -329,15 +334,15 @@ test('D5 bn: charges copy + amount render in Bangla (Intl at runtime, no literal
     expect(text).toContain('UTC');
     expect(text).not.toMatch(/[0-9]/);
 
-    // Hero sentence: every interpolated count is Bangla and the draft label
-    // is translated (no English word inside Bangla).
-    const hero = dash(page).locator('p').filter({ hasText: 'যাচাই করা কাজ অপেক্ষায়' });
-    await expect(hero).toBeVisible();
-    const heroText = await hero.textContent();
-    expect(heroText).toContain('ডেলিভারি ব্যতিক্রম: ১');
-    expect(heroText).toContain('ড্রাফট অর্ডার');
-    expect(heroText).not.toMatch(/Draft/);
-    expect(heroText).not.toMatch(/[0-9]/);
+    // C1/C6 flip: the explanatory hero sentence was a header-band render and
+    // is gone (absence pin). Its Bangla-numeral duty (A8 MAJOR-3) relocates
+    // to the record-level exceptions tile — same locale-bound Intl formatter:
+    await expect(dash(page).getByText('যাচাই করা কাজ অপেক্ষায়')).toHaveCount(0);
+    const exceptionsTile = dash(page).getByRole('link', { name: /ডেলিভারিতে অস্বাভাবিকতা/ });
+    await expect(exceptionsTile).toBeVisible();
+    const tileText = await exceptionsTile.textContent();
+    expect(tileText).toContain('১');
+    expect(tileText).not.toMatch(/[0-9]/);
 
     // A8 round-2 (MINOR-1): the hidden-count note interpolates displayCount —
     // "1 more in this group" reads ১টি in bn, never a raw Latin digit.

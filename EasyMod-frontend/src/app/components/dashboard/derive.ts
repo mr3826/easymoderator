@@ -1,21 +1,19 @@
 /**
  * Pure derivation for the dashboard redesign: work items/groups (baseline
- * logic, unchanged), the single dominant signal (§8), the single primary
- * action (§11), and the Core Design Test narrative (§4). No DOM, no fetch —
- * every function is unit-testable with a key-returning `t`.
+ * logic, unchanged) and the Core Design Test narrative (§4). The page-level
+ * dominant signal and single primary action DERIVATIONS were retired with the
+ * header band (header-removal C3/C2 — status now lives in record-level
+ * content: ConnectionHealth badges, FTS task rows, queue chips). No DOM, no
+ * fetch — every function is unit-testable with a key-returning `t`.
  */
 import { AlertTriangle, FileText, MessageCircle } from "lucide-react";
 import type {
-  Action,
   DashboardNarrative,
   DeriveInput,
   PulseData,
-  Signal,
-  SignalKind,
   Translate,
   WorkGroup,
   WorkItem,
-  WorkKind,
 } from "./types";
 
 export const WORK_ITEMS_PER_GROUP = 2;
@@ -144,8 +142,6 @@ export function isCaughtUp(pulse: PulseData, workItems: WorkItem[]): boolean {
   return hasAllWorkSources(pulse) && workItems.length === 0;
 }
 
-const signalLabel = (kind: SignalKind, t: Translate) => t(`dashboard.pulse.signal.${kind}`);
-
 export interface DeriveCountFormat {
   /**
    * A8 MAJOR-3: every interpolated count reaches the locale string through
@@ -185,75 +181,14 @@ const exceptionDisplay = (
   };
 };
 
-/** One dominant signal per screen (§8). First match wins; stale never changes it. */
-export function deriveSignal(input: DeriveInput, t: Translate, options: DeriveCountFormat = {}): Signal {
-  const formatCount = options.formatCount ?? ((value: number) => String(value));
-  switch (input.phase) {
-    case "setup-loading":
-    case "pulse-loading":
-      return { kind: "pending", label: signalLabel("pending", t) };
-    case "pulse-error":
-      return { kind: "blocked", label: signalLabel("blocked", t) };
-    case "setup":
-      return { kind: "attention", label: signalLabel("attention", t) };
-    case "setup-complete":
-      return { kind: "resolved", label: signalLabel("resolved", t) };
-    case "ready": {
-      const exceptions = exceptionDisplay(input.pulse, formatCount);
-      const replies = input.pulse?.replyTasks?.length ?? 0;
-      const drafts = input.pulse?.draftOrders?.length ?? 0;
-      if (exceptions.count > 0) {
-        // Display string in the {{count}} slot (tWithCountDisplay precedent —
-        // the key has no plural forms, so i18next interpolates, never selects).
-        return {
-          kind: "attention",
-          label: signalLabel("attention", t),
-          reason: t("dashboard.pulse.signal.reason.exceptions", { count: exceptions.display }),
-        };
-      }
-      if (replies > 0 || drafts > 0) {
-        return {
-          kind: "review",
-          label: signalLabel("review", t),
-          reason: t("dashboard.pulse.signal.reason.work", { replies: formatCount(replies), drafts: formatCount(drafts) }),
-        };
-      }
-      if (input.caughtUp) {
-        return { kind: "healthy", label: signalLabel("healthy", t) };
-      }
-      return {
-        kind: "pending",
-        label: signalLabel("pending", t),
-        reason: t("dashboard.pulse.signal.reason.partial"),
-      };
-    }
-  }
-}
-
-/** Exactly one primary action (§11). Severity: exception → reply → draft. */
-export function derivePrimaryAction(input: DeriveInput, t: Translate): Action {
-  if (input.phase === "pulse-error") {
-    return { label: t("dashboard.pulse.retry") };
-  }
-  if (input.phase === "ready") {
-    const firstOf = (kind: WorkKind) =>
-      input.workItems
-        .filter((item) => item.kind === kind)
-        .sort((left, right) => right.sortAt - left.sortAt)[0];
-    const first = firstOf("exception") ?? firstOf("reply") ?? firstOf("draft");
-    if (first) {
-      return { label: t(`dashboard.pulse.primary.${first.kind}`), to: first.to };
-    }
-  }
-  return { label: t("dashboard.pulse.attention.openInbox"), to: "/inbox" };
-}
-
 export interface NarrativeOptions extends DeriveCountFormat {
   lastSyncLabel?: string;
   provenResultOverride?: string;
 }
 
-/** Core Design Test (§4): all four answers, always non-empty. */
+/** Core Design Test (§4): the answers that feed the evidence footer and the
+ *  work queue. `whatNow` left with the header action band — the next action
+ *  now IS the AttentionQueue row the work item links to (C2). */
 export function deriveNarrative(
   input: DeriveInput,
   t: Translate,
@@ -311,7 +246,6 @@ export function deriveNarrative(
 
   return {
     whyHere,
-    whatNow: derivePrimaryAction(input, t).label,
     whereNext,
     provenResult,
   };

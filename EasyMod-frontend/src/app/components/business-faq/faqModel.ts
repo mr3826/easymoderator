@@ -295,6 +295,7 @@ export const syncChipClasses: Record<FaqSyncStatus, string> = {
   pruned: 'bg-em-bg-muted text-em-text-secondary border-em-border',
 };
 
-// Signal derivation lives in ../faq/derive.ts (KEPT as-is per 03 §1): FaqTab
-// passes `activeCount = publishedCount` + its OWN list phase only, so the
-// tab signal never fabricates a cross-tab state (§8 lists rule).
+// Header-removal C3: ../faq/derive.ts was deleted with the tab header signal.
+// Per-status chips below are record-level truth only (§8 lists rule — a list
+// never fabricates one page-wide state); any gap count lives in
+// FaqGapSuggestions' own rendered list.

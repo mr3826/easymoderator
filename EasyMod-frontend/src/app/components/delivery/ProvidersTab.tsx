@@ -8,12 +8,13 @@
  * The heavier management work (credentials, real connection test, activate /
  * deactivate, set/clear AI default, disconnect, operational readiness) lives in
  * the right-side {@link ProviderDrawer}, which is mounted only while open so the
- * reserved card testids stay unique. This tab never renders a second page-wide
- * status — the `delivery-signal` belongs to the shell (A0).
+ * reserved card testids stay unique. This tab never renders a page-wide
+ * status: the permanent page-level signal header was retired (A0 2026-11-26),
+ * so these cards are the only delivery status surface.
  *
  * Data is owned by the shell: `providers`/`settings` arrive as props and every
- * mutation calls `onMutate()` so the shell reloads and re-derives the header
- * signal from the server reply — never an optimistic local "done" (§4/§8).
+ * mutation calls `onMutate()` so the shell reloads and re-derives server truth
+ * from the reply — never an optimistic local "done" (§4/§8).
  */
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';

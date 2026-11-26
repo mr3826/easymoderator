@@ -60,10 +60,9 @@ export default function SettingsHub() {
   const { t } = useTranslation();
   return (
     <div className="p-4 md:p-8 max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-xl md:text-2xl font-semibold text-em-text-primary">{t('manageShop.hub.title')}</h1>
-        <p className="text-sm text-em-text-secondary mt-1">{t('manageShop.hub.subtitle')}</p>
-      </div>
+      {/* Compact title only (C1): the explanatory subtitle band is retired —
+          the link grid below is the page. */}
+      <h1 className="mb-3 text-lg font-semibold text-em-text-primary">{t('manageShop.hub.title')}</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {items.map((item) => {

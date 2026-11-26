@@ -30,22 +30,16 @@ import { InboxThreadDetail } from "./inbox/InboxThreadDetail";
 import CustomerContextPanel from "./inbox/CustomerContextPanel";
 import { ActionQueuePanel } from "./inbox/ActionQueuePanel";
 import { BADGE_LABEL_KEYS } from "./channels/channelAutomation";
-import { motion, MotionConfig } from "motion/react";
-import { fadeUp } from "@/lib/motion";
+import { MotionConfig } from "motion/react";
 import { PageHeader } from "./dashboard/PageHeader";
 import {
-  deriveInboxSignal,
   deriveInboxNarrative,
   type InboxDeriveInput,
   type InboxPhase,
 } from "./inbox/derive";
-import { authService } from "../lib/auth";
 import { formatRelative } from "./customers/customerDisplay";
 import { EmButton } from "./dashboard/EmButton";
 import { useDialogFocus } from "./inbox/useDialogFocus";
-
-// Entrance motion only on first paint; unit/e2e environments render immediately.
-const ANIMATE = import.meta.env.MODE !== "test";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1468,8 +1462,8 @@ export default function UnifiedInbox() {
     void loadConversations(failedPageRef.current ?? currentPageRef.current);
   };
 
-  // Verbatim extraction of the list's selection path so the header primary
-  // action and the rows share one URL-syncing behavior.
+  // Verbatim extraction of the list's selection path so every entry point
+  // (rows, deep links) shares one URL-syncing behavior.
   const selectConversation = useCallback((conv: Conversation) => {
     const sameConversation = selectedConversationRef.current?.id === conv.id;
     setSelectedConversation(conv);
@@ -1511,17 +1505,11 @@ export default function UnifiedInbox() {
     needsReviewCount,
     draftCount,
     unreadTotal,
-    conversationCount: conversations.length,
-    nextReplyId: conversations.find(needsMerchantReply)?.id ?? null,
-    nextDraftId: conversations.find((conversation) => conversation.hasAiSuggestion === true)?.id ?? null,
-    firstUnreadId: conversations.find((conversation) => (conversation.unreadCount || 0) > 0)?.id ?? null,
   };
-  const inboxSignal = deriveInboxSignal(deriveInput, t);
   const lastSyncLabel = lastSyncAt
     ? formatRelative(new Date(lastSyncAt).toISOString(), i18n.language)
     : undefined;
   const inboxNarrative = deriveInboxNarrative(deriveInput, t, { lastSyncLabel });
-  const shopName = authService.getCurrentShop()?.shop_name || t("inbox.breadcrumb.workspace");
 
 
   const latestInboundAt = messages.length
@@ -1541,22 +1529,17 @@ export default function UnifiedInbox() {
   return (
     <MotionConfig reducedMotion="user">
     <div className="em-inbox h-full flex flex-col overflow-hidden">
-      {/* Header — guardrails §5 anatomy: context → title + signal → WHY HERE →
-          meta pills → one primary action. Pill logic/testids unchanged. */}
-      <motion.div
-        variants={fadeUp}
-        initial={ANIMATE ? "hidden" : false}
-        animate="visible"
-        className="shrink-0 border-b border-em-border bg-em-bg-surface px-4 md:px-6 py-3"
-      >
+      {/* Header-removal C1: the permanent signal band (breadcrumb + visible
+          duplicate title + dominant badge + why-here copy) is retired. The
+          sr-only h1 keeps the a11y landmark while the sticky AppBar owns the
+          visible name; the pills below are conversation/page-contextual
+          status (C4) and keep their exact logic and testids. */}
+      <div className="shrink-0">
         <PageHeader
           title={t("inbox.title")}
-          breadcrumb={[{ label: shopName }]}
-          signal={inboxSignal}
-          signalTestId="inbox-signal"
-          signalAnnounce={false}
+          titleMode="srOnly"
           meta={
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 px-4 md:px-6">
               <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
                 {t("inbox.active", { count: conversations.filter((c) => c.status === "active").length })}
               </span>
@@ -1584,7 +1567,7 @@ export default function UnifiedInbox() {
             </div>
           }
         />
-      </motion.div>
+      </div>
 
       {/* Offline banner */}
       {!sseConnected && (

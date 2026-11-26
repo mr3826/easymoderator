@@ -1,6 +1,7 @@
 /**
  * /dashboard guardrails redesign — mock-only proof (same convention as the
- * CI subset): screen anatomy, one dominant signal + one primary action,
+ * CI subset): screen anatomy, slim header (no page-level signal band, no
+ * action band — absence-pinned per header-removal C1/C6),
  * keyboard focus, queue-chip navigation, mobile overflow, setup variant,
  * and a scoped axe scan (critical/serious) on the redesigned surface.
  */
@@ -227,29 +228,24 @@ async function loginAndGo(page: Page, path: string) {
   await expect(page).toHaveURL(new RegExp(`${path.replace(/\//g, '\\/')}$`));
 }
 
-test('dashboard answers the Core Design Test with one signal and one primary action', async ({ page }) => {
+test('dashboard answers the Core Design Test with a slim header — no signal band, no action band', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
 
-  await expect(page.getByRole('main').getByRole('heading', { name: "Today's work" })).toBeVisible();
+  // C1: the sticky AppBar owns the visible page name; the h1 stays in the
+  // accessibility tree (titleMode srOnly) — the level-1 landmark pin survives.
+  await expect(page.getByRole('main').getByRole('heading', { level: 1, name: "Today's work" })).toHaveCount(1);
   await expect(page.getByText('Orders today')).toBeVisible();
 
-  // One dominant signal with a visible label (never color alone).
-  const signal = page.getByTestId('dashboard-signal');
-  await expect(signal).toBeVisible();
-  await expect(signal).toContainText('Attention'); // delivery exception present
-  await expect(signal.locator('svg')).toHaveCount(1);
-
-  // Exactly one primary action, visible without scrolling at 1440x900.
-  const primary = page.getByTestId('dashboard-primary-action');
-  await expect(primary).toHaveCount(1);
-  await expect(primary).toBeVisible();
-  const box = await primary.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box!.y + box!.height).toBeLessThan(900);
-  // Severity: exception first.
-  await expect(primary).toContainText('Review delivery exception');
+  // C6 flip: the permanent page-level signal header and generic action band are
+  // REMOVED on overview pages too — pinned by absence, not by copy.
+  await expect(page.getByTestId('dashboard-signal')).toHaveCount(0);
+  await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
+  // Removal must never hide the truth: the delivery-exception fact stays
+  // observable at record level (BusinessHealth tile shares the bucket-count
+  // authority — the hero badge's job now lives in content).
+  await expect(page.getByRole('link', { name: /Delivery exceptions/ })).toBeVisible();
 
   // PROVEN RESULT: sync evidence + derivation honesty.
   await expect(page.getByText(/Task sources last checked/)).toBeVisible();
@@ -273,22 +269,23 @@ test('dashboard answers the Core Design Test with one signal and one primary act
   await expect(page.getByRole('heading', { name: 'Queues and activity' })).toBeVisible();
 });
 
-test('keyboard Tab reaches the primary action with a visible focus ring', async ({ page }) => {
+test('keyboard Tab reaches the first queue action with a visible focus ring', async ({ page }) => {
   // Reduced motion removes the entrance fade so focus styling is scanned on a
   // settled page (same determinism as the axe test).
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
-  await expect(page.getByTestId('dashboard-primary-action')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toBeVisible();
   await page.waitForTimeout(500);
 
   // W2 grew the rail (Audit logs entry) and added the desktop AI chip link —
-  // more chrome stops before <main>. The pin (primary action reachable by pure
-  // keyboard with a visible ring) is unchanged; only the search budget grows.
+  // more chrome stops before <main>. The pin (first real action reachable by
+  // pure keyboard with a visible ring) is unchanged; its anchor moved from the
+  // retired header ActionBar to the top of the main work surface (C2/C6).
   let focused = false;
   for (let i = 0; i < 34; i += 1) {
     await page.keyboard.press('Tab');
-    focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'dashboard-primary-action');
+    focused = await page.evaluate(() => document.activeElement?.getAttribute('href') === '/inbox?tab=needs_review');
     if (focused) break;
   }
   expect(focused).toBe(true);
@@ -313,26 +310,28 @@ test('queue chip navigates to the needs-review inbox tab (destination parity)', 
   await expect(page.getByRole('button', { name: /Needs your reply/ })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('mobile 390px keeps the primary action reachable without horizontal overflow', async ({ page }) => {
+// Header-removal C6: overflow guards stay functional; the mount gate moved
+// from the deleted ActionBar button to the first queue chip.
+test('mobile 390px keeps the first queue action reachable without horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
-  await expect(page.getByTestId('dashboard-primary-action')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
 // A6 G-UX09/G-UX09b additions (the 390px pin above is unchanged).
-test('mobile 360px keeps the primary action reachable without horizontal overflow', async ({ page }) => {
+test('mobile 360px keeps the first queue action reachable without horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
-  await expect(page.getByTestId('dashboard-primary-action')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
-test('200% zoom-equivalent (1280×1024 content at 640 CSS px): signal and queue link stay reachable', async ({ page }) => {
+test('200% zoom-equivalent (1280×1024 content at 640 CSS px): no signal band and the queue link stays reachable', async ({ page }) => {
   // 200% zoom of a 1280×1024 window = 640×512 CSS viewport with media
   // queries re-evaluated (CSS zoom on <html> would scale the desktop layout
   // without reflowing — phantom overflow, see A6 probe). Overview content
@@ -340,7 +339,8 @@ test('200% zoom-equivalent (1280×1024 content at 640 CSS px): signal and queue 
   await page.setViewportSize({ width: 640, height: 512 });
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
-  await expect(page.getByTestId('dashboard-signal')).toBeVisible();
+  // C6 flip: the old "signal stays reachable" pin becomes an absence pin.
+  await expect(page.getByTestId('dashboard-signal')).toHaveCount(0);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toBeVisible();
@@ -420,7 +420,10 @@ test('redesign surface has no critical or serious axe violations', async ({ page
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await setupRoutes(page);
   await loginAndGo(page, '/dashboard');
-  await expect(page.getByTestId('dashboard-signal')).toBeVisible();
+  // Mounted gate: the retired signal testid is now an ABSENCE pin (C6); the
+  // settle anchor is the first body chip.
+  await expect(page.getByTestId('dashboard-signal')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /Conversations awaiting reply/ })).toBeVisible();
   await page.waitForTimeout(800);
 
   // Scoped to the redesigned surface: the shared shell's pre-existing contrast

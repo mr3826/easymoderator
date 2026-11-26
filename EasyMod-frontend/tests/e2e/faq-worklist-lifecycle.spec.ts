@@ -379,7 +379,9 @@ async function loginAndGo(page: Page) {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/faqs');
-    await expect(page.getByTestId('faq-signal')).toBeVisible({ timeout: 15_000 });
+    // Header-removal C6: the signal band is gone — the worklist toolbar is the
+    // stable mounted-page anchor for the FAQ panel.
+    await expect(page.getByTestId('faq-search')).toBeVisible({ timeout: 15_000 });
 }
 
 const rowChip = (page: Page, id: string) => page.getByTestId(`faq-status-chip-${id}`);

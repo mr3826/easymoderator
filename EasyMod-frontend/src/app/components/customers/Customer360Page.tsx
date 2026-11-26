@@ -2,19 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Loader2, Search, Sparkles, Users } from "lucide-react";
-import { motion, MotionConfig } from "motion/react";
+import { MotionConfig } from "motion/react";
 import { listCustomers360, listOpportunities } from "@/api/domains/customer-intelligence";
 import type { Customer360ListItem, Opportunity } from "@/api/types/customer-intelligence";
-import { authService } from "@/app/lib/auth";
-import { fadeUp } from "@/lib/motion";
 import { PageHeader } from "../dashboard/PageHeader";
 import RtoNetworkSettings from "../RtoNetworkSettings";
 import OpportunityCard from "./OpportunityCard";
 import { formatMoney, formatRelative, initialOf, stateStyles } from "./customerDisplay";
-import { deriveCustomersSignal } from "./derive";
 
 const PAGE_SIZE = 20;
-const ANIMATE = import.meta.env.MODE !== "test";
 type Tab = "all" | "opportunities";
 type ListStatus = { state: "loading" | "ready" | "error"; total: number };
 
@@ -307,15 +303,6 @@ export default function Customer360Page() {
   const search = useDebounced(searchInput.trim());
   const [opportunityCount, setOpportunityCount] = useState<number | null>(null);
   const [listStatus, setListStatus] = useState<ListStatus>({ state: "loading", total: 0 });
-  const signal = deriveCustomersSignal(
-    {
-      phase: listStatus.state === "error" ? "error" : listStatus.state === "loading" ? "loading" : "ready",
-      totalCount: listStatus.total,
-      opportunityCount,
-    },
-    t,
-  );
-  const shopName = authService.getCurrentShop()?.shop_name;
 
   // Fetch the live count once so the tab badge is right before it is opened.
   useEffect(() => {
@@ -334,25 +321,10 @@ export default function Customer360Page() {
     <MotionConfig reducedMotion="user">
     <div className="em-customers min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-6">
-        <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader
-            title={t("customer360.title")}
-            breadcrumb={shopName ? [{ label: shopName }] : []}
-            signal={signal}
-            signalTestId="customers-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("customers.totalCountLabel")}: {listStatus.state === "ready" ? listStatus.total : "—"}
-                </span>
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("customers.opportunityCountLabel")}: {opportunityCount ?? "—"}
-                </span>
-              </div>
-            }
-          />
-        </motion.div>
+        {/* Header-removal C1: signal band retired. This is the /customers
+            title surface, so the compact heading stays; the live counts are
+            already honest in the tab strip badges below. */}
+        <PageHeader title={t("customer360.title")} />
 
         <RtoNetworkSettings />
 
@@ -373,6 +345,15 @@ export default function Customer360Page() {
                 }`}
               >
                 {t(`customer360.tabs.${key}`)}
+                {/* Header-removal C4: the list total reads live here instead
+                    of the retired header meta pills. */}
+                {key === "all" && listStatus.state === "ready" && (
+                  <span className={`ml-2 inline-flex min-w-[1.5rem] justify-center px-1.5 rounded-full text-xs ${
+                    tab === key ? "bg-em-bg-surface/20" : "bg-em-success-100 text-em-success-700"
+                  }`}>
+                    {listStatus.total}
+                  </span>
+                )}
                 {key === "opportunities" && opportunityCount !== null && (
                   <span className={`ml-2 inline-flex min-w-[1.5rem] justify-center px-1.5 rounded-full text-xs ${
                     tab === key ? "bg-em-bg-surface/20" : "bg-em-success-100 text-em-success-700"

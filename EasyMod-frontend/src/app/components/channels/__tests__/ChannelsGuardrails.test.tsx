@@ -1,8 +1,9 @@
 /**
- * Channels-workspace guardrails contracts (§8/§17/§18/§29): workspace signal
- * matrix, execution header without CTA, and the emergency-stop confirm dialog
- * focus trap + Escape + labelled semantics. Additive suite (real i18n en); the
- * legacy channels suites stay unchanged.
+ * Channels-workspace guardrails contracts (§8/§17/§18 + header-removal C1/C6):
+ * compact page title with no signal band (per-channel record chips carry the
+ * state), and the emergency-stop confirm dialog focus trap + Escape +
+ * labelled semantics. Additive suite (real i18n en); the legacy channels
+ * suites stay unchanged.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -11,7 +12,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChannelsOverview from '../ChannelsOverview';
 import EmergencyStopCard from '../EmergencyStopCard';
-import { deriveChannelsSignal } from '../derive';
 import { listMetaChannels } from '@/api/domains/meta-channels';
 import { getShopAISettings } from '@/api/domains/shop';
 
@@ -65,37 +65,32 @@ beforeEach(() => {
   vi.mocked(getShopAISettings).mockResolvedValue({ automation_mode: 'DRAFT', emergency_stop: { active: false } } as never);
 });
 
-describe('workspace signal derivation', () => {
-  const t = (key: string, opts?: Record<string, unknown>) => (opts?.count !== undefined ? `${key}:${opts.count}` : key);
-  it('maps error / loading / stopped / connected / empty to distinct signals', () => {
-    expect(deriveChannelsSignal({ phase: 'error', connectedCount: 0, stopActive: false }, t).kind).toBe('blocked');
-    expect(deriveChannelsSignal({ phase: 'loading', connectedCount: 0, stopActive: false }, t).kind).toBe('pending');
-    expect(deriveChannelsSignal({ phase: 'ready', connectedCount: 1, stopActive: true }, t).kind).toBe('attention');
-    expect(deriveChannelsSignal({ phase: 'ready', connectedCount: 1, stopActive: true }, t).label).toContain('stopped');
-    expect(deriveChannelsSignal({ phase: 'ready', connectedCount: 2, stopActive: false }, t).kind).toBe('healthy');
-    expect(deriveChannelsSignal({ phase: 'ready', connectedCount: 0, stopActive: false }, t).kind).toBe('attention');
-  });
-});
-
-describe('execution header', () => {
-  it('shows title + signal + factual pills and no header CTA when empty', async () => {
+describe('page chrome (header removal C1/C6)', () => {
+  it('renders a compact title, no signal band, no header CTA and no shop-level pills when empty', async () => {
     renderWithClient(<ChannelsOverview />);
-    await waitFor(() => expect(screen.getByTestId('channels-signal').textContent).toContain('Needs a channel'));
-    expect(screen.getByRole('heading', { level: 1, name: 'Channels & Automation' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Channels & Automation' })).toBeInTheDocument();
+    // The removal itself is pinned: no page-level signal badge, no aggregate band.
+    expect(screen.queryByTestId('channels-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
-    expect(screen.getByText(/Connected:/)).toBeInTheDocument();
-    expect(screen.getByText(/Overrides:/)).toBeInTheDocument();
+    expect(screen.queryByText(/Connected:/)).toBeNull();
+    expect(screen.queryByText(/Overrides:/)).toBeNull();
+    // The empty-state guidance carries the connect path (onboarding copy stays).
+    expect(await screen.findByRole('button', { name: 'Connect a Page' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'No channels connected' })).toBeInTheDocument();
   });
 
-  it('reports connected channels and a stopped workspace honestly', async () => {
+  it('reports connected channels and a stopped workspace honestly at record level', async () => {
     vi.mocked(listMetaChannels).mockResolvedValue([channelRow()] as never);
     const { unmount } = renderWithClient(<ChannelsOverview />);
-    await waitFor(() => expect(screen.getByTestId('channels-signal').textContent).toContain('Channels connected'));
+    // Contextual truth survives in the card: health row + per-channel badge.
+    await waitFor(() => expect(screen.getByTestId('channel-card-c1')).toHaveTextContent('Connected'));
+    expect(screen.getByTestId('channel-badge-c1')).toHaveTextContent('Inherited');
+    expect(screen.queryByTestId('channels-signal')).toBeNull();
     unmount();
 
     vi.mocked(listMetaChannels).mockResolvedValue([channelRow({ emergency_stop: { active: true } })] as never);
     renderWithClient(<ChannelsOverview />);
-    await waitFor(() => expect(screen.getByTestId('channels-signal').textContent).toContain('AI replies stopped'));
+    await waitFor(() => expect(screen.getByTestId('channel-badge-c1')).toHaveTextContent('Stopped'));
   });
 });
 

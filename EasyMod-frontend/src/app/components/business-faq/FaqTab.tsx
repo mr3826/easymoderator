@@ -23,11 +23,13 @@
  * - The client never sends `category`/`confidence`/`usageCount`/`source`
  *   (F9/F3); category is dual-written server-side only.
  *
- * Integration note for A0: this tab renders its own §29 header (title +
- * `faq-signal` + pills) because every input lives in its list state (S11/F1/
- * F2); the shell's tablist sits above and the panel additionally carries
- * `.em-faqs` (also applied on this root so the existing axe include works
- * regardless of who carries it).
+ * Header-removal note for A0: the tab's permanent signal band is retired
+ * (C1) — the shell's tablist provides orientation, this body keeps ONE
+ * sr-only h1 for the accessibility landmark, and the worklist toolbar keeps
+ * the single screen-level primary (`faq-add`) with its countsSummary line
+ * stating published/total facts. The panel additionally carries `.em-faqs`
+ * (also applied on this root so the existing axe include works regardless of
+ * who carries it).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -55,7 +57,6 @@ import { EmButton } from '../dashboard/EmButton';
 import { PageHeader } from '../dashboard/PageHeader';
 import { ResultBanner } from '../dashboard/ResultBanner';
 import { useDialogFocus } from '../inbox/useDialogFocus';
-import { deriveFaqSignal } from '../faq/derive';
 import FaqEditorDrawer from './FaqEditorDrawer';
 import FaqGapSuggestions from './FaqGapSuggestions';
 import {
@@ -108,7 +109,6 @@ export default function FaqTab({ className }: { className?: string }) {
 
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FaqRow | null>(null);
-  const [gapOpenCount, setGapOpenCount] = useState(0);
 
   const deleteRef = useRef<HTMLDivElement>(null);
   useDialogFocus(deleteRef, Boolean(deleteTarget));
@@ -297,13 +297,9 @@ export default function FaqTab({ className }: { className?: string }) {
     }
   };
 
-  const phase = loadError ? 'error' : isLoading ? 'loading' : faqs.length === 0 ? 'empty' : 'ready';
-  const signal = deriveFaqSignal(
-    { phase, openGapCount: gapOpenCount, activeCount: counts.published, totalCount: faqs.length },
-    t,
-  );
-  const shopName = authService.getCurrentShop()?.shop_name || t('manageShop.faqs.title');
-  const repliesUsed = faqs.reduce((sum, row) => sum + (row.use_count || 0), 0);
+  // Header-removal C3: deriveFaqSignal died with the header — the gaps truth
+  // lives in FaqGapSuggestions below and the published/total facts in the
+  // toolbar countsSummary line.
 
   const syncChip = (faq: FaqRow) => {
     const failed = faq.sync_status === 'failed';
@@ -356,31 +352,11 @@ export default function FaqTab({ className }: { className?: string }) {
     <MotionConfig reducedMotion="user">
       <div className={`em-faqs min-h-full ${className ?? ''}`}>
         <div className="mx-auto w-full max-w-[1440px] space-y-6">
-          {/* Execution-page header (§29): title + signal + factual pills only. */}
-          <motion.div variants={fadeUp} initial={ANIMATE ? 'hidden' : false} animate="visible">
-            <PageHeader
-              title={t('manageShop.faqs.title')}
-              breadcrumb={[{ label: shopName }]}
-              signal={signal}
-              signalTestId="faq-signal"
-              signalAnnounce={false}
-              meta={
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t('manageShop.businessFaq.metrics.published')}: {formatCount(counts.published, lang)}
-                  </span>
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t('manageShop.faqs.metrics.total')}: {formatCount(faqs.length, lang)}
-                  </span>
-                  <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                    {t('manageShop.businessFaq.metrics.repliesUsed')}: {formatCount(repliesUsed, lang)}
-                  </span>
-                </div>
-              }
-            />
-          </motion.div>
+          {/* Header-removal C1: tab signal band and metric pills retired —
+              the tablist orients visibly and the h1 stays sr-only. */}
+          <PageHeader title={t('manageShop.faqs.title')} titleMode="srOnly" />
 
-          <FaqGapSuggestions onOpenCountChange={setGapOpenCount} />
+          <FaqGapSuggestions />
 
           <motion.section
             variants={fadeUp}

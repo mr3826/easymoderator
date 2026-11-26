@@ -3,6 +3,10 @@
  * strip: last sync (polite live region), coverage honesty, stale warning, and
  * real next-step links. Deviation from §24 EvidencePanel (item-detail shaped)
  * documented in the PR body.
+ *
+ * Header-removal C2: the page Refresh action lost its header ActionBar home,
+ * so the footer card row owns it UNCONDITIONALLY — the stale banner keeps its
+ * warning text but no longer duplicates the control.
  */
 import { Link } from "react-router-dom";
 import { TriangleAlert } from "lucide-react";
@@ -30,13 +34,15 @@ export function EvidenceFooter({ provenResult, whereNext, isStale, coverageCompl
             <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
             {t("dashboard.pulse.staleWarning")}
           </span>
+        </div>
+      )}
+      <div className="rounded-xl border border-em-border bg-em-bg-surface p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-em-text-primary">{t("dashboard.pulse.evidence.title")}</h2>
           <EmButton variant="secondary" onClick={onRefresh} className="min-h-11 px-3">
             {t("dashboard.pulse.refresh")}
           </EmButton>
         </div>
-      )}
-      <div className="rounded-xl border border-em-border bg-em-bg-surface p-4">
-        <h2 className="text-sm font-semibold text-em-text-primary">{t("dashboard.pulse.evidence.title")}</h2>
         <p aria-live="polite" className="em-tabular mt-1 text-xs font-medium text-em-text-secondary">
           {provenResult}
         </p>

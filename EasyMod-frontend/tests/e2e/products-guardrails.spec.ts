@@ -131,14 +131,16 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('execution header: title + catalog signal + pills + table, no header CTA', async ({ page }) => {
+test('page header: compact title + relocated count + table, no signal band, no header CTA', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('products-signal')).toContainText('Catalog ready', { timeout: 15_000 });
+    await expect(page.getByRole('table')).toBeVisible({ timeout: 15_000 });
+    // Removal pinned: the page-level signal badge must not exist.
+    await expect(page.getByTestId('products-signal')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Products & Inventory', exact: true })).toBeVisible();
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
+    // The catalog count survived band removal — it lives in the worklist toolbar.
     await expect(page.getByText(/Total:/)).toBeVisible();
-    await expect(page.getByRole('table')).toBeVisible();
     await expect(page.getByText('Demo Hoodie')).toBeVisible();
     expect(state.unexpected).toEqual([]);
 });
@@ -146,7 +148,7 @@ test('execution header: title + catalog signal + pills + table, no header CTA', 
 test('upload dialog is labelled, traps focus, and closes on Escape', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('products-signal')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('table')).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Upload Product File' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -178,7 +180,7 @@ test('390px: no horizontal overflow on the worklist', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupRoutes(page);
     await loginAndGo(page);
-    await expect(page.getByTestId('products-signal')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Products & Inventory', exact: true })).toBeVisible({ timeout: 15_000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
 });
@@ -187,7 +189,7 @@ test('axe: no critical or serious violations in the products surface', async ({ 
     await setupRoutes(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
-    await expect(page.getByTestId('products-signal')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Products & Inventory', exact: true })).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.em-products').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
@@ -198,7 +200,7 @@ test('axe: no critical or serious violations in the products surface', async ({ 
 test('W2 stock control: segmented exception toggles replace the old checkbox, seed + clear work', async ({ page }) => {
     const state = await setupRoutes(page, stockProducts);
     await loginAndGo(page);
-    await expect(page.getByTestId('products-signal')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('products-stock-exceptions')).toBeVisible({ timeout: 15_000 });
     // Old parent-only checkbox vocabulary is gone (replaced by the D2 tri-state).
     await expect(page.getByText('Low stock only')).toHaveCount(0);
     await expect(page.locator('#lowStockOnly')).toHaveCount(0);

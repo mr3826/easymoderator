@@ -365,7 +365,9 @@ test('fail-closed worklist seed: unknown bucket/payment values keep defaults; va
     await loginAndGo(page, '/inbox');
 
     await page.goto('/orders?bucket=nonsense&payment=not_a_payment');
-    await expect(page.getByTestId('orders-signal')).toBeVisible();
+    // Header-removal C6: signal band gone; the bucket toolbar is the
+    // worklist-mounted proxy.
+    await expect(page.getByTestId('orders-bucket-all')).toBeVisible();
     await expect(page.getByTestId('orders-bucket-all')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('orders-bucket-to_confirm')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('button', { name: 'ORD-1001' })).toBeVisible();

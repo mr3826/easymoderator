@@ -1,17 +1,17 @@
 /**
- * Business-info guardrails contracts (§8/§11/§16/§18/§29 + ADR-0013 §1):
- * profile signal matrix, execution header without CTA, label association,
- * social group + char counter, dirty-gated save with the 6-key payload
- * (deliveryAreas/paymentMethods excluded), notice roles, load-error retry,
- * automation link, and the absence of any AI control/radiogroup/range.
- * Additive suite (real i18n en); the legacy Form/Settings suites stay unchanged.
+ * Business-info guardrails contracts (§8/§11/§16/§18 + ADR-0013 §1):
+ * header-removal C1/C6 absence pins (no signal band, no header CTA, sr-only
+ * h1 kept), label association, social group + char counter, dirty-gated save
+ * with the 6-key payload (deliveryAreas/paymentMethods excluded), notice
+ * roles, load-error retry, automation link, and the absence of any AI
+ * control/radiogroup/range. Additive suite (real i18n en); the legacy
+ * Form/Settings suites stay unchanged.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import BusinessInfoSettings from '../BusinessInfoSettings';
-import { deriveBusinessSignal } from '../business/derive';
 import { apiClient } from '@/api';
 
 vi.mock('@/api', () => ({
@@ -57,38 +57,30 @@ async function renderPage(info: Record<string, unknown> = fixture()) {
   return screen.findByLabelText('Shop Name');
 }
 
-describe('profile signal derivation', () => {
-  const t = (key: string) => key;
-  it('maps error / loading / named / unnamed to distinct signals', () => {
-    expect(deriveBusinessSignal({ phase: 'error', hasShopName: false }, t).kind).toBe('blocked');
-    expect(deriveBusinessSignal({ phase: 'loading', hasShopName: false }, t).kind).toBe('pending');
-    expect(deriveBusinessSignal({ phase: 'ready', hasShopName: true }, t).kind).toBe('healthy');
-    expect(deriveBusinessSignal({ phase: 'ready', hasShopName: false }, t).kind).toBe('attention');
-  });
-});
-
-describe('execution header', () => {
-  it('shows title + signal + factual pills and no header CTA', async () => {
+describe('page signal header removed (C1/C6 absence pins)', () => {
+  it('renders no signal band, keeps the sr-only level-1 title and no header CTA', async () => {
     await renderPage();
-    await waitFor(() => expect(screen.getByTestId('business-signal').textContent).toContain('Profile ready'));
+    expect(screen.queryByTestId('business-signal')).toBeNull();
     expect(screen.getByRole('heading', { level: 1, name: 'Business Info' })).toBeInTheDocument();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
-    expect(screen.getByText(/Social links:/)).toBeInTheDocument();
-    expect(screen.getByText(/Extra info:/)).toBeInTheDocument();
+    // The retired tally pills no longer render; the fields carry the truth.
+    expect(screen.queryByText(/Social links:/)).toBeNull();
+    expect(screen.queryByText(/Extra info:/)).toBeNull();
   });
 
-  it('asks for a shop name when the profile is unnamed', async () => {
+  it('renders no signal band for an unnamed profile (the form is the ask)', async () => {
     await renderPage(fixture({ shopName: '' }));
-    await waitFor(() => expect(screen.getByTestId('business-signal').textContent).toContain('Profile needs a name'));
+    expect(screen.queryByTestId('business-signal')).toBeNull();
+    expect(screen.getByLabelText('Shop Name')).toBeInTheDocument();
   });
 
-  it('surfaces a blocked signal + alert with a working retry on load failure', async () => {
+  it('surfaces load failure through the alert with a working retry', async () => {
     vi.mocked(apiClient.getShopBusinessInfo)
       .mockRejectedValueOnce(new Error('Network error'))
       .mockResolvedValue({ businessInfo: fixture(), shop: {} } as never);
     render(<MemoryRouter><BusinessInfoSettings /></MemoryRouter>);
-    await waitFor(() => expect(screen.getByTestId('business-signal').textContent).toContain('Profile unavailable'));
-    expect(screen.getByRole('alert')).toHaveTextContent('Network error');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Network error'));
+    expect(screen.queryByTestId('business-signal')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Retry loading' }));
     await screen.findByLabelText('Shop Name');
     expect(apiClient.getShopBusinessInfo).toHaveBeenCalledTimes(2);

@@ -1,10 +1,11 @@
 /**
  * ChannelsOverview — merchant-facing channel workspace (ADR-0013 §9,
- * PROPOSED_ARCHITECTURE §4; guardrails §29 execution header).
+ * PROPOSED_ARCHITECTURE §4; header-removal contract C1).
  *
  * Every connected Page is shown with its identity, health and effective
  * automation state. Effective mode and warnings come from the resolver-backed
- * list endpoint so the badge never invents a state.
+ * list endpoint so the badge never invents a state. Shop-level status lives
+ * per-card (record chips), not in a page header.
  */
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -26,7 +27,6 @@ import EmergencyStopCard from "./EmergencyStopCard";
 import BusinessDefaultsSummaryCard from "./BusinessDefaultsSummaryCard";
 import { useChannelSettingsSSE } from "./useChannelSettingsSSE";
 import { BADGE_LABEL_KEYS, MODE_LABEL_KEYS, deriveChannelBadge } from "./channelAutomation";
-import { deriveChannelsSignal } from "./derive";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
@@ -69,36 +69,14 @@ export default function ChannelsOverview() {
     (channel) => channel.platform === "facebook" && channel.status !== "DISCONNECTED",
   );
 
-  const stopActive = channels.some((channel) => channel.emergency_stop?.active === true);
-  const overrideTotal = channels.reduce((sum, channel) => sum + (channel.override_count ?? 0), 0);
-  const signal = deriveChannelsSignal(
-    { phase: channelsQuery.isError ? "error" : channelsQuery.isLoading ? "loading" : "ready", connectedCount: channels.length, stopActive },
-    t,
-  );
-  const shopName = authService.getCurrentShop()?.shop_name || t("manageShop.channels.title");
-
   return (
     <MotionConfig reducedMotion="user">
     <div className="em-channels min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-6">
         <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader
-            title={t("manageShop.channels.title")}
-            breadcrumb={[{ label: shopName }]}
-            signal={signal}
-            signalTestId="channels-signal"
-            signalAnnounce={false}
-            meta={
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("manageShop.channels.connectedCountLabel")}: {channels.length}
-                </span>
-                <span className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary">
-                  {t("manageShop.channels.overrideTotalLabel")}: {overrideTotal}
-                </span>
-              </div>
-            }
-          />
+          {/* Slim title only (C1): per-channel identity, health, overrides and
+              stop state live on the cards below, never as a shop-level band. */}
+          <PageHeader title={t("manageShop.channels.title")} />
         </motion.div>
 
         <BusinessDefaultsSummaryCard />
@@ -288,8 +266,9 @@ export default function ChannelsOverview() {
         )}
 
         {/* Emergency stop sits at the foot of the workspace (founder request):
-            the channel work comes first. An active stop is still announced at
-            the top by the header signal, so the state is never below-fold-only. */}
+            the channel work comes first. An active stop is still observable
+            without scrolling to this card: every affected channel row carries
+            its own "Stopped" badge from the resolver-backed list. */}
         <EmergencyStopCard />
       </div>
     </div>
