@@ -4,6 +4,7 @@ const knowledgeValidator = require('./knowledge.validator');
 const { validate } = require('../helpers');
 const { authenticate } = require('../../middleware/auth.middleware');
 const { requirePlatformAdmin } = require('../../middleware/platform-admin.middleware');
+const { requireOwner } = require('../../middleware/shop-permission.middleware');
 
 const router = express.Router();
 
@@ -22,7 +23,13 @@ router.post('/query', knowledgeController.queryKnowledge);
 router.get('/faqs', knowledgeController.listFaqs);
 router.post('/faqs', validate(knowledgeValidator.createFaq), knowledgeController.createFaq);
 router.patch('/faqs/:id', validate(knowledgeValidator.updateFaq), knowledgeController.updateFaq);
-router.delete('/faqs/:id', validate(knowledgeValidator.deleteFaq), knowledgeController.deleteFaq);
+// Lifecycle transitions (A5 contract). Hard delete stays owner-only and
+// removes the vector point; resync is owner-only (operational action).
+// archive/restore are member-level like content edits.
+router.post('/faqs/:id/archive', validate(knowledgeValidator.faqId), knowledgeController.archiveFaq);
+router.post('/faqs/:id/restore', validate(knowledgeValidator.faqId), knowledgeController.restoreFaq);
+router.post('/faqs/:id/resync', validate(knowledgeValidator.faqId), requireOwner, knowledgeController.resyncFaq);
+router.delete('/faqs/:id', validate(knowledgeValidator.deleteFaq), requireOwner, knowledgeController.deleteFaq);
 
 router.get('/gaps', knowledgeController.listGaps);
 

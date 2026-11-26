@@ -35,6 +35,50 @@ export async function updateShopBusinessInfo(data: any): Promise<any> {
   return response.data.data;
 }
 
+// ---------------------------------------------------------------------------
+// Business Policies (2026-11-26 Business & FAQ redesign) — persisted under
+// shop.settings.policies via the validated owner-only writer. INFORMATIONAL
+// ONLY: these facts inform customer answers; they never authorize refunds,
+// exchanges, cancellations or warranty actions in automation.
+// ---------------------------------------------------------------------------
+
+export type PolicyStance = 'unspecified' | 'offered' | 'not_offered' | 'conditional';
+
+export interface PolicyEntry {
+  stance?: PolicyStance | null;
+  period_days?: number | null;
+  details?: string | null;
+  exclusions?: string | null;
+  process?: string | null;
+  duration?: string | null;
+  coverage?: string | null;
+  coverage_exclusions?: string | null;
+}
+
+export interface ShopBusinessPolicies {
+  returns?: PolicyEntry | null;
+  exchange?: PolicyEntry | null;
+  refunds?: PolicyEntry | null;
+  warranty?: PolicyEntry | null;
+  [key: string]: PolicyEntry | null | undefined;
+}
+
+export async function getShopBusinessPolicies(): Promise<ShopBusinessPolicies> {
+  const response: AxiosResponse<ApiResponse<ShopBusinessPolicies>> = await httpClient.get(
+    '/api/shop/business-policies',
+  );
+  return response.data.data ?? {};
+}
+
+export async function updateShopBusinessPolicies(
+  patch: ShopBusinessPolicies,
+): Promise<ShopBusinessPolicies> {
+  const response: AxiosResponse<ApiResponse<{ policies?: ShopBusinessPolicies } | ShopBusinessPolicies>> =
+    await httpClient.put('/api/shop/business-policies', patch);
+  const data = response.data.data as { policies?: ShopBusinessPolicies } | ShopBusinessPolicies;
+  return ((data as { policies?: ShopBusinessPolicies })?.policies ?? data ?? {}) as ShopBusinessPolicies;
+}
+
 export async function getShopAISettings(): Promise<NormalizedShopAISettings> {
   const response: AxiosResponse<any> = await httpClient.get('/api/shop/ai-settings');
   return normalizeShopAISettings(response.data.data);

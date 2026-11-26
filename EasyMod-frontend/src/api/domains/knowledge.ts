@@ -6,6 +6,7 @@ import { httpClient } from '@/shared/lib/http/client';
 import type { ApiResponse } from '../types/common';
 import type {
   FAQ,
+  FaqWritePayload,
   KnowledgeGap,
   BusinessInfo,
   BrandingRules,
@@ -112,9 +113,9 @@ export async function listFaqs(): Promise<FAQ[]> {
 // `category || question`, so callers that mean "store this question" must be
 // able to omit category entirely rather than send a value that overrides it.
 export async function createFaq(
-  faq: Omit<FAQ, 'id' | 'createdAt' | 'updatedAt' | 'category'> & { category?: string },
+  faq: FaqWritePayload,
 ): Promise<FAQ> {
-  const response: AxiosResponse<ApiResponse<FAQ>> = await httpClient.post('/api/knowledge/faqs', faq);
+  const response: AxiosResponse<ApiResponse<unknown>> = await httpClient.post('/api/knowledge/faqs', faq);
   return mapFaqFromBackend(response.data.data);
 }
 
@@ -129,12 +130,51 @@ export async function createFaq(
  * const updated = await updateFaq('faq123', { answer: 'Updated answer' });
  * ```
  */
-export async function updateFaq(faqId: string, updates: Partial<FAQ>): Promise<FAQ> {
-  const response: AxiosResponse<ApiResponse<FAQ>> = await httpClient.patch(
+export async function updateFaq(faqId: string, updates: FaqWritePayload): Promise<FAQ> {
+  const response: AxiosResponse<ApiResponse<unknown>> = await httpClient.patch(
     `/api/knowledge/faqs/${faqId}`,
     updates
   );
   return mapFaqFromBackend(response.data.data);
+}
+
+/** Transition an FAQ to archived (any state -> archived; idempotent). */
+export async function archiveFaq(faqId: string): Promise<FAQ> {
+  const response: AxiosResponse<ApiResponse<unknown>> = await httpClient.post(
+    `/api/knowledge/faqs/${faqId}/archive`,
+  );
+  return mapFaqFromBackend(response.data.data);
+}
+
+/** Restore ONLY archived FAQs -> disabled (idempotent when already disabled). */
+export async function restoreFaq(faqId: string): Promise<FAQ> {
+  const response: AxiosResponse<ApiResponse<unknown>> = await httpClient.post(
+    `/api/knowledge/faqs/${faqId}/restore`,
+  );
+  return mapFaqFromBackend(response.data.data);
+}
+
+/** Owner-only knowledge re-sync; bumps sync_version and re-queues indexing. */
+export async function resyncFaq(faqId: string): Promise<FAQ> {
+  const response: AxiosResponse<ApiResponse<unknown>> = await httpClient.post(
+    `/api/knowledge/faqs/${faqId}/resync`,
+  );
+  return mapFaqFromBackend(response.data.data);
+}
+
+/** Merchant-side FAQ search (published knowledge; never matches internal notes). */
+export async function searchFaqs(
+  query: string,
+  options: { category_tag?: string; limit?: number; signal?: AbortSignal } = {},
+): Promise<FAQ[]> {
+  const response: AxiosResponse<ApiResponse<unknown[] | { data?: unknown[] }>> = await httpClient.post(
+    '/api/knowledge/faq/search',
+    { query, category_tag: options.category_tag, limit: options.limit },
+    { signal: options.signal },
+  );
+  const raw = response.data.data;
+  const rows = Array.isArray(raw) ? raw : (raw?.data ?? []);
+  return rows.map(mapFaqFromBackend);
 }
 
 /**
@@ -336,17 +376,35 @@ export async function createDocument(document: {
  */
 function mapFaqFromBackend(faq: unknown): FAQ {
   const f = faq as Record<string, unknown>;
+  const isoOrNull = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() !== '' ? v : null;
+  const answers = (f.answers ?? null) as FAQ['answers'];
+  const enText = typeof answers?.en === 'string' ? answers.en : (f.template_en as string | undefined);
+  const bnText = typeof answers?.bn === 'string' ? answers.bn : (f.template_bn as string | undefined);
   return {
     id: String(f.id ?? ''),
     question: String(f.question ?? f.category ?? ''),
-    answer: String(f.answer ?? f.template_en ?? ''),
-    category: String(f.category ?? f.question ?? 'General'),
-    confidence: typeof f.confidence === 'number' && Number.isFinite(f.confidence) ? f.confidence : 0.9,
+    answer: String(f.answer ?? enText ?? bnText ?? ''),
+    // Legacy `category` is the server's mirror of the question; the REAL
+    // merchant tag lives in category_tag (never invented historically).
+    category: String(f.category ?? f.question ?? ''),
+    category_tag: typeof f.category_tag === 'string' ? f.category_tag : null,
+    answers: { en: enText ?? null, bn: bnText ?? null },
+    keywords: Array.isArray(f.keywords) ? (f.keywords as string[]) : [],
+    notes: isoOrNull(f.notes),
+    status: (typeof f.status === 'string' ? f.status : undefined) as FAQ['status'],
+    sync_status: (typeof f.sync_status === 'string' ? f.sync_status : undefined) as FAQ['sync_status'],
+    sync_version: typeof f.sync_version === 'number' ? f.sync_version : undefined,
+    synced_at: isoOrNull(f.synced_at),
+    use_count: typeof f.use_count === 'number' ? f.use_count : undefined,
+    priority: typeof f.priority === 'number' ? f.priority : undefined,
+    confidence: typeof f.confidence === 'number' && Number.isFinite(f.confidence) ? f.confidence : 1.0,
     source: (f.source as FAQ['source']) ?? 'manual',
-    active: (f.active ?? f.is_active) as boolean ?? true,
-    usageCount: typeof f.usageCount === 'number' ? f.usageCount : 0,
-    createdAt: String(f.createdAt ?? f.created_at ?? new Date().toISOString()),
-    updatedAt: String(f.updatedAt ?? f.updated_at ?? f.created_at ?? new Date().toISOString()),
+    active: ((f.active ?? f.is_active) as boolean) ?? true,
+    usageCount: typeof f.usageCount === 'number' ? f.usageCount : (typeof f.use_count === 'number' ? f.use_count : 0),
+    // Honest passthrough — the client NEVER fabricates timestamps anymore.
+    createdAt: isoOrNull(f.createdAt ?? f.created_at),
+    updatedAt: isoOrNull(f.updatedAt ?? f.updated_at),
   };
 }
 

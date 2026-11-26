@@ -14,8 +14,10 @@
  *
  * Idempotent: every document is upserted under a deterministic id
  * (faq-<id>, product-<id>, biz-<shopId>), so re-running overwrites rather
- * than duplicating. It does NOT delete vectors for removed entities (those
- * are pruned at write time via deletePoint).
+ * than duplicating. FAQ vectors additionally RECONCILE: after the upserts the
+ * job prunes this shop's faq points whose faq-<id> row is no longer eligible
+ * (deleted/deactivated/unpublished) or whose payload faq_version trails the
+ * row sync_version (20261126_001 lifecycle; failure-counted, never silent).
  *
  * Usage (on the droplet, inside the api/worker container):
  *   npm run reindex:qdrant -- --collection=<new-name>             # all active shops into an isolated collection
@@ -137,8 +139,8 @@ async function main() {
     const started = Date.now();
     let result;
     if (shopId) {
-        const { indexed, errors } = await indexShop(shopId);
-        result = { shops: 1, documents: indexed, errors };
+        const { indexed, errors, pruned } = await indexShop(shopId);
+        result = { shops: 1, documents: indexed, errors, pruned: pruned || 0 };
     } else {
         result = await run();
     }
@@ -147,6 +149,7 @@ async function main() {
     console.log('─────────────────────────────────────────────────');
     console.log(`  shops:     ${result.shops}`);
     console.log(`  indexed:   ${result.documents} documents`);
+    console.log(`  pruned:    ${result.pruned || 0} stale/orphan FAQ vectors`);
     console.log(`  errors:    ${result.errors}`);
     console.log(`  duration:  ${secs}s`);
     console.log('─────────────────────────────────────────────────');

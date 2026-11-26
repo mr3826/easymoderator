@@ -159,6 +159,50 @@ const completeOnboarding = async (req, res, next) => {
 };
 
 /**
+ * GET /shop/business-policies — business policies for the TOKEN shop only
+ * (confused-deputy guard: the URL/body can never select another shop; same
+ * pattern as GET /knowledge/shop-settings/:shopId/policies). Honest absence:
+ * a shop that never stated policies gets {}. INFORMATIONAL ONLY — these facts
+ * never feed order-cancel/refund/exchange/warranty enforcement code.
+ */
+const getBusinessPolicies = async (req, res, next) => {
+    try {
+        const { shopId } = req.user;
+        if (!shopId) {
+            throw new AppError('No shop selected. Please login again.', 400);
+        }
+        const data = await shopService.getShopBusinessPolicies(shopId);
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * PUT /shop/business-policies — owner (mirrors the business-info write
+ * middleware). Per-policy partial merge, no defaults invented, absence
+ * preserved; shape-validated by businessPoliciesValidator before this handler.
+ */
+const updateBusinessPolicies = async (req, res, next) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            throw new AppError(errors.array()[0].msg, 400);
+        }
+
+        const { shopId } = req.user;
+        if (!shopId) {
+            throw new AppError('No shop selected. Please login again.', 400);
+        }
+
+        const policies = await shopService.updateShopBusinessPolicies(shopId, req.body);
+        res.status(200).json({ success: true, data: { policies } });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Update business info for current shop
  */
 const updateBusinessInfo = async (req, res, next) => {
@@ -801,6 +845,8 @@ module.exports = {
     updateUserRole,
     getBusinessInfo,
     updateBusinessInfo,
+    getBusinessPolicies,
+    updateBusinessPolicies,
     getOnboardingStatus,
     completeOnboarding,
     getLLMConfig,

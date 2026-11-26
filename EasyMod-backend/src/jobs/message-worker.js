@@ -153,13 +153,18 @@ const revalidateKnowledgeEvidenceBeforeSend = async (evidence) => {
 
     try {
         const { FaqResponse } = require('../modules/entities');
+        // A reply may only go out while its FAQ evidence is CURRENTLY eligible:
+        // published (20261126_001 lifecycle) AND the is_active mirror
+        // (rollback-window rows). The question column is fetched so the
+        // content hash prefers it (knowledge-snapshot question||category).
         const currentFaqs = await FaqResponse.findAll({
             where: {
                 id: { [Op.in]: knowledgeIds },
                 shop_id: evidence.shopId,
                 is_active: true,
+                status: 'published',
             },
-            attributes: ['id', 'category', 'template_en', 'template_bn'],
+            attributes: ['id', 'question', 'category', 'template_en', 'template_bn'],
         });
         const currentById = new Map(currentFaqs.map(faq => [normalizeKnowledgeId(faq.id), faq]));
         const changedKnowledgeIds = knowledgeIds.filter(id => {

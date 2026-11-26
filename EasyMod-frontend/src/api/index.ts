@@ -165,6 +165,10 @@ export const apiClient = {
   createKnowledgeFaq: knowledgeDomain.createFaq,
   updateKnowledgeFaq: knowledgeDomain.updateFaq,
   deleteKnowledgeFaq: knowledgeDomain.deleteFaq,
+  archiveKnowledgeFaq: knowledgeDomain.archiveFaq,
+  restoreKnowledgeFaq: knowledgeDomain.restoreFaq,
+  resyncKnowledgeFaq: knowledgeDomain.resyncFaq,
+  searchKnowledgeFaqs: knowledgeDomain.searchFaqs,
 
   // Subscription methods
   getSubscription: subscriptionDomain.getSubscription,
@@ -199,6 +203,8 @@ export const apiClient = {
   // Shop methods
   getShopBusinessInfo: shopDomain.getShopBusinessInfo,
   updateShopBusinessInfo: shopDomain.updateShopBusinessInfo,
+  getShopBusinessPolicies: shopDomain.getShopBusinessPolicies,
+  updateShopBusinessPolicies: shopDomain.updateShopBusinessPolicies,
   getShopAISettings: shopDomain.getShopAISettings,
   updateShopAISettings: shopDomain.updateShopAISettings,
   getShop: shopDomain.getShop,

@@ -1,8 +1,16 @@
 /**
- * FAQ knowledge-manager guardrails proof (mock-only, CI subset). Execution
- * page (§29): title + signal + pills header, work-area toolbar primary,
- * in-system dialogs for create/delete, gap-card domain-correct primaries.
- * Allowlist+abort discipline: a redesign that invents backend calls fails here.
+ * FAQ knowledge-manager guardrails proof (mock-only, CI subset). The route
+ * /manage-shop/faqs renders the tabbed workspace with the FAQ tab active; the
+ * FAQ panel still carries `.em-faqs` (axe include pin) and its own §29 header
+ * inside the panel: title + `faq-signal` + factual pills, no header CTA.
+ * Legacy pins preserved: toolbar primary (`faq-add` hidden on load error,
+ * shown when empty), in-system drawer dialog for create (role=dialog, labels,
+ * Escape/backdrop close, focus restored), danger delete confirm, gap-card
+ * domain-correct primaries, 390px + five mobile destinations, axe on
+ * `.em-faqs`. NEW inverted pins per the 2026-11-26 contract: NO confidence
+ * text anywhere, no range input, no radiogroup, honest `—` timestamps, and
+ * internal notes never rendered. Allowlist+abort discipline:
+ * state.unexpected === [] in every test.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -11,18 +19,50 @@ const mockUser = { id: 'user-1', full_name: 'Test Owner', email: 'owner@shop.bd'
 const mockShop = { id: 'shop-1', unique_code: 'SHOP1', shop_name: 'My BD Shop', role: 'owner' };
 const json = (data: unknown) => ({ success: true, data });
 
-const faqRow = {
-    id: 'faq-1',
-    question: 'What is the delivery charge?',
-    answer: 'Inside Dhaka delivery is 80 BDT.',
-    category: 'Delivery',
-    confidence: 1,
-    source: 'manual',
-    active: true,
-    usage_count: 3,
+/** The live `formatFaq` serialization (A5 contract): rich fields + legacy
+ *  aliases the server still emits for old readers. Fake ids only. */
+const richRow = (over: Record<string, unknown>) => ({
+    category_tag: null,
+    answers: { en: null, bn: null },
+    keywords: [],
+    notes: null,
+    status: 'published',
+    is_active: true,
+    priority: 5,
+    use_count: 0,
     created_at: '2026-07-04T00:00:00.000Z',
     updated_at: '2026-07-04T00:00:00.000Z',
-};
+    sync_status: 'synced',
+    sync_version: 2,
+    synced_at: '2026-07-04T00:10:00.000Z',
+    answer: '',
+    category: '',
+    template_en: null,
+    template_bn: null,
+    confidence: 1.0,
+    source: 'manual',
+    active: true,
+    usageCount: 0,
+    createdAt: '2026-07-04T00:00:00.000Z',
+    updatedAt: '2026-07-04T00:00:00.000Z',
+    ...over,
+});
+
+const faqRow = richRow({
+    id: 'faq-1',
+    question: 'What is the delivery charge?',
+    category: 'What is the delivery charge?',
+    category_tag: 'Delivery',
+    answers: { en: 'Inside Dhaka delivery is 80 BDT.', bn: 'ঢাকার ভেতরে ডেলিভারি ৳৮০।' },
+    answer: 'Inside Dhaka delivery is 80 BDT.',
+    template_en: 'Inside Dhaka delivery is 80 BDT.',
+    template_bn: 'ঢাকার ভেতরে ডেলিভারি ৳৮০।',
+    use_count: 3,
+    usageCount: 3,
+    keywords: ['delivery', 'charge'],
+    // Internal-only text — must NEVER appear in any list/preview surface.
+    notes: 'NOTE-MARKER-private-42',
+});
 
 const gaps = [
     {
@@ -40,13 +80,15 @@ const gaps = [
 const KNOWN_PATHS = new Set([
     '/api/csrf', '/api/auth/me', '/api/auth/signin', '/api/setup/status', '/api/subscription',
     '/api/notifications/in-app', '/api/commercial/claims', '/api/public/commercial-contract',
-    '/api/knowledge/faqs', '/api/knowledge/gap-suggestions',
+    '/api/knowledge/faqs', '/api/knowledge/gap-suggestions', '/api/knowledge/faq/search',
+    '/api/shop/business-policies',
 
     // A6 W3: Phase 1 shell/dashboard read sources (D1 badges, D6 chip, D7 readiness).
     '/api/order/counts', '/api/conversation/needs-reply-count', '/api/product/stock-exceptions', '/api/shop/delivery/readiness', '/api/channels/meta',
 ]);
 const KNOWN_PATTERNS = [
     /^\/api\/knowledge\/faqs\/[\w-]+$/,
+    /^\/api\/knowledge\/faqs\/[\w-]+\/(archive|restore|resync)$/,
     /^\/api\/knowledge\/gap-suggestions\/[\w-]+\/(review|dismiss|publish)$/,
     /^\/api\/notifications\/in-app\/[\w-]+\/read$/,
 ];
@@ -58,6 +100,7 @@ async function setupRoutes(page: Page, options: { withGaps?: boolean } = {}) {
         created: 0,
         deleted: 0,
         published: 0,
+        lastCreateBody: null as Record<string, unknown> | null,
         faqs: [faqRow],
     };
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
@@ -118,24 +161,78 @@ async function setupRoutes(page: Page, options: { withGaps?: boolean } = {}) {
             return route.fulfill({ json: json({ status: 'IN_REVIEW' }) });
         }
         if (path === '/api/knowledge/faqs' && method === 'GET') {
+            // Honest async settle: a 'pending' row has finished syncing by the
+            // time the merchant lists again (mirrors queueFaqSync settling).
+            state.faqs = state.faqs.map((f) => (f.sync_status === 'pending'
+                ? { ...f, sync_status: 'synced', synced_at: new Date().toISOString() }
+                : f));
             return route.fulfill({ json: json(state.faqs) });
         }
         if (path === '/api/knowledge/faqs' && method === 'POST') {
             state.created += 1;
             const body = request.postDataJSON() as Record<string, unknown>;
-            const created = { ...faqRow, ...body, id: 'faq-new' };
+            state.lastCreateBody = body;
+            const now = new Date().toISOString();
+            const status = (body.status as string) || 'published';
+            const created = richRow({
+                id: 'faq-new',
+                question: (body.question as string) || '',
+                category: (body.question as string) || '',
+                category_tag: (body.category_tag as string) ?? null,
+                answers: { en: (body.answer_en as string) ?? null, bn: (body.answer_bn as string) ?? null },
+                answer: (body.answer_en as string) || (body.answer_bn as string) || '',
+                template_en: (body.answer_en as string) ?? null,
+                template_bn: (body.answer_bn as string) ?? null,
+                keywords: (body.keywords as string[]) ?? [],
+                notes: (body.notes as string) ?? null,
+                status,
+                is_active: status === 'published',
+                use_count: 0,
+                created_at: now,
+                updated_at: now,
+                updatedAt: now,
+                sync_status: 'pending',
+                sync_version: 1,
+                synced_at: null,
+            });
             state.faqs = [created, ...state.faqs];
             return route.fulfill({ status: 201, json: json(created) });
         }
         if (/^\/api\/knowledge\/faqs\/[\w-]+$/.test(path) && method === 'PATCH') {
             const body = request.postDataJSON() as Record<string, unknown>;
-            state.faqs = state.faqs.map((f) => (f.id === path.split('/').pop() ? { ...f, ...body } : f));
-            return route.fulfill({ json: json(state.faqs.find((f) => f.id === path.split('/').pop())) });
+            const id = path.split('/').pop();
+            state.faqs = state.faqs.map((f) => {
+                if (f.id !== id) return f;
+                const now = new Date().toISOString();
+                const status = (body.status as string) ?? (f.status as string);
+                const answers = {
+                    en: body.answer_en !== undefined ? (body.answer_en as string) : (f.answers as { en: string | null }).en,
+                    bn: body.answer_bn !== undefined ? (body.answer_bn as string) : (f.answers as { bn: string | null }).bn,
+                };
+                return {
+                    ...f,
+                    ...(body.question !== undefined ? { question: body.question } : {}),
+                    ...(body.category_tag !== undefined ? { category_tag: body.category_tag } : {}),
+                    ...(body.notes !== undefined ? { notes: body.notes } : {}),
+                    ...(body.keywords !== undefined ? { keywords: body.keywords } : {}),
+                    answers,
+                    answer: answers.en || answers.bn || (f.answer as string),
+                    status,
+                    is_active: status === 'published',
+                    use_count: (f.use_count as number),
+                    updated_at: now,
+                    updatedAt: now,
+                    sync_status: 'pending',
+                    sync_version: (f.sync_version as number) + 1,
+                };
+            });
+            return route.fulfill({ json: json(state.faqs.find((f) => f.id === id)) });
         }
         if (/^\/api\/knowledge\/faqs\/[\w-]+$/.test(path) && method === 'DELETE') {
             state.deleted += 1;
-            state.faqs = state.faqs.filter((f) => f.id !== path.split('/').pop());
-            return route.fulfill({ json: json({ message: 'deleted' }) });
+            const id = path.split('/').pop();
+            state.faqs = state.faqs.filter((f) => f.id !== id);
+            return route.fulfill({ json: json({ message: 'FAQ deleted successfully' }) });
         }
         return route.fulfill({ json: json([]) });
     });
@@ -149,6 +246,8 @@ async function loginAndGo(page: Page) {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto('/manage-shop/faqs');
+    await expect(page.getByTestId('business-faq-tab-faqs')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('faq-signal')).toBeVisible({ timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -171,31 +270,62 @@ test('execution header: title + signal + pills, no header CTA; toolbar holds the
     expect(state.unexpected).toEqual([]);
 });
 
-test('create flows through a labelled dialog and lands in the list', async ({ page }) => {
+test('create flows through a labelled drawer dialog and lands in the list', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await page.getByTestId('faq-add').click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+    // Editor dirty-gate: Save is inert until there is something to save.
+    await expect(dialog.getByRole('button', { name: 'Save FAQ' })).toBeDisabled();
     await dialog.getByLabel('Question', { exact: true }).fill('Do you ship to Chattogram?');
-    await dialog.getByLabel('Answer', { exact: true }).fill('Yes, 2-3 days via courier.');
+    // Question alone is not enough — an answer is required (legacy rule, now
+    // per-slot): Save stays gated until one language has content.
+    await expect(dialog.getByRole('button', { name: 'Save FAQ' })).toBeDisabled();
+    await dialog.getByLabel('Answer (English)').fill('Yes, 2-3 days via courier.');
+    await expect(dialog.getByRole('button', { name: 'Save FAQ' })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Save FAQ' }).click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByText('Do you ship to Chattogram?')).toBeVisible();
     expect(state.created).toBe(1);
+    // Contract F9: the client NEVER sends a shadowing `category`/legacy fields.
+    expect(state.lastCreateBody).not.toHaveProperty('category');
+    expect(state.lastCreateBody).not.toHaveProperty('confidence');
+    expect(state.lastCreateBody).not.toHaveProperty('usageCount');
+    expect(state.lastCreateBody).not.toHaveProperty('source');
+    expect(state.unexpected).toEqual([]);
+});
+
+test('drawer closes on Escape and restores focus to the invoking control', async ({ page }) => {
+    const state = await setupRoutes(page);
+    await loginAndGo(page);
+    const add = page.getByTestId('faq-add');
+    await add.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    // ADR-0013 §1 boundary holds INSIDE the drawer too (P12 workspace-wide):
+    // no AI mode control, no radiogroup, no range slider (mock's confidence
+    // UI is banned outright — F3).
+    await expect(dialog.getByTestId('ai-reply-mode')).toHaveCount(0);
+    await expect(dialog.getByRole('radiogroup')).toHaveCount(0);
+    await expect(dialog.locator('input[type="range"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(add).toBeFocused();
     expect(state.unexpected).toEqual([]);
 });
 
 test('delete asks through an in-system danger confirm dialog', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page);
-    await page.getByRole('button', { name: 'Delete FAQ' }).click();
+    await page.getByRole('button', { name: /^Delete FAQ/ }).first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Delete this answer?');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toHaveCount(0);
     expect(state.deleted).toBe(0);
-    await page.getByRole('button', { name: 'Delete FAQ' }).click();
+    await page.getByRole('button', { name: /^Delete FAQ/ }).first().click();
     await page.getByTestId('faq-delete-confirm').click();
     await expect(page.getByText('What is the delivery charge?')).toHaveCount(0);
     expect(state.deleted).toBe(1);
@@ -214,6 +344,23 @@ test('gap cards keep domain-correct primaries and publish through the FAQ author
     await policyCard.getByTestId('gap-publish').click();
     await expect(policyCard).toHaveCount(0);
     expect(state.published).toBe(1);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('inverted F3 pin: no confidence text, no range input, no radiogroup; honest timestamps; notes stay internal', async ({ page }) => {
+    const state = await setupRoutes(page);
+    await loginAndGo(page);
+    await expect(page.locator('.em-faqs')).toBeVisible();
+    // confidence retired entirely from the rendered surface (server alias only).
+    await expect(page.getByText(/confidence/i)).toHaveCount(0);
+    await expect(page.locator('input[type="range"]')).toHaveCount(0);
+    await expect(page.getByRole('radiogroup')).toHaveCount(0);
+    // Honest timestamps (F5): this row has real created/updated, and its
+    // internal note must never render on the list surface.
+    await expect(page.getByTestId('faq-row-faq-1').getByText('Created', { exact: false })).toBeVisible();
+    await expect(page.getByText('NOTE-MARKER-private-42')).toHaveCount(0);
+    // "replies used" labeling (F2), never "retrieval"/"success".
+    await expect(page.getByText(/retrieval|success/i)).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
 

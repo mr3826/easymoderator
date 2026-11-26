@@ -1083,6 +1083,119 @@ const getAiDefaults = () => ({ ...DEFAULT_AI_SETTINGS });
  * @param {string} presetName - 'FRIENDLY' | 'PROFESSIONAL' | 'FUN'
  * @returns {Promise<object>} Updated branding object
  */
+// ── Business policies (Business & FAQ Settings redesign) ──────────────────────
+// INFORMATIONAL ONLY: settings.policies is merchant-stated fact text for the
+// knowledge layer. NOTHING here reads it into order-cancel/refund/exchange/
+// warranty enforcement (zero automation; pinned by
+// src/security/__tests__/business-policies-informational-only.test.js).
+
+const parseSettingsObject = (raw) => {
+    let settings = raw;
+    if (typeof settings === 'string') {
+        try {
+            settings = JSON.parse(settings);
+        } catch {
+            settings = {};
+        }
+    }
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) settings = {};
+    return settings;
+};
+
+/**
+ * GET /shop/business-policies — honest absence.
+ * A shop that never stated policies returns {} — never an invented default,
+ * never an empty per-kind skeleton, never 'not_offered'. The route always
+ * scopes to the TOKEN shop (confused-deputy guard, same pattern as
+ * GET /knowledge/shop-settings/:shopId/policies).
+ */
+const getShopBusinessPolicies = async (shopId) => {
+    const shop = await Shop.findByPk(shopId);
+    if (!shop) throw new AppError('Shop not found', 404);
+    const policies = parseSettingsObject(shop.settings).policies;
+    return policies && typeof policies === 'object' && !Array.isArray(policies) ? policies : {};
+};
+
+/**
+ * PUT /shop/business-policies — per-policy PARTIAL merge with ABSENCE-preserving
+ * semantics (the A0 rule): an absent kind is untouched, an absent field is
+ * untouched, an explicit null clears that field/kind, and NO defaults are ever
+ * written. The body is shape-validated by businessPoliciesValidator at the
+ * route; settings-level validatePolicies re-checks the merged object inside
+ * updateShopSettingsPreservingRtoConsent, and RTO consent is preserved by the
+ * dedicated writer (never restored from a stale snapshot).
+ *
+ * After the row commits: settings caches are invalidated and the business-info
+ * knowledge vector is re-synced best-effort (the policies project into its
+ * index text; a Qdrant outage must never fail the save).
+ *
+ * @returns {Promise<object>} the merged settings.policies (absent → {})
+ */
+const updateShopBusinessPolicies = async (shopId, body) => {
+    // Explicit clears: null → undefined so the deep merge + JSON serialization
+    // drop the key instead of storing null (merged object passes through the
+    // settings-level policy guard, which tolerates undefined entries).
+    const patch = {};
+    for (const [kind, value] of Object.entries(body || {})) {
+        if (value === null) {
+            patch[kind] = undefined;
+            continue;
+        }
+        const fields = {};
+        for (const [field, fieldValue] of Object.entries(value)) {
+            fields[field] = fieldValue === null ? undefined : fieldValue;
+        }
+        patch[kind] = fields;
+    }
+
+    // A9 second pass (Y2 completeness): a kind patch that OMITS `stance` must
+    // still be judged against the STORED stance — otherwise a details-only
+    // write ({exchange:{details:'   '}}) could leave a 'conditional' stance
+    // with no description. Resolve the effective stance pre-merge and refuse.
+    const shopRow = await Shop.findByPk(shopId, { attributes: ['settings'] });
+    const storedPolicies = parseSettingsObject(shopRow && shopRow.settings).policies || {};
+    for (const [kind, fields] of Object.entries(patch)) {
+        if (fields === undefined) continue; // explicit clear is always valid
+        const stored = storedPolicies[kind] || {};
+        const effectiveStance = fields.stance !== undefined ? fields.stance : stored.stance;
+        if (effectiveStance === 'conditional') {
+            const effectiveDetails = fields.details !== undefined ? fields.details : stored.details;
+            if (typeof effectiveDetails !== 'string' || effectiveDetails.trim() === '') {
+                throw new AppError(
+                    `${kind}.stance 'conditional' requires a non-empty details description`,
+                    400,
+                    'VALIDATION_ERROR'
+                );
+            }
+        }
+    }
+
+    const mergedSettings = await updateShopSettingsPreservingRtoConsent(shopId, { policies: patch });
+    // Explicit (the dedicated writer already invalidates; this keeps the
+    // contract readable at the call site and is idempotent).
+    await invalidateShopSettingsCaches(shopId);
+
+    const policies = mergedSettings?.policies;
+
+    // Best-effort knowledge re-sync (lazy require avoids the module cycle
+    // shop.service ← knowledge.service, like the business-info write path).
+    try {
+        const knowledgeService = require('../knowledge/knowledge.service');
+        await knowledgeService.syncBusinessInfoRagIndex(
+            shopId,
+            parseSettingsObject(mergedSettings).businessInfo || {},
+            policies && typeof policies === 'object' && !Array.isArray(policies) ? policies : null,
+        );
+    } catch (err) {
+        console.warn('Business-policies knowledge sync skipped (best-effort)', {
+            shopId,
+            error: err?.code || err?.name || 'SYNC_UNAVAILABLE',
+        });
+    }
+
+    return policies && typeof policies === 'object' && !Array.isArray(policies) ? policies : {};
+};
+
 const applyBrandingPreset = async (shopId, presetName) => {
     const { BRANDING_PRESETS } = require('./branding-presets');
 
@@ -1132,5 +1245,7 @@ module.exports = {
     resumeAiEmergencyStop,
     getEffectiveThresholdForIntent,
     getAiDefaults,
-    applyBrandingPreset
+    applyBrandingPreset,
+    getShopBusinessPolicies,
+    updateShopBusinessPolicies
 };

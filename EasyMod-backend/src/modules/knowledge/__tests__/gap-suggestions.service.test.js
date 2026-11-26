@@ -155,9 +155,14 @@ describe('merchant actions', () => {
             question: 'Exchange policy?', answer: '7-day exchange on unused items.',
         });
 
+        // A5 contract: publishing goes through the status machine explicitly —
+        // 'published' is the only retrieval-eligible state. The legacy
+        // is_active parameter is GONE from the call (service-owned mirror).
+        const callArg = knowledgeService.createFaq.mock.calls[0][2];
         expect(knowledgeService.createFaq).toHaveBeenCalledWith('user-1', 'shop-1', expect.objectContaining({
-            question: 'Exchange policy?', is_active: true,
+            question: 'Exchange policy?', status: 'published',
         }));
+        expect(callArg).not.toHaveProperty('is_active');
         expect(faq.id).toBe(4210);
         expect(row.update).toHaveBeenCalledWith(expect.objectContaining({
             status: 'PUBLISHED', resolved_faq_id: 4210,

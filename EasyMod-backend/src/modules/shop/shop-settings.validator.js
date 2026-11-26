@@ -83,8 +83,19 @@ const BD_SETTINGS_SCHEMA = {
 };
 
 // Business Info Schema
+// New fields (Business & FAQ Settings redesign): nameEn is DISPLAY metadata
+// (shopName remains THE authoritative identity), tagline/email/city are
+// customer-facing facts. email is an RFC-lite CONTACT address — never login
+// identity, zero auth coupling.
+const BUSINESS_EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 const BUSINESS_INFO_SCHEMA = {
   shopName: (val) => typeof val === 'string',
+  nameEn: (val) => typeof val === 'string' && val.length <= 120,
+  tagline: (val) => typeof val === 'string' && val.length <= 160,
+  email: (val) => typeof val === 'string'
+    && val.length <= 254
+    && (val === '' || BUSINESS_EMAIL_PATTERN.test(val)),
+  city: (val) => typeof val === 'string' && val.length <= 60,
   address: (val) => typeof val === 'string',
   phone: (val) => typeof val === 'string',
   openingHours: (val) => typeof val === 'string',
@@ -92,6 +103,113 @@ const BUSINESS_INFO_SCHEMA = {
   deliveryAreas: (val) => Array.isArray(val) && val.every(v => typeof v === 'string'),
   paymentMethods: (val) => Array.isArray(val) && val.every(v => typeof v === 'string'),
   socialLinks: isValidSocialLinks
+};
+
+// ── Business policies vocabulary (Business & FAQ Settings redesign) ───────────
+// THE SINGLE SOURCE OF TRUTH for the settings.policies shape lives HERE (this
+// module is dependency-free of express-validator so locked-down controller
+// tests can load it). shop.validator wraps validateBusinessPoliciesBody into
+// the route chain; the settings-level guard below validates every merged
+// settings write — so no path can smuggle a malformed policies block in.
+// INFORMATIONAL ONLY: nothing that reads these values may feed order-cancel/
+// refund/exchange/warranty enforcement (pinned by
+// src/security/__tests__/business-policies-informational-only.test.js).
+
+const POLICY_KINDS = ['returns', 'exchange', 'refunds', 'warranty'];
+const POLICY_STANCES = ['unspecified', 'offered', 'not_offered', 'conditional'];
+const POLICY_TEXT_FIELDS_MAX = {
+  details: 500,
+  exclusions: 500,
+  process: 500,
+  coverage: 500,
+  coverage_exclusions: 500,
+};
+// period_days is the returns/exchange window; duration is a warranty concept.
+const POLICY_PERIOD_DAYS_KINDS = ['returns', 'exchange'];
+
+/**
+ * Validate a PUT /shop/business-policies body (also the merged
+ * settings.policies block). Semantics: absent kind = not stated (never
+ * written); absent field = untouched; explicit null/undefined = clear;
+ * NO defaults are ever invented. Unknown kinds/fields are rejected.
+ * Throws Error with the first violation message.
+ */
+const validateBusinessPoliciesBody = (body) => {
+  if (body === undefined || body === null) {
+    throw new Error('Request body must be a JSON object of business policies');
+  }
+  if (typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('Request body must be a JSON object');
+  }
+  for (const [kind, value] of Object.entries(body)) {
+    if (!POLICY_KINDS.includes(kind)) {
+      throw new Error(`Unknown policy kind: ${kind}`);
+    }
+    // Explicit clear of the whole policy. `undefined` occurs on the
+    // in-memory merged settings object (clears are expressed as undefined
+    // so JSON serialization drops the key) — treated identically.
+    if (value === null || value === undefined) continue;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`${kind} must be an object or null`);
+    }
+    const allowed = new Set(['stance', ...Object.keys(POLICY_TEXT_FIELDS_MAX),
+      ...(POLICY_PERIOD_DAYS_KINDS.includes(kind) ? ['period_days'] : []),
+      ...(kind === 'warranty' ? ['duration'] : [])]);
+    let stanceValue;
+    let conditionalDetailsStated = false;
+    for (const [field, fieldValue] of Object.entries(value)) {
+      if (!allowed.has(field)) {
+        throw new Error(`Unknown field "${field}" is not allowed for the ${kind} policy`);
+      }
+      if (fieldValue === null || fieldValue === undefined) continue; // clear / absent
+      if (field === 'stance') {
+        if (!POLICY_STANCES.includes(fieldValue)) {
+          throw new Error(`${kind}.stance must be one of: ${POLICY_STANCES.join(', ')}`);
+        }
+        stanceValue = fieldValue;
+        continue;
+      }
+      // Y2 (server-authoritative): 'conditional' is a promise the merchant
+      // must actually describe — an empty conditional is indistinguishable
+      // from a stale toggle and misleads customer answers.
+      if (field === 'details' && typeof fieldValue === 'string' && fieldValue.trim() !== '') {
+        conditionalDetailsStated = true;
+      }
+      if (field === 'period_days') {
+        if (!Number.isInteger(fieldValue) || fieldValue < 0 || fieldValue > 365) {
+          throw new Error(`${kind}.period_days must be an integer between 0 and 365`);
+        }
+        continue;
+      }
+      if (typeof fieldValue !== 'string') {
+        throw new Error(`${kind}.${field} must be a string or null`);
+      }
+      const max = field === 'duration' ? 120 : POLICY_TEXT_FIELDS_MAX[field];
+      if (fieldValue.length > max) {
+        throw new Error(`${kind}.${field} must not exceed ${max} characters`);
+      }
+    }
+    if (stanceValue === 'conditional' && !conditionalDetailsStated) {
+      throw new Error(`${kind}.stance 'conditional' requires a non-empty details description`);
+    }
+  }
+  return true;
+};
+
+/**
+ * Validate a whole settings.policies block at the SETTINGS level.
+ * Absent (undefined/null) means "the merchant never stated policies" and is
+ * VALID — absence must survive every unrelated settings merge untouched, and
+ * no writer may invent defaults.
+ */
+const validatePolicies = (policies) => {
+  if (policies === undefined || policies === null) return true;
+  try {
+    validateBusinessPoliciesBody(policies);
+  } catch (error) {
+    throw new AppError(`Business policies validation failed: ${error.message}`, 400);
+  }
+  return true;
 };
 
 /**
@@ -194,6 +312,13 @@ const validateSettings = (settings) => {
   }
   if (settings.businessInfo) {
     validateBusinessInfo(settings.businessInfo);
+  }
+  // Business policies are guarded at the SETTINGS level too: a general
+  // settings merge must not smuggle an invalid shape into settings.policies
+  // (the dedicated PUT /shop/business-policies route validates the body).
+  // Absence stays absent — undefined/null is valid and left untouched.
+  if ('policies' in settings && settings.policies !== undefined && settings.policies !== null) {
+    validatePolicies(settings.policies);
   }
 
   return true;
@@ -328,6 +453,7 @@ module.exports = {
   validateAISettings,
   validateBDSettings,
   validateBusinessInfo,
+  validatePolicies,
   validateSettings,
   sanitizeSettings,
   mergeAndSanitizeSettings,
@@ -335,5 +461,11 @@ module.exports = {
   stripAutomationModeFromShopUpdate,
   AI_SETTINGS_SCHEMA,
   BD_SETTINGS_SCHEMA,
-  BUSINESS_INFO_SCHEMA
+  BUSINESS_INFO_SCHEMA,
+  // Business-policies vocabulary (single source of truth — shop.validator and
+  // the tests consume these from here).
+  POLICY_KINDS,
+  POLICY_STANCES,
+  POLICY_TEXT_FIELDS_MAX,
+  validateBusinessPoliciesBody
 };

@@ -2519,11 +2519,20 @@
         "facebookPlaceholder": "https://facebook.com/yourpage",
         "websitePlaceholder": "https://yourshop.com",
         "facebookLabel": "ফেসবুক",
-        "websiteLabel": "ওয়েবসাইট"
+        "websiteLabel": "ওয়েবসাইট",
+        "instagramLabel": "Instagram",
+        "instagramPlaceholder": "https://instagram.com/yourshop",
+        "whatsappLabel": "WhatsApp",
+        "whatsappPlaceholder": "01XXXXXXXXX বা https://wa.me/8801XXXXXXXXX",
+        "whatsappHint": "ফোন নম্বর (01XXXXXXXXX) অথবা wa.me লিংক দিন।",
+        "tiktokLabel": "TikTok",
+        "tiktokPlaceholder": "https://tiktok.com/@yourshop",
+        "youtubeLabel": "YouTube",
+        "youtubePlaceholder": "https://youtube.com/@yourshop"
       },
       "automationLink": {
         "title": "অটোমেশন ডিফল্ট",
-        "desc": "Reply mode, confidence ও greeting এখন ব্যবসার automation পেজে।",
+        "desc": "Reply mode ও greeting এখন ব্যবসার automation পেজে।",
         "cta": "Automation defaults খুলুন"
       },
       "retryLoad": "আবার লোড করুন",
@@ -2539,6 +2548,23 @@
           "profileReady": "গ্রাহকদের উত্তরের জন্য আপনার দোকানের নাম সেট করা আছে।",
           "needsName": "উত্তরগুলো যাতে আপনার দোকান শনাক্ত করতে পারে সেজন্য একটি দোকানের নাম যোগ করুন।"
         }
+      },
+      "nameEn": "দোকানের নাম (ইংরেজি)",
+      "nameEnHelp": "ঐচ্ছিক ইংরেজি প্রদর্শনের নাম। আপনার বাংলা দোকানের নামই মূল পরিচয় হিসেবে থাকবে যা ক্রেতা দেখেন।",
+      "tagline": "ট্যাগলাইন",
+      "taglineHelp": "সংক্ষিপ্ত পরিচয় — গ্রিটিং ও উত্তরে দেখানো হতে পারে।",
+      "email": "ইমেইল",
+      "emailHelp": "শুধু ক্রেতার যোগাযোগের জন্য। এটি আপনার লগইন পরিবর্তন করে না এবং সাইন-ইনে ব্যবহৃত হয় না।",
+      "city": "শহর",
+      "shopNameHelp": "ক্রেতা প্রতিটি উত্তরে এই নামই দেখবেন। এটি মূল পরিচয় হিসেবে থাকে।",
+      "identityTitle": "দোকানের পরিচয়",
+      "savedAll": "সব পরিবর্তন সংরক্ষিত",
+      "unsavedChanges": "অসংরক্ষিত পরিবর্তন",
+      "fixBeforeSave": "সংরক্ষণের আগে তথ্যগুলো ঠিক করুন",
+      "errors": {
+        "emailInvalid": "একটি সঠিক ইমেইল ঠিকানা দিন।",
+        "tooLong": "সর্বোচ্চ {max} অক্ষর।",
+        "phoneInvalid": "সঠিক মোবাইল নম্বর দিন (01XXXXXXXXX)।"
       }
     },
     "faqs": {
@@ -3371,6 +3397,175 @@
       "triggerKeywordsPlaceholder": "যেমন: complain, refund",
       "addKeyword": "কীওয়ার্ড যোগ করুন",
       "removeKeyword": "{{value}} কীওয়ার্ড সরান"
+    },
+    "businessFaq": {
+      "policies": {
+        "title": "ব্যবসার নীতিমালা",
+        "stated": "উল্লেখিত",
+        "unsavedPill": "অসংরক্ষিত পরিবর্তন",
+        "informational": "এই নীতিমালা গ্রাহকের উত্তরে তথ্য দেয়। এগুলো বাতিল, ফেরত, বিনিময় বা ওয়ারেন্টি দাবি স্বয়ংক্রিয়ভাবে অনুমোদন বা প্রত্যাখ্যান করে না।",
+        "emptyHint": "আপনি না লেখা পর্যন্ত উত্তরগুলো এই সম্পর্কে অনুমান করবে না।",
+        "retryLoad": "আবার চেষ্টা করুন",
+        "loading": "নীতিমালা লোড হচ্ছে",
+        "stance": "অবস্থান",
+        "notStated": "এখনও উল্লেখ করা হয়নি",
+        "offered": "আমরা এটি প্রদান করি",
+        "notOffered": "আমরা এটি প্রদান করি না",
+        "conditional": "শর্তসাপেক্ষে প্রদান করা হয়",
+        "card": {
+          "returns": "পণ্য ফেরত",
+          "exchange": "পণ্য বিনিময়",
+          "refunds": "টাকা ফেরত",
+          "warranty": "ওয়ারেন্টি"
+        },
+        "periodDays": "সময়সীমা (দিন)",
+        "periodDaysHelp": "০ থেকে ৩৬৫ দিনের মধ্যে পূর্ণসংখ্যা লিখুন। সময়সীমা ভিন্ন হলে খালি রাখুন।",
+        "details": "বিস্তারিত",
+        "detailsConditionalHelp": "আবশ্যক — শর্তগুলো নিজের ভাষায় লিখুন।",
+        "exclusions": "বাদ",
+        "process": "টাকা ফেরতের প্রক্রিয়া",
+        "duration": "ওয়ারেন্টির মেয়াদ",
+        "coverage": "ওয়ারেন্টি যা কভার করে",
+        "coverageExclusions": "ওয়ারেন্টি যা কভার করে না",
+        "notSet": "—",
+        "save": "নীতিমালা সংরক্ষণ করুন",
+        "saving": "সংরক্ষণ হচ্ছে…",
+        "saved": "নীতিমালা সংরক্ষিত হয়েছে",
+        "reset": "পরিবর্তন বাতিল করুন",
+        "ownerOnly": "শুধু দোকানের মালিকই এই নীতিমালা পরিবর্তন করতে পারবেন।",
+        "lastSaved": "সর্বশেষ সংরক্ষণ",
+        "help": {
+          "aiProjection": "সংরক্ষিত তথ্য গ্রাহকের উত্তরের জন্য সহকারীর জ্ঞানে যুক্ত হয়; এগুলো নিজে থেকে কোনো পদক্ষেপ অনুমোদন করে না।"
+        },
+        "errors": {
+          "load": "ব্যবসার নীতিমালা লোড করা যায়নি।",
+          "save": "নীতিমালা সংরক্ষিত হয়নি।",
+          "periodRange": "০ থেকে ৩৬৫-এর মধ্যে পূর্ণসংখ্যায় দিন লিখুন।",
+          "detailsRequired": "অবস্থান শর্তসাপেক্ষ হলে শর্ত লেখা আবশ্যক।",
+          "fixBeforeSave": "সংরক্ষণের আগে চিহ্নিত ঘরগুলো ঠিক করুন।"
+        },
+        "signal": {
+          "pending": "নীতিমালা লোড হচ্ছে",
+          "blocked": "নীতিমালা পাওয়া যাচ্ছে না",
+          "attention": "নীতিমালা পর্যালোচনা প্রয়োজন",
+          "healthy": "নীতিমালা উল্লেখ করা হয়েছে",
+          "reason": {
+            "unavailable": "ব্যবসার নীতিমালা লোড করা যায়নি। দেখতে আবার চেষ্টা করুন।",
+            "noneStated": "কোনো নীতিমালা এখনও উল্লেখ করা হয়নি",
+            "stated": "{{count}}টি নীতিমালা উল্লেখ করা হয়েছে (মোট ৪টির মধ্যে)"
+          }
+        }
+      },
+      "searchPlaceholder": "FAQ খুঁজুন…",
+      "searchAria": "FAQ খুঁজুন",
+      "search": {
+        "searching": "খোঁজা হচ্ছে…"
+      },
+      "filter": {
+        "label": "FAQ ফিল্টার",
+        "all": "সব",
+        "status": {
+          "draft": "ড্রাফট",
+          "review": "রিভিউ প্রয়োজন",
+          "published": "প্রকাশিত",
+          "disabled": "নিষ্ক্রিয়",
+          "archived": "আর্কাইভড"
+        },
+        "category": {
+          "all": "সব ক্যাটাগরি",
+          "none": "আনক্যাটাগরাইজড"
+        },
+        "noResults": "এই ফিল্টারে কোনো FAQ নেই",
+        "clear": "ফিল্টার মুছুন",
+        "categoryLabel": "ক্যাটাগরি"
+      },
+      "bulk": {
+        "select": "নির্বাচন করুন",
+        "selected": "{{formatted}}টি নির্বাচিত",
+        "enable": "চালু করুন",
+        "disable": "বন্ধ করুন",
+        "enableConfirm": "নির্বাচিত {{formatted}}টি FAQ AI রিপ্লাইয়ের জন্য প্রকাশ করবেন?",
+        "disableConfirm": "নির্বাচিত {{formatted}}টি FAQ বন্ধ করবেন?",
+        "done": "{{formatted}}টি FAQ আপডেট হয়েছে",
+        "partial": "{{ok}}টি আপডেট হয়েছে, {{failed}}টি ব্যর্থ",
+        "clear": "সিলেকশন মুছুন"
+      },
+      "chip": {
+        "status": {
+          "draft": "ড্রাফট",
+          "review": "রিভিউ প্রয়োজন",
+          "published": "প্রকাশিত",
+          "disabled": "নিষ্ক্রিয়",
+          "archived": "আর্কাইভড"
+        },
+        "sync": {
+          "pending": "সিঙ্ক হচ্ছে",
+          "synced": "সিঙ্ক হয়েছে",
+          "failed": "সিঙ্ক ব্যর্থ",
+          "pruned": "ইনডেক্স থেকে সরানো হয়েছে",
+          "notIndexed": "ইনডেক্স করা হয়নি",
+          "notIndexedHelp": "শুধু প্রকাশিত FAQ-ই গ্রাহকের উত্তরে ব্যবহৃত হতে পারে।"
+        }
+      },
+      "sync": {
+        "retry": "আবার চেষ্টা"
+      },
+      "time": {
+        "created": "তৈরি: {{value}}",
+        "updated": "হালনাগাদ: {{value}}"
+      },
+      "repliesUsed": "{{formatted}} উত্তরে ব্যবহৃত",
+      "notSet": "—",
+      "keywordsLabel": "অভ্যন্তরীণ কীওয়ার্ড",
+      "metrics": {
+        "published": "প্রকাশিত FAQ",
+        "repliesUsed": "ব্যবহৃত উত্তর",
+        "countsSummary": "প্রকাশিত {{published}} · মোট {{total}}"
+      },
+      "publish": "প্রকাশ করুন",
+      "published": "FAQ প্রকাশ হয়েছে",
+      "archive": "আর্কাইভ",
+      "archived": "FAQ আর্কাইভ করা হয়েছে",
+      "restore": "পুনরুদ্ধার",
+      "restored": "FAQ নিষ্ক্রিয় অবস্থায় ফিরিয়ে আনা হয়েছে",
+      "resynced": "আবার সিঙ্ক শুরু হয়েছে",
+      "savedToast": "সেভ হয়েছে — AI নলেজে সিঙ্ক হচ্ছে",
+      "deleteArchiveHint": "ডিলিট স্থায়ী। আর্কাইভ করলে পরে ফেরানো যাবে।",
+      "errors": {
+        "save": "FAQ সেভ করা যায়নি; আপনার লেখা ঠিক আছে।"
+      },
+      "editor": {
+        "questionHelp": "কাস্টমার যে প্রশ্ন করে; লিস্টে এই লেখাই দেখানো হয়।",
+        "answerEn": "উত্তর (ইংরেজি)",
+        "answerBn": "উত্তর (বাংলা)",
+        "answerBnPlaceholder": "কাস্টমার যে বাংলা উত্তর পাবে",
+        "categoryTag": "ক্যাটাগরি ট্যাগ",
+        "tagHelp": "সাজানোর জন্য ঐচ্ছিক লেবেল; প্রশ্নের বদলে যাবে না।",
+        "keywords": "কীওয়ার্ড (অভ্যন্তরীণ)",
+        "keywordsPlaceholder": "কীওয়ার্ড লিখে Enter চাপুন",
+        "keywordsHelp": "শুধু অভ্যন্তরীণ সাজানোর জন্য — কাস্টমার কখনো দেখবে না।",
+        "keywordsAdd": "কীওয়ার্ড যোগ করুন",
+        "keywordsRemove": "কীওয়ার্ড সরান",
+        "notes": "অভ্যন্তরীণ নোট",
+        "notesPlaceholder": "টিমের রিমাইন্ডার",
+        "notesHelp": "শুধু টিমের জন্য — কাস্টমার দেখবে না, AI রিপ্লাইতে ব্যবহৃত হবে না।",
+        "status": "স্ট্যাটাস",
+        "statusHelp": "শুধু প্রকাশিত FAQ দিয়ে AI রিপ্লাই হয়।",
+        "publishedWarn": "প্রকাশ করলে সিঙ্ক শেষ হলে এই উত্তর AI রিপ্লাইতে ব্যবহৃত হবে।",
+        "archivedLocked": "এই FAQ আর্কাইভ করা আছে। স্ট্যাটাস বদলাতে লিস্ট থেকে পুনরুদ্ধার করুন।",
+        "priority": "প্রায়োরিটি",
+        "priorityHelp": "০–১০০০; একাধিক মিললে বেশি প্রায়োরিটি আগে।"
+      },
+      "tabs": {
+        "label": "ব্যবসা এবং FAQ সেটিংস বিভাগ",
+        "profile": "ব্যবসার প্রোফাইল",
+        "faqs": "FAQ",
+        "policies": "ব্যবসার নীতিমালা"
+      },
+      "profile": {
+        "unsaved": "অসংরক্ষিত পরিবর্তন"
+      },
+      "savedDraftToast": "সংরক্ষিত হয়েছে"
     }
   },
   "faqSettings": {

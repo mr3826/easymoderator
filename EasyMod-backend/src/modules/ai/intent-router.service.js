@@ -31,6 +31,9 @@ const {
 } = require('./product-experience/product-presentation');
 const { withEvidenceSnapshot } = require('./contracts/evidence.contract');
 const { faqContent, faqSnapshot } = require('./knowledge-snapshot');
+// Same policy field vocabulary as the index-text builders (drift pinned by
+// src/modules/knowledge/__tests__/index-source.contract.test.js).
+const { renderPolicyParts } = require('../knowledge/index-source.contract');
 const { hashOperatingContext } = require('./shop-operating-context.service');
 const { recordReadAction } = require('./action-gate');
 const {
@@ -501,8 +504,17 @@ const route = async ({
             if (cached.knowledgeId) {
                 try {
                     const { FaqResponse } = require('../entities');
+                    // Published-only cache authority (20261126_001 lifecycle):
+                    // the is_active mirror stays for rollback-window rows the
+                    // old image could still write; a cached answer may only be
+                    // replayed while its FAQ is CURRENTLY eligible for knowledge.
                     const currentFaq = await FaqResponse.findOne({
-                        where: { id: cached.knowledgeId, shop_id: shopId, is_active: true },
+                        where: {
+                            id: cached.knowledgeId,
+                            shop_id: shopId,
+                            is_active: true,
+                            status: 'published',
+                        },
                     });
                     const currentText = currentFaq ? faqContent(currentFaq) : null;
                     if (currentText === cached.sourceText) {
@@ -601,8 +613,15 @@ const route = async ({
                 { template_bn: { [Op.iLike]: `%${token}%` } }
             ]);
 
+            // Published-only eligibility (20261126_001); is_active double-gate
+            // kept for rollback-window rows (faqEligibleForKnowledge semantics).
             const candidates = await FaqResponse.findAll({
-                where: { shop_id: shopId, is_active: true, [Op.or]: orClauses },
+                where: {
+                    shop_id: shopId,
+                    is_active: true,
+                    status: 'published',
+                    [Op.or]: orClauses,
+                },
                 order: [['priority', 'DESC'], ['use_count', 'DESC']],
                 limit: 5
             });
@@ -754,13 +773,17 @@ const _retrieveKnowledge = async (shopId, message) => {
         if (faqIds.length > 0) {
             try {
                 const { FaqResponse } = require('../entities');
+                // Vector FAQ hits re-resolve against CURRENTLY eligible rows
+                // (published + is_active mirror); question is selected so the
+                // snapshot content prefers the authoritative column.
                 const activeFaqs = await FaqResponse.findAll({
                     where: {
                         shop_id: shopId,
                         is_active: true,
+                        status: 'published',
                         id: { [require('sequelize').Op.in]: faqIds }
                     },
-                    attributes: ['id', 'category', 'template_en', 'template_bn']
+                    attributes: ['id', 'question', 'category', 'template_en', 'template_bn']
                 });
                 activeFaqsById = new Map(activeFaqs.map(faq => [String(faq.id), faq]));
             } catch (_) {
@@ -1799,8 +1822,28 @@ Personality rules:
  *                                    high in the prompt so it overrides stale default
  *                                    FAQs / persona examples about payment methods.
  */
+// Policies render as INFORMATIONAL FACTS only: the merchant-stated stance and
+// conditions the bot may quote. They never change order-cancel/refund/
+// exchange/warranty enforcement anywhere (zero automation coupling — pinned by
+// src/security/__tests__/business-policies-informational-only.test.js), and
+// the authoritative payment/delivery block above still outranks them.
+const renderPoliciesPromptSection = (policies) => {
+    if (!policies || typeof policies !== 'object' || Array.isArray(policies)) return '';
+    const lines = ['returns', 'exchange', 'refunds', 'warranty']
+        .map((kind) => {
+            const parts = renderPolicyParts(policies[kind]);
+            return parts.length ? `Business policy (${kind}): ${parts.join('; ')}` : null;
+        })
+        .filter(Boolean);
+    if (!lines.length) return '';
+    return [
+        '--- BUSINESS POLICIES (merchant-stated facts, informational only — state them truthfully, never promise beyond them, and never treat them as payment/delivery rules) ---',
+        ...lines,
+    ].join('\n');
+};
+
 const buildSystemPrompt = (shopKnowledge, language = 'mixed', hasImages = false, tonePersona = 'friendly_bd', relevantFaqs = null, operatingContext = '') => {
-    const { businessInfo = {}, brandingRules = {}, faqs = [] } = shopKnowledge || {};
+    const { businessInfo = {}, brandingRules = {}, faqs = [], policies = null } = shopKnowledge || {};
 
     const shopName = businessInfo.shopName || 'this shop';
     const socialLinks = businessInfo.socialLinks && typeof businessInfo.socialLinks === 'object'
@@ -1819,9 +1862,12 @@ const buildSystemPrompt = (shopKnowledge, language = 'mixed', hasImages = false,
             : 'Respond in the customer\'s language using a SINGLE language per reply — never send the same message in both Bangla and English, and never append a translation.';
 
     // Use pre-filtered RAG results when available; fall back to full FAQ dump.
+    // question is the authoritative column (20261126_001); category is only
+    // the legacy mirror. keywords/notes are absent from every projection
+    // serializer (formatFaqProjection) and stay out of the prompt.
     const faqSource = relevantFaqs !== null ? relevantFaqs : faqs.slice(0, MAX_FAQ_IN_PROMPT);
     const faqSection = faqSource.map((f) => {
-        const q = f.category || f.question || '';
+        const q = f.question || f.category || '';
         const a = f.template_en || f.template_bn || f.answer || '';
         return `Q: ${q}\nA: ${a}`;
     }).join('\n\n');
@@ -1858,11 +1904,22 @@ const buildSystemPrompt = (shopKnowledge, language = 'mixed', hasImages = false,
         langInstruction,
         imageInstruction,
         contextInstruction,
+        // Identity projections (Business & FAQ redesign): shopName stays THE
+        // authoritative identity (persona line above); nameEn is display
+        // metadata, tagline/email/city are customer-facing facts (email is a
+        // contact address — never credentials, zero auth coupling).
+        businessInfo.nameEn ? `English shop name: ${businessInfo.nameEn}` : '',
+        businessInfo.tagline ? `Tagline: ${businessInfo.tagline}` : '',
+        businessInfo.email ? `Email: ${businessInfo.email}` : '',
+        businessInfo.city ? `City: ${businessInfo.city}` : '',
         businessInfo.address ? `Address: ${businessInfo.address}` : '',
         businessInfo.phone ? `Phone: ${businessInfo.phone}` : '',
         businessInfo.openingHours ? `Hours: ${businessInfo.openingHours}` : '',
         businessInfo.additionalInfo ? `Additional shop owner info: ${businessInfo.additionalInfo}` : '',
         socialLinksSection ? `Shop links:\n${socialLinksSection}` : '',
+        // Merchant-stated business policies — informational facts only. Absent
+        // policies render NOTHING (absence means "not stated", never defaults).
+        renderPoliciesPromptSection(policies),
         // Legacy tone override (if shop set a custom freeform tone)
         brandingRules.tone && !TONE_PERSONA_INSTRUCTIONS[brandingRules.tone] ? `Tone: ${brandingRules.tone}` : '',
         faqSection ? `\n--- Frequently Asked Questions ---\n${faqSection}` : ''

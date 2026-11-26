@@ -99,6 +99,7 @@ jest.mock('src/modules/rag/rag.service', () => ({
     ingestData:   jest.fn(() => Promise.resolve({ success: true })),
     deletePoint:  jest.fn(() => Promise.resolve()),
     queryData:    jest.fn(() => Promise.resolve({ success: true, data: [{ score: 0.91, text: 'Delivery is 2-3 days' }] })),
+    scrollShopPointsByType: jest.fn(() => Promise.resolve([])),
 }));
 
 jest.mock('src/modules/ai/gemini-cache.service', () => ({
@@ -144,9 +145,13 @@ jest.mock('src/modules/shop/shop.service', () => ({
 jest.mock('src/middleware/session.middleware', () => () => (req, res, next) => next());
 
 // ── Mock auth middleware — injects a test user ────────────────────────────
+// The real authenticate sets req.userRole from the ACTIVE MEMBERSHIP (the same
+// value verifyShopAccess/requireOwner read). Owner-only endpoints (DELETE and
+// resync — A5 contract change) are rejected without it, so the mock must set it.
+// TEST_USER is mutated per-test to exercise the staff path.
 const TEST_USER = { userId: 'user-1', shopId: 'shop-1', role: 'owner' };
 jest.mock('src/middleware/auth.middleware', () => ({
-    authenticate:              (req, res, next) => { req.user = TEST_USER; next(); },
+    authenticate:              (req, res, next) => { req.user = TEST_USER; req.userRole = TEST_USER.role; next(); },
     checkSubscriptionStatus:   (req, res, next) => next(),
 }));
 
@@ -171,6 +176,7 @@ describe('Knowledge API', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        TEST_USER.role = 'owner'; // staff-role tests mutate and must not leak
         mockShop.update.mockClear();
         mockShop.settings = { ...mockShopSettings };
 
@@ -745,6 +751,508 @@ describe('Knowledge API', () => {
 
             expect(ragService.deletePoint).toHaveBeenCalledWith('biz-shop-1', 'shop-1');
             expect(ragService.ingestData).not.toHaveBeenCalled();
+        });
+    });
+
+    // ── Business info NEW identity fields (A5 contract extension) ────────────
+
+    describe('updateBusinessInfo — new identity fields (nameEn/tagline/email/city)', () => {
+        it('persists the new fields and preserves them on partial saves', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            Shop.findByPk.mockResolvedValue(mockShop);
+
+            await knowledgeService.updateBusinessInfo('user-1', 'shop-1', {
+                nameEn: 'Rina Fashion EN',
+                tagline: 'Best fits in Dhaka',
+                email: 'care@rina.test',
+                city: 'Dhaka',
+            });
+            let saved = mockShop.update.mock.calls.at(-1)[0].settings.businessInfo;
+            expect(saved.nameEn).toBe('Rina Fashion EN');
+            expect(saved.tagline).toBe('Best fits in Dhaka');
+            expect(saved.email).toBe('care@rina.test');
+            expect(saved.city).toBe('Dhaka');
+            expect(saved.shopName).toBe('Existing Shop'); // untouched
+
+            await knowledgeService.updateBusinessInfo('user-1', 'shop-1', { city: 'Chattogram' });
+            saved = mockShop.update.mock.calls.at(-1)[0].settings.businessInfo;
+            expect(saved.city).toBe('Chattogram');
+            expect(saved.nameEn).toBe('Rina Fashion EN'); // preserved
+            expect(saved.email).toBe('care@rina.test');   // preserved
+        });
+
+        it('explicit null clears a new field to empty string, never the literal "null"', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            mockShop.settings = {
+                ...mockShopSettings,
+                businessInfo: { ...mockShopSettings.businessInfo, email: 'care@rina.test', tagline: 'x' },
+            };
+            Shop.findByPk.mockResolvedValue(mockShop);
+
+            await knowledgeService.updateBusinessInfo('user-1', 'shop-1', { email: null, tagline: null });
+            const saved = mockShop.update.mock.calls.at(-1)[0].settings.businessInfo;
+            expect(saved.email).toBe('');
+            expect(saved.tagline).toBe('');
+            expect(JSON.stringify(saved)).not.toContain('"null"');
+        });
+
+        it('projects the new identity fields into the business_info index text in contract order', async () => {
+            const ragService = require('src/modules/rag/rag.service');
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            Shop.findByPk.mockResolvedValue(mockShop);
+
+            await knowledgeService.updateBusinessInfo('user-1', 'shop-1', {
+                nameEn: 'Rina EN', tagline: 'Best fits', email: 'care@rina.test', city: 'Dhaka',
+            });
+
+            const text = ragService.ingestData.mock.calls.at(-1)[0].text;
+            const lines = text.split('\n');
+            expect(lines[0]).toBe('Shop name: Existing Shop');      // nameEn AFTER shopName
+            expect(lines[1]).toBe('English shop name: Rina EN');
+            expect(lines[2]).toBe('Tagline: Best fits');
+            expect(lines[3]).toBe('Email: care@rina.test');
+            expect(lines[4]).toBe('City: Dhaka');
+            expect(lines[5]).toBe('Description: Best fits | Existing owner note'); // tagline+additionalInfo composition
+        });
+    });
+
+    // ── FAQ lifecycle contract (20261126_001) ────────────────────────────────
+
+    describe('FAQ lifecycle contract (20261126_001)', () => {
+        const { inspect } = require('util');
+        const flushAsync = () => new Promise((resolve) => setImmediate(resolve));
+        const publishedRow = (over = {}) => ({
+            id: 9, shop_id: 'shop-1',
+            question: 'Delivery time?', category: 'Delivery time?', category_tag: 'Shipping',
+            template_en: '2-3 days', template_bn: '২-৩ দিন',
+            variables: [], keywords: ['delivery'], internal_notes: 'merchant private note',
+            is_active: true, status: 'published', priority: 5, use_count: 3,
+            created_at: new Date('2026-11-01T00:00:00Z'),
+            updated_at: new Date('2026-11-02T00:00:00Z'),
+            sync_status: 'pending', sync_version: 1, synced_at: null,
+            update: jest.fn(async () => {}),
+            ...over,
+        });
+
+        it('serializes the full sync-lifecycle shape and NEVER fabricates updatedAt from createdAt', async () => {
+            FaqResponse.findAll.mockResolvedValueOnce([
+                publishedRow({ updated_at: null, synced_at: null, category_tag: null }),
+            ]);
+
+            const res = await request(app).get('/api/knowledge/faqs');
+
+            expect(res.status).toBe(200);
+            const faq = res.body.data[0];
+            expect(faq.id).toBe('9');
+            expect(faq.question).toBe('Delivery time?');
+            expect(faq.category_tag).toBeNull();
+            expect(faq.answers).toEqual({ en: '2-3 days', bn: '২-৩ দিন' });
+            expect(faq.keywords).toEqual(['delivery']);
+            expect(faq.notes).toBe('merchant private note');
+            expect(faq.status).toBe('published');
+            expect(faq.is_active).toBe(true);
+            expect(faq.sync_status).toBe('pending');
+            expect(faq.sync_version).toBe(1);
+            expect(faq.synced_at).toBeNull();
+            // Honest timestamp: never edited → null → UI renders "—".
+            expect(faq.updated_at).toBeNull();
+            expect(faq.updatedAt).toBeNull();
+            expect(faq.created_at).toBeTruthy();
+            // Legacy aliases stay for old readers.
+            expect(faq.category).toBe('Delivery time?');
+            expect(faq.answer).toBe('2-3 days');
+        });
+
+        it('keeps status ⇔ is_active mirrored on EVERY create (consistency table)', async () => {
+            for (const [status, isActive] of [
+                ['draft', false], ['review', false], ['published', true],
+                ['disabled', false], ['archived', false],
+            ]) {
+                FaqResponse.create.mockImplementationOnce(async (values) => ({ id: 100, created_at: new Date(), ...values }));
+                const res = await request(app)
+                    .post('/api/knowledge/faqs')
+                    .send({ question: 'Q?', answer: 'A', status });
+                expect(res.status).toBe(201);
+                expect(FaqResponse.create).toHaveBeenCalledWith(expect.objectContaining({
+                    status, is_active: isActive,
+                    sync_status: 'pending', sync_version: 1,
+                }));
+                expect(res.body.data.is_active).toBe(isActive);
+                await flushAsync();
+            }
+        });
+
+        it('faqEligibleForKnowledge double-gates status and is_active (rollback-window rows fail closed)', () => {
+            const { faqEligibleForKnowledge } = require('src/modules/knowledge/knowledge.service');
+            expect(faqEligibleForKnowledge({ status: 'published', is_active: true })).toBe(true);
+            expect(faqEligibleForKnowledge({ status: 'published', is_active: false })).toBe(false);
+            expect(faqEligibleForKnowledge({ status: 'draft', is_active: true })).toBe(false);
+            expect(faqEligibleForKnowledge({ status: 'archived' })).toBe(false);
+            // A row whose status column is absent (legacy read) falls back to
+            // the is_active mirror the migration backfilled.
+            expect(faqEligibleForKnowledge({ is_active: true })).toBe(true);
+            expect(faqEligibleForKnowledge({ is_active: false })).toBe(false);
+        });
+
+        it('P03 upgrade: PATCH {category_tag} can never overwrite the question or its category mirror', async () => {
+            const row = publishedRow();
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+
+            const res = await request(app)
+                .patch('/api/knowledge/faqs/9')
+                .send({ category_tag: 'Logistics' });
+
+            expect(res.status).toBe(200);
+            expect(row.update).toHaveBeenCalledWith(expect.objectContaining({
+                question: 'Delivery time?',
+                category: 'Delivery time?',
+                category_tag: 'Logistics',
+            }));
+            expect(res.body.data.question).toBe('Delivery time?');
+            expect(res.body.data.category_tag).toBe('Logistics');
+        });
+
+        it('status machine: invalid transition 409 INVALID_STATUS_TRANSITION; same-status idempotent; draft→review allowed', async () => {
+            const published = publishedRow();
+            FaqResponse.findOne.mockResolvedValueOnce(published);
+            const bad = await request(app).patch('/api/knowledge/faqs/9').send({ status: 'draft' });
+            expect(bad.status).toBe(409);
+            expect(bad.body.code).toBe('INVALID_STATUS_TRANSITION');
+            expect(bad.body.message).toMatch(/cannot change from published to draft/);
+            expect(published.update).not.toHaveBeenCalled();
+
+            const same = publishedRow();
+            FaqResponse.findOne.mockResolvedValueOnce(same);
+            const ok = await request(app).patch('/api/knowledge/faqs/9').send({ status: 'published' });
+            expect(ok.status).toBe(200);
+            expect(ok.body.data.status).toBe('published');
+
+            const draft = publishedRow({ status: 'draft', is_active: false });
+            FaqResponse.findOne.mockResolvedValueOnce(draft);
+            const up = await request(app).patch('/api/knowledge/faqs/9').send({ status: 'review' });
+            expect(up.status).toBe(200);
+            expect(draft.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'review', is_active: false }));
+        });
+
+        it('archive → restore round trip preserves data; restore lands on disabled and only from archived', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+
+            const archiveRow = publishedRow();
+            FaqResponse.findOne.mockResolvedValueOnce(archiveRow);
+            const archived = await knowledgeService.archiveFaq('user-1', 'shop-1', '9');
+            expect(archiveRow.update).toHaveBeenCalledWith(expect.objectContaining({
+                status: 'archived', is_active: false,
+                question: 'Delivery time?', template_en: '2-3 days', template_bn: '২-৩ দিন',
+                keywords: ['delivery'], internal_notes: 'merchant private note', category_tag: 'Shipping',
+            }));
+            expect(archived.status).toBe('archived');
+
+            // restore: the machine stores nothing extra — archived → disabled.
+            const restoreSeen = { ...publishedRow(), status: 'archived', is_active: false, update: jest.fn(async () => {}) };
+            const restoreApply = { ...publishedRow(), status: 'archived', is_active: false, update: jest.fn(async () => {}) };
+            FaqResponse.findOne
+                .mockResolvedValueOnce(restoreSeen)
+                .mockResolvedValueOnce(restoreApply);
+            const back = await knowledgeService.restoreFaq('user-1', 'shop-1', '9');
+            expect(restoreApply.update).toHaveBeenCalledWith(expect.objectContaining({
+                status: 'disabled', is_active: false,
+                question: 'Delivery time?', template_bn: '২-৩ দিন',
+                internal_notes: 'merchant private note',
+            }));
+            expect(back.status).toBe('disabled');
+
+            // restore of a PUBLISHED FAQ is refused (409), never silent republish.
+            FaqResponse.findOne.mockResolvedValueOnce(publishedRow());
+            await expect(knowledgeService.restoreFaq('user-1', 'shop-1', '9'))
+                .rejects.toMatchObject({ status: 409, code: 'INVALID_STATUS_TRANSITION' });
+
+            // restore of an already-disabled FAQ is an idempotent no-op (no churn).
+            const disabled = publishedRow({ status: 'disabled', is_active: false });
+            FaqResponse.findOne.mockResolvedValueOnce(disabled);
+            const noop = await knowledgeService.restoreFaq('user-1', 'shop-1', '9');
+            expect(disabled.update).not.toHaveBeenCalled();
+            expect(noop.status).toBe('disabled');
+        });
+
+        it('resync (owner) bumps sync_version WITHOUT touching updated_at and settles synced via CAS', async () => {
+            const ragService = require('src/modules/rag/rag.service');
+            const row = publishedRow({ sync_version: 4 });
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+
+            const res = await request(app).post('/api/knowledge/faqs/9/resync');
+            expect(res.status).toBe(200);
+            expect(row.update).toHaveBeenCalledWith({ sync_status: 'pending', sync_version: 5 }); // exact — no updated_at
+            expect(res.body.data.sync_status).toBe('pending');
+            expect(res.body.data.sync_version).toBe(5);
+
+            await flushAsync();
+            expect(ragService.ingestData.mock.calls.at(-1)[0].metadata)
+                .toEqual(expect.objectContaining({ documentId: 'faq-9', faq_version: 5 }));
+            expect(FaqResponse.update).toHaveBeenCalledWith(
+                expect.objectContaining({ sync_status: 'synced' }),
+                { where: { id: 9, sync_version: 5 } },
+            );
+        });
+
+        it('a failed vector sync settles to failed (visible, retryable via resync)', async () => {
+            const ragService = require('src/modules/rag/rag.service');
+            ragService.ingestData.mockResolvedValueOnce({ success: false, message: 'RAG service unavailable' });
+            const row = publishedRow({ sync_version: 5 });
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+
+            await request(app).post('/api/knowledge/faqs/9/resync');
+            await flushAsync();
+            // resync bumped 5 → 6; the FAILURE settle CASes on the NEW version.
+            expect(FaqResponse.update).toHaveBeenCalledWith(
+                expect.objectContaining({ sync_status: 'failed' }),
+                { where: { id: 9, sync_version: 6 } },
+            );
+        });
+
+        it('a stale async settle cannot mark a newer save (every settle CASes on sync_version)', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            // Two saves raced: version 2 is newer than version 1's in-flight sync.
+            await knowledgeService.syncFaqRagIndex('shop-1', publishedRow({ sync_version: 1 }));
+            await knowledgeService.syncFaqRagIndex('shop-1', publishedRow({ sync_version: 2 }));
+            const casPairs = FaqResponse.update.mock.calls
+                .map(([patch, options]) => [patch.sync_status, options.where.sync_version]);
+            expect(casPairs).toEqual([['synced', 1], ['synced', 2]]);
+            // The older completion targeted ONLY version 1 — while the row sits
+            // at 2 the DB CAS makes that write a no-op (stale cannot settle it).
+        });
+
+        it('a rag.service version-guard refusal leaves the status for the newer save (neither synced nor failed)', async () => {
+            const ragService = require('src/modules/rag/rag.service');
+            ragService.ingestData.mockResolvedValueOnce({ success: false, guarded: true, message: 'FAQ_VERSION_GUARDED' });
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            await knowledgeService.syncFaqRagIndex('shop-1', publishedRow({ sync_version: 1 }));
+            expect(FaqResponse.update).not.toHaveBeenCalled();
+        });
+
+        it('an ineligible FAQ settles the sync by REMOVING the point (vector store matches row absence)', async () => {
+            const ragService = require('src/modules/rag/rag.service');
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            const ingestCallsBefore = ragService.ingestData.mock.calls.length;
+
+            await knowledgeService.syncFaqRagIndex('shop-1',
+                publishedRow({ status: 'archived', is_active: false, sync_version: 3 }));
+
+            expect(ragService.deletePoint).toHaveBeenCalledWith('faq-9', 'shop-1');
+            expect(ragService.ingestData.mock.calls.length).toBe(ingestCallsBefore); // no ingest for ineligible
+            expect(FaqResponse.update).toHaveBeenCalledWith(
+                expect.objectContaining({ sync_status: 'synced' }),
+                { where: { id: 9, sync_version: 3 } },
+            );
+        });
+
+        it('resync and DELETE are owner-only (staff 403 — A5 contract change for DELETE)', async () => {
+            TEST_USER.role = 'staff';
+            const resync = await request(app).post('/api/knowledge/faqs/9/resync');
+            expect(resync.status).toBe(403);
+            const del = await request(app).delete('/api/knowledge/faqs/1');
+            expect(del.status).toBe(403);
+            expect(FaqResponse.destroy).not.toHaveBeenCalled();
+        });
+
+        it('searchFaq is published-only, never matches internal_notes, and never returns private columns', async () => {
+            FaqResponse.findAll.mockResolvedValueOnce([publishedRow()]);
+
+            const res = await request(app).post('/api/knowledge/faq/search').send({ query: 'delivery' });
+            expect(res.status).toBe(200);
+            const call = FaqResponse.findAll.mock.calls.at(-1)[0];
+            expect(call.where).toMatchObject({ shop_id: 'shop-1', is_active: true, status: 'published' });
+            const serialized = inspect(call.where, { depth: null });
+            expect(serialized).not.toContain('internal_notes');
+            expect(serialized).toContain('keywords'); // keywords ARE searchable
+            const row = res.body.data[0];
+            expect(row).not.toHaveProperty('keywords');
+            expect(row).not.toHaveProperty('notes');
+            expect(JSON.stringify(res.body)).not.toContain('merchant private note');
+        });
+
+        it('getRelevantFaqs is published-only and matches only customer-facing columns', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            FaqResponse.findAll.mockResolvedValueOnce([publishedRow()]);
+
+            const out = await knowledgeService.getRelevantFaqs('shop-1', 'delivery charge time', 5);
+            const call = FaqResponse.findAll.mock.calls.at(-1)[0];
+            expect(call.where.status).toBe('published');
+            expect(call.where.is_active).toBe(true);
+            const serialized = inspect(call.where, { depth: null });
+            expect(serialized).not.toContain('internal_notes');
+            expect(serialized).not.toContain('keywords');
+            expect(out[0]).not.toHaveProperty('keywords');
+            expect(out[0]).not.toHaveProperty('notes');
+        });
+
+        it('getKnowledgeForAI: published-only, private columns stripped, merchant policies projected', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            mockShop.settings = {
+                ...mockShopSettings,
+                policies: { returns: { stance: 'offered', period_days: 7 } },
+            };
+            Shop.findByPk.mockResolvedValueOnce(mockShop);
+            FaqResponse.findAll.mockResolvedValueOnce([publishedRow()]);
+
+            const ai = await knowledgeService.getKnowledgeForAI('shop-1');
+            const call = FaqResponse.findAll.mock.calls.at(-1)[0];
+            expect(call.where).toMatchObject({ is_active: true, status: 'published' });
+            expect(ai.faqs[0]).not.toHaveProperty('keywords');
+            expect(ai.faqs[0]).not.toHaveProperty('notes');
+            expect(JSON.stringify(ai.faqs)).not.toContain('merchant private note');
+            expect(ai.policies).toEqual({ returns: { stance: 'offered', period_days: 7 } });
+        });
+
+        it('legacy aliases: answer→EN slot, and an answer-only update can never lose BN data', async () => {
+            FaqResponse.create.mockImplementationOnce(async (values) => ({ id: 1, created_at: new Date(), ...values }));
+            await request(app).post('/api/knowledge/faqs').send({ question: 'Q?', answer: 'English only' });
+            expect(FaqResponse.create).toHaveBeenCalledWith(expect.objectContaining({
+                template_en: 'English only', template_bn: null,
+            }));
+
+            const row = publishedRow();
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+            await request(app).patch('/api/knowledge/faqs/9').send({ answer: 'Updated EN' });
+            expect(row.update).toHaveBeenCalledWith(expect.objectContaining({
+                template_en: 'Updated EN',
+                template_bn: '২-৩ দিন', // bn survives an EN-only legacy update
+            }));
+        });
+
+        it('buildFaqIndexText applies the mirror invariant (equal mirrors → question; drift → fresh category) and excludes private columns', () => {
+            const { buildFaqIndexText } = require('src/modules/knowledge/knowledge.service');
+            // New writes keep question === category — question is the label.
+            expect(buildFaqIndexText({
+                question: 'Real question?', category: 'Real question?',
+                keywords: ['kw-secret'], internal_notes: 'note-secret',
+            })).toBe('Q: Real question?');
+            // A9 rollback-window drift: both present and DIFFERENT can only be
+            // an old-image write (which touched category only) → category wins
+            // until the next content save re-mirrors.
+            expect(buildFaqIndexText({ question: 'STALE q', category: 'FRESH from old image' }))
+                .toBe('Q: FRESH from old image');
+            expect(buildFaqIndexText({ category: 'legacy only', template_bn: 'বাংলা', template_en: 'EN' }))
+                .toBe('Q: legacy only\nA (BN): বাংলা\nA (EN): EN');
+        });
+
+        // ── Review round (A9 M3 + mirror invariant) regression pins ──────────
+
+        it('resolveFaqQuestion truth table (shared faq-question module)', () => {
+            const { resolveFaqQuestion } = require('src/modules/knowledge/knowledge.service');
+            expect(resolveFaqQuestion({ question: 'Q', category: 'Q' })).toBe('Q');
+            expect(resolveFaqQuestion({ question: 'Q', category: 'C' })).toBe('C'); // drift → fresh category
+            expect(resolveFaqQuestion({ question: 'Q', category: '' })).toBe('Q');
+            expect(resolveFaqQuestion({ category: 'C' })).toBe('C');
+            expect(resolveFaqQuestion({ question: '  ', category: 'C' })).toBe('C');
+            expect(resolveFaqQuestion({})).toBe('General');
+            expect(resolveFaqQuestion({}, '')).toBe('');
+        });
+
+        it('formatFaq resolves a drifted row to the fresh category', async () => {
+            FaqResponse.findAll.mockResolvedValueOnce([
+                publishedRow({ question: 'STALE question?', category: 'FRESH from old image' }),
+            ]);
+            const res = await request(app).get('/api/knowledge/faqs');
+            expect(res.status).toBe(200);
+            expect(res.body.data[0].question).toBe('FRESH from old image');
+            expect(res.body.data[0].category).toBe('FRESH from old image');
+        });
+
+        it('A9 M3 regression: PATCH {category} alone NEVER changes the question or its mirror', async () => {
+            const row = publishedRow();
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+
+            const res = await request(app)
+                .patch('/api/knowledge/faqs/9')
+                .send({ category: 'Billing' }); // legacy client putting a tag where the question lives
+
+            expect(res.status).toBe(200);
+            // The incoming category is IGNORED for the question: stored
+            // (drift-resolved) question survives, and the mirror is REWRITTEN
+            // from it — 'Billing' can appear in neither column.
+            expect(row.update).toHaveBeenCalledWith(expect.objectContaining({
+                question: 'Delivery time?',
+                category: 'Delivery time?',
+            }));
+            const written = row.update.mock.calls[0][0];
+            expect(JSON.stringify(written)).not.toContain('Billing');
+            expect(res.body.data.question).toBe('Delivery time?');
+        });
+
+        it('a drifted row re-mirrors BOTH columns to the fresh truth on the next content save', async () => {
+            const row = publishedRow({ question: 'STALE question?', category: 'FRESH from old image' });
+            FaqResponse.findOne.mockResolvedValueOnce(row);
+
+            const res = await request(app).patch('/api/knowledge/faqs/9').send({ answer: 'Updated answer' });
+            expect(res.status).toBe(200);
+            expect(row.update).toHaveBeenCalledWith(expect.objectContaining({
+                question: 'FRESH from old image',
+                category: 'FRESH from old image',
+            }));
+        });
+
+        it('POST legacy alias stays honored at the service (question-first payload)', async () => {
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            FaqResponse.create.mockImplementationOnce(async (values) => ({ id: 1, created_at: new Date(), ...values }));
+
+            await knowledgeService.createFaq('user-1', 'shop-1', { answer: 'A', category: 'Refund?' });
+            expect(FaqResponse.create).toHaveBeenCalledWith(expect.objectContaining({
+                question: 'Refund?',
+                category: 'Refund?',
+            }));
+        });
+
+        it('a stale queued sync of an ineligible snapshot NEVER deletes a republished point', async () => {
+            const ragService = require('src/modules/rag/rag.service');
+            const knowledgeService = require('src/modules/knowledge/knowledge.service');
+            const deleteCallsBefore = ragService.deletePoint.mock.calls.length;
+            // Queued snapshot says archived… but the CURRENT row is published again.
+            FaqResponse.findByPk.mockResolvedValueOnce(publishedRow({ sync_version: 6 }));
+
+            await knowledgeService.syncFaqRagIndex('shop-1',
+                publishedRow({ status: 'archived', is_active: false, sync_version: 3 }));
+
+            expect(ragService.deletePoint.mock.calls.length).toBe(deleteCallsBefore); // not removed
+            expect(FaqResponse.update).not.toHaveBeenCalled();                       // no settle churn
+        });
+
+        it('buildBusinessInfoIndexText: description composition, English-name order, policies block, returnPolicy precedence, honest absence', () => {
+            const { buildBusinessInfoIndexText } = require('src/modules/knowledge/knowledge.service');
+            const text = buildBusinessInfoIndexText(
+                {
+                    shopName: 'Rina', nameEn: 'Rina EN', tagline: 'Best fits',
+                    additionalInfo: 'Exchange needs an unboxing video.',
+                    email: 'hi@rina.test', city: 'Dhaka',
+                },
+                {
+                    returns: { stance: 'offered', period_days: 7, details: 'unused only' },
+                    refunds: { stance: 'conditional', process: 'original payment method' },
+                },
+            );
+            const lines = text.split('\n');
+            expect(lines[0]).toBe('Shop name: Rina');
+            expect(lines[1]).toBe('English shop name: Rina EN');
+            expect(text).toContain('Description: Best fits | Exchange needs an unboxing video.');
+            expect(text).toContain('Return policy: stance: offered; window: 7 days; conditions: unused only');
+            expect(text).toContain('Business policy (refunds): stance: conditional; process: original payment method');
+            expect(text).not.toContain('Business policy (warranty)');
+
+            const explicit = buildBusinessInfoIndexText(
+                { shopName: 'R', returnPolicy: '7 days, unused only' },
+                { returns: { stance: 'offered' } },
+            );
+            expect(explicit).toContain('Return policy: 7 days, unused only');
+            expect(explicit).not.toContain('stance: offered'); // explicit wins
+
+            expect(buildBusinessInfoIndexText({ shopName: 'R' }, null)).toBe('Shop name: R'); // absent → NO lines
+        });
+
+        it('knowledge-snapshot content prefers question and excludes keywords/notes', () => {
+            const { faqContent, faqContentHash } = require('src/modules/ai/knowledge-snapshot');
+            expect(faqContent({ question: 'Real?', category: 'TAG', template_en: 'A', keywords: ['k'], internal_notes: 'n' }))
+                .toBe('Real?\nA');
+            expect(faqContent({ category: 'legacy', template_en: 'A' })).toBe('legacy\nA');
+            expect(faqContentHash(publishedRow())).not.toBe(faqContentHash({ ...publishedRow(), question: 'Changed?' }));
         });
     });
 });

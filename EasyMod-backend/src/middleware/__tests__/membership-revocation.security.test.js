@@ -50,6 +50,11 @@ jest.mock('../../modules/knowledge/knowledge.controller', () => ({
     createFaq: jest.fn(),
     updateFaq: jest.fn(),
     deleteFaq: jest.fn(),
+    // 20261126_001 lifecycle routes mounted by knowledge.routes (the suite
+    // exercises route loading + auth, not these handlers).
+    archiveFaq: jest.fn(),
+    restoreFaq: jest.fn(),
+    resyncFaq: jest.fn(),
     listGaps: jest.fn(),
     listDocuments: jest.fn(),
     createDocument: jest.fn(),
@@ -61,6 +66,7 @@ jest.mock('../../modules/knowledge/knowledge.validator', () => ({
     createFaq: {},
     updateFaq: {},
     deleteFaq: {},
+    faqId: {},
     createDocument: {},
     deleteDocument: {},
 }));
