@@ -262,8 +262,14 @@ class BkashTokenizedService {
     }
 
     async clearTokenCache(account) {
+        // F-4 (A9-remediation, 2026-11-27): the token cache is invalidatable;
+        // the ≤2/hr grant BUDGET is not. Deleting the budget key here meant
+        // every 401/403 retry, env demotion or credential replacement
+        // RESTARTED the rolling window — repeated auth failures could hammer
+        // the provider with more than 2 real grant hits per hour, defeating
+        // §2.1. The window outlives cache clears by design; its only reset is
+        // time.
         await cache.deleteForShop(account.shop_id, this.tokenCacheKey(account)).catch(() => {});
-        await cache.deleteForShop(account.shop_id, this.grantBudgetKey(account)).catch(() => {});
     }
 
     /** POST /auth/grant-token — grant-bearing: consumes the hourly slot.
