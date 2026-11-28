@@ -34,7 +34,7 @@ const repeatBuyer = {
   last_order_at: iso(-5 * 86400000), last_activity_at: iso(-3600000), open_opportunity: null,
 };
 const interested = {
-  ...repeatBuyer, id: 'cust-2', name: 'Karim Hasan', phone: null, state: 'INTERESTED',
+  ...repeatBuyer, id: 'cust-2', name: 'Karim Hasan', phone: null, channel_type: 'manual', state: 'INTERESTED',
   state_reasons: [{ code: 'OPEN_OPPORTUNITY', params: {} }], total_orders: 0, delivered_orders: 0, delivered_value: 0,
   last_order_at: null, open_opportunity: { id: 'opp-1', status: 'OPEN', strength: 'HIGH', reasons: ['PURCHASE_INTENT'] },
 };
@@ -84,6 +84,10 @@ interface Fixture {
   verifyCalls: Array<Record<string, unknown>>;
   approveCalls: Array<Record<string, unknown>>;
   contacted: string[];
+  customerListRequests: Array<Record<string, string>>;
+  customerConversationFilters: string[];
+  noteCreates: Array<{ customerId: string; body: string }>;
+  tagUpdates: Array<{ customerId: string; tagIds: string[] }>;
   unexpected: string[];
 }
 
@@ -112,12 +116,17 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
       'ord-ready': { decision: 'READY', version: 1, resolved: false },
     },
     bookings: [], verifyCalls: [], approveCalls: [], contacted: [], unexpected: [],
+    customerListRequests: [], customerConversationFilters: [], noteCreates: [], tagUpdates: [],
   };
   let authenticated = false;
   const shop = shopFor(role);
   let opportunityStatus = 'OPEN';
+  let customerNotes: Array<Record<string, unknown>> = [];
+  let assignedCustomerTags: Array<{ id: string; shop_id: string; name: string }> = [];
+  const tagVocabulary = [{ id: 'tag-vip', shop_id: 'shop-1', name: 'VIP' }];
 
   await page.addInitScript(() => {
+    window.localStorage.setItem('easymod_lang', 'en');
     window.localStorage.setItem('easymod:business-setup:default:complete-dismissed', '1');
     window.localStorage.setItem('easymod:business-setup:shop-1:complete-dismissed', '1');
   });
@@ -176,12 +185,37 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
     if (path === '/api/customer-intelligence/status') {
       return route.fulfill(json({ customer_intelligence: fixture.pilot, order_confidence_mode: fixture.pilot ? 'enforce' : 'off' }));
     }
+    if (path === '/api/customer-intelligence/overview' && method === 'GET') {
+      return route.fulfill(json({
+        total_records: 2,
+        buyers: 1,
+        repeat_buyers: 1,
+        new_buyers: null,
+        open_opportunities: 1,
+        scanned_orders: 100,
+        total_linked_orders: 200,
+        order_scan_cap: 200,
+        coverage_complete: false,
+        definitions: {
+          buyers: 'At least one delivered order in the scanned set.',
+          repeat_buyers: 'At least two delivered orders in the scanned set.',
+          new_buyers: 'First delivered order in the last 30 days; available only when order coverage is complete.',
+          open_opportunities: 'Open or actioned customer opportunities.',
+          order_linkage: 'Orders linked by customer or phone.',
+        },
+      }));
+    }
     if (path === '/api/customer-intelligence/customers') {
+      fixture.customerListRequests.push(Object.fromEntries(searchParams.entries()));
       const view = searchParams.get('view');
       const search = (searchParams.get('search') || '').toLowerCase();
+      const phone = searchParams.get('phone') || '';
+      const channel = searchParams.get('channel_type') || '';
       let rows = view === 'opportunities' ? [interested] : [repeatBuyer, interested];
       if (opportunityStatus !== 'OPEN') rows = rows.map((r) => (r.id === 'cust-2' ? { ...r, open_opportunity: null } : r));
-      if (search) rows = rows.filter((r) => r.name.toLowerCase().includes(search) || (r.phone || '').includes(search));
+      if (search) rows = rows.filter((r) => (r.name || '').toLowerCase().includes(search));
+      if (phone) rows = rows.filter((r) => (r.phone || '').includes(phone));
+      if (channel) rows = rows.filter((r) => r.channel_type === channel);
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: rows, total: rows.length, page: 1, pageSize: 20 }) });
     }
     if (path === '/api/customer-intelligence/customers/cust-1') return route.fulfill(json(customerDetail));
@@ -194,6 +228,32 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
       fixture.contacted.push('opp-1');
       opportunityStatus = 'ACTIONED';
       return route.fulfill(json(opportunity('ACTIONED')));
+    }
+
+    if (path === '/api/customer/tags' && method === 'GET') {
+      return route.fulfill(json({ data: tagVocabulary }));
+    }
+    if (path === '/api/customer/cust-1/notes' && method === 'GET') {
+      return route.fulfill(json({ data: customerNotes, total: customerNotes.length }));
+    }
+    if (path === '/api/customer/cust-1/notes' && method === 'POST') {
+      const body = request.postDataJSON() as { body: string };
+      fixture.noteCreates.push({ customerId: 'cust-1', body: body.body });
+      const note = {
+        id: 'note-1', shop_id: 'shop-1', customer_id: 'cust-1', body: body.body,
+        author_id: 'user-1', author_name: 'Test Owner', created_at: iso(0), updated_at: iso(0),
+      };
+      customerNotes = [...customerNotes, note];
+      return route.fulfill(json(note));
+    }
+    if (path === '/api/customer/cust-1/tags' && method === 'GET') {
+      return route.fulfill(json({ data: assignedCustomerTags }));
+    }
+    if (path === '/api/customer/cust-1/tags' && method === 'PUT') {
+      const body = request.postDataJSON() as { tag_ids: string[] };
+      fixture.tagUpdates.push({ customerId: 'cust-1', tagIds: body.tag_ids });
+      assignedCustomerTags = tagVocabulary.filter((tag) => body.tag_ids.includes(tag.id));
+      return route.fulfill(json({ data: assignedCustomerTags }));
     }
 
     const confidenceMatch = path.match(/^\/api\/order-confidence\/orders\/([^/]+)(\/verify|\/approve)?$/);
@@ -258,7 +318,12 @@ async function setup(page: Page, { role = 'owner', pilot = true }: { role?: Role
       return route.fulfill(json({ tracking_id: `TRK-${orderId}`, consignment_id: `CN-${orderId}`, provider: 'steadfast', booked_at: iso(0) }));
     }
     if (path === '/api/conversation' && method === 'GET') {
+      const customerId = searchParams.get('customer_id');
+      if (customerId) fixture.customerConversationFilters.push(customerId);
       return route.fulfill(json({ conversations: [], ai_reply_mode: 'MANUAL', pagination: { total: 0, page: 1, pageSize: 50, totalPages: 1 } }));
+    }
+    if (path === '/api/inbox/actions' && method === 'GET') {
+      return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, error: { code: 'FEATURE_DISABLED' } }) });
     }
     if (path === '/api/conversation/events') return route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'retry: 10000\n\n' });
     if (path === '/api/templates') return route.fulfill(json([]));
@@ -320,9 +385,23 @@ async function signInAndOpen(page: Page, path: string) {
   await page.goto('/signin');
   await page.getByLabel(/email/i).fill(mockUser.email);
   await page.getByLabel(/password/i).fill('password123');
+  const signinResponsePromise = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === '/api/auth/signin' && response.request().method() === 'POST'
+  ));
   await page.getByRole('button', { name: /sign in/i }).click();
+  expect((await signinResponsePromise).ok()).toBeTruthy();
   await expect(page).toHaveURL(/\/dashboard$/);
-  await page.goto(path);
+  const targetUrl = new URL(path, 'http://localhost');
+  if (targetUrl.pathname === '/customers') {
+    await page.getByRole('link', { name: 'Customers', exact: true }).click();
+    if (targetUrl.searchParams.get('tab') === 'opportunities') {
+      await page.getByRole('tab', { name: /Sales opportunities/ }).click();
+    }
+  } else if (targetUrl.pathname === '/orders') {
+    await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('link', { name: /Orders/ }).click();
+  } else {
+    await page.goto(path);
+  }
 }
 
 async function openOrder(page: Page, orderNumber: string) {
@@ -332,6 +411,80 @@ async function openOrder(page: Page, orderNumber: string) {
 }
 
 test.describe('Customer 360 and Sales Opportunities', () => {
+  test('overview shows bounded counts, coverage, and metric definitions', async ({ page }) => {
+    const fixture = await setup(page);
+    await signInAndOpen(page, '/customers');
+
+    const overview = page.getByTestId('customer-overview');
+    await expect(overview.getByText('Customer overview')).toBeVisible();
+    await expect(overview.getByText('At least one delivered order in the scanned set.')).toBeVisible();
+    await expect(overview.getByText('At least two delivered orders in the scanned set.')).toBeVisible();
+    await expect(overview.getByText('First delivered order in the last 30 days; available only when order coverage is complete and delivery dates are known.')).toBeVisible();
+    await expect(overview.getByText('Open or actioned customer opportunities.')).toBeVisible();
+    await expect(overview.getByText('Order coverage is partial.')).toBeVisible();
+    await expect(overview.getByText('Scanned 100 of 200 linked orders (scan cap 200).')).toBeVisible();
+    await expect(overview.getByText('Buyers', { exact: true }).locator('..')).toContainText('1+');
+    await expect(overview.getByText('Repeat buyers', { exact: true }).locator('..')).toContainText('1+');
+    await expect(overview.getByText('Unavailable', { exact: true })).toBeVisible();
+    expect(fixture.unexpected).toEqual([]);
+  });
+
+  test('Customer 360 filters send name, phone, and channel to the list authority', async ({ page }) => {
+    const fixture = await setup(page);
+    await signInAndOpen(page, '/customers');
+    await expect(page.getByTestId('customer-row-cust-1')).toBeVisible();
+
+    const nameRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/customer-intelligence/customers' && url.searchParams.get('search') === 'Karim';
+    });
+    await page.getByLabel('Search by name').fill('Karim');
+    const nameRequest = await nameRequestPromise;
+    expect(new URL(nameRequest.url()).searchParams.get('search')).toBe('Karim');
+    await expect(page.getByTestId('customer-row-cust-2')).toBeVisible();
+    await expect(page.getByTestId('customer-row-cust-1')).toHaveCount(0);
+
+    const clearNameRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/customer-intelligence/customers'
+        && !url.searchParams.has('search') && !url.searchParams.has('phone') && !url.searchParams.has('channel_type');
+    });
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    await clearNameRequestPromise;
+
+    const phoneRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/customer-intelligence/customers' && url.searchParams.get('phone') === '01711111111';
+    });
+    await page.getByLabel('Search by phone').fill('01711111111');
+    const phoneRequest = await phoneRequestPromise;
+    expect(new URL(phoneRequest.url()).searchParams.get('phone')).toBe('01711111111');
+    await expect(page.getByTestId('customer-row-cust-1')).toBeVisible();
+    await expect(page.getByTestId('customer-row-cust-2')).toHaveCount(0);
+
+    const clearPhoneRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/customer-intelligence/customers'
+        && !url.searchParams.has('search') && !url.searchParams.has('phone') && !url.searchParams.has('channel_type');
+    });
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    await clearPhoneRequestPromise;
+
+    const channelRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/customer-intelligence/customers' && url.searchParams.get('channel_type') === 'manual';
+    });
+    await page.getByLabel('All Channels').selectOption('manual');
+    const channelRequest = await channelRequestPromise;
+    expect(new URL(channelRequest.url()).searchParams.get('channel_type')).toBe('manual');
+    await expect(page.getByTestId('customer-row-cust-2')).toBeVisible();
+    await expect(page.getByTestId('customer-row-cust-1')).toHaveCount(0);
+    expect(fixture.customerListRequests.some((query) => query.search === 'Karim')).toBe(true);
+    expect(fixture.customerListRequests.some((query) => query.phone === '01711111111')).toBe(true);
+    expect(fixture.customerListRequests.some((query) => query.channel_type === 'manual')).toBe(true);
+    expect(fixture.unexpected).toEqual([]);
+  });
+
   test('journeys 1–4: customers list, detail with order and delivery history', async ({ page }) => {
     const fixture = await setup(page);
     await signInAndOpen(page, '/customers');
@@ -342,7 +495,7 @@ test.describe('Customer 360 and Sales Opportunities', () => {
     await expect(row).toContainText('Repeat buyer');
     await expect(row).toContainText('2 delivered of 3');
 
-    await row.click();
+    await row.getByRole('button', { name: 'Rahim Uddin', exact: true }).click();
     await expect(page).toHaveURL(/\/customers\/cust-1$/);
     await expect(page.getByTestId('customer-state')).toHaveText('Repeat buyer');
     await expect(page.getByTestId('commerce-summary')).toContainText('3,000');
@@ -350,6 +503,40 @@ test.describe('Customer 360 and Sales Opportunities', () => {
     await expect(page.getByTestId('customer-orders')).toContainText('Matched by phone');
     await expect(page.getByTestId('customer-timeline')).toContainText('Order #ORD-101 delivered');
     await expect(page.getByTestId('reply-window')).toContainText('Reply window open until');
+    await expect(page.getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:01711111111');
+    await page.getByRole('button', { name: 'Open inbox' }).click();
+    await expect(page).toHaveURL(/\/inbox\?customer_id=cust-1$/);
+    await expect(page.getByTestId('inbox-customer-filter')).toContainText('cust-1');
+    expect(fixture.customerConversationFilters).toContain('cust-1');
+    expect(fixture.unexpected).toEqual([]);
+  });
+
+  test('customer detail CRM actions save a private note and assign a tag', async ({ page }) => {
+    const fixture = await setup(page);
+    await signInAndOpen(page, '/customers/cust-1');
+    const crm = page.getByTestId('customer-crm');
+    await expect(crm).toBeVisible();
+
+    await crm.getByTestId('customer-note-toggle').click();
+    const noteTextbox = crm.getByRole('textbox', { name: 'Private notes' });
+    const noteEditor = noteTextbox.locator('..');
+    await noteTextbox.fill('Prefers a morning follow-up.');
+    const noteCreateResponse = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/customer/cust-1/notes'
+      && response.request().method() === 'POST'
+    ));
+    await noteEditor.getByRole('button', { name: 'Add note', exact: true }).click();
+    expect((await noteCreateResponse).status()).toBe(200);
+    await expect(noteTextbox).toBeHidden();
+    await expect(crm).toContainText('Prefers a morning follow-up.');
+    expect(fixture.noteCreates).toEqual([{ customerId: 'cust-1', body: 'Prefers a morning follow-up.' }]);
+
+    await crm.getByTestId('customer-tag-toggle').click();
+    const tagEditor = crm.getByTestId('customer-tag-editor');
+    await tagEditor.getByLabel('VIP').check();
+    await tagEditor.getByTestId('customer-tags-apply').click();
+    await expect(crm).toContainText('VIP');
+    expect(fixture.tagUpdates).toEqual([{ customerId: 'cust-1', tagIds: ['tag-vip'] }]);
     expect(fixture.unexpected).toEqual([]);
   });
 

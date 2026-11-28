@@ -4,6 +4,8 @@
  * Contract: docs/pilot-intelligence/04-api.md
  */
 
+import type { ChannelType } from './customer';
+
 export type CustomerState = 'NEW' | 'INTERESTED' | 'BUYER' | 'REPEAT_BUYER' | 'AT_RISK' | 'INACTIVE';
 export type OpportunityStatus = 'OPEN' | 'ACTIONED' | 'CONVERTED' | 'DISMISSED' | 'EXPIRED';
 export type OpportunityStrength = 'HIGH' | 'MEDIUM';
@@ -15,9 +17,35 @@ export interface PilotStatus {
   order_confidence_mode: 'off' | 'shadow' | 'enforce';
 }
 
+export interface CustomerOverview {
+  total_records: number;
+  buyers: number;
+  repeat_buyers: number;
+  new_buyers: number | null;
+  open_opportunities: number;
+  scanned_orders: number;
+  total_linked_orders: number;
+  order_scan_cap: number;
+  coverage_complete: boolean;
+  definitions: {
+    buyers: string;
+    repeat_buyers: string;
+    new_buyers: string;
+    open_opportunities: string;
+    order_linkage: string;
+  };
+}
+
 export interface StateReason {
   code: string;
   params?: Record<string, number | string>;
+}
+
+export interface CustomerOrderCoverage {
+  scanned: number;
+  total: number;
+  cap: number;
+  complete: boolean;
 }
 
 export interface Customer360ListItem {
@@ -25,7 +53,7 @@ export interface Customer360ListItem {
   name: string | null;
   phone: string | null;
   email: string | null;
-  channel_type: string;
+  channel_type: ChannelType;
   profile_pic: string | null;
   first_seen_at: string | null;
   state: CustomerState;
@@ -34,6 +62,7 @@ export interface Customer360ListItem {
   delivered_orders: number;
   returned_orders: number;
   delivered_value: number;
+  order_coverage?: CustomerOrderCoverage;
   last_order_at: string | null;
   last_activity_at: string | null;
   open_opportunity: { id: string; status: OpportunityStatus; strength: OpportunityStrength; reasons: string[] } | null;
@@ -86,7 +115,7 @@ export interface Opportunity {
   resolved_at: string | null;
   resolution_reason: string | null;
   recommended_action: RecommendedAction | null;
-  customer: { id: string; name: string | null; channel_type: string } | null;
+  customer: { id: string; name: string | null; channel_type: ChannelType } | null;
 }
 
 export interface OpportunityListResponse {
@@ -107,6 +136,7 @@ export interface CommerceSummary {
   first_order_at: string | null;
   last_order_at: string | null;
   last_delivered_at: string | null;
+  order_coverage?: CustomerOrderCoverage;
 }
 
 export interface CustomerOrderRow {
@@ -154,7 +184,7 @@ export interface Customer360Detail {
     name: string | null;
     phone: string | null;
     email: string | null;
-    channel_type: string;
+    channel_type: ChannelType;
     profile_pic: string | null;
     first_seen_at: string | null;
     last_activity_at: string | null;

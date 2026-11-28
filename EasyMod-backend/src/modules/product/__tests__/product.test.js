@@ -75,6 +75,11 @@ jest.mock('src/modules/entities', () => ({
     KnownArea:           { ...mockModel }, Analytics:    { ...mockModel }, OrderReturn:        { ...mockModel },
     SupportTicket:       { ...mockModel }, Customer:     { ...mockModel },
 }));
+jest.mock('src/modules/customer/customer.entity', () => ({
+    rawAttributes: {
+        channel_type: { values: ['messenger', 'instagram', 'webchat', 'manual', 'facebook', 'telegram'] },
+    },
+}));
 jest.mock('src/modules/analytics/knowledge-gap.entity', () => ({
     findAll: jest.fn(() => Promise.resolve([])), create: jest.fn(), findOne: jest.fn(),
     belongsTo: jest.fn(), hasMany: jest.fn(),
@@ -375,8 +380,9 @@ describe('Product API', () => {
             await request(app).post('/api/product').send({ name: 'Billing Test', price: 199 });
             expect(sub.trackUsage).toHaveBeenCalledWith(
                 SHOP_ID, 'products', 1,
-                null, // requestId is null in test context (no req.id assigned)
-                expect.objectContaining({ resourceId: expect.any(String) })
+                expect.any(String), // controller supplies Idempotency-Key, request id, or a generated request key
+                expect.objectContaining({ resourceId: expect.any(String) }),
+                expect.objectContaining({ transaction: expect.anything() }),
             );
         });
 
@@ -739,6 +745,15 @@ describe('Product API', () => {
             if (result.products.length > 0 && result.products[0].price !== null) {
                 expect(result.products[0].price).toBe(450);
             }
+        });
+
+        it('parses Bengali-script BDT digits from CSV prices', async () => {
+            const result = await productService.extractProductsFromContent(USER_ID, SHOP_ID, {
+                content_type: 'text/csv',
+                content: 'name,price\nKurti,৳৪৫০.৫০',
+            });
+
+            expect(result.products[0].price).toBe(450.5);
         });
 
         it('confidence score is higher for products with more complete data', async () => {

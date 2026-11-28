@@ -70,6 +70,8 @@ class CategoryValidator {
     getCategories = {
         query: Joi.object({
             search: Joi.string().trim().optional(),
+            include: Joi.string().valid('product_count').optional(),
+            include_inactive: Joi.boolean().optional(),
             page: Joi.number().integer().min(1).default(1),
             limit: Joi.number().integer().min(1).max(100).default(20)
         })

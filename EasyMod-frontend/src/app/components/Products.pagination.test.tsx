@@ -1,10 +1,9 @@
 /**
- * WP-04 regression: pagination must reset when source filters change.
+ * WP-04 regression: pagination must reset when applied filters change.
  *
- * Contract under test (Products.tsx): the API returns the full list;
- * search/category/status/price filter server-side via queryParams, while
- * source (ai/manual) and lowStockOnly filter client-side. Pagination is
- * client-side (10/page). Before the fix, applyFilters and the debounced
+ * Contract under test (Products.tsx): search/category/status/price filter
+ * server-side via queryParams, while stock buckets filter client-side.
+ * Pagination is client-side (10/page). Before the fix, applyFilters and the debounced
  * search left `page` untouched: a stale page beyond the filtered window
  * sliced to an empty table, and Pagination unmounted when totalPages <= 1,
  * making matching products unreachable. clearFilters and lowStockOnly
@@ -50,11 +49,10 @@ const { mockState, mockUseQuery, mockNavigate } = vi.hoisted(() => {
   return { mockState, mockUseQuery, mockNavigate: vi.fn() };
 });
 
-// 25 products → 3 pages. AI-generated: 01–08 (client source filter).
-// cat-a: 01–13 (2 pages), cat-b: 14–25 (2 pages). Low stock: 24–25.
+// 25 products → 3 pages. cat-a: 01–13 (2 pages), cat-b: 14–25 (2 pages).
+// Low stock: 24–25. Tests override status for the status-filter reset case.
 const buildProducts = () => Array.from({ length: 25 }, (_, idx) => {
   const i = idx + 1;
-  const ai = i <= 8;
   const lowStock = i >= 24;
   return {
     id: `p${i}`,
@@ -66,8 +64,6 @@ const buildProducts = () => Array.from({ length: 25 }, (_, idx) => {
     category_id: i <= 13 ? 'cat-a' : 'cat-b',
     status: 'active',
     is_active: true,
-    ai_generated: ai,
-    confidence: ai ? 0.9 : null,
     track_quantity: lowStock,
     ...(lowStock ? { quantity: 2, low_stock_threshold: 3 } : {}),
   };
@@ -87,6 +83,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('@/api', () => ({
   apiClient: {
     getProducts: vi.fn(),
+    getProductOverview: vi.fn(),
     deleteProduct: vi.fn(),
     getCategories: vi.fn(),
     extractProductsFromUpload: vi.fn(),
@@ -125,7 +122,7 @@ vi.mock('sonner', () => ({
 vi.mock('lucide-react', () => {
   const Icon = () => null;
   return {
-    Plus: Icon, Upload: Icon, Bot: Icon, CheckCircle: Icon,
+    Plus: Icon, Upload: Icon, Bot: Icon, CheckCircle: Icon, LayoutGrid: Icon, List: Icon,
     Edit2: Icon, Trash2: Icon, AlertCircle: Icon, Search: Icon,
     Filter: Icon, Download: Icon, X: Icon, Loader2: Icon, Package: Icon,
     ChevronRight: Icon, CheckCircle2: Icon, OctagonX: Icon, Clock4: Icon,
@@ -167,7 +164,7 @@ const openFilterPanel = () => {
   fireEvent.click(screen.getByRole('button', { name: 'products.filter' }));
 };
 
-// Finds a panel <select> by its "all" option label (category/status/source).
+// Finds a panel <select> by its "all" option label (category/status).
 const panelSelect = (allOptionKey: string): HTMLSelectElement => {
   const panel = document.getElementById('products-filter-panel');
   if (!panel) throw new Error('filter panel is not open');
@@ -198,7 +195,10 @@ describe('Products pagination under filter changes (WP-04)', () => {
     mockNavigate.mockReset();
   });
 
-  it('resets to page 1 when the client-side source filter narrows from a deep page', async () => {
+  it('resets to page 1 when a server-side status filter narrows from a deep page', async () => {
+    mockState.products = buildProducts().map((product, index) => index < 8
+      ? { ...product, is_active: false, status: 'inactive' }
+      : product);
     await renderComponent();
 
     // Deep page: 25 products → page 3 shows rows 21–25.
@@ -207,11 +207,11 @@ describe('Products pagination under filter changes (WP-04)', () => {
     expect(screen.getByText('Page 3 of 3')).toBeInTheDocument();
     expect(screen.getByText('Product 21')).toBeInTheDocument();
 
-    // Narrow to AI-generated only (8 matches → a single page). Before the
-    // fix, page 3 sliced past the 8-item window: empty table, and the
-    // pagination controls unmounted (totalPages <= 1) with no way back.
+    // Narrow to inactive products (8 matches → a single page). Before the
+    // fix, page 3 sliced past the matching window and hid the pagination
+    // controls, leaving matching products unreachable.
     openFilterPanel();
-    fireEvent.change(panelSelect('products.allSources'), { target: { value: 'ai' } });
+    fireEvent.change(panelSelect('products.allStatus'), { target: { value: 'inactive' } });
     applyPanel();
 
     await waitFor(() => {

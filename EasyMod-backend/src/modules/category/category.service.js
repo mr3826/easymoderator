@@ -1,6 +1,7 @@
-const { Category, Shop, UserShop } = require('../entities');
+const { Category, Product, Shop, UserShop } = require('../entities');
 const { AppError } = require('../../utils/AppError');
 const { sequelize } = require('../../utils/database/database-setup');
+const { fn, col, literal, Op } = require('sequelize');
 
 /**
  * Verify user has access to shop
@@ -210,7 +211,7 @@ const getSubcategoryById = async (categoryId, subcategoryId, userId, shopId) => 
 /**
  * List all categories for a shop with hierarchical structure
  */
-const listCategories = async (userId, shopId, searchQuery = null) => {
+const listCategories = async (userId, shopId, searchQuery = null, { includeProductCount = false, includeInactive = false } = {}) => {
     // Verify shop access
     await verifyShopAccess(userId, shopId);
 
@@ -218,12 +219,11 @@ const listCategories = async (userId, shopId, searchQuery = null) => {
     const whereClause = {
         shop_id: shopId,
         parent_category_id: null,
-        is_active: true
     };
+    if (!includeInactive) whereClause.is_active = true;
 
     // Add search filter if provided
     if (searchQuery) {
-        const { Op } = require('sequelize');
         const dialect = sequelize.getDialect();
         whereClause.name = {
             [dialect === 'sqlite' ? Op.like : Op.iLike]: `%${searchQuery}%`
@@ -236,7 +236,7 @@ const listCategories = async (userId, shopId, searchQuery = null) => {
         include: [{
             model: Category,
             as: 'subcategories',
-            where: { is_active: true },
+            ...(includeInactive ? {} : { where: { is_active: true } }),
             required: false
         }],
         order: [
@@ -245,7 +245,45 @@ const listCategories = async (userId, shopId, searchQuery = null) => {
         ]
     });
 
-    return categories;
+    if (!includeProductCount) return categories;
+
+    const productCounts = await Product.findAll({
+        where: { shop_id: shopId },
+        attributes: [
+            'category_id',
+            [fn('SUM', literal('CASE WHEN deleted_at IS NULL AND is_active = true THEN 1 ELSE 0 END')), 'product_count'],
+            [fn('COUNT', col('id')), 'affected_product_count'],
+        ],
+        group: ['category_id'],
+        raw: true,
+        paranoid: false,
+    });
+    const countByCategory = new Map(productCounts.map((row) => [
+        String(row.category_id), {
+            product_count: Number(row.product_count),
+            affected_product_count: Number(row.affected_product_count),
+        },
+    ]));
+    const addCount = (category) => {
+        const data = category?.toJSON ? category.toJSON() : category;
+        const counts = countByCategory.get(String(data.id));
+        return {
+            ...data,
+            product_count: counts?.product_count || 0,
+            affected_product_count: counts?.affected_product_count || 0,
+        };
+    };
+
+    return categories.map((category) => {
+        const data = category?.toJSON ? category.toJSON() : category;
+        const counts = countByCategory.get(String(data.id));
+        return {
+            ...data,
+            product_count: counts?.product_count || 0,
+            affected_product_count: counts?.affected_product_count || 0,
+            subcategories: (data.subcategories || []).map(addCount),
+        };
+    });
 };
 
 module.exports = {

@@ -2,13 +2,13 @@
  * Customer types
  */
 
-export type ChannelType = 'facebook' | 'manual' | 'messenger' | 'telegram' | 'webchat';
+export type ChannelType = 'facebook' | 'instagram' | 'manual' | 'messenger' | 'telegram' | 'webchat';
 
 export interface Customer {
   id: string;
   shop_id: string;
   name: string | null;
-  email?: string;
+  email?: string | null;
   number: string;
   channel: ChannelType;
   created_at: string;

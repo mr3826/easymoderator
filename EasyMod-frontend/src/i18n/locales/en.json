@@ -226,18 +226,27 @@
     "addCategory": "Add Category",
     "columns": {
       "actions": "Actions",
+      "activeProducts": "Active products",
       "category": "Category",
       "totalSubcategory": "Total Subcategory"
     },
+    "deleteAria": "Delete {{name}}",
+    "editAria": "Edit {{name}}",
     "deleteFailed": "Failed to delete category",
     "deleteModal": {
+      "activeProductCount": "Active products linked under this category: {{formattedCount}}",
+      "affectedChildren": "Subcategories affected: {{formattedCount}}",
+      "associationsCleared": "Product category links will be cleared.",
       "cannotUndo": "This action cannot be undone.",
       "hasSubcategories": "This will also delete all {{count}} subcategories.",
       "message": "Are you sure you want to delete \"{{name}}\"?",
+      "totalAffectedProductCount": "All linked product records affected, including inactive and previously deleted: {{formattedCount}}",
+      "totalLinkedCountUnavailable": "All linked products, including inactive products, may be affected; the count is unavailable.",
       "title": "Delete Category"
     },
     "deleteSuccess": "Category deleted",
     "detail": {
+      "addSubcategoryFor": "Add a subcategory under {{name}}",
       "addFirstSubcategory": "Add First Subcategory",
       "addSubcategory": "Add Subcategory",
       "breadcrumb": "Categories",
@@ -249,6 +258,11 @@
       "charCount": "{{count}}/50 characters",
       "createButton": "Create Category",
       "createDesc": "Add a new category to organize your products",
+      "createSubcategoryDesc": "Add a subcategory under {{parent}}.",
+      "createSubcategoryButton": "Create Subcategory",
+      "createSubcategoryTitle": "Create subcategory",
+      "parentCategory": "Parent category: {{name}}",
+      "status": "Status",
       "createTitle": "Create Category",
       "creating": "Creating...",
       "deleteSubcategoryMsg": "Are you sure you want to delete \"{{name}}\"?",
@@ -258,9 +272,14 @@
       "editSubcategory": "Edit Subcategory",
       "imageHint": "Square image (1:1 ratio), max 4MB",
       "infoSection": "Category Information",
+      "createFailed": "Failed to create category.",
+      "updateFailed": "Failed to update category.",
+      "loadFailed": "Failed to load category.",
       "loading": "Loading category...",
+      "nameRequired": "Enter a category name.",
       "noSubcategories": "No subcategories yet",
       "noSubcategoriesHint": "Start organizing your products by adding subcategories",
+      "persistedUpdateDesc": "Update saved category details.",
       "shortDesc": "Short Description",
       "shortDescPlaceholder": "Brief description of this category",
       "subcategories": "Subcategories",
@@ -276,7 +295,16 @@
     "emptySearchHint": "Try adjusting your search",
     "emptyStart": "Get started by creating your first category",
     "loadFailed": "Failed to load categories",
+    "loading": "Loading categories...",
+    "reactivate": "Reactivate",
+    "reactivateAria": "Reactivate {{name}}",
+    "reactivateFailed": "Failed to reactivate category",
+    "reactivateSuccess": "Category reactivated",
     "searchPlaceholder": "Search categories...",
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
     "subcategoryDetail": {
       "addNested": "Add Subcategory",
       "addNestedButton": "Add Nested Level",
@@ -290,6 +318,7 @@
       "imageHint": "Square image (1:1 ratio), max 4MB",
       "infoSection": "Subcategory Information",
       "loading": "Loading subcategory details...",
+      "loadFailed": "Failed to load subcategory.",
       "nameLabel": "Subcategory Name",
       "namePlaceholder": "Enter subcategory name",
       "nestedSection": "Nested Subcategories",
@@ -301,6 +330,8 @@
       "subtitle": "Manage subcategory and nested levels",
       "title": "Subcategory Details",
       "updateButton": "Update Subcategory",
+      "updateFailed": "Failed to update subcategory.",
+      "persistedSubtitle": "Update saved subcategory details.",
       "uploadBanner": "Upload banner image",
       "uploadImage": "Upload image",
       "viewDetails": "View Details"
@@ -925,6 +956,8 @@
     "detail": {
       "cancelled": "Cancelled",
       "channel": "Channel",
+      "contactability": "Contactability",
+      "conversations": "Conversations",
       "commerce": "Commerce summary",
       "delivered": "Delivered",
       "deliveredValue": "Delivered value",
@@ -938,10 +971,13 @@
       "matchedByPhone": "Matched by phone",
       "matchedByPhoneHelp": "This order is not linked to the customer record; it uses the same phone number.",
       "noOpportunities": "No sales opportunities recorded.",
+      "noConversations": "No conversations are linked to this customer.",
+      "noInboundMessage": "No inbound message has opened a reply window.",
       "noOrders": "No orders yet.",
       "noTimeline": "Nothing recorded yet.",
       "notFound": "Customer not found.",
       "notProvided": "Not provided",
+      "notMessagingChannel": "This channel does not support inbox replies.",
       "opportunities": "Sales opportunities",
       "optedOut": "Opted out of messages",
       "orderedValue": "Ordered value",
@@ -966,6 +1002,7 @@
       },
       "rtoUnavailable": "No valid phone number to check.",
       "timeline": "Relationship history",
+      "messageCount": "{{formattedCount}} customer messages",
       "totalOrders": "Orders",
       "valueNote": "Values are the recorded order totals."
     },
@@ -986,6 +1023,25 @@
     "never": "—",
     "next": "Next",
     "open": "Open",
+    "overview": {
+      "title": "Customer overview",
+      "unavailable": "Customer overview is unavailable. Counts are not shown.",
+      "totalRecords": "Customers",
+      "buyers": "Buyers",
+      "repeatBuyers": "Repeat buyers",
+      "newBuyers": "New buyers",
+      "openOpportunities": "Open opportunities",
+      "metricUnavailable": "Unavailable",
+      "coverageComplete": "Order coverage is complete.",
+      "coveragePartial": "Order coverage is partial.",
+      "ordersScanned": "Scanned {{scanned}} of {{total}} linked orders (scan cap {{cap}}).",
+      "definitions": {
+        "buyers": "At least one delivered order in the scanned set.",
+        "repeatBuyers": "At least two delivered orders in the scanned set.",
+        "newBuyers": "First delivered order in the last 30 days; available only when order coverage is complete and delivery dates are known.",
+        "openOpportunities": "Open or actioned customer opportunities."
+      }
+    },
     "opportunityStatus": {
       "ACTIONED": "Contacted",
       "CONVERTED": "Ordered",
@@ -994,9 +1050,13 @@
       "OPEN": "Open"
     },
     "ordersCount": "{{delivered}} delivered of {{total}}",
+    "orderCoveragePartial": "Order history is partial: {{scanned}} of {{total}} linked orders scanned. Counts are lower bounds and lifecycle state may be incomplete.",
     "pagination": "{{start}}–{{end}} of {{total}}",
     "previous": "Previous",
     "products": "Products",
+    "crm": {
+      "title": "Customer notes and tags"
+    },
     "reasons": {
       "ASKED_AVAILABILITY": "Asked if it is available",
       "ASKED_DELIVERY": "Asked about delivery",
@@ -1062,8 +1122,13 @@
   },
   "customers": {
     "addCustomer": "Add Customer",
+    "actions": {
+      "call": "Call",
+      "openInbox": "Open inbox"
+    },
     "addModal": {
       "channel": "Channel",
+      "channelHelp": "Instagram and Messenger customers are created from inbound conversations.",
       "channelPlaceholder": "Select a channel",
       "createButton": "Create",
       "creating": "Creating...",
@@ -1074,12 +1139,16 @@
       "phone": "Phone Number",
       "title": "Add Customer"
     },
+    "editModal": {
+      "title": "Edit customer"
+    },
     "allChannels": "All Channels",
     "blacklisted": "Blacklisted",
     "channelCustomers": "Channel Customers",
     "channelCustomersHelper": "Facebook, etc.",
     "channels": {
       "facebook": "Facebook",
+      "instagram": "Instagram",
       "manual": "Manual",
       "messenger": "Messenger",
       "telegram": "Telegram",
@@ -1099,6 +1168,7 @@
       "deleting": "Deleting...",
       "erasureNote": "This removes the customer profile from this shop only. Delivery/return history recorded for fraud protection is keyed to phone numbers and may remain.",
       "message": "Are you sure you want to delete this customer? This action cannot be undone.",
+      "messageWithName": "Delete {{name}}? This action cannot be undone.",
       "title": "Delete Customer"
     },
     "desktopListLabel": "Customer records table",
@@ -1135,6 +1205,7 @@
       "title": "No customers yet"
     },
     "errors": {
+      "duplicatePhone": "A customer with this phone number already exists.",
       "blacklistFailed": "Failed to update blacklist status",
       "createFailed": "Failed to create customer",
       "deleteFailed": "Failed to delete customer",
@@ -1707,6 +1778,8 @@
     "viewBilling": "View billing"
   },
   "inbox": {
+    "customerFilterContext": "Customer filter: {{customer}}",
+    "clearCustomerFilter": "Clear customer filter",
     "actions": {
       "assigned": "Assigned",
       "bucket": {
@@ -4008,6 +4081,7 @@
     "errors": {
       "approveFailed": "Failed to approve product.",
       "approveNamedFailed": "Failed to approve {{name}}.",
+      "bulkPartialFailure": "{{failed}} of {{total}} products could not be approved. Review and retry them.",
       "invalidPrice": "Please set a valid price for {{name}} before approving.",
       "noProductsExtracted": "We could not extract products from this file. Check the columns and try again.",
       "someInvalidPrices": "Some products have invalid prices and were skipped.",
@@ -4095,7 +4169,51 @@
       "variantSku": "Variant SKU",
       "variantsHelp": "Add variants like sizes or colors",
       "warrantyInfo": "Warranty Information",
-      "warrantyPlaceholder": "e.g. 1 year manufacturer warranty"
+      "warrantyPlaceholder": "e.g. 1 year manufacturer warranty",
+      "errors": {
+        "nameRequired": "Enter a product name.",
+        "priceInvalid": "Enter a selling price greater than zero.",
+        "quantityInvalid": "Enter a whole-number quantity of zero or more.",
+        "thresholdInvalid": "Enter a whole-number threshold of zero or more.",
+        "weightInvalid": "Enter a weight greater than zero.",
+        "variantNameRequired": "Enter a name for each variant group."
+      },
+      "essentials": "Essentials",
+      "priceHelp": "Price in Bangladeshi taka (BDT).",
+      "categoryHelp": "Choose one category for this product. You can clear it at any time.",
+      "noCategory": "No category",
+      "inactiveCategory": "Inactive",
+      "descriptionHelp": "Share the details customers need to know about this product.",
+      "imagesHelp": "Add up to five images. The first image is the primary image shown to customers.",
+      "imageCount": "{{count}} of {{max}} images",
+      "clearImages": "Clear all images",
+      "primaryImage": "Primary image",
+      "imageUploading": "Uploading image...",
+      "moveImageEarlier": "Move image {{index}} earlier",
+      "moveImageLater": "Move image {{index}} later",
+      "removeImage": "Remove image {{index}}",
+      "trackedInventoryHelp": "Tracked stock starts at 0. Enter an on-hand quantity so the product is not marked out of stock.",
+      "untrackedInventoryHelp": "Stock is not tracked and orders will not be stock-limited; availability is not guaranteed. If tracking was enabled before, its saved quantity is reset to 0.",
+      "lowStockThresholdHelp": "Leave blank to clear the threshold; the saved value will be null.",
+      "relationalVariantPrecedence": "Saved product variants are managed as separate records and take precedence over option groups here. They are read-only on this page.",
+      "catalogMetadata": "Catalog metadata (optional)",
+      "variantStock": "{{quantity}} in stock",
+      "legacyVariantsReadOnly": "These legacy variant labels are preserved as-is and cannot be edited here.",
+      "removeVariantGroup": "Remove variant group {{index}}",
+      "variantOptionLabel": "Option {{index}} for group {{group}}",
+      "removeVariantOption": "Remove option {{index}} from group {{group}}",
+      "additionalSettingsHelp": "Optional SKU, brand, tags, weight, and active status.",
+      "weightUnit": "Weight unit",
+      "activeProduct": "Product is active",
+      "activeProductHelp": "Turn this off to keep the product inactive in your catalog.",
+      "retryCategories": "Retry loading categories",
+      "resolveImageUploads": "Retry or remove images that could not be uploaded before saving.",
+      "saveFailed": "Could not save the product. Your changes are still here.",
+      "unsavedChangesTitle": "Unsaved changes",
+      "unsavedChangesDescription": "You have unsaved product changes. Leave and discard them?",
+      "stayOnEditor": "Stay on editor",
+      "discardChanges": "Discard changes",
+      "removeTag": "Remove tag: {{tag}}"
     },
     "loadError": "Could not load products. Please try again.",
     "loading": "Loading products...",
@@ -4103,6 +4221,29 @@
     "manageCategories": "Manage categories",
     "noLowStockMatches": "No tracked product is at or below its configured low-stock threshold.",
     "noVariants": "No variants",
+    "addProduct": "Add Product",
+    "emptyResults": "No products match the current filters.",
+    "import": "Import",
+    "notTracked": "Not tracked",
+    "uncategorized": "Uncategorized",
+    "sort": {
+      "label": "Sort by",
+      "name": "Name",
+      "priceLowHigh": "Price: Low to High",
+      "priceHighLow": "Price: High to Low",
+      "stockLowHigh": "Stock: Low to High",
+      "stockHighLow": "Stock: High to Low"
+    },
+    "view": {
+      "label": "View",
+      "table": "Table",
+      "cards": "Cards"
+    },
+    "openAria": "Open {{name}}",
+    "overview": {
+      "ariaLabel": "Product inventory overview",
+      "incompleteCoverage": "Stock checked for {{scanned}} of {{cap}} products. Counts marked + are minimums."
+    },
     "pagination": {
       "next": "Next",
       "pageOf": "Page {{current}} of {{total}}",
@@ -4111,10 +4252,14 @@
     "priceMax": "Max",
     "priceMin": "Min",
     "reviewModal": {
+      "aiExtracted": "AI-extracted",
       "aliasesLabel": "Aliases:",
       "approveAll": "Approve All",
       "categoryLabel": "Category:",
-      "confidence": "Confidence: {{percent}}%",
+      "confidence": "Parse completeness: {{percent}}%",
+      "parseCompleteness": "Parse completeness: {{percent}}%",
+      "sellingPriceBdt": "Selling price (BDT)",
+      "unmappedCategory": "Imported category \"{{category}}\" was not matched. Choose the correct category or select No category.",
       "description": "Review and approve products found in your file",
       "priceLabel": "Price:",
       "skuLabel": "SKU:",
@@ -4140,6 +4285,7 @@
       "lowAria": "Show only low-stock products",
       "out": "Out of stock"
     },
+    "resultsCount": "{{formattedCount}} products",
     "subtitle": "Add products so customer replies include the right price, stock, size, and delivery details.",
     "title": "Products & Inventory",
     "totalCountLabel": "Total",
@@ -4148,7 +4294,7 @@
       "aiExtracting": "Reading product details from your file...",
       "chooseFile": "Choose File",
       "description": "Upload CSV, TSV, or text files and review the imported products before saving.",
-      "dragDrop": "Drag and drop or click to upload",
+      "dragDrop": "Choose a CSV, TSV, or TXT file to review",
       "extracting": "Reading product details from your file...",
       "processing": "Reading your product file...",
       "subtitle": "Upload CSV, TSV, or text files and review the imported products before saving.",

@@ -12,8 +12,8 @@
 
 const { Op, fn, col } = require('sequelize');
 const { AppError } = require('../../utils/AppError');
-const { loadOrdersForCustomers } = require('./customer-orders');
-const { classifyOrderOutcome, summarizeOrders, normalizeBdMobile, OUTCOMES } = require('./order-outcome');
+const { loadOrdersForCustomersWithCoverage } = require('./customer-orders');
+const { classifyOrderOutcome, summarizeOrders, normalizeBdMobile, phoneVariants, OUTCOMES } = require('./order-outcome');
 const { deriveCustomerState } = require('./customer-state');
 const { contactability } = require('./contactability');
 const { LIVE_STATUSES, serializeOpportunity } = require('./opportunity.service');
@@ -32,6 +32,18 @@ const CUSTOMER_ATTRIBUTES = Object.freeze([
 ]);
 
 const escapeLike = (value) => value.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+function phoneSearchConditions(value) {
+    const term = String(value || '').trim().slice(0, 40);
+    if (!term) return [];
+    const normalized = normalizeBdMobile(term);
+    const spellings = normalized
+        ? [term, ...phoneVariants(normalized), normalized.slice(1)]
+        : [term];
+    return [...new Set(spellings)].map((spelling) => ({
+        phone: { [Op.iLike]: `%${escapeLike(spelling)}%` },
+    }));
+}
 
 function lastInboundAt(customer) {
     const consent = customer?.messaging_consent || {};
@@ -86,17 +98,31 @@ function buildSummary(customer, orders, activity, liveOpportunity, now) {
  * GET /customer-intelligence/customers
  * @param {object} query { page, pageSize, search, view: 'all' | 'opportunities' }
  */
-async function listCustomers(shopId, { page = 1, pageSize = 20, search = '', view = 'all' } = {}, now = new Date()) {
+async function listCustomers(shopId, {
+    page = 1,
+    pageSize = 20,
+    search = '',
+    phone = '',
+    channel_type: channelType,
+    view = 'all',
+} = {}, now = new Date()) {
     const { Customer, CustomerOpportunity } = entities();
     const where = { shop_id: shopId };
+    const and = [];
     const term = String(search || '').trim().slice(0, 100);
     if (term) {
         const pattern = `%${escapeLike(term)}%`;
-        const or = [{ name: { [Op.iLike]: pattern } }, { phone: { [Op.iLike]: pattern } }];
-        const normalized = normalizeBdMobile(term);
-        if (normalized) or.push({ phone: { [Op.iLike]: `%${normalized.slice(1)}` } });
-        where[Op.or] = or;
+        and.push({
+            [Op.or]: [
+                { name: { [Op.iLike]: pattern } },
+                ...phoneSearchConditions(term),
+            ],
+        });
     }
+    const phoneConditions = phoneSearchConditions(phone);
+    if (phoneConditions.length) and.push({ [Op.or]: phoneConditions });
+    if (and.length) where[Op.and] = and;
+    if (channelType) where.channel_type = channelType;
     const include = view === 'opportunities' ? [{
         model: CustomerOpportunity,
         as: 'opportunities',
@@ -121,7 +147,7 @@ async function listCustomers(shopId, { page = 1, pageSize = 20, search = '', vie
     const ids = customers.map((c) => c.id);
 
     const [ordersByCustomer, activityByCustomer, liveOpportunities] = await Promise.all([
-        loadOrdersForCustomers(shopId, customers),
+        loadOrdersForCustomersWithCoverage(shopId, customers),
         loadConversationActivity(shopId, ids),
         ids.length ? CustomerOpportunity.findAll({
             where: { shop_id: shopId, customer_id: { [Op.in]: ids }, status: { [Op.in]: LIVE_STATUSES } },
@@ -132,9 +158,15 @@ async function listCustomers(shopId, { page = 1, pageSize = 20, search = '', vie
 
     const data = customers.map((customer) => {
         const live = liveByCustomer.get(customer.id) || null;
+        const orderSummary = ordersByCustomer.get(String(customer.id)) || {
+            orders: [],
+            order_coverage: { scanned: 0, total: 0, cap: 5000, complete: true },
+        };
         const { summary, lastActivityAt, state } = buildSummary(
-            customer, ordersByCustomer.get(customer.id) || [], activityByCustomer.get(customer.id), live, now,
+            customer, orderSummary.orders, activityByCustomer.get(customer.id), live, now,
         );
+        summary.total_orders = orderSummary.order_coverage.total;
+        summary.order_coverage = orderSummary.order_coverage;
         return {
             ...identityOf(customer),
             state: state.state,
@@ -143,6 +175,7 @@ async function listCustomers(shopId, { page = 1, pageSize = 20, search = '', vie
             delivered_orders: summary.delivered_orders,
             returned_orders: summary.returned_orders,
             delivered_value: summary.delivered_value,
+            order_coverage: orderSummary.order_coverage,
             last_order_at: summary.last_order_at,
             last_activity_at: lastActivityAt,
             open_opportunity: live ? {
@@ -241,7 +274,7 @@ async function getCustomerDetail(shopId, customerId, now = new Date()) {
     const customer = plain(row);
 
     const [ordersByCustomer, conversations, opportunities, page] = await Promise.all([
-        loadOrdersForCustomers(shopId, [customer], { limit: 500 }),
+        loadOrdersForCustomersWithCoverage(shopId, [customer], { limit: 500 }),
         Conversation.findAll({
             where: { shop_id: shopId, customer_id: customer.id },
             attributes: ['id', 'channel', 'status', 'created_at', 'updated_at'],
@@ -258,7 +291,11 @@ async function getCustomerDetail(shopId, customerId, now = new Date()) {
             attributes: ['id', 'display_name', 'platform'],
         }) : null,
     ]);
-    const orders = ordersByCustomer.get(customer.id) || [];
+    const orderSummary = ordersByCustomer.get(String(customer.id)) || {
+        orders: [],
+        order_coverage: { scanned: 0, total: 0, cap: 500, complete: true },
+    };
+    const orders = orderSummary.orders;
     const orderIds = orders.map((o) => o.id);
     const conversationRows = conversations.map(plain);
     const conversationIds = conversationRows.map((c) => c.id);
@@ -289,6 +326,8 @@ async function getCustomerDetail(shopId, customerId, now = new Date()) {
         last_at: latest(...conversationRows.map((c) => c.updated_at)),
     };
     const { summary, lastActivityAt, state } = buildSummary(customer, orders, activity, live, now);
+    summary.total_orders = orderSummary.order_coverage.total;
+    summary.order_coverage = orderSummary.order_coverage;
 
     return {
         customer: {

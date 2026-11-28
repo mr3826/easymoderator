@@ -584,7 +584,7 @@ export default function Orders() {
             productName: product.name,
             quantity,
             price: product.price,
-            sku: product.sku,
+            sku: product.sku ?? undefined,
           }
         ]
       });

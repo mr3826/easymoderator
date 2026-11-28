@@ -5,6 +5,7 @@ const { AppError } = require('../../utils/AppError');
 const { getPilotFeatures } = require('../pilot-features/pilot-features.service');
 const customer360 = require('./customer-360.service');
 const opportunityService = require('./opportunity.service');
+const overviewService = require('./customer-intelligence-overview.service');
 
 // Tenant comes from the verified JWT only (req.user.shopId), never from input.
 const shopIdOf = (req) => req.user.shopId;
@@ -41,6 +42,15 @@ const listCustomers = async (req, res, next) => {
     try {
         const result = await customer360.listCustomers(shopIdOf(req), req.query);
         res.json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getOverview = async (req, res, next) => {
+    try {
+        const data = await overviewService.getOverview(shopIdOf(req));
+        res.json({ success: true, data });
     } catch (error) {
         next(error);
     }
@@ -112,6 +122,7 @@ const dismissOpportunity = async (req, res, next) => {
 module.exports = {
     requireCustomerIntelligence,
     getStatus,
+    getOverview,
     listCustomers,
     getCustomer,
     listOpportunities,

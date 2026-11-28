@@ -15,7 +15,8 @@
  * formatters agree on WHICH locales produce Bengali digits.
  */
 import { describe, it, expect } from "vitest";
-import { formatMoney, localeFor } from "../customerDisplay";
+import { formatCount, formatMoney, localeFor } from "../customerDisplay";
+import { normalizeBengaliDigits } from "@/shared/lib/normalizeBengaliDigits";
 
 const BN_DIGIT = /[০-৯]/;
 const ASCII_DIGIT = /[0-9]/;
@@ -46,6 +47,22 @@ describe("Bangla-numeral preservation in shared display formatters (G-UX09)", ()
     const en = formatMoney(1250, "en");
     expect(en).toMatch(ASCII_DIGIT);
     expect(en).not.toMatch(BN_DIGIT);
+  });
+
+  it("preserves fractional BDT values instead of rounding paisa", () => {
+    const en = formatMoney(12.5, "en");
+    expect(en).toContain("12.50");
+    const bn = formatMoney(12.5, "bn");
+    expect(bn).toContain("১২.৫০");
+  });
+
+  it("formats counts with Bengali digits under bn and ASCII digits under en", () => {
+    expect(formatCount(12000, "bn")).toBe("১২,০০০");
+    expect(formatCount(12000, "en")).toBe("12,000");
+  });
+
+  it("normalizes Bengali phone digits before validation and search", () => {
+    expect(normalizeBengaliDigits("০১৭১২৩৪৫৬৭৮")).toBe("01712345678");
   });
 
   it("Orders-detail currency formatter agrees on which locales get Bengali digits", () => {

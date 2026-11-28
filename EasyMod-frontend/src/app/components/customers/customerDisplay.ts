@@ -26,13 +26,17 @@ export const outcomeStyles: Record<OrderOutcome, string> = {
   IN_PROGRESS: "bg-em-info-100 text-em-info-700",
 };
 
-export const localeFor = (language: string) => (language === "bn" ? "bn-BD" : "en-US");
+export const localeFor = (language: string) => (language.toLowerCase().startsWith("bn") ? "bn-BD" : "en-US");
+
+export function formatCount(value: number, language: string): string {
+  return new Intl.NumberFormat(localeFor(language)).format(value);
+}
 
 export function formatMoney(value: number, language: string): string {
   return new Intl.NumberFormat(localeFor(language), {
     style: "currency",
     currency: "BDT",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(Number(value || 0));
 }
 

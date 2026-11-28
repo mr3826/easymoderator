@@ -1,8 +1,8 @@
 /**
  * Products-catalog guardrails proof (mock-only, CI subset). Execution-class
- * worklist (§29): signal header + factual pills, table, upload dialog focus trap
- * + Escape, add-form publish contract, 390px no-overflow, axe `.em-products`.
- * Allowlist mirrors integration-flows (no new endpoints).
+ * worklist: server overview/coverage, stock filters, full-page add/edit routes,
+ * image/variant read-only surfaces, upload dialog focus trap + Escape, category
+ * impact counts, 390px no-overflow, axe `.em-products`.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -13,6 +13,39 @@ const json = (data: unknown) => ({ success: true, data });
 
 const products = [
     { id: 'prod-1', name: 'Demo Hoodie', price: 1299, description: 'Comfort fit demo product', category: 'Apparel', sku: 'HD-1', status: 'active', is_active: true, quantity: 12, track_quantity: true, low_stock_threshold: 5, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+];
+
+const productForDetail = {
+    ...products[0],
+    category_id: 'cat-1',
+    sku: 'HD-1',
+    brand: 'North',
+    tags: ['Featured'],
+    images: ['https://example.com/hoodie.png'],
+    image_url: 'https://example.com/hoodie.png',
+    variants: [],
+    product_variants: [
+        { id: 'variant-1', option_name: 'Size', option_value: 'M', quantity: 4, is_active: true },
+    ],
+};
+
+type CategoryFixture = {
+    id: string;
+    name: string;
+    description?: string;
+    is_active?: boolean;
+    product_count?: number;
+    affected_product_count?: number;
+    subcategory_count?: number;
+    subcategories?: CategoryFixture[];
+};
+
+const categoryFixture: CategoryFixture[] = [
+    {
+        id: 'cat-1', name: 'Apparel', is_active: true, product_count: 3,
+        affected_product_count: 6, subcategory_count: 1,
+        subcategories: [{ id: 'sub-1', name: 'Shirts', is_active: true, product_count: 2, affected_product_count: 4 }],
+    },
 ];
 
 // D2 fixtures for the stock-filter proofs: low (0 < 3 ≤ threshold 5) and
@@ -46,7 +79,7 @@ const stockExceptionPayload = (fx?: Partial<StockExceptionPayload>) => ({
 const KNOWN_PATHS = new Set([
     '/api/csrf', '/api/auth/me', '/api/auth/signin', '/api/setup/status', '/api/dashboard/metrics',
     '/api/dashboard/queue', '/api/subscription', '/api/notifications/in-app', '/api/product',
-    '/api/category', '/api/order', '/api/commercial/claims', '/api/public/commercial-contract',
+    '/api/product/overview', '/api/category', '/api/order', '/api/commercial/claims', '/api/public/commercial-contract',
     '/api/product/images',
 
     // A6 W3: Phase 1 shell/dashboard read sources (D1 badges, D6 chip, D7 readiness).
@@ -54,11 +87,40 @@ const KNOWN_PATHS = new Set([
 ]);
 const KNOWN_PATTERNS = [
     /^\/api\/product\/[\w-]+$/,
+    /^\/api\/category\/[\w-]+$/,
     /^\/api\/notifications\/in-app\/[\w-]+\/read$/,
 ];
 
-async function setupRoutes(page: Page, catalog: typeof products = products, exceptions?: Partial<StockExceptionPayload>) {
-    const state = { signedIn: false, unexpected: [] as string[], createPayloads: [] as Record<string, unknown>[] };
+interface ProductRouteOptions {
+    overview?: Partial<{ total: number; active: number; inactive: number; low_stock: number; out_of_stock: number; scanned: number; cap: number; coverage_complete: boolean }>;
+    product?: typeof productForDetail;
+    categories?: CategoryFixture[];
+}
+
+async function setupRoutes(
+    page: Page,
+    catalog: typeof products = products,
+    exceptions?: Partial<StockExceptionPayload>,
+    options: ProductRouteOptions = {},
+) {
+    const state = {
+        signedIn: false,
+        unexpected: [] as string[],
+        createPayloads: [] as Record<string, unknown>[],
+        updatePayloads: [] as Record<string, unknown>[],
+        categoryUpdates: [] as Array<{ id: string; body: Record<string, unknown> }>,
+        categoryDeletes: [] as string[],
+    };
+    let currentProduct: Record<string, unknown> = { ...productForDetail, ...catalog.find((product) => product.id === 'prod-1'), ...options.product };
+    let currentCategories = (options.categories ?? categoryFixture).map((category) => ({
+        ...category,
+        subcategories: category.subcategories?.map((subcategory) => ({ ...subcategory })),
+    }));
+
+    const findCategory = (id: string): CategoryFixture | undefined => (
+        currentCategories.find((category) => category.id === id)
+        ?? currentCategories.flatMap((category) => category.subcategories ?? []).find((subcategory) => subcategory.id === id)
+    );
     await page.route((url) => url.pathname.startsWith('/api/'), async (route: Route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -77,6 +139,12 @@ async function setupRoutes(page: Page, catalog: typeof products = products, exce
         }
         if (path === '/api/product/stock-exceptions' && method === 'GET') {
             return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: stockExceptionPayload(exceptions) }) });
+        }
+        if (path === '/api/product/overview' && method === 'GET') {
+            return route.fulfill({ json: json({
+                total: 1, active: 1, inactive: 0, low_stock: 0, out_of_stock: 0,
+                scanned: 1, cap: 1000, coverage_complete: true, ...options.overview,
+            }) });
         }
         if (path === '/api/shop/delivery/readiness' && method === 'GET') {
             return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { provider: null, ready: false, connected: false, active: false, credentials_configured: false, provider_store_id: null, provider_store_count: 0, pickup_location_configured: false, pickup_enabled: false, pickup_summary: null, provider_pickup_meta: {}, pickup_locations_count: 0, missing: ['provider_not_connected'], missing_fields: ['provider_not_connected'], status: 'SETUP_INCOMPLETE', providers: [] } }) });
@@ -99,14 +167,51 @@ async function setupRoutes(page: Page, catalog: typeof products = products, exce
         if (path === '/api/dashboard/queue') return route.fulfill({ json: json({}) });
         if (path === '/api/subscription') return route.fulfill({ json: json({ plan: 'MERCHANT', status: 'active', contract: 'DELIVERED_ORDER' }) });
         if (path === '/api/notifications/in-app') return route.fulfill({ json: json([]) });
-        if (path === '/api/product' && method === 'GET') return route.fulfill({ json: json(catalog) });
-        if (path === '/api/product' && method === 'POST') {
-            state.createPayloads.push(request.postDataJSON());
-            return route.fulfill({ status: 201, json: json({ id: 'prod-new', name: 'New Product', price: 100 }) });
+        if (path === '/api/product' && method === 'GET') {
+            const query = Object.fromEntries(url.searchParams.entries());
+            let rows: Array<typeof products[number] & { category_id?: string }> = [...catalog];
+            if (query.is_active) rows = rows.filter((product) => String(product.is_active ?? product.status !== 'inactive') === query.is_active);
+            if (query.category_id) rows = rows.filter((product) => product.category_id === query.category_id);
+            if (query.min_price) rows = rows.filter((product) => Number(product.price) >= Number(query.min_price));
+            if (query.max_price) rows = rows.filter((product) => Number(product.price) <= Number(query.max_price));
+            if (query.search) rows = rows.filter((product) => product.name.toLowerCase().includes(query.search.toLowerCase()));
+            return route.fulfill({ json: json(rows) });
         }
-        if (path === '/api/category') return route.fulfill({ json: json([{ id: 'cat-1', name: 'Apparel' }]) });
-        if (path === '/api/order') return route.fulfill({ json: json([]) });
+        if (path === '/api/product' && method === 'POST') {
+            const body = request.postDataJSON() as Record<string, unknown>;
+            state.createPayloads.push(body);
+            return route.fulfill({ status: 201, json: json({ ...body, id: 'prod-new', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }) });
+        }
         if (path === '/api/product/images') return route.fulfill({ json: json({ url: 'https://example.com/img.png' }) });
+        const productMatch = path.match(/^\/api\/product\/([\w-]+)$/);
+        if (productMatch && method === 'GET') return route.fulfill({ json: json(currentProduct) });
+        if (productMatch && method === 'PATCH') {
+            const body = request.postDataJSON() as Record<string, unknown>;
+            state.updatePayloads.push(body);
+            currentProduct = { ...currentProduct, ...body, updatedAt: '2026-01-02T00:00:00.000Z' };
+            return route.fulfill({ json: json(currentProduct) });
+        }
+        if (path === '/api/category' && method === 'GET') {
+            return route.fulfill({ json: json(currentCategories) });
+        }
+        const categoryMatch = path.match(/^\/api\/category\/([\w-]+)$/);
+        if (categoryMatch && method === 'GET') return route.fulfill({ json: json(findCategory(categoryMatch[1]) ?? { id: categoryMatch[1], name: 'Unknown' }) });
+        if (categoryMatch && method === 'PATCH') {
+            const body = request.postDataJSON() as Record<string, unknown>;
+            state.categoryUpdates.push({ id: categoryMatch[1], body });
+            currentCategories = currentCategories.map((category) => category.id === categoryMatch[1]
+                ? { ...category, ...body }
+                : { ...category, subcategories: category.subcategories?.map((subcategory) => subcategory.id === categoryMatch[1] ? { ...subcategory, ...body } : subcategory) });
+            return route.fulfill({ json: json(findCategory(categoryMatch[1]) ?? { id: categoryMatch[1], ...body }) });
+        }
+        if (categoryMatch && method === 'DELETE') {
+            state.categoryDeletes.push(categoryMatch[1]);
+            currentCategories = currentCategories
+                .filter((category) => category.id !== categoryMatch[1])
+                .map((category) => ({ ...category, subcategories: category.subcategories?.filter((subcategory) => subcategory.id !== categoryMatch[1]) }));
+            return route.fulfill({ json: json({ deleted: true }) });
+        }
+        if (path === '/api/order') return route.fulfill({ json: json([]) });
         if (path === '/api/commercial/claims') return route.fulfill({ json: json({ surface: 'usage-banner', locale: 'en', contractVersion: '1.0.0', registryHash: `sha256:${'a'.repeat(64)}`, decisions: [] }) });
         if (path === '/api/public/commercial-contract') return route.fulfill({ json: json({ contract_version: '1.0.0', contract_hash: `sha256:${'b'.repeat(64)}` }) });
         return route.fulfill({ json: json([]) });
@@ -118,7 +223,11 @@ async function loginAndGo(page: Page, target = '/products') {
     await page.goto('/signin');
     await page.getByLabel(/email/i).fill('owner@shop.bd');
     await page.getByLabel(/password/i).fill('Password123!');
+    const signinResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === '/api/auth/signin' && response.request().method() === 'POST'
+    ));
     await page.getByRole('button', { name: /sign in/i }).click();
+    expect((await signinResponsePromise).ok()).toBeTruthy();
     await page.waitForURL(/\/(dashboard|inbox)/);
     await page.goto(target);
 }
@@ -139,9 +248,44 @@ test('page header: compact title + relocated count + table, no signal band, no h
     await expect(page.getByTestId('products-signal')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Products & Inventory', exact: true })).toBeVisible();
     await expect(page.getByTestId('dashboard-primary-action')).toHaveCount(0);
-    // The catalog count survived band removal — it lives in the worklist toolbar.
-    await expect(page.getByText(/Total:/)).toBeVisible();
+    // The filtered catalog count remains in the compact page header.
+    await expect(page.getByTestId('products-filtered-count')).toContainText('1');
     await expect(page.getByText('Demo Hoodie')).toBeVisible();
+    expect(state.unexpected).toEqual([]);
+});
+
+test('overview counts come from the server, expose partial coverage, and filter the catalog', async ({ page }) => {
+    const overviewProducts = [
+        ...stockProducts,
+        { id: 'prod-inactive', name: 'Retired Hoodie', price: 799, description: '', category: 'Apparel', sku: 'RH-1', status: 'inactive', is_active: false, quantity: 2, track_quantity: true, low_stock_threshold: 5, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const state = await setupRoutes(page, overviewProducts, undefined, {
+        overview: { total: 148, active: 121, inactive: 27, low_stock: 7, out_of_stock: 3, scanned: 500, cap: 1000, coverage_complete: false },
+    });
+    await loginAndGo(page);
+
+    const overview = page.getByRole('region', { name: 'Product inventory overview' });
+    await expect(overview.getByTestId('products-overview-total')).toContainText('148');
+    await expect(overview.getByTestId('products-overview-active')).toContainText('121');
+    await expect(overview.getByTestId('products-overview-low')).toContainText('7+');
+    await expect(overview.getByTestId('products-overview-out')).toContainText('3+');
+    // Locale-formatted interpolation (P2 fix): en-US grouping in en, Bangla
+    // digits in bn — the screenshot packet pins the bn shape.
+    await expect(page.getByTestId('products-overview-coverage-note')).toContainText('Stock checked for 500 of 1,000 products');
+
+    await overview.getByTestId('products-overview-low').click();
+    await expect(page.getByText('Low Tee')).toBeVisible();
+    await expect(page.getByText('Out Cap')).toHaveCount(0);
+
+    const activeRequestPromise = page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return url.pathname === '/api/product' && url.searchParams.get('is_active') === 'true';
+    });
+    await overview.getByTestId('products-overview-active').click();
+    const activeRequest = await activeRequestPromise;
+    expect(new URL(activeRequest.url()).searchParams.get('is_active')).toBe('true');
+    await expect(page.getByText('Demo Hoodie')).toBeVisible();
+    await expect(page.getByText('Retired Hoodie')).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
 
@@ -149,7 +293,9 @@ test('upload dialog is labelled, traps focus, and closes on Escape', async ({ pa
     const state = await setupRoutes(page);
     await loginAndGo(page);
     await expect(page.getByRole('table')).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'Upload Product File' }).click();
+    // 'products.import' rendered raw only while the locale key was missing
+    // (screenshot P1); the resolved CTA is 'Import'.
+    await page.getByRole('button', { name: /^(Upload Product File|Import)$/ }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute('aria-labelledby', 'products-upload-title');
@@ -162,17 +308,116 @@ test('upload dialog is labelled, traps focus, and closes on Escape', async ({ pa
     expect(state.unexpected).toEqual([]);
 });
 
-test('add form publishes a product and returns to the worklist', async ({ page }) => {
+test('full-page add route saves a product with only its required fields', async ({ page }) => {
     const state = await setupRoutes(page);
     await loginAndGo(page, '/products/add');
-    await expect(page.getByRole('heading', { name: /add.*product/i })).toBeVisible({ timeout: 15_000 });
-    await page.locator('#product-name').fill('New Product');
-    await page.locator('#selling-price').fill('100');
-    await page.getByRole('button', { name: /publish product/i }).click();
+    await expect(page.getByRole('heading', { name: 'Add New Product' })).toBeVisible({ timeout: 15_000 });
+    const createResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === '/api/product' && response.request().method() === 'POST'
+    ));
+    await page.getByLabel('Product Name').fill('New Product');
+    await page.getByLabel('Selling Price').fill('100');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await createResponsePromise;
     await expect.poll(() => state.createPayloads.length).toBe(1);
     expect(state.createPayloads[0].name).toBe('New Product');
     expect(state.createPayloads[0].price).toBe(100);
     await expect(page).toHaveURL(/\/products$/);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('product details keep images read-only and persisted variants read-only in the edit route', async ({ page }) => {
+    const state = await setupRoutes(page, [productForDetail], undefined, { product: productForDetail });
+    await loginAndGo(page, '/products/prod-1');
+
+    await expect(page.getByRole('heading', { name: 'Demo Hoodie', exact: true })).toBeVisible();
+    const imageSection = page.getByRole('region', { name: 'Product Images' });
+    await expect(imageSection.getByRole('img', { name: 'Product 1' })).toBeVisible();
+    await expect(imageSection.getByRole('button')).toHaveCount(0);
+    await expect(page.getByLabel('Choose Files')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(page).toHaveURL(/\/products\/prod-1\/edit$/);
+    await expect(page.getByText('Saved product variants are managed as separate records and take precedence over option groups here. They are read-only on this page.')).toBeVisible();
+    await expect(page.getByText('Size: M')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add Variant Group' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remove variant group 1' })).toHaveCount(0);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('edit route sends explicit clears for dirty optional product fields', async ({ page }) => {
+    const state = await setupRoutes(page, [productForDetail], undefined, { product: productForDetail });
+    await loginAndGo(page, '/products/prod-1/edit');
+    await expect(page.getByLabel('Product Name')).toHaveValue('Demo Hoodie');
+
+    await page.getByLabel('Description', { exact: true }).fill('');
+    await page.getByLabel('Category', { exact: true }).selectOption({ label: 'No category' });
+    await page.getByLabel('Low Stock Threshold').fill('');
+    await page.getByRole('button', { name: /Additional Details/ }).click();
+    await page.getByLabel('SKU', { exact: true }).fill('');
+    await page.getByLabel('Brand / Manufacturer').fill('');
+    await page.getByRole('button', { name: 'Remove tag: Featured' }).click();
+    await page.getByRole('button', { name: 'Clear all images' }).click();
+
+    const updateResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === '/api/product/prod-1' && response.request().method() === 'PATCH'
+    ));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await updateResponsePromise;
+
+    expect(state.updatePayloads).toEqual([{
+        description: null,
+        category_id: null,
+        low_stock_threshold: null,
+        sku: null,
+        brand: null,
+        tags: [],
+        images: [],
+        image_url: null,
+    }]);
+    await expect(page).toHaveURL(/\/products\/prod-1$/);
+    expect(state.unexpected).toEqual([]);
+});
+
+test('categories show linked-product counts, reactivate inactive records, and disclose delete impact', async ({ page }) => {
+    const categories: CategoryFixture[] = [
+        ...categoryFixture,
+        { id: 'cat-retired', name: 'Footwear', is_active: false, product_count: 0, affected_product_count: 2, subcategory_count: 0 },
+    ];
+    const state = await setupRoutes(page, products, undefined, { categories });
+    const categoryRequestPromise = page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return url.pathname === '/api/category' && request.method() === 'GET' && url.searchParams.has('include');
+    });
+    await loginAndGo(page, '/categories');
+    const categoryRequest = await categoryRequestPromise;
+    const categoryParams = new URL(categoryRequest.url()).searchParams;
+    expect(categoryParams.get('include')).toBe('product_count');
+    expect(categoryParams.get('include_inactive')).toBe('true');
+    await expect(page.getByText('Active products: 3')).toBeVisible();
+    await expect(page.getByText('Active products: 2')).toBeVisible();
+
+    const reactivateResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === '/api/category/cat-retired' && response.request().method() === 'PATCH'
+    ));
+    await page.getByRole('button', { name: 'Reactivate Footwear' }).click();
+    await reactivateResponsePromise;
+    expect(state.categoryUpdates).toContainEqual({ id: 'cat-retired', body: { is_active: true } });
+    const footwearHeading = page.getByRole('heading', { name: 'Footwear', exact: true });
+    await expect(footwearHeading.locator('..').getByText('Active', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Delete Apparel' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Active products linked under this category: 5');
+    await expect(dialog).toContainText('All linked product records affected, including inactive and previously deleted: 10');
+    await expect(dialog).toContainText('Subcategories affected: 1');
+    const deleteResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === '/api/category/cat-1' && response.request().method() === 'DELETE'
+    ));
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    await deleteResponsePromise;
+    expect(state.categoryDeletes).toEqual(['cat-1']);
+    await expect(page.getByRole('heading', { name: 'Apparel', exact: true })).toHaveCount(0);
     expect(state.unexpected).toEqual([]);
 });
 
@@ -190,7 +435,7 @@ test('axe: no critical or serious violations in the products surface', async ({ 
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await loginAndGo(page);
     await expect(page.getByRole('heading', { name: 'Products & Inventory', exact: true })).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(800);
+    await expect(page.getByRole('table')).toBeVisible();
     const results = await new AxeBuilder({ page }).include('.em-products').analyze();
     const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
     expect(bad).toEqual([]);

@@ -89,6 +89,7 @@ class CustomerValidator {
             .trim()
             .email()
             .max(255)
+            .allow(null)
             .optional()
             .messages({
                 'string.email': 'Email must be a valid email address',
@@ -173,6 +174,7 @@ class CustomerValidator {
             .trim()
             .email()
             .max(255)
+            .allow(null)
             .optional()
             .messages({
                 'string.email': 'Email must be a valid email address',

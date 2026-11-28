@@ -240,10 +240,11 @@ const updatePlan = async (shopId, userId, planData, { skipShopAccess = false } =
  * @param {number} amount - Amount to increment (default: 1)
  * @param {string} requestId - Idempotency key (required for transaction safety)
  * @param {object} metadata - Additional context (resource_id, etc)
+ * @param {object} options - Optional parent transaction for atomic resource creation + usage tracking
  * @returns {Promise<object>} { subscription, usageEvent, isRetry, transactionId, within_allowance }
  * @throws {AppError} If subscription not found, an invalid amount is supplied, or transaction fails
  */
-const trackUsage = async (shopId, usageType, amount = 1, requestId = null, metadata = {}) => {
+const trackUsage = async (shopId, usageType, amount = 1, requestId = null, metadata = {}, options = {}) => {
     if (!requestId) {
         throw new AppError('requestId is required for idempotent usage tracking', 400);
     }
@@ -256,6 +257,7 @@ const trackUsage = async (shopId, usageType, amount = 1, requestId = null, metad
     }
 
     const idempotencyKey = usageRequestKey(requestId);
+    const parentTransaction = options?.transaction || null;
 
     const logger = createLogger(requestId, shopId);
     let transaction = null;
@@ -299,12 +301,13 @@ const trackUsage = async (shopId, usageType, amount = 1, requestId = null, metad
         }
 
         // Step 2: Create transaction
-        transaction = await sequelize.transaction({
+        transaction = await sequelize.transaction(parentTransaction
+            // A nested transaction is a savepoint and inherits its parent
+            // isolation level, so only the top-level transaction sets it.
+            ? { transaction: parentTransaction }
             // The literal 'READ_COMMITTED' is not SQL — Sequelize interpolates
-            // the value straight into SET TRANSACTION ISOLATION LEVEL, so the
-            // underscore form made Postgres reject every usage transaction.
-            isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED
-        });
+            // the value into SET TRANSACTION ISOLATION LEVEL.
+            : { isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED });
 
         // Step 3: Lock subscription row for update (prevents concurrent increments)
         const subscription = await Subscription.findOne({
@@ -448,19 +451,21 @@ const trackUsage = async (shopId, usageType, amount = 1, requestId = null, metad
         // Step 9: Commit transaction
         await transaction.commit();
 
-        for (const threshold of crossedThresholds) {
-            recordFunnelEventSafe(`usage_threshold_${threshold}`, {
-                shopId,
-                metadata: {
-                    usage_type: usageType,
-                    used: newUsage,
-                    allowance: allowanceForEvent,
-                },
-                onceKey: `usage_threshold:${shopId}:${subscription.current_period_start}:${threshold}`,
-            });
+        if (!parentTransaction) {
+            for (const threshold of crossedThresholds) {
+                recordFunnelEventSafe(`usage_threshold_${threshold}`, {
+                    shopId,
+                    metadata: {
+                        usage_type: usageType,
+                        used: newUsage,
+                        allowance: allowanceForEvent,
+                    },
+                    onceKey: `usage_threshold:${shopId}:${subscription.current_period_start}:${threshold}`,
+                });
+            }
         }
 
-        logger.info('Usage tracked successfully (transaction committed)', {
+        logger.info(parentTransaction ? 'Usage tracked successfully in parent transaction' : 'Usage tracked successfully (transaction committed)', {
             usageType,
             delta: amount,
             newTotal: newUsage,

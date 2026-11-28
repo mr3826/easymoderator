@@ -157,9 +157,51 @@ describe('CustomerService', () => {
         });
     });
 
+    describe('updateCustomer', () => {
+        beforeEach(() => {
+            UserShop.findOne.mockResolvedValue({ user_id: 'user-1', shop_id: 'shop-1', is_active: true });
+            Customer.findOne.mockResolvedValue(cust);
+            cust.toJSON = jest.fn(() => ({
+                id: cust.id,
+                shop_id: cust.shop_id,
+                email: 'existing@example.com'
+            }));
+        });
+
+        it('persists an explicit null email within the authorized shop', async () => {
+            await customerService.updateCustomer('cust-1', 'user-1', 'shop-1', { email: null });
+
+            expect(Customer.findOne).toHaveBeenCalledWith({
+                where: { id: 'cust-1', shop_id: 'shop-1' }
+            });
+            expect(cust.update).toHaveBeenCalledWith({ email: null });
+        });
+
+        it('does not write email when it is omitted from the update', async () => {
+            await customerService.updateCustomer('cust-1', 'user-1', 'shop-1', { name: 'Updated Name' });
+
+            expect(cust.update).toHaveBeenCalledWith({ name: 'Updated Name' });
+        });
+
+        it('rejects updates when the user does not have active shop access', async () => {
+            UserShop.findOne.mockResolvedValue(null);
+
+            await expect(
+                customerService.updateCustomer('cust-1', 'user-1', 'shop-1', { email: null })
+            ).rejects.toMatchObject({ status: 403 });
+
+            expect(Customer.findOne).not.toHaveBeenCalled();
+            expect(cust.update).not.toHaveBeenCalled();
+        });
+    });
+
     // ── getCustomerById ───────────────────────────────────────────────────────
 
     describe('getCustomerById', () => {
+        beforeEach(() => {
+            UserShop.findOne.mockResolvedValue({ user_id: 'user-1', shop_id: 'shop-1', is_active: true });
+        });
+
         it('returns customer with order count when found', async () => {
             Customer.findOne.mockResolvedValue(cust);
             Order.count.mockResolvedValue(5);

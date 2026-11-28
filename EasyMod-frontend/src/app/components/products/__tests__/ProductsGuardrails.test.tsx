@@ -20,6 +20,7 @@ vi.mock('react-router-dom', () => ({
 vi.mock('@/api', () => ({
   apiClient: {
     getProducts: vi.fn(),
+    getProductOverview: vi.fn(),
     deleteProduct: vi.fn(),
     getCategories: vi.fn(),
     extractProductsFromUpload: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('lucide-react', () => {
   const Icon = () => null;
   return {
-    Plus: Icon, Upload: Icon, Bot: Icon, CheckCircle: Icon, Edit2: Icon, Trash2: Icon,
+    Plus: Icon, Upload: Icon, Bot: Icon, CheckCircle: Icon, Edit2: Icon, Trash2: Icon, LayoutGrid: Icon, List: Icon,
     AlertCircle: Icon, Search: Icon, Filter: Icon, Download: Icon, X: Icon, Loader2: Icon, Package: Icon,
     ChevronRight: Icon, CheckCircle2: Icon, OctagonX: Icon, Clock4: Icon, TriangleAlert: Icon, Eye: Icon, BadgeCheck: Icon,
   };
@@ -73,13 +74,13 @@ beforeEach(() => {
 });
 
 describe('page chrome (header removal C1/C6)', () => {
-  it('renders a compact title, no signal band, no header CTA, and keeps the count in the toolbar', async () => {
+  it('renders a compact title and filtered result count without a signal band', async () => {
     await act(async () => { render(<Products />); });
     expect(screen.getByRole('heading', { level: 1, name: 'Products & Inventory' })).toBeInTheDocument();
     // The removal itself is pinned: the signal badge must not exist at all.
     expect(screen.queryByTestId('products-signal')).toBeNull();
     expect(screen.queryByTestId('dashboard-primary-action')).toBeNull();
-    expect(screen.getByText(/Total:/)).toBeInTheDocument();
+    expect(screen.getByTestId('products-filtered-count')).toBeInTheDocument();
     // The low-stock pill was header-only; the D2 stock filter owns that truth now.
     expect(screen.queryByText(/Low stock:/)).toBeNull();
   });
@@ -95,10 +96,11 @@ describe('page chrome (header removal C1/C6)', () => {
 describe('upload dialog', () => {
   it('is labelled, traps focus, and closes on Escape', async () => {
     await act(async () => { render(<Products />); });
-    fireEvent.click(await screen.findByRole('button', { name: 'Upload Product File' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAttribute('aria-labelledby', 'products-upload-title');
+    expect(dialog.querySelector('input[type="file"]')).toHaveAttribute('accept', '.csv,.tsv,.txt');
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

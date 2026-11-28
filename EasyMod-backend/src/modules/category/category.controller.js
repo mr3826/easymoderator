@@ -17,7 +17,10 @@ const getCategories = async (req, res, next) => {
         }
 
         const options = req.query; // Already validated
-        const result = await categoryService.listCategories(req.user.userId, shopId, options.search);
+        const result = await categoryService.listCategories(req.user.userId, shopId, options.search, {
+            includeProductCount: options.include === 'product_count',
+            includeInactive: options.include_inactive === true,
+        });
 
         res.status(200).json({
             success: true,
@@ -332,12 +335,13 @@ const listCategories = async (req, res, next) => {
         }
 
         // Get search query from request
-        const { search } = req.query;
+        const { search, include } = req.query;
 
         const categories = await categoryService.listCategories(
             req.user.userId,
             shopId,
-            search
+            search,
+            { includeProductCount: include === 'product_count' }
         );
 
         res.status(200).json({

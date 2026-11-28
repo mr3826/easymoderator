@@ -33,6 +33,10 @@ const mockController = {
             generated_at: '2026-11-24T10:00:00.000Z',
         },
     })),
+    getOverview: jest.fn((_req, res) => res.status(200).json({
+        success: true,
+        data: { total: 4, active: 3, inactive: 1, low_stock: 1, out_of_stock: 2 },
+    })),
     getProductById: jest.fn((_req, res) => res.status(200).json({ success: true, data: { id: 'by-id' } })),
     createProductRest: jest.fn((_req, res) => res.status(201).json({ success: true })),
     updateProductById: jest.fn((_req, res) => res.status(200).json({ success: true })),
@@ -90,6 +94,16 @@ describe('product.routes — stock-exceptions registration', () => {
         expect(res.status).toBe(200);
         expect(mockController.getProductById).toHaveBeenCalledTimes(1);
         expect(mockController.getStockExceptions).not.toHaveBeenCalled();
+    });
+
+    it('serves /overview through its handler BEFORE /:id under the router auth guard', async () => {
+        const res = await request(app).get('/api/product/overview');
+
+        expect(res.status).toBe(200);
+        expect(res.body.data).toEqual({ total: 4, active: 3, inactive: 1, low_stock: 1, out_of_stock: 2 });
+        expect(mockController.getOverview).toHaveBeenCalledTimes(1);
+        expect(mockController.getProductById).not.toHaveBeenCalled();
+        expect(mockAuthenticate).toHaveBeenCalledTimes(1);
     });
 
     it('propagates handler 5xx — the client maps failure to null, never to zero counts', async () => {
