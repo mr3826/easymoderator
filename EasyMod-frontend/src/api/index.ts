@@ -96,6 +96,7 @@ export const apiClient = {
   // Product methods
   getProducts: productDomain.getProducts,
   getProduct: productDomain.getProduct,
+  getProductOverview: productDomain.getProductOverview,
   createProduct: productDomain.createProduct,
   updateProduct: productDomain.updateProduct,
   deleteProduct: productDomain.deleteProduct,

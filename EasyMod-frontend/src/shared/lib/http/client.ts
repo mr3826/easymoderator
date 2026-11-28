@@ -36,6 +36,15 @@ export interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
   __csrfInit?: boolean;
   __skipShopId?: boolean;
   __skipGlobalErrorToast?: boolean;
+  __idempotent?: boolean;
+  __noRetry?: boolean;
+}
+
+export function shouldRetryRequest(
+  config: Pick<ExtendedAxiosRequestConfig, 'method' | '__idempotent' | '__noRetry'>,
+): boolean {
+  const method = (config.method || 'GET').toUpperCase();
+  return !config.__noRetry && (method === 'GET' || method === 'HEAD' || config.__idempotent === true);
 }
 
 /**
@@ -227,9 +236,11 @@ class HttpClient {
         } | undefined;
         const responseErrorCode = responseData?.code || responseData?.error?.code;
         const isConsumedOAuthDiscoveryFailure = responseErrorCode === 'META_PAGE_DISCOVERY_FAILED';
+        const canRetry = shouldRetryRequest(config);
         if (!isConsumedOAuthDiscoveryFailure
           && !isRefreshEndpoint
           && !isAuthEndpoint
+          && canRetry
           && (status === 429 || (status && status >= 500 && status < 600))) {
           const retryCount = config.__retryCount || 0;
           if (retryCount < 2) {
@@ -249,9 +260,11 @@ class HttpClient {
         //   queue was finally cleared. Fail immediately so the refresh cycle exits fast.
         // - /auth/signin|signup: surface the network error to the user right away
         //   rather than silently retrying with invisible multi-second delays.
+        // - Non-idempotent writes: an ambiguous timeout must not repeat a mutation.
         if (
           !isRefreshEndpoint &&
           !isAuthEndpoint &&
+          canRetry &&
           (error.code === 'ECONNABORTED' ||
             error.code === 'ENOTFOUND' ||
             error.code === 'ETIMEDOUT')

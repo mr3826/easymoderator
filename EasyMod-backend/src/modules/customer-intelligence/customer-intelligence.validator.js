@@ -2,6 +2,7 @@
 
 const Joi = require('joi');
 const { DISMISS_REASONS } = require('./opportunity.service');
+const { CUSTOMER_CHANNEL_TYPES } = require('../customer/customer-channels');
 
 const uuid = Joi.string().guid({ version: ['uuidv4', 'uuidv5', 'uuidv1'] }).required();
 
@@ -11,6 +12,8 @@ module.exports = {
             page: Joi.number().integer().min(1).max(10000).default(1),
             pageSize: Joi.number().integer().min(1).max(50).default(20),
             search: Joi.string().trim().max(100).allow('').default(''),
+            phone: Joi.string().trim().max(40).allow('').default(''),
+            channel_type: Joi.string().valid(...CUSTOMER_CHANNEL_TYPES).optional(),
             view: Joi.string().valid('all', 'opportunities').default('all'),
         }),
     },

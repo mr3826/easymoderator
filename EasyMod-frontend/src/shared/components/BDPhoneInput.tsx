@@ -14,12 +14,13 @@ import { useTranslation } from 'react-i18next';
 import { Input } from '@/app/components/ui/input';
 import { Label } from '@/app/components/ui/label';
 import { cn } from '@/app/components/ui/utils';
+import { normalizeBengaliDigits } from '@/shared/lib/normalizeBengaliDigits';
 
 const BD_PHONE_REGEX = /^01[3-9]\d{8}$/;
 
 function formatBDPhone(raw: string): string {
   // raw = up to 11 digits starting with 01
-  const digits = raw.replace(/\D/g, '').slice(0, 11);
+  const digits = normalizeBengaliDigits(raw).replace(/\D/g, '').slice(0, 11);
   if (digits.length <= 5) return digits;
   if (digits.length <= 8) return `${digits.slice(0, 5)}-${digits.slice(5)}`;
   return `${digits.slice(0, 5)}-${digits.slice(5, 8)}-${digits.slice(8)}`;
@@ -51,7 +52,7 @@ const BDPhoneInput = React.forwardRef<HTMLInputElement, BDPhoneInputProps>(
 
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
       // Strip everything except digits, cap at 11
-      const raw = e.target.value.replace(/\D/g, '').slice(0, 11);
+      const raw = normalizeBengaliDigits(e.target.value).replace(/\D/g, '').slice(0, 11);
       onChange(raw);
     }
 

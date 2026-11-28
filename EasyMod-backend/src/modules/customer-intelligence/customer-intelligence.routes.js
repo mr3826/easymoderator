@@ -17,6 +17,7 @@ router.get('/status', controller.getStatus);
 
 router.use(controller.requireCustomerIntelligence);
 
+router.get('/overview', controller.getOverview);
 router.get('/customers', validate(schemas.listCustomers), controller.listCustomers);
 router.get('/customers/:customerId', validate(schemas.customerParams), controller.getCustomer);
 router.get('/opportunities', validate(schemas.listOpportunities), controller.listOpportunities);

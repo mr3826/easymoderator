@@ -94,7 +94,7 @@ describe('Product Domain API', () => {
 
       const result = await product.createProduct(productData as any);
 
-      expect(httpClient.post).toHaveBeenCalledWith('/api/product', productData);
+      expect(httpClient.post).toHaveBeenCalledWith('/api/product', productData, { __noRetry: true });
       expect(result.id).toBe('3');
     });
 
@@ -119,8 +119,21 @@ describe('Product Domain API', () => {
 
       const result = await product.updateProduct('1', updateData);
 
-      expect(httpClient.patch).toHaveBeenCalledWith('/api/product/1', updateData);
+      expect(httpClient.patch).toHaveBeenCalledWith('/api/product/1', updateData, { __noRetry: true });
       expect(result.name).toBe(updateData.name);
+    });
+  });
+
+  describe('uploadProductImage', () => {
+    it('does not retry a product image upload', async () => {
+      (httpClient.post as any).mockResolvedValue({ data: { data: { url: 'https://cdn.example/image.jpg' } } });
+
+      await expect(product.uploadProductImage('data:image/jpeg;base64,abc')).resolves.toBe('https://cdn.example/image.jpg');
+      expect(httpClient.post).toHaveBeenCalledWith(
+        '/api/product/images',
+        { image: 'data:image/jpeg;base64,abc' },
+        { __noRetry: true },
+      );
     });
   });
 
@@ -151,8 +164,39 @@ describe('Product Domain API', () => {
       const payload = { file: new File(['test'], 'test.csv'), format: 'csv' as const };
       const result = await product.extractProductsFromUpload(payload);
 
-      expect(httpClient.post).toHaveBeenCalledWith('/api/product/ai-extract', payload);
+      expect(httpClient.post).toHaveBeenCalledWith('/api/product/ai-extract', payload, { __noRetry: true });
       expect(result).toEqual(mockResponse.data.data);
+    });
+
+    it('forwards a stable idempotency key while disabling automatic retries', async () => {
+      const payload = { name: 'Kurta', price: 900 } as any;
+      (httpClient.post as any).mockResolvedValue({ data: { data: { id: 'p-1' } } });
+
+      await product.createProduct(payload, 'row-operation-1');
+
+      expect(httpClient.post).toHaveBeenCalledWith('/api/product', payload, {
+        __noRetry: true,
+        headers: { 'Idempotency-Key': 'row-operation-1' },
+      });
+    });
+  });
+
+  describe('getProductOverview', () => {
+    it('returns server-owned counts and coverage', async () => {
+      const overview = {
+        total: 8,
+        active: 6,
+        inactive: 2,
+        low_stock: 1,
+        out_of_stock: 1,
+        scanned: 6,
+        cap: 1000,
+        coverage_complete: false,
+      };
+      (httpClient.get as any).mockResolvedValue({ data: { data: overview } });
+
+      await expect(product.getProductOverview()).resolves.toEqual(overview);
+      expect(httpClient.get).toHaveBeenCalledWith('/api/product/overview', undefined);
     });
   });
 
@@ -172,6 +216,14 @@ describe('Product Domain API', () => {
 
       expect(httpClient.get).toHaveBeenCalledWith('/api/category');
       expect(result).toEqual(mockResponse.data.data);
+    });
+
+    it('requests counts only for the category workspace', async () => {
+      (httpClient.get as any).mockResolvedValue({ data: { data: [] } });
+
+      await product.getCategories({ include: 'product_count', include_inactive: true });
+
+      expect(httpClient.get).toHaveBeenCalledWith('/api/category', { params: { include: 'product_count', include_inactive: true } });
     });
   });
 

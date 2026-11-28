@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../utils/database/database-setup');
+const { CUSTOMER_CHANNEL_TYPES } = require('./customer-channels');
 
 const Customer = sequelize.define('Customer', {
     id: {
@@ -21,7 +22,9 @@ const Customer = sequelize.define('Customer', {
         allowNull: true
     },
     channel_type: {
-        type: DataTypes.ENUM('messenger', 'instagram', 'webchat', 'manual', 'facebook', 'telegram'),
+        // Same canonical list the customer-intelligence filter validates
+        // against; order matches the live Postgres enum exactly.
+        type: DataTypes.ENUM(...CUSTOMER_CHANNEL_TYPES),
         allowNull: false
     },
     channel_user_id: {

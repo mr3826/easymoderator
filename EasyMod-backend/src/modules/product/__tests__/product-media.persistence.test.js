@@ -5,7 +5,7 @@ jest.mock('src/utils/database/database-setup', () => ({
 }));
 
 jest.mock('src/modules/entities', () => ({
-    Product: { create: jest.fn() },
+    Product: { create: jest.fn(), findOne: jest.fn() },
     ProductVariant: {},
     Category: { findOne: jest.fn() },
     Shop: {},
@@ -52,7 +52,7 @@ describe('product media persistence compensation', () => {
     const userId = 'user-with-product-access';
     const uploadedPath = `/uploads/product-images/${shopId}/uploaded.png`;
 
-    it('removes newly uploaded media when the product transaction rolls back', async () => {
+    it('preserves newly uploaded media when create fails so the editor can retry', async () => {
         const transaction = {
             commit: jest.fn(),
             rollback: jest.fn(() => Promise.resolve()),
@@ -66,9 +66,30 @@ describe('product media persistence compensation', () => {
 
         expect(transaction.commit).not.toHaveBeenCalled();
         expect(transaction.rollback).toHaveBeenCalledTimes(1);
-        expect(removeUnreferencedProductMedia).toHaveBeenCalledWith({
-            shopId,
+        expect(removeUnreferencedProductMedia).not.toHaveBeenCalled();
+    });
+
+    it('preserves newly uploaded media when update fails so the editor can retry', async () => {
+        const product = {
+            id: 'product-1',
+            shop_id: shopId,
+            images: [],
+            image_url: null,
+            quantity: 0,
+            track_quantity: true,
+            update: jest.fn().mockRejectedValue(new Error('database write failed')),
+        };
+        UserShop.findOne.mockResolvedValue({ user_id: userId, shop_id: shopId, is_active: true });
+        Product.findOne.mockResolvedValue(product);
+
+        const { updateProduct } = require('../product.service');
+        await expect(updateProduct('product-1', userId, shopId, { images: [uploadedPath] }))
+            .rejects.toThrow('database write failed');
+
+        expect(product.update).toHaveBeenCalledWith({
             images: [uploadedPath],
+            image_url: uploadedPath,
         });
+        expect(removeUnreferencedProductMedia).not.toHaveBeenCalled();
     });
 });

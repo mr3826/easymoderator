@@ -1,721 +1,371 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Products, { effectiveStockQuantity, isLowStockProduct, isOutOfStockProduct, isStockExceptionProduct } from './Products';
 
-// ── Hoist mock functions ──────────────────────────────────────────────────
-const {
-  mockGetProducts,
-  mockDeleteProduct,
-  mockGetCategories,
-  mockExtractProductsFromUpload,
-  mockCreateProduct,
-} = vi.hoisted(() => {
-  const buildProduct = (overrides = {}) => ({
-    id: 'prod-1', name: 'Test T-Shirt', price: 299, sku: 'SKU-001',
-    description: 'A shirt', category: 'Clothing', category_id: 'cat-1',
-    status: 'active', is_active: true, quantity: 50,
-    ai_generated: false, confidence: null, createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  });
-
-  const mockProducts = [
-    buildProduct({ id: 'prod-1', name: 'Test T-Shirt',   price: 299, sku: 'SKU-001' }),
-    buildProduct({ id: 'prod-2', name: 'Blue Jeans',     price: 799, sku: 'SKU-002', is_active: false, status: 'inactive' }),
-    buildProduct({ id: 'prod-3', name: 'Cotton Kurti',   price: 450, sku: 'SKU-003', category: 'Women', category_id: 'cat-2', ai_generated: true, confidence: 0.82 }),
-  ];
-
-  return {
-    mockGetProducts:               vi.fn().mockResolvedValue(mockProducts),
-    mockDeleteProduct:             vi.fn().mockResolvedValue({ success: true }),
-    mockGetCategories:             vi.fn().mockResolvedValue([
-      { id: 'cat-1', name: 'Clothing' },
-      { id: 'cat-2', name: 'Women' },
-    ]),
-    mockExtractProductsFromUpload: vi.fn().mockResolvedValue([{
-      id: 'ai-1', name: 'AI Product', price: 150, sku: 'AI-001',
-      ai_generated: true, confidence: 0.75,
-    }]),
-    mockCreateProduct:             vi.fn().mockResolvedValue({ id: 'new-1', name: 'AI Product', price: 150 }),
+const { mockState, mockUseQuery, mockNavigate, mockCreateProduct, mockDeleteProduct, mockGetProductOverview, mockExtractProductsFromUpload } = vi.hoisted(() => {
+  const mockState: { products: any[]; categories: any[]; overview: any; extracted: any[]; searchParams: URLSearchParams } = {
+    products: [],
+    categories: [],
+    overview: {},
+    extracted: [],
+    searchParams: new URLSearchParams(),
   };
+  const matchesProducts = (params: Record<string, unknown>) => mockState.products.filter((product) => {
+    if (params.search) {
+      const query = String(params.search).toLowerCase();
+      if (![product.name, product.sku, product.description].some((field) => String(field ?? '').toLowerCase().includes(query))) return false;
+    }
+    if (params.category_id && product.category_id !== params.category_id) return false;
+    if (typeof params.is_active === 'boolean' && product.is_active !== params.is_active) return false;
+    if (params.min_price !== undefined && product.price < Number(params.min_price)) return false;
+    if (params.max_price !== undefined && product.price > Number(params.max_price)) return false;
+    return true;
+  });
+  const mockUseQuery = vi.fn((options: any) => {
+    const key = options?.queryKey?.[0];
+    if (key === 'categories') return { data: mockState.categories, isLoading: false, isFetched: true, isError: false, error: null, refetch: vi.fn() };
+    if (key === 'product-overview') return { data: mockState.overview, isLoading: false, isFetched: true, isError: false, error: null, refetch: vi.fn() };
+    return { data: matchesProducts(options?.queryKey?.[2] ?? {}), isLoading: false, isFetched: true, isError: false, error: null, refetch: vi.fn() };
+  });
+  const mockCreateProduct = vi.fn().mockResolvedValue({ id: 'created-1' });
+  const mockDeleteProduct = vi.fn().mockResolvedValue(undefined);
+  const mockGetProductOverview = vi.fn().mockResolvedValue(mockState.overview);
+  const mockExtractProductsFromUpload = vi.fn().mockImplementation(async () => ({ products: mockState.extracted }));
+  return { mockState, mockUseQuery, mockNavigate: vi.fn(), mockCreateProduct, mockDeleteProduct, mockGetProductOverview, mockExtractProductsFromUpload };
 });
 
-// ── Re-export for assertions ──────────────────────────────────────────────
-type ProductFixture = {
-  id: string;
-  name: string;
-  price: number;
-  sku: string;
-  category: string;
-  is_active: boolean;
-  status: string;
-  ai_generated: boolean;
-  confidence: number | null;
-  track_quantity?: boolean;
-  quantity?: number;
-  low_stock_threshold?: number;
-};
+const product = (overrides: Record<string, unknown> = {}) => ({
+  id: 'p1', name: 'Cotton Shirt', price: 299, sku: 'SKU-001', description: 'Soft cotton',
+  category: 'Clothing', category_id: 'cat-1', status: 'active', is_active: true,
+  track_quantity: true, quantity: 12, low_stock_threshold: 3, variants: [],
+  createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
+  ...overrides,
+});
 
-const mockProducts: ProductFixture[] = [
-  { id: 'prod-1', name: 'Test T-Shirt',   price: 299, sku: 'SKU-001', category: 'Clothing', is_active: true,  status: 'active',   ai_generated: false, confidence: null },
-  { id: 'prod-2', name: 'Blue Jeans',     price: 799, sku: 'SKU-002', category: 'Clothing', is_active: false, status: 'inactive', ai_generated: false, confidence: null },
-  { id: 'prod-3', name: 'Cotton Kurti',   price: 450, sku: 'SKU-003', category: 'Women',    is_active: true,  status: 'active',   ai_generated: true,  confidence: 0.82 },
+const overview = (overrides: Record<string, unknown> = {}) => ({
+  total: 81,
+  active: 68,
+  inactive: 13,
+  low_stock: 5,
+  out_of_stock: 2,
+  scanned: 12,
+  cap: 1000,
+  coverage_complete: false,
+  ...overrides,
+});
+
+const categoryData = [
+  { id: 'cat-1', name: 'Clothing', is_active: true, subcategories: [{ id: 'child-1', name: 'Shirts', is_active: false }] },
+  { id: 'cat-2', name: 'Clothing', subcategories: [] },
 ];
-const baselineMockProducts = [...mockProducts];
 
-// ── Mock react-i18next ────────────────────────────────────────────────────
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, unknown>) => {
+      if (key === 'products.resultsCount') return `${options?.count} products`;
+      if (key === 'products.overview.incompleteCoverage') return `Only ${options?.scanned} of ${options?.cap} products were checked`;
+      if (key === 'products.reviewModal.parseCompleteness') return `Parse completeness: ${options?.percent}%`;
+      if (key === 'products.reviewModal.aiExtracted') return 'AI-extracted';
+      if (key === 'products.reviewModal.unmappedCategory') return `Unmatched imported category: ${options?.category}`;
+      if (key === 'products.reviewModal.sellingPriceBdt') return 'Selling price (BDT)';
+      if (key === 'products.form.noCategory') return 'No category';
+      if (key === 'products.form.inactiveCategory' || key === 'categories.status.inactive') return 'Inactive';
+      if (key === 'products.openAria') return `Open ${options?.name}`;
+      if (key === 'products.deleteAria') return `Delete ${options?.name}`;
+      if (key === 'products.editAria') return `Edit ${options?.name}`;
+      if (key === 'products.errors.bulkPartialFailure') return `${options?.failed} of ${options?.total} imports failed or need correction`;
+      return key;
+    },
+  }),
 }));
 
-// ── Mock API client ───────────────────────────────────────────────────────
 vi.mock('@/api', () => ({
   apiClient: {
-    getProducts:               mockGetProducts,
-    deleteProduct:             mockDeleteProduct,
-    getCategories:             mockGetCategories,
+    getProducts: vi.fn(),
+    getProductOverview: mockGetProductOverview,
+    deleteProduct: mockDeleteProduct,
+    getCategories: vi.fn(),
     extractProductsFromUpload: mockExtractProductsFromUpload,
-    createProduct:             mockCreateProduct,
+    createProduct: mockCreateProduct,
   },
 }));
 
-// ── Mock TanStack Query ───────────────────────────────────────────────────
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: vi.fn(() => {
-    // Return synchronous mock instead of using hooks
-    return {
-      data: mockProducts,
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-    };
-  }),
-  useQueryClient: () => ({
-    invalidateQueries: vi.fn(),
-    setQueryData:      vi.fn(),
-  }),
+  useQuery: mockUseQuery,
+  useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
 }));
 
-// ── Mock auth service ─────────────────────────────────────────────────────
 vi.mock('@/app/lib/auth', () => ({
-  authService: {
-    getCurrentShopId: vi.fn().mockReturnValue('shop-1'),
-    getUser:          vi.fn().mockReturnValue({ userId: 'user-1', shopId: 'shop-1' }),
-    isAuthenticated:  vi.fn().mockReturnValue(true),
-  },
+  authService: { getCurrentShopId: vi.fn().mockReturnValue('shop-1') },
 }));
 
-// ── Mock react-router-dom ─────────────────────────────────────────────────
-const mockNavigate = vi.fn();
-// Mutable holder so seed tests can set ?stock= before mount (the component
-// seeds once on mount, mirroring the Orders bucket-seed contract).
-const mockSearchParams = { current: new URLSearchParams() };
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
-  useSearchParams: () => [mockSearchParams.current, vi.fn()],
+  useSearchParams: () => [mockState.searchParams, vi.fn()],
 }));
 
-// ── Mock sonner ───────────────────────────────────────────────────────────
-vi.mock('sonner', () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
-}));
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-// ── Mock lucide-react ─────────────────────────────────────────────────────
 vi.mock('lucide-react', () => {
   const Icon = () => null;
   return {
-    Plus: Icon, Upload: Icon, Bot: Icon, CheckCircle: Icon,
-    Edit2: Icon, Trash2: Icon, AlertCircle: Icon, Search: Icon,
-    Filter: Icon, Download: Icon, X: Icon, Loader2: Icon, Package: Icon,
-    // Redesign kit (PageHeader/SignalBadge/EmButton) imports these too.
-    ChevronRight: Icon, CheckCircle2: Icon, OctagonX: Icon, Clock4: Icon,
-    TriangleAlert: Icon, Eye: Icon, BadgeCheck: Icon,
+    Plus: Icon, Upload: Icon, Bot: Icon, CheckCircle: Icon, Edit2: Icon, Trash2: Icon,
+    AlertCircle: Icon, Search: Icon, Filter: Icon, X: Icon, Loader2: Icon, Package: Icon,
+    LayoutGrid: Icon, List: Icon, ChevronRight: Icon,
   };
 });
 
-// ── Mock Dialog components ────────────────────────────────────────────────
 vi.mock('./ui/dialog', () => ({
-  Dialog:            ({ children, open }: any) => open ? <div>{children}</div> : null,
-  DialogContent:     ({ children }: any) => <div>{children}</div>,
-  DialogHeader:      ({ children }: any) => <div>{children}</div>,
-  DialogTitle:       ({ children }: any) => <div>{children}</div>,
+  Dialog: ({ children, open }: any) => open ? <div>{children}</div> : null,
+  DialogContent: ({ children }: any) => <div>{children}</div>,
+  DialogHeader: ({ children }: any) => <div>{children}</div>,
+  DialogTitle: ({ children }: any) => <div>{children}</div>,
   DialogDescription: ({ children }: any) => <div>{children}</div>,
-  DialogOverlay:     ({ children }: any) => <div>{children}</div>,
+  DialogOverlay: () => null,
 }));
 
-// ── Mock AddProduct ───────────────────────────────────────────────────────
-vi.mock('./AddProduct', () => ({
-  default: ({ onClose, onSave }: any) => (
-    <div data-testid="add-product-modal">
-      <button onClick={onClose}>Close</button>
-      <button onClick={() => onSave?.({ id: 'new-1', name: 'Saved' })}>Save</button>
-    </div>
-  ),
-}));
+const renderProducts = () => render(<Products />);
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-const flushPromises = () => new Promise(r => setTimeout(r, 0));
-
-const renderComponent = async () => {
-  let utils: ReturnType<typeof render> | undefined;
-  await act(async () => {
-    utils = render(<Products />);
-    await flushPromises();
-  });
-  return utils!;
+const uploadCsv = async () => {
+  fireEvent.click(screen.getByRole('button', { name: 'products.import' }));
+  const file = new File(['name,price'], 'products.csv', { type: 'text/csv' });
+  Object.defineProperty(file, 'text', { value: vi.fn().mockResolvedValue('name,price') });
+  fireEvent.change(document.getElementById('file-upload') as HTMLInputElement, { target: { files: [file] } });
+  await screen.findByRole('dialog');
+  await screen.findAllByText('AI-extracted');
 };
 
-// ── Tests ──────────────────────────────────────────────────────────────────
+beforeEach(() => {
+  mockState.products = [
+    product(),
+    product({ id: 'p2', name: 'Linen Trousers', price: 690, sku: 'SKU-002', category: 'Bottoms', category_id: 'cat-2', is_active: false, status: 'inactive', quantity: 0 }),
+    product({ id: 'p3', name: 'Denim Jacket', price: 990, sku: 'SKU-003', category: 'Clothing', category_id: 'child-1', quantity: 2, low_stock_threshold: 3 }),
+    product({ id: 'p4', name: 'Empty Shelf', price: 450, sku: 'SKU-004', category: 'Clothing', category_id: 'cat-1', quantity: 0 }),
+  ];
+  mockState.categories = categoryData;
+  mockState.overview = overview();
+  mockState.extracted = [{
+    id: 'import-1', name: '', price: 0, sku: 'IM-1', category: 'Clothing',
+    quantity: 3, track_quantity: true, confidence: 0.75, ai_generated: true,
+    variants: [{ name: 'Color', options: ['Red', 'Blue'] }],
+  }];
+  mockState.searchParams = new URLSearchParams();
+  mockUseQuery.mockClear();
+  mockCreateProduct.mockReset().mockResolvedValue({ id: 'created-1' });
+  mockDeleteProduct.mockReset().mockResolvedValue(undefined);
+  mockGetProductOverview.mockReset().mockResolvedValue(mockState.overview);
+  mockExtractProductsFromUpload.mockReset().mockImplementation(async () => ({ products: mockState.extracted }));
+  mockNavigate.mockReset();
+});
 
-describe('Products', () => {
-  beforeEach(() => {
-    mockProducts.splice(0, mockProducts.length, ...baselineMockProducts);
-    mockGetProducts.mockReset().mockResolvedValue(mockProducts);
-    mockDeleteProduct.mockReset().mockResolvedValue({ success: true });
-    mockGetCategories.mockReset().mockResolvedValue([
-      { id: 'cat-1', name: 'Clothing' },
-      { id: 'cat-2', name: 'Women' },
-    ]);
-    mockExtractProductsFromUpload.mockReset().mockResolvedValue([{
-      id: 'ai-1', name: 'AI Product', price: 150, ai_generated: true, confidence: 0.75,
-    }]);
-    mockCreateProduct.mockReset().mockResolvedValue({ id: 'new-1', name: 'AI Product', price: 150 });
-    mockNavigate.mockReset();
-    mockSearchParams.current = new URLSearchParams();
+describe('Products workspace', () => {
+  it('renders API-owned overview counts, incomplete coverage markers, and filtered result count', async () => {
+    renderProducts();
+
+    expect(await screen.findByTestId('products-overview-total')).toHaveTextContent('81');
+    expect(screen.getByTestId('products-overview-active')).toHaveTextContent('68');
+    expect(screen.getByTestId('products-overview-low')).toHaveTextContent('5+');
+    expect(screen.getByTestId('products-overview-out')).toHaveTextContent('2+');
+    // Interpolated coverage numbers go through the locale-aware formatter
+    // (en-US grouping here; Bangla digits under bn) — screenshot packet P2.
+    expect(screen.getByTestId('products-overview-coverage-note')).toHaveTextContent('12 of 1,000');
+    expect(screen.getByTestId('products-filtered-count')).toHaveTextContent('4 products');
+    expect(screen.getByText('81')).not.toBe(screen.getByTestId('products-filtered-count'));
+
+    const overviewQuery = mockUseQuery.mock.calls.map(([options]) => options).find((options) => options.queryKey?.[0] === 'product-overview');
+    expect(overviewQuery?.queryKey).toEqual(['product-overview', 'shop-1']);
+    const controller = new AbortController();
+    await overviewQuery?.queryFn({ signal: controller.signal });
+    expect(mockGetProductOverview).toHaveBeenCalledWith(controller.signal);
   });
 
-  // ── Basic render ─────────────────────────────────────────────────────
-
-  it('renders the Products page header', async () => {
-    await renderComponent();
-    // Use heading role or direct h1 query to avoid multiple-match error
-    const heading = document.querySelector('h1') ||
-                    screen.queryByText('products.title');
-    expect(heading).toBeTruthy();
-  });
-
-  it('renders product names from the list', async () => {
-    await renderComponent();
+  it('clicking overview metrics applies the matching filter without using visible-page counts', async () => {
+    renderProducts();
+    fireEvent.click(await screen.findByTestId('products-overview-active'));
 
     await waitFor(() => {
-      expect(screen.getByText('Test T-Shirt')).toBeInTheDocument();
+      const productQueries = mockUseQuery.mock.calls.map(([options]) => options).filter((options) => options.queryKey?.[0] === 'products');
+      expect(productQueries.some((options) => options.queryKey[2]?.is_active === true)).toBe(true);
     });
+    expect(screen.getByText('Cotton Shirt')).toBeInTheDocument();
+    expect(screen.queryByText('Linen Trousers')).not.toBeInTheDocument();
+    expect(screen.getByTestId('products-filtered-count')).toHaveTextContent('3 products');
   });
 
-  it('renders all 3 products', async () => {
-    await renderComponent();
+  it('clicking an out-of-stock overview metric opens the matching stock exception filter', async () => {
+    renderProducts();
+    fireEvent.click(await screen.findByTestId('products-overview-out'));
+
+    expect(screen.getByTestId('products-stock-out')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Empty Shelf')).toBeInTheDocument();
+    expect(screen.queryByText('Cotton Shirt')).not.toBeInTheDocument();
+    expect(screen.queryByText('Linen Trousers')).not.toBeInTheDocument();
+    expect(screen.queryByText('Denim Jacket')).not.toBeInTheDocument();
+  });
+
+  it('uses canonical category IDs and sends status/search filters to the products query', async () => {
+    renderProducts();
+    fireEvent.click(await screen.findByRole('button', { name: 'products.filter' }));
+    const panel = document.getElementById('products-filter-panel') as HTMLElement;
+    const selects = panel.querySelectorAll('select');
+    fireEvent.change(selects[0], { target: { value: 'cat-2' } });
+    fireEvent.change(selects[1], { target: { value: 'inactive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.apply' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Test T-Shirt')).toBeInTheDocument();
-      expect(screen.getByText('Blue Jeans')).toBeInTheDocument();
-      expect(screen.getByText('Cotton Kurti')).toBeInTheDocument();
+      const productQueries = mockUseQuery.mock.calls.map(([options]) => options).filter((options) => options.queryKey?.[0] === 'products');
+      expect(productQueries.some((options) => options.queryKey[2]?.category_id === 'cat-2' && options.queryKey[2]?.is_active === false)).toBe(true);
     });
-  });
+    expect(screen.getByText('Linen Trousers')).toBeInTheDocument();
+    expect(screen.queryByText('Cotton Shirt')).not.toBeInTheDocument();
 
-  it('renders product SKUs', async () => {
-    await renderComponent();
-
+    fireEvent.change(screen.getByLabelText('products.searchPlaceholder'), { target: { value: 'Linen' } });
     await waitFor(() => {
-      expect(screen.getByText('SKU-001')).toBeInTheDocument();
-    });
+      const productQueries = mockUseQuery.mock.calls.map(([options]) => options).filter((options) => options.queryKey?.[0] === 'products');
+      expect(productQueries.some((options) => options.queryKey[2]?.search === 'Linen')).toBe(true);
+    }, { timeout: 1000 });
   });
 
-  it('renders product prices', async () => {
-    await renderComponent();
-
-    await waitFor(() => {
-      // Price should appear somewhere in the product row
-      const price = screen.queryByText(/299/) || screen.queryByText(/৳299/) || screen.queryByText(/299\.00/);
-      expect(price).toBeTruthy();
-    });
-  });
-
-  it('renders an "Add Product" button', async () => {
-    await renderComponent();
-    // Button text is the translation key 'products.addManually' (i18n mock returns key as-is)
-    const addBtn = screen.queryByText('products.addManually') ||
-                   screen.queryByText(/products\.addManually/i) ||
-                   Array.from(document.querySelectorAll('button')).find(
-                     btn => btn.textContent?.includes('addManually')
-                   );
-    expect(addBtn).toBeTruthy();
-  });
-
-  it('renders an upload/import button', async () => {
-    await renderComponent();
-    const uploadBtn = screen.queryByRole('button', { name: /upload|import|bulk/i }) ||
-                      Array.from(document.querySelectorAll('button')).find(
-                        btn => btn.querySelector('[class*="upload"]') ||
-                               btn.textContent?.toLowerCase().includes('upload') ||
-                               btn.textContent?.toLowerCase().includes('import')
-                      );
-    expect(uploadBtn).toBeTruthy();
-  });
-
-  // ── Search & filter ───────────────────────────────────────────────────
-
-  it('renders a search input', async () => {
-    await renderComponent();
-    const searchInput = screen.queryByRole('textbox', { name: /search/i }) ||
-                        document.querySelector('input[type="text"]') ||
-                        document.querySelector('input[type="search"]');
-    expect(searchInput).toBeTruthy();
-  });
-
-  it('filters only tracked low stock and restores products when cleared', async () => {
-    mockProducts.splice(0, mockProducts.length,
-      { ...baselineMockProducts[0], id: 'tracked-low', name: 'Tracked at threshold', track_quantity: true, quantity: 3, low_stock_threshold: 3 },
-      { ...baselineMockProducts[0], id: 'tracked-below', name: 'Tracked below threshold', track_quantity: true, quantity: 1, low_stock_threshold: 4 },
-      { ...baselineMockProducts[0], id: 'tracked-above', name: 'Tracked above threshold', track_quantity: true, quantity: 5, low_stock_threshold: 4 },
-      { ...baselineMockProducts[0], id: 'untracked-low', name: 'Untracked quantity', track_quantity: false, quantity: 0, low_stock_threshold: 2 },
-      { ...baselineMockProducts[0], id: 'missing-threshold', name: 'Missing threshold', track_quantity: true, quantity: 0 },
-    );
-    await renderComponent();
-
-    // D2: the low state excludes out-of-stock rows (disjoint by construction).
-    fireEvent.click(screen.getByTestId('products-stock-low'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Tracked at threshold')).toBeInTheDocument();
-      expect(screen.getByText('Tracked below threshold')).toBeInTheDocument();
-      expect(screen.queryByText('Tracked above threshold')).not.toBeInTheDocument();
-      expect(screen.queryByText('Untracked quantity')).not.toBeInTheDocument();
-      expect(screen.queryByText('Missing threshold')).not.toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('products-stock-low'));
-    await waitFor(() => expect(screen.getByText('Tracked above threshold')).toBeInTheDocument());
-  });
-
-  // ── D2 stock predicate parity + ?stock= fail-closed seed ─────────────────
-  // Default = a LOW product (3 of 10 ≤ threshold 5); out/healthy via overrides.
-  const stockFixture = (overrides: Record<string, unknown>) => ({
-    ...baselineMockProducts[0], track_quantity: true, quantity: 3, low_stock_threshold: 5, ...overrides,
-  }) as unknown as ProductFixture;
-
-  it('effective quantity prefers active variants, falls back to parent', () => {
-    expect(effectiveStockQuantity(stockFixture({
-      quantity: 50,
-      product_variants: [{ id: 'v1', quantity: 2, is_active: true }, { id: 'v2', quantity: 0, is_active: false }],
-    } as never) as never)).toBe(2);
-    expect(effectiveStockQuantity(stockFixture({ quantity: 7 }) as never)).toBe(7);
-    expect(effectiveStockQuantity(stockFixture({ quantity: 7, product_variants: [] }) as never)).toBe(7);
-    // Inactive-only variant sets fall back to the parent quantity (contract B).
-    expect(effectiveStockQuantity(stockFixture({
-      quantity: 7, product_variants: [{ id: 'v1', quantity: 0, is_active: false }],
-    }) as never)).toBe(7);
-  });
-
-  it('classifies out/low as disjoint (out ≤ 0; low 0 < q ≤ threshold)', () => {
-    const out = stockFixture({ quantity: 50, product_variants: [{ id: 'v1', quantity: 0, is_active: true }] });
-    const low = stockFixture({ quantity: 50, product_variants: [{ id: 'v1', quantity: 3, is_active: true }] });
-    const ok = stockFixture({ quantity: 50, product_variants: [{ id: 'v1', quantity: 9, is_active: true }] });
-    expect(isOutOfStockProduct(out as never)).toBe(true);
-    expect(isLowStockProduct(out as never)).toBe(false);
-    expect(isLowStockProduct(low as never)).toBe(true);
-    expect(isOutOfStockProduct(low as never)).toBe(false);
-    expect(isStockExceptionProduct(ok as never)).toBe(false);
-    // track_quantity scope: untracked products never count.
-    expect(isStockExceptionProduct(stockFixture({ track_quantity: false, quantity: 0 }) as never)).toBe(false);
-  });
-
-  // A8 MAJOR-1 parity — these cases mirror the exported server predicate
-  // (`classifyStockExceptions` / `computeEffectiveQuantity`, pinned in
-  // EasyMod-backend product-stock-exceptions.service.test.js) token-for-token:
-  // the nav badge (server) and the list (client) must agree even for
-  // synthetic payloads.
-  it('parity with the server scope: an INACTIVE but tracked product is never an exception', () => {
-    const retired = stockFixture({ id: 's-retired', name: 'Retired Cap', is_active: false, status: 'inactive', quantity: 0 });
-    const live = stockFixture({ id: 's-live', name: 'Live Cap', is_active: true, quantity: 0 });
-    // Server scans `is_active: true` — a retired tracked product can never
-    // sell, so it appears in neither the exception count nor the filter.
-    expect(isOutOfStockProduct(retired as never)).toBe(false);
-    expect(isLowStockProduct(retired as never)).toBe(false);
-    expect(isStockExceptionProduct(retired as never)).toBe(false);
-    // Same row, still active → out of stock (the badge/list edge holds).
-    expect(isStockExceptionProduct(live as never)).toBe(true);
-  });
-
-  it('parity with the server edge rules: unparseable parent fails toward out; non-finite variants drop', () => {
-    // Parent null/NaN → 0 → out-of_stock classification (server honesty:
-    // a visible exception, never a silent "in stock").
-    expect(isOutOfStockProduct(stockFixture({ quantity: null }) as never)).toBe(true);
-    expect(isOutOfStockProduct(stockFixture({ quantity: 'not-a-number' }) as never)).toBe(true);
-    expect(isStockExceptionProduct(stockFixture({ quantity: undefined }) as never)).toBe(true);
-    // Non-finite ACTIVE variant quantities contribute NOTHING (server drops
-    // them); when none remain finite the PARENT wins (fallback, not zero).
-    expect(effectiveStockQuantity(stockFixture({
-      quantity: 9, product_variants: [{ id: 'v1', quantity: Number.NaN, is_active: true }],
-    }) as never) as never).toBe(9);
-    expect(isStockExceptionProduct(stockFixture({
-      quantity: 9, product_variants: [{ id: 'v1', quantity: Number.NaN, is_active: true }],
-    }) as never)).toBe(false);
-    // Mixed finite + NaN: the finite sum is the effective quantity.
-    expect(effectiveStockQuantity(stockFixture({
-      quantity: 99, product_variants: [
-        { id: 'v1', quantity: Number.NaN, is_active: true },
-        { id: 'v2', quantity: 2, is_active: true },
-      ],
-    }) as never) as never).toBe(2);
-  });
-
-  it('seeds ?stock=exceptions from the URL and clears back to all', async () => {
-    mockProducts.splice(0, mockProducts.length,
-      stockFixture({ id: 's-low', name: 'Low Variant Sum' }),
-      stockFixture({ id: 's-out', name: 'Zero Variant Sum', product_variants: [{ id: 'v', quantity: 0, is_active: true }] }),
-      stockFixture({ id: 's-ok', name: 'Healthy Stock', product_variants: [{ id: 'v', quantity: 9, is_active: true }] }),
-    );
-    mockSearchParams.current = new URLSearchParams('stock=exceptions');
-    await renderComponent();
-
-    await waitFor(() => {
-      expect(screen.getByText('Low Variant Sum')).toBeInTheDocument();
-      expect(screen.getByText('Zero Variant Sum')).toBeInTheDocument();
-      expect(screen.queryByText('Healthy Stock')).not.toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByTestId('products-stock-clear'));
-    await waitFor(() => expect(screen.getByText('Healthy Stock')).toBeInTheDocument());
-  });
-
-  it('seeds ?stock=out', async () => {
-    mockProducts.splice(0, mockProducts.length,
-      stockFixture({ id: 's-low', name: 'Low Variant Sum' }),
-      stockFixture({ id: 's-out', name: 'Zero Variant Sum', product_variants: [{ id: 'v', quantity: 0, is_active: true }] }),
-    );
-    mockSearchParams.current = new URLSearchParams('stock=out');
-    await renderComponent();
-    await waitFor(() => {
-      expect(screen.getByText('Zero Variant Sum')).toBeInTheDocument();
-      expect(screen.queryByText('Low Variant Sum')).not.toBeInTheDocument();
-    });
-  });
-
-  it('seeds ?stock=low onto the same control the toolbar exposes', async () => {
-    mockProducts.splice(0, mockProducts.length,
-      stockFixture({ id: 's-low', name: 'Low Variant Sum' }),
-      stockFixture({ id: 's-ok', name: 'Healthy Stock', product_variants: [{ id: 'v', quantity: 9, is_active: true }] }),
-    );
-    mockSearchParams.current = new URLSearchParams('stock=low');
-    await renderComponent();
-    await waitFor(() => {
-      expect(screen.getByText('Low Variant Sum')).toBeInTheDocument();
-      expect(screen.queryByText('Healthy Stock')).not.toBeInTheDocument();
-    });
+  it('keeps stock filters URL-seeded and uses active-variant effective quantities', async () => {
+    mockState.searchParams = new URLSearchParams('stock=low');
+    renderProducts();
+    expect(await screen.findByText('Denim Jacket')).toBeInTheDocument();
+    expect(screen.queryByText('Cotton Shirt')).not.toBeInTheDocument();
     expect(screen.getByTestId('products-stock-low')).toHaveAttribute('aria-pressed', 'true');
+
+    const tracked = product({ quantity: 90, product_variants: [
+      { id: 'v1', quantity: 1, is_active: true },
+      { id: 'v2', quantity: 80, is_active: false },
+    ] });
+    expect(effectiveStockQuantity(tracked as never)).toBe(1);
+    expect(isLowStockProduct(tracked as never)).toBe(true);
+    expect(isOutOfStockProduct(product({ quantity: 5, product_variants: [{ id: 'v', quantity: 0, is_active: true }] }) as never)).toBe(true);
+    expect(isStockExceptionProduct(product({ track_quantity: false, quantity: 0 }) as never)).toBe(false);
   });
 
-  it('fails closed on unknown ?stock= values (unknown seed → unfiltered)', async () => {
-    mockProducts.splice(0, mockProducts.length,
-      stockFixture({ id: 's-ok', name: 'Healthy Stock', product_variants: [{ id: 'v', quantity: 9, is_active: true }] }),
-    );
-    mockSearchParams.current = new URLSearchParams('stock=totally-bogus');
-    await renderComponent();
-    await waitFor(() => expect(screen.getByText('Healthy Stock')).toBeInTheDocument());
-    expect(screen.queryByTestId('products-stock-clear')).not.toBeInTheDocument();
+  it('sorts results, switches to mobile-safe cards, and opens details by mouse and keyboard', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    renderProducts();
+    const sort = screen.getByLabelText('products.sort.label');
+    fireEvent.change(sort, { target: { value: 'price-desc' } });
+    expect(screen.getByRole('row', { name: 'Open Denim Jacket' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'products.view.cards' }));
+    const grid = screen.getByTestId('products-card-grid');
+    expect(grid).toHaveClass('grid-cols-1');
+    const productCard = screen.getByRole('article', { name: 'Open Cotton Shirt' });
+    expect(productCard).toHaveClass('min-w-0');
+    fireEvent.keyDown(productCard, { key: 'Enter' });
+    expect(mockNavigate).toHaveBeenCalledWith('/products/p1');
+    fireEvent.click(screen.getByRole('button', { name: 'products.view.table' }));
+    fireEvent.click(screen.getByRole('row', { name: 'Open Linen Trousers' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/products/p2');
   });
 
-  it('debounces search input (does not query immediately on keystroke)', async () => {
-    await renderComponent();
+  it('navigates Add product to the editor route and retains a shared delete confirm dialog', async () => {
+    renderProducts();
+    fireEvent.click(await screen.findByRole('button', { name: 'products.addProduct' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/products/add');
 
-    const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement ||
-                        document.querySelector('input[type="search"]') as HTMLInputElement;
-
-    if (searchInput) {
-      const callsBefore = mockGetProducts.mock.calls.length;
-
-      await act(async () => {
-        fireEvent.change(searchInput, { target: { value: 't' } });
-      });
-
-      // Query should NOT be called immediately (debounced)
-      expect(mockGetProducts.mock.calls.length).toBe(callsBefore);
-    }
-  });
-
-  it('renders filter panel toggle button', async () => {
-    await renderComponent();
-    // Exact name: the D2 stock buttons' aria-labels also contain "filter"
-    // (products.stockFilter.*) in key-rendered tests.
-    const filterBtn = screen.getByRole('button', { name: 'products.filter' });
-    expect(filterBtn).toBeTruthy();
-  });
-
-  // ── Delete flow ───────────────────────────────────────────────────────
-
-  it('shows delete confirmation dialog when delete is triggered', async () => {
-    await renderComponent();
-
-    await waitFor(() => {
-      expect(screen.getByText('Test T-Shirt')).toBeInTheDocument();
-    });
-
-    // Delete buttons have no text (icon-only). Find by the red-hover class specific to delete buttons.
-    const deleteButton = document.querySelector('button[class*="hover:text-red-600"]') as HTMLElement | null;
-
-    if (deleteButton) {
-      await act(async () => { fireEvent.click(deleteButton); });
-
-      await waitFor(() => {
-        // Dialog mock renders when open=true; title key is 'products.deleteModal.title'
-        const dialog = screen.queryByText('products.deleteModal.title') ||
-                       screen.queryByText(/products\.deleteModal/i);
-        expect(dialog).toBeTruthy();
-      });
-    }
-  });
-
-  it('does NOT call deleteProduct until confirmation is clicked', async () => {
-    await renderComponent();
-
-    await waitFor(() => {
-      expect(screen.getByText('Test T-Shirt')).toBeInTheDocument();
-    });
-
-    const deleteButton = Array.from(document.querySelectorAll('button')).find(
-      btn => btn.querySelector('[class*="trash"]') ||
-             btn.getAttribute('aria-label')?.toLowerCase().includes('delete')
-    );
-
-    if (deleteButton) {
-      await act(async () => { fireEvent.click(deleteButton); });
-    }
-
-    // deleteProduct should NOT be called yet (only clicked initial delete)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Cotton Shirt' }));
+    expect(screen.getByText('products.deleteModal.title')).toBeInTheDocument();
     expect(mockDeleteProduct).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.delete' }));
+    await waitFor(() => expect(mockDeleteProduct).toHaveBeenCalledWith('p1'));
   });
 
-  it('calls deleteProduct after confirmation', async () => {
-    await renderComponent();
+  it('restricts uploads to CSV, TSV, and TXT and highlights shared validator errors with parsed variants', async () => {
+    renderProducts();
+    fireEvent.click(await screen.findByRole('button', { name: 'products.import' }));
+    const rejected = new File(['x'], 'products.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    fireEvent.change(document.getElementById('file-upload') as HTMLInputElement, { target: { files: [rejected] } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('products.errors.unsupportedFileType');
+    expect(mockExtractProductsFromUpload).not.toHaveBeenCalled();
 
-    await waitFor(() => {
-      expect(screen.getByText('Test T-Shirt')).toBeInTheDocument();
-    });
+    await uploadCsv();
+    expect(screen.getByLabelText(/products.form.productName/)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText(/Selling price \(BDT\)/)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('products.form.errors.nameRequired')).toBeInTheDocument();
+    expect(screen.getByText('products.form.errors.priceInvalid')).toBeInTheDocument();
+    expect(screen.getByText('Parse completeness: 75%')).toBeInTheDocument();
+    expect(screen.getByText('Color: Red, Blue')).toBeInTheDocument();
+    expect(screen.getByText('Unmatched imported category: Clothing')).toBeInTheDocument();
+    const categorySelect = screen.getByLabelText('products.columns.category');
+    expect(within(categorySelect).getByRole('option', { name: 'No category' })).toBeInTheDocument();
+    expect(within(categorySelect).getByRole('option', { name: /Clothing \/ Shirts \(Inactive\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.approve' })).toBeDisabled();
+  });
 
-    // Click the initial delete button
-    const deleteButton = Array.from(document.querySelectorAll('button')).find(
-      btn => btn.getAttribute('aria-label')?.toLowerCase().includes('delete') ||
-             btn.closest('tr')?.textContent?.includes('T-Shirt')
-    );
+  it('aborts extraction on cancel and does not reopen review after the request settles', async () => {
+    let resolveExtraction!: (value: { products: typeof mockState.extracted }) => void;
+    mockExtractProductsFromUpload.mockImplementation(() => new Promise((resolve) => { resolveExtraction = resolve; }));
+    renderProducts();
+    fireEvent.click(await screen.findByRole('button', { name: 'products.import' }));
+    const file = new File(['name,price'], 'products.csv', { type: 'text/csv' });
+    Object.defineProperty(file, 'text', { value: vi.fn().mockResolvedValue('name,price') });
+    fireEvent.change(document.getElementById('file-upload') as HTMLInputElement, { target: { files: [file] } });
+    await waitFor(() => expect(mockExtractProductsFromUpload).toHaveBeenCalled());
 
-    if (deleteButton) {
-      await act(async () => { fireEvent.click(deleteButton); });
+    const signal = mockExtractProductsFromUpload.mock.calls[0][1] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'common.cancel' }));
+    expect(signal.aborted).toBe(true);
 
-      // Click confirm button in dialog.
-      // The confirm button renders t('common.delete') = 'common.delete' (i18n key).
-      // Use exact text to avoid colliding with aria-labelled row delete buttons.
-      await waitFor(() => {
-        const allDeleteBtns = screen.queryAllByRole('button', { name: /delete/i });
-        // Confirm button has no aria-label (only text content); row buttons have aria-label
-        const confirmBtn = allDeleteBtns.find(btn => !btn.getAttribute('aria-label'));
-        if (confirmBtn) {
-          act(() => { fireEvent.click(confirmBtn); });
-        }
-      });
+    await act(async () => resolveExtraction({ products: mockState.extracted }));
+    expect(screen.queryByText('products.reviewModal.title')).not.toBeInTheDocument();
+    expect(screen.queryByText('AI-extracted')).not.toBeInTheDocument();
+  });
 
-      if (mockDeleteProduct.mock.calls.length > 0) {
-        expect(mockDeleteProduct).toHaveBeenCalledWith('prod-1');
+  it('creates only valid drafts, includes variants, strips provenance, and prevents duplicate in-flight approval', async () => {
+    mockState.extracted = [{
+      id: 'valid-1', name: 'Review Shirt', price: 125, sku: 'RV-1', track_quantity: true,
+      quantity: 4, variants: [{ name: 'Size', options: ['S', 'M'] }], confidence: 0.91, ai_generated: true,
+    }];
+    let resolveCreate!: (value: unknown) => void;
+    mockCreateProduct.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve; }));
+    renderProducts();
+    await uploadCsv();
+    const approve = screen.getByRole('button', { name: 'common.approve' });
+    fireEvent.click(approve);
+    fireEvent.click(approve);
+
+    await waitFor(() => expect(mockCreateProduct).toHaveBeenCalledTimes(1));
+    const payload = mockCreateProduct.mock.calls[0][0];
+    expect(mockCreateProduct.mock.calls[0][1]).toEqual(expect.any(String));
+    expect(payload).toMatchObject({ name: 'Review Shirt', price: 125, variants: [{ name: 'Size', options: ['S', 'M'], priceAdjustment: 0, sku: '' }] });
+    expect(payload).not.toHaveProperty('ai_generated');
+    expect(payload).not.toHaveProperty('confidence');
+    await act(async () => resolveCreate({ id: 'created-1' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('bulk approval uses allSettled, retains failed rows, and retry never duplicates successful rows', async () => {
+    mockState.extracted = [
+      { id: 'good', name: 'Good Product', price: 100 },
+      { id: 'retry', name: 'Retry Product', price: 200 },
+    ];
+    mockCreateProduct.mockImplementation(async (payload: { name: string }) => {
+      if (payload.name === 'Retry Product' && mockCreateProduct.mock.calls.filter(([call]) => call.name === 'Retry Product').length === 1) {
+        throw new Error('temporary failure');
       }
-    }
-  });
-
-  // ── AI product review flow ────────────────────────────────────────────
-
-  it('shows AI badge on AI-generated products', async () => {
-    await renderComponent();
-
-    await waitFor(() => {
-      // Cotton Kurti is AI-generated
-      expect(screen.getByText('Cotton Kurti')).toBeInTheDocument();
+      return { id: `created-${payload.name}` };
     });
+    renderProducts();
+    await uploadCsv();
+    fireEvent.click(screen.getByRole('button', { name: 'products.reviewModal.approveAll' }));
 
-    // AI badge or indicator should be visible
-    const aiBadge = screen.queryByText(/AI/i) ||
-                    screen.queryByText(/ai.*generated|generated.*ai/i) ||
-                    document.querySelector('[class*="bot"], [class*="ai"]');
-    expect(aiBadge).toBeTruthy();
-  });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('1 of 2 imports failed'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-review-form-good')).not.toBeInTheDocument();
+    expect(screen.getByTestId('draft-review-form-retry')).toBeInTheDocument();
+    expect(mockCreateProduct).toHaveBeenCalledTimes(2);
+    const failedRowRequestKey = mockCreateProduct.mock.calls[1][1];
 
-  it('shows confidence score for AI-generated products', async () => {
-    await renderComponent();
-
-    await waitFor(() => {
-      // confidence: 0.82 → should show 82% or 0.82
-      const confidence = screen.queryByText(/82/) ||
-                         screen.queryByText(/0\.82/) ||
-                         screen.queryByText(/82%/);
-      if (confidence) expect(confidence).toBeInTheDocument();
-    });
-  });
-
-  it('edits unsaved AI extracted draft inline inside the review modal without navigating to 404', async () => {
-    await renderComponent();
-
-    fireEvent.click(await screen.findByRole('button', { name: /upload/i }));
-    const fileInput = document.querySelector('#file-upload') as HTMLInputElement;
-    const file = new File(['name,price\nDraft,150'], 'products.csv', { type: 'text/csv' });
-    fireEvent.change(fileInput, { target: { files: [file] } });
-
-    expect(await screen.findByText('AI Product')).toBeInTheDocument();
-    const editBtn = screen.getByRole('button', { name: 'common.edit' });
-    fireEvent.click(editBtn);
-
-    expect(mockNavigate).not.toHaveBeenCalled();
-    const form = screen.getByTestId('draft-edit-form-ai-1');
-    const nameInput = form.querySelector('input[type="text"]') as HTMLInputElement;
-    fireEvent.change(nameInput, { target: { value: 'Edited Draft Saree' } });
-    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
-
-    expect(await screen.findByText('Edited Draft Saree')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'common.approve' }));
-    await waitFor(() => {
-      expect(mockCreateProduct).toHaveBeenCalledWith(expect.objectContaining({
-        name: 'Edited Draft Saree',
-      }));
-    });
-  });
-
-  // ── Empty state ───────────────────────────────────────────────────────
-
-  it('renders empty state when there are no products', async () => {
-    // Override useQuery to return empty array
-    const { useQuery } = await import('@tanstack/react-query');
-    (useQuery as ReturnType<typeof vi.fn>).mockReturnValueOnce({
-      data: [], isLoading: false, isError: false, error: null, refetch: vi.fn(),
-    });
-
-    await renderComponent();
-
-    await waitFor(() => {
-      const empty = screen.queryByText(/no.*product|product.*yet|empty/i) ||
-                    screen.queryByText(/products\.empty/i);
-      if (empty) expect(empty).toBeInTheDocument();
-    });
-  });
-
-  // ── Pagination ────────────────────────────────────────────────────────
-
-  it('shows pagination controls when products exceed page size', async () => {
-    // Build 15 products to exceed 10/page
-    const manyProducts = Array.from({ length: 15 }, (_, i) => ({
-      id: `prod-${i + 1}`, name: `Product ${i + 1}`, price: 100 + i,
-      sku: `SKU-${i + 1}`, category: 'Clothing', is_active: true,
-      status: 'active', ai_generated: false, confidence: null,
-    }));
-
-    const { useQuery } = await import('@tanstack/react-query');
-    (useQuery as ReturnType<typeof vi.fn>).mockReturnValueOnce({
-      data: manyProducts, isLoading: false, isError: false, error: null, refetch: vi.fn(),
-    });
-
-    await renderComponent();
-
-    await waitFor(() => {
-      const prevBtn = screen.queryByRole('button', { name: /prev|previous|‹|←/i });
-      const nextBtn = screen.queryByRole('button', { name: /next|›|→/i });
-      const pageInfo = screen.queryByText(/page/i) ||
-                       screen.queryByText(/1.*of.*2/i);
-      const hasPagination = prevBtn || nextBtn || pageInfo;
-      if (hasPagination) expect(hasPagination).toBeTruthy();
-    });
-  });
-
-  it('shows at most 10 products per page', async () => {
-    const manyProducts = Array.from({ length: 15 }, (_, i) => ({
-      id: `prod-${i + 1}`, name: `Product ${i + 1}`, price: 100 + i,
-      sku: `SKU-${i + 1}`, is_active: true, status: 'active',
-      ai_generated: false, confidence: null,
-    }));
-
-    const { useQuery } = await import('@tanstack/react-query');
-    (useQuery as ReturnType<typeof vi.fn>).mockReturnValueOnce({
-      data: manyProducts, isLoading: false, isError: false, error: null, refetch: vi.fn(),
-    });
-
-    await renderComponent();
-
-    await waitFor(() => {
-      // Only "Product 1" through "Product 10" should be visible on page 1
-      const productRows = screen.queryAllByText(/^Product \d+$/);
-      if (productRows.length > 0) {
-        expect(productRows.length).toBeLessThanOrEqual(10);
-      }
-    });
-  });
-
-  // ── Add product navigation ────────────────────────────────────────────
-
-  it('opens AddProduct modal when Add Product button is clicked', async () => {
-    await renderComponent();
-
-    const addBtn = screen.queryByRole('button', { name: /add.*product|products\.addProduct/i }) ||
-                   Array.from(document.querySelectorAll('button')).find(
-                     btn => btn.textContent?.match(/add.*product|new.*product/i)
-                   );
-
-    if (addBtn) {
-      await act(async () => { fireEvent.click(addBtn); });
-
-      await waitFor(() => {
-        const modal = screen.queryByTestId('add-product-modal') ||
-                      document.querySelector('[role="dialog"]');
-        expect(modal).toBeTruthy();
-      });
-    }
-  });
-
-  // ── Loading & error states ────────────────────────────────────────────
-
-  it('shows loading indicator during initial fetch', async () => {
-    const { useQuery } = await import('@tanstack/react-query');
-    // Use mockImplementation (not Once) so both useQuery calls in the component
-    // return the loading state, preventing a re-render that would clear the spinner.
-    (useQuery as ReturnType<typeof vi.fn>).mockImplementation(() => ({
-      data: [], isLoading: true, isError: false, error: null, refetch: vi.fn(),
-    }));
-
-    act(() => {
-      render(<Products />);
-    });
-
-    const loading = document.querySelector('[class*="animate-spin"]') ||
-                    screen.queryByText('products.loading') ||
-                    document.querySelector('[role="status"]');
-    expect(loading).toBeTruthy();
-
-    // Restore default mock
-    (useQuery as ReturnType<typeof vi.fn>).mockImplementation(() => ({
-      data: mockProducts, isLoading: false, isError: false, error: null, refetch: vi.fn(),
-    }));
-  });
-
-  it('shows error state when API fetch fails', async () => {
-    const { useQuery } = await import('@tanstack/react-query');
-    (useQuery as ReturnType<typeof vi.fn>).mockReturnValueOnce({
-      data: [], isLoading: false, isError: true,
-      error: new Error('Network error'), refetch: vi.fn(),
-    });
-
-    await renderComponent();
-
-    await waitFor(() => {
-      const errorEl = screen.queryByText(/error|failed|network/i) ||
-                      document.querySelector('[class*="red"]');
-      if (errorEl) expect(errorEl).toBeInTheDocument();
-    });
-  });
-
-  // ── Download template ─────────────────────────────────────────────────
-
-  it('renders a download template button', async () => {
-    await renderComponent();
-
-    const downloadBtn = screen.queryByRole('button', { name: /download|template/i }) ||
-                        Array.from(document.querySelectorAll('button')).find(
-                          btn => btn.textContent?.toLowerCase().includes('download') ||
-                                 btn.textContent?.toLowerCase().includes('template')
-                        );
-    expect(downloadBtn).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'products.reviewModal.approveAll' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mockCreateProduct).toHaveBeenCalledTimes(3);
+    expect(mockCreateProduct.mock.calls.filter(([call]) => call.name === 'Good Product')).toHaveLength(1);
+    expect(mockCreateProduct.mock.calls[2][1]).toBe(failedRowRequestKey);
   });
 });

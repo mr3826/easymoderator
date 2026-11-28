@@ -10,7 +10,7 @@
  * and never used to join two customer rows.
  */
 
-const { Op } = require('sequelize');
+const { Op, fn, col } = require('sequelize');
 const { normalizeBdMobile, phoneVariants } = require('./order-outcome');
 const metrics = require('../pilot-features/pilot-metrics');
 
@@ -36,6 +36,28 @@ function toOrderFact(row) {
     };
 }
 
+function buildOrderScope(shopId, customers, since) {
+    const customerIdsByPhone = new Map();
+    for (const customer of customers) {
+        const normalized = normalizeBdMobile(customer.phone);
+        if (!normalized) continue;
+        if (!customerIdsByPhone.has(normalized)) customerIdsByPhone.set(normalized, []);
+        customerIdsByPhone.get(normalized).push(String(customer.id));
+    }
+    const variants = [...customerIdsByPhone.keys()].flatMap((normalized) => phoneVariants(normalized));
+    const or = [{ customer_id: { [Op.in]: customers.map((customer) => customer.id) } }];
+    if (variants.length) or.push({ customer_id: null, customer_phone: { [Op.in]: variants } });
+
+    return {
+        customerIdsByPhone,
+        where: {
+            shop_id: shopId,
+            [Op.or]: or,
+            ...(since ? { created_at: { [Op.gte]: since } } : {}),
+        },
+    };
+}
+
 /**
  * @param {string} shopId
  * @param {Array<{id:string, phone?:string}>} customers
@@ -43,27 +65,13 @@ function toOrderFact(row) {
  * @returns {Promise<Map<string, Array<object>>>} customerId -> orders (newest first), each with `link`
  */
 async function loadOrdersForCustomers(shopId, customers, { since = null, transaction = null, limit = 5000 } = {}) {
-    const byCustomer = new Map(customers.map((customer) => [customer.id, []]));
+    const byCustomer = new Map(customers.map((customer) => [String(customer.id), []]));
     if (!shopId || !customers.length) return byCustomer;
 
-    const customerIdsByPhone = new Map();
-    for (const customer of customers) {
-        const normalized = normalizeBdMobile(customer.phone);
-        if (!normalized) continue;
-        if (!customerIdsByPhone.has(normalized)) customerIdsByPhone.set(normalized, []);
-        customerIdsByPhone.get(normalized).push(customer.id);
-    }
-    const variants = [...customerIdsByPhone.keys()].flatMap((normalized) => phoneVariants(normalized));
-
-    const or = [{ customer_id: { [Op.in]: customers.map((c) => c.id) } }];
-    if (variants.length) or.push({ customer_id: null, customer_phone: { [Op.in]: variants } });
+    const { customerIdsByPhone, where } = buildOrderScope(shopId, customers, since);
 
     const rows = await getOrderModel().findAll({
-        where: {
-            shop_id: shopId,
-            [Op.or]: or,
-            ...(since ? { created_at: { [Op.gte]: since } } : {}),
-        },
+        where,
         attributes: ORDER_FACT_ATTRIBUTES,
         order: [['created_at', 'DESC']],
         limit,
@@ -73,8 +81,9 @@ async function loadOrdersForCustomers(shopId, customers, { since = null, transac
     for (const row of rows) {
         const order = toOrderFact(row);
         if (order.customer_id) {
-            if (byCustomer.has(order.customer_id)) {
-                byCustomer.get(order.customer_id).push({ ...order, link: 'CUSTOMER' });
+            const customerId = String(order.customer_id);
+            if (byCustomer.has(customerId)) {
+                byCustomer.get(customerId).push({ ...order, link: 'CUSTOMER' });
             }
             continue;
         }
@@ -85,6 +94,60 @@ async function loadOrdersForCustomers(shopId, customers, { since = null, transac
         }
     }
     return byCustomer;
+}
+
+async function countOrdersForCustomers(shopId, customers, { since = null, transaction = null } = {}) {
+    const totals = new Map(customers.map((customer) => [String(customer.id), 0]));
+    if (!shopId || !customers.length) return totals;
+
+    const { customerIdsByPhone, where } = buildOrderScope(shopId, customers, since);
+    const rows = await getOrderModel().findAll({
+        where,
+        attributes: [
+            'customer_id',
+            'customer_phone',
+            [fn('COUNT', col('id')), 'order_count'],
+        ],
+        group: ['customer_id', 'customer_phone'],
+        raw: true,
+        ...(transaction ? { transaction } : {}),
+    });
+
+    for (const row of rows) {
+        const count = Number(row.order_count) || 0;
+        if (row.customer_id) {
+            const customerId = String(row.customer_id);
+            if (totals.has(customerId)) totals.set(customerId, totals.get(customerId) + count);
+            continue;
+        }
+        for (const customerId of customerIdsByPhone.get(normalizeBdMobile(row.customer_phone)) || []) {
+            totals.set(customerId, (totals.get(customerId) || 0) + count);
+        }
+    }
+    return totals;
+}
+
+async function loadOrdersForCustomersWithCoverage(shopId, customers, options = {}) {
+    const limit = options.limit ?? 5000;
+    const [ordersByCustomer, totalsByCustomer] = await Promise.all([
+        loadOrdersForCustomers(shopId, customers, { ...options, limit }),
+        countOrdersForCustomers(shopId, customers, options),
+    ]);
+
+    return new Map(customers.map((customer) => {
+        const id = String(customer.id);
+        const orders = ordersByCustomer.get(id) || [];
+        const total = totalsByCustomer.get(id) || 0;
+        return [id, {
+            orders,
+            order_coverage: {
+                scanned: orders.length,
+                total,
+                cap: limit,
+                complete: orders.length >= total,
+            },
+        }];
+    }));
 }
 
 /**
@@ -105,6 +168,8 @@ async function findCustomersByPhone(shopId, phone, { transaction = null } = {}) 
 module.exports = {
     ORDER_FACT_ATTRIBUTES,
     loadOrdersForCustomers,
+    countOrdersForCustomers,
+    loadOrdersForCustomersWithCoverage,
     findCustomersByPhone,
     toOrderFact,
 };

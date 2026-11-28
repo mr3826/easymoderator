@@ -20,7 +20,6 @@ import {
 import { toast } from "sonner";
 import { apiClient } from "@/api";
 import type { ChannelType as ApiChannelType, Customer, CustomerFilters } from "@/api/types/customer";
-import { BDPhoneInput } from '@/shared/components/BDPhoneInput';
 import RtoNetworkSettings from './RtoNetworkSettings';
 import { getErrorMessage } from "@shared/lib/http/errors";
 import { getPilotStatus } from "@/api/domains/customer-intelligence";
@@ -29,21 +28,26 @@ import { EmButton } from "./dashboard/EmButton";
 import { PageHeader } from "./dashboard/PageHeader";
 import { useDialogFocus } from "./inbox/useDialogFocus";
 import Customer360Page from "./customers/Customer360Page";
+import CustomerCRMPanel from "./customers/CustomerCRMPanel";
+import { formatCount } from "./customers/customerDisplay";
+import { normalizeBengaliDigits } from "@/shared/lib/normalizeBengaliDigits";
+import { CustomerDeleteDialog, CustomerRecordDialog, isDuplicateCustomerError, type CustomerRecordDraft } from "./customers/CustomerRecordDialogs";
 
 type CustomerChannelFilter = ApiChannelType | 'all';
 
 const channelConfig: Record<string, { icon: any; color: string; bgColor: string; labelKey: string }> = {
   facebook:  { icon: MessageSquare, color: "text-em-info-700",   bgColor: "bg-em-info-100",   labelKey: "customers.channels.facebook" },
+  instagram: { icon: MessageSquare, color: "text-em-info-700",   bgColor: "bg-em-info-100",   labelKey: "customers.channels.instagram" },
   messenger: { icon: MessageSquare, color: "text-em-info-700",   bgColor: "bg-em-info-100",   labelKey: "customers.channels.messenger" },
   webchat:   { icon: MessageSquare, color: "text-em-violet-700", bgColor: "bg-em-violet-100", labelKey: "customers.channels.webchat" },
   telegram:  { icon: MessageSquare, color: "text-em-info-700",    bgColor: "bg-em-info-100",    labelKey: "customers.channels.telegram" },
   manual:    { icon: UserPlus,      color: "text-em-text-secondary",   bgColor: "bg-em-bg-muted",   labelKey: "customers.channels.manual" },
 };
 
-const INCOMING_CHANNELS: ApiChannelType[] = ['facebook', 'messenger', 'telegram', 'webchat', 'manual'];
-const REST_CHANNELS: ApiChannelType[] = ['facebook', 'telegram', 'webchat', 'manual'];
+const CUSTOMER_CHANNELS: ApiChannelType[] = ['facebook', 'instagram', 'messenger', 'telegram', 'webchat', 'manual'];
+const channelFallback = (channel: string) => channel === 'instagram' ? 'Instagram' : channel;
 const toCustomerChannel = (value: string): ApiChannelType | "" =>
-  REST_CHANNELS.includes(value as ApiChannelType) ? (value as ApiChannelType) : "";
+  CUSTOMER_CHANNELS.includes(value as ApiChannelType) ? (value as ApiChannelType) : "";
 const toCustomerChannelFilter = (value: string): CustomerChannelFilter =>
   value === "all" ? "all" : toCustomerChannel(value) || "all";
 
@@ -60,7 +64,7 @@ const nameInitial = (name: string | null | undefined) =>
 export const normalizeLegacyCustomer = (customer: Customer): Customer => {
   const raw = customer as Customer & { phone?: string | null; channel_type?: ApiChannelType };
   const number = customer.number?.trim() || raw.phone?.trim() || '';
-  const channel = INCOMING_CHANNELS.includes((customer.channel || raw.channel_type) as ApiChannelType)
+  const channel = CUSTOMER_CHANNELS.includes((customer.channel || raw.channel_type) as ApiChannelType)
     ? ((customer.channel || raw.channel_type) as ApiChannelType)
     : 'manual';
   return { ...customer, number, channel };
@@ -71,11 +75,12 @@ const formatDate = (value: string | undefined, language: string) =>
     year: 'numeric', month: 'short', day: 'numeric',
   }) : '—';
 
-function LegacyCustomers() {
+function LegacyCustomers({ routeCustomerId }: { routeCustomerId?: string }) {
   const { t, i18n } = useTranslation();
+  const language = i18n?.language ?? 'en';
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const linkedCustomerId = searchParams.get("customerId");
+  const linkedCustomerId = routeCustomerId || searchParams.get("customerId");
   const { currentShop } = useAuth();
   // Server-side enforcement lives in customer.service.deleteCustomer
   // (owner/admin only). This only avoids offering a doomed action.
@@ -102,6 +107,10 @@ function LegacyCustomers() {
 
   const closeCustomerDetails = () => {
     setSelectedCustomer(null);
+    if (routeCustomerId) {
+      navigate('/customers');
+      return;
+    }
     if (!searchParams.has("customerId")) return;
     const next = new URLSearchParams(searchParams);
     next.delete("customerId");
@@ -116,6 +125,7 @@ function LegacyCustomers() {
   const [tableTotal, setTableTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const customersRequestRef = useRef(0);
 
   // Filters and pagination. `search` matches NAME only on this endpoint;
   // phone is a separate supported filter — the labels must not promise more
@@ -129,14 +139,15 @@ function LegacyCustomers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [newCustomer, setNewCustomer] = useState({
-    name: "",
-    number: "",
-    email: "",
-    channel: "" as "" | ApiChannelType,
-  });
+  const closeRecordDialog = () => {
+    setShowCreateCustomer(false);
+    setEditingCustomer(null);
+    setFormError(null);
+  };
 
   const hasActiveQuery = Boolean(searchQuery || phoneQuery || channelFilter !== 'all');
 
@@ -145,11 +156,15 @@ function LegacyCustomers() {
     const timer = setTimeout(() => {
       fetchCustomers();
     }, (searchQuery || phoneQuery) ? 300 : 0);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      customersRequestRef.current += 1;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, phoneQuery, channelFilter, currentPage]);
 
   const fetchCustomers = async () => {
+    const request = ++customersRequestRef.current;
     try {
       setIsLoading(true);
       setError(null);
@@ -159,16 +174,24 @@ function LegacyCustomers() {
       if (channelFilter !== 'all') filters.channel_type = channelFilter;
 
       const result = await apiClient.getCustomers(filters);
+      if (request !== customersRequestRef.current) return;
+      const resultTotal = result?.total ?? 0;
+      setTableTotal(resultTotal);
+      const lastPage = Math.max(1, Math.ceil(resultTotal / PAGE_SIZE));
+      if (currentPage > lastPage) {
+        setCurrentPage(lastPage);
+        return;
+      }
       // Guard against a malformed/empty payload so a shape drift degrades to an
       // empty table rather than crashing the page on `customers.length`.
       setCustomers((result?.data ?? []).map(normalizeLegacyCustomer));
-      setTableTotal(result?.total ?? 0);
     } catch (err: any) {
+      if (request !== customersRequestRef.current) return;
       setError(err.message || t('customers.errors.fetchFailed'));
       setCustomers([]);
       setTableTotal(0);
     } finally {
-      setIsLoading(false);
+      if (request === customersRequestRef.current) setIsLoading(false);
     }
   };
 
@@ -178,7 +201,7 @@ function LegacyCustomers() {
   };
 
   const handlePhoneChange = (value: string) => {
-    setPhoneQuery(value);
+    setPhoneQuery(normalizeBengaliDigits(value));
     setCurrentPage(1);
   };
 
@@ -200,25 +223,41 @@ function LegacyCustomers() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const handleCreateCustomer = async () => {
-    if (!newCustomer.name || !newCustomer.number || !newCustomer.channel) {
+  const handleSaveCustomer = async (draft: CustomerRecordDraft) => {
+    if (!draft.name || !draft.phone || (!editingCustomer && !draft.channel)) {
       toast.error(t('customers.errors.requiredFields'));
       return;
     }
     try {
       setIsSubmitting(true);
-      await apiClient.createCustomer({
-        name: newCustomer.name,
-        number: newCustomer.number,
-        email: newCustomer.email || undefined,
-        channel: newCustomer.channel,
-      });
-      setShowCreateCustomer(false);
-      setNewCustomer({ name: "", number: "", email: "", channel: "" });
-      toast.success(t('customers.success.created'));
-      fetchCustomers();
-    } catch (err: any) {
-      toast.error(getErrorMessage(err, t('customers.errors.createFailed')));
+      setFormError(null);
+      if (editingCustomer) {
+        const updated = await apiClient.updateCustomer(editingCustomer.id, {
+          name: draft.name,
+          number: draft.phone,
+          email: draft.email.trim() || null,
+        });
+        const normalized = normalizeLegacyCustomer(updated);
+        setSelectedCustomer((current) => current?.id === normalized.id ? normalized : current);
+        setEditingCustomer(null);
+        toast.success(t('customers.success.updated'));
+      } else {
+        await apiClient.createCustomer({
+          name: draft.name,
+          number: draft.phone,
+          email: draft.email || undefined,
+          channel: draft.channel as ApiChannelType,
+        });
+        setShowCreateCustomer(false);
+        toast.success(t('customers.success.created'));
+      }
+      void fetchCustomers();
+    } catch (err: unknown) {
+      const message = isDuplicateCustomerError(err)
+        ? t('customers.errors.duplicatePhone', { defaultValue: 'A customer with this phone number already exists.' })
+        : getErrorMessage(err, t(editingCustomer ? 'customers.errors.updateFailed' : 'customers.errors.createFailed'));
+      setFormError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -229,7 +268,10 @@ function LegacyCustomers() {
       setIsSubmitting(true);
       await apiClient.deleteCustomer(customerId);
       setShowDeleteConfirm(null);
-      if (selectedCustomer?.id === customerId) setSelectedCustomer(null);
+      if (selectedCustomer?.id === customerId) {
+        setSelectedCustomer(null);
+        if (routeCustomerId) navigate('/customers');
+      }
       toast.success(t('customers.success.deleted'));
       fetchCustomers();
     } catch (err: any) {
@@ -258,11 +300,7 @@ function LegacyCustomers() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const drawerRef = useRef<HTMLDivElement>(null);
-  const createRef = useRef<HTMLDivElement>(null);
-  const deleteRef = useRef<HTMLDivElement>(null);
   useDialogFocus(drawerRef, Boolean(selectedCustomer));
-  useDialogFocus(createRef, showCreateCustomer);
-  useDialogFocus(deleteRef, Boolean(showDeleteConfirm));
 
   return (
     <MotionConfig reducedMotion="user">
@@ -308,9 +346,9 @@ function LegacyCustomers() {
                 className="min-h-11 w-full px-3 py-2 text-sm border border-em-border rounded-lg bg-em-bg-surface focus:outline-none focus:ring-2 focus:ring-em-violet-600"
               >
                 <option value="all">{t('customers.allChannels')}</option>
-                {REST_CHANNELS.map((ch) => (
+                {CUSTOMER_CHANNELS.map((ch) => (
                   <option key={ch} value={ch}>
-                    {t(channelConfig[ch]?.labelKey ?? `customers.channels.${ch}`, { defaultValue: ch })}
+                    {t(channelConfig[ch]?.labelKey ?? `customers.channels.${ch}`, { defaultValue: channelFallback(ch) })}
                   </option>
                 ))}
               </select>
@@ -334,10 +372,10 @@ function LegacyCustomers() {
                   data-testid="customers-result-count"
                   className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary"
                 >
-                  {t('customers.resultCount', { total: tableTotal })}
+                  {t('customers.resultCount', { total: formatCount(tableTotal, language) })}
                 </span>
               )}
-              <EmButton variant="primary" onClick={() => setShowCreateCustomer(true)} className="gap-1.5">
+              <EmButton variant="primary" onClick={() => { setFormError(null); setShowCreateCustomer(true); }} className="gap-1.5">
                 <UserPlus className="w-4 h-4" aria-hidden="true" />
                 {t('customers.addCustomer')}
               </EmButton>
@@ -400,12 +438,12 @@ function LegacyCustomers() {
                     const cfg = channelConfig[customer.channel];
                     const ChannelIcon = cfg?.icon ?? MessageSquare;
                     return (
-                      <li key={customer.id}>
+                      <li key={customer.id} className="rounded-lg">
                         <button
                           type="button"
                           onClick={() => setSelectedCustomer(customer)}
                           data-testid={`customer-row-${customer.id}`}
-                          className="w-full text-left bg-em-bg-surface rounded-lg border border-em-border shadow-sm p-3"
+                          className="w-full rounded-t-lg border border-em-border bg-em-bg-surface p-3 text-left shadow-sm focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light"
                         >
                           <div className="flex items-center gap-3">
                             <CustomerAvatar customer={customer} size="row" />
@@ -415,10 +453,25 @@ function LegacyCustomers() {
                             </div>
                             <span className={`inline-flex items-center gap-1 text-xs font-medium ${cfg?.color ?? 'text-em-text-secondary'}`}>
                               <ChannelIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                              {t(cfg?.labelKey ?? `customers.channels.${customer.channel}`, { defaultValue: customer.channel })}
+                              {t(cfg?.labelKey ?? `customers.channels.${customer.channel}`, { defaultValue: channelFallback(customer.channel) })}
                             </span>
                           </div>
                         </button>
+                        <div className="flex justify-end gap-1 rounded-b-lg border-x border-b border-em-border bg-em-bg-surface px-2 pb-2">
+                          <EmButton variant="ghost" onClick={() => { setFormError(null); setEditingCustomer(customer); }}>
+                            {t("common.edit")}
+                          </EmButton>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => setShowDeleteConfirm(customer.id)}
+                              aria-label={t('customers.deleteModal.title')}
+                              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-em-text-secondary hover:bg-em-danger-100 hover:text-em-danger-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light"
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
                       </li>
                     );
                   })}
@@ -461,22 +514,30 @@ function LegacyCustomers() {
                               <td className="px-3 py-2">
                                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${cfg?.bgColor ?? 'bg-em-bg-muted'} ${cfg?.color ?? 'text-em-text-secondary'}`}>
                                   <ChannelIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                                  {t(cfg?.labelKey ?? `customers.channels.${customer.channel}`, { defaultValue: customer.channel })}
+                                  {t(cfg?.labelKey ?? `customers.channels.${customer.channel}`, { defaultValue: channelFallback(customer.channel) })}
                                 </span>
                               </td>
                               <td className="px-3 py-2 text-sm text-em-text-secondary whitespace-nowrap">
                                 <span className="inline-flex items-center gap-1.5">
                                   <Calendar className="w-3.5 h-3.5 text-em-text-secondary" aria-hidden="true" />
-                                  {formatDate(customer.created_at, i18n.language)}
+                                  {formatDate(customer.created_at, language)}
                                 </span>
                               </td>
                               <td className="px-3 py-2">
                                 <div className="flex items-center justify-end gap-1">
                                   <button
+                                    type="button"
                                     onClick={() => setSelectedCustomer(customer)}
                                     className="min-h-11 px-2.5 py-1.5 text-sm font-medium text-em-violet-700 hover:bg-em-success-100 rounded-lg"
                                   >
                                     {t('common.view')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setFormError(null); setEditingCustomer(customer); }}
+                                    className="min-h-11 px-2.5 py-1.5 text-sm font-medium text-em-text-secondary hover:bg-em-bg-muted rounded-lg"
+                                  >
+                                    {t('common.edit')}
                                   </button>
                                   {canDelete && (
                                     <button
@@ -501,7 +562,11 @@ function LegacyCustomers() {
                 {totalPages > 1 && (
                   <div className="bg-em-bg-surface rounded-lg shadow-sm border border-em-border p-2.5 mt-2 flex items-center justify-between">
                     <p className="text-sm text-em-text-secondary">
-                      {t('customers.pagination', { start: startIndex, end: endIndex, total: tableTotal })}
+                      {t('customers.pagination', {
+                        start: formatCount(startIndex, language),
+                        end: formatCount(endIndex, language),
+                        total: formatCount(tableTotal, language),
+                      })}
                     </p>
                     <div className="flex items-center gap-2">
                       <button
@@ -513,7 +578,7 @@ function LegacyCustomers() {
                         <ChevronLeft className="w-4 h-4" />
                       </button>
                       <span className="px-3 py-1 text-sm font-medium text-em-text-primary tabular-nums">
-                        {currentPage} / {totalPages}
+                        {formatCount(currentPage, language)} / {formatCount(totalPages, language)}
                       </span>
                       <button
                         onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
@@ -562,7 +627,11 @@ function LegacyCustomers() {
                     <Phone className="w-3.5 h-3.5" aria-hidden="true" />
                     {t('customers.detail.phoneNumber')}
                   </p>
-                  <p className="text-sm text-em-text-primary tabular-nums pl-5.5">{selectedCustomer.number || '—'}</p>
+                  <p className="text-sm text-em-text-primary tabular-nums pl-5.5">
+                    {selectedCustomer.number
+                      ? <a href={`tel:${selectedCustomer.number.replace(/[^\d+]/g, '')}`} className="underline decoration-em-border-strong underline-offset-2">{selectedCustomer.number}</a>
+                      : '—'}
+                  </p>
                 </div>
 
                 <div>
@@ -585,7 +654,7 @@ function LegacyCustomers() {
                       return (
                         <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium ${cfg?.bgColor ?? 'bg-em-bg-muted'} ${cfg?.color ?? 'text-em-text-secondary'}`}>
                           <ChannelIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                          {t(cfg?.labelKey ?? `customers.channels.${selectedCustomer.channel}`, { defaultValue: selectedCustomer.channel })}
+                          {t(cfg?.labelKey ?? `customers.channels.${selectedCustomer.channel}`, { defaultValue: channelFallback(selectedCustomer.channel) })}
                         </span>
                       );
                     })()}
@@ -599,13 +668,20 @@ function LegacyCustomers() {
                   </p>
                   <p className="text-sm text-em-text-primary pl-5.5">
                     {selectedCustomer.created_at
-                      ? new Date(selectedCustomer.created_at).toLocaleDateString(i18n.language === 'bn' ? 'bn-BD' : 'en-US', {
+                      ? new Date(selectedCustomer.created_at).toLocaleDateString(language === 'bn' ? 'bn-BD' : 'en-US', {
                           year: 'numeric', month: 'long', day: 'numeric',
                         })
                       : t('customers.detail.notAvailable')}
                   </p>
                 </div>
               </div>
+
+              <CustomerCRMPanel customerId={selectedCustomer.id} />
+
+              <EmButton variant="secondary" onClick={() => navigate(`/inbox?customer_id=${encodeURIComponent(selectedCustomer.id)}`)} className="w-full">
+                <MessageSquare className="w-4 h-4" aria-hidden="true" />
+                {t('customers.actions.openInbox', { defaultValue: 'Open inbox' })}
+              </EmButton>
 
               {/* Order history is a separate authority (order search by phone);
                   this profile endpoint does not compute it. Deep-link to the
@@ -621,6 +697,14 @@ function LegacyCustomers() {
                   {t('customers.viewOrders')}
                 </button>
               )}
+
+              <EmButton
+                variant="secondary"
+                onClick={() => { setFormError(null); setEditingCustomer(selectedCustomer); }}
+                className="w-full"
+              >
+                {t("common.edit")}
+              </EmButton>
 
               {canDelete && (
                 <button
@@ -641,134 +725,36 @@ function LegacyCustomers() {
         </div>
       )}
 
-      {/* Create Customer Modal */}
-      {showCreateCustomer && (
-        <div ref={createRef} onKeyDown={(e) => { if (e.key === 'Escape') setShowCreateCustomer(false); }} className="fixed inset-0 bg-em-midnight-950/60 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t('customers.addModal.title')}>
-          <div className="bg-em-bg-surface rounded-2xl max-w-md w-full p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-em-text-primary">{t('customers.addModal.title')}</h2>
-              <button
-                onClick={() => {
-                  setShowCreateCustomer(false);
-                  setNewCustomer({ name: "", number: "", email: "", channel: "" as const });
-                }}
-                aria-label={t('common.close')}
-                className="p-2 text-em-text-secondary hover:text-em-text-secondary hover:bg-em-bg-muted rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-semibold text-em-text-primary mb-1" htmlFor="customer-name">
-                  {t('customers.addModal.name')} <span className="text-em-danger-700" aria-hidden="true">*</span>
-                </label>
-                <input
-                  id="customer-name"
-                  type="text"
-                  value={newCustomer.name}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-em-border rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
-                  placeholder={t('customers.addModal.namePlaceholder')}
-                />
-              </div>
-
-              <BDPhoneInput
-                label={t('customers.addModal.phone')}
-                value={newCustomer.number}
-                onChange={(raw) => setNewCustomer({ ...newCustomer, number: raw })}
-                required
-                id="customer-phone"
-              />
-
-              <div>
-                <label className="block text-sm font-semibold text-em-text-primary mb-1" htmlFor="customer-email">
-                  {t('customers.addModal.email')}
-                </label>
-                <input
-                  id="customer-email"
-                  type="email"
-                  value={newCustomer.email}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-em-border rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
-                  placeholder={t('customers.addModal.emailPlaceholder')}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-em-text-primary mb-1" htmlFor="customer-channel">
-                  {t('customers.addModal.channel')} <span className="text-em-danger-700" aria-hidden="true">*</span>
-                </label>
-                <select
-                  id="customer-channel"
-                  value={newCustomer.channel}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, channel: toCustomerChannel(e.target.value) })}
-                  className="min-h-11 w-full px-3 py-2 text-sm border border-em-border rounded-lg bg-em-bg-surface focus:outline-none focus:ring-2 focus:ring-em-violet-600"
-                >
-                  <option value="">{t('customers.addModal.channelPlaceholder')}</option>
-                  {REST_CHANNELS.map((ch) => (
-                    <option key={ch} value={ch}>
-                      {t(channelConfig[ch]?.labelKey ?? `customers.channels.${ch}`, { defaultValue: ch })}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => {
-                    setShowCreateCustomer(false);
-                    setNewCustomer({ name: "", number: "", email: "", channel: "" as const });
-                  }}
-                  className="flex-1 px-4 py-2 border border-em-border text-em-text-primary rounded-lg hover:bg-em-bg-muted text-sm font-medium"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  onClick={handleCreateCustomer}
-                  disabled={isSubmitting || !newCustomer.name || !newCustomer.number || !newCustomer.channel}
-                  className="flex-1 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                >
-                  {isSubmitting ? t('customers.addModal.creating') : t('customers.addModal.createButton')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div ref={deleteRef} onKeyDown={(e) => { if (e.key === 'Escape') setShowDeleteConfirm(null); }} className="fixed inset-0 bg-em-midnight-950/60 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t('customers.deleteModal.title')}>
-          <div className="bg-em-bg-surface rounded-2xl max-w-md w-full p-5">
-            <div className="w-10 h-10 bg-em-danger-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Trash2 className="w-5 h-5 text-em-danger-700" aria-hidden="true" />
-            </div>
-            <h2 className="text-lg font-bold text-em-text-primary mb-1 text-center">{t('customers.deleteModal.title')}</h2>
-            <p className="text-em-text-secondary mb-1 text-center text-sm">{t('customers.deleteModal.message')}</p>
-            <p className="text-em-text-secondary mb-4 text-center text-xs">{t('customers.deleteModal.erasureNote')}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowDeleteConfirm(null)}
-                className="flex-1 px-4 py-2 border border-em-border text-em-text-primary rounded-lg hover:bg-em-bg-muted text-sm font-medium"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={() => handleDeleteCustomer(showDeleteConfirm)}
-                disabled={isSubmitting}
-                className="flex-1 px-4 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90 disabled:opacity-50 text-sm font-medium"
-              >
-                {isSubmitting ? t('customers.deleteModal.deleting') : t('customers.deleteModal.deleteButton')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CustomerRecordDialog
+        mode={editingCustomer ? "edit" : "create"}
+        open={showCreateCustomer || Boolean(editingCustomer)}
+        initial={editingCustomer ? {
+          id: editingCustomer.id,
+          name: editingCustomer.name,
+          number: editingCustomer.number,
+          email: editingCustomer.email,
+          channel: editingCustomer.channel,
+        } : undefined}
+        saving={isSubmitting}
+        error={formError}
+        onClose={closeRecordDialog}
+        onSave={(draft) => void handleSaveCustomer(draft)}
+      />
+      <CustomerDeleteDialog
+        open={Boolean(showDeleteConfirm)}
+        deleting={isSubmitting}
+        customerName={customers.find((customer) => customer.id === showDeleteConfirm)?.name ?? selectedCustomer?.name}
+        onClose={() => setShowDeleteConfirm(null)}
+        onConfirm={() => { if (showDeleteConfirm) void handleDeleteCustomer(showDeleteConfirm); }}
+      />
     </div>
     </MotionConfig>
   );
+}
+
+/** Opens the existing legacy customer drawer for the /customers/:id route. */
+export function LegacyCustomerRouteDrawer({ customerId }: { customerId: string }) {
+  return <LegacyCustomers routeCustomerId={customerId} />;
 }
 
 /**

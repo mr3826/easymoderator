@@ -1,10 +1,9 @@
-import { useState, useRef, useEffect, useMemo, ChangeEvent } from "react";
+import { useState, useRef, useEffect, useMemo, type ChangeEvent, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Upload, Bot, CheckCircle, Edit2, Trash2, AlertCircle, Search, Filter, X, Loader2, Package } from "lucide-react";
+import { Plus, Upload, Bot, CheckCircle, Edit2, Trash2, AlertCircle, Search, Filter, X, Loader2, Package, LayoutGrid, List } from "lucide-react";
 import { motion, MotionConfig } from "motion/react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogOverlay } from "./ui/dialog";
 import { apiClient } from "@/api";
-import type { Product } from "@/api/types/product";
+import type { Product, ProductOverview } from "@/api/types/product";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { authService } from "../lib/auth";
@@ -13,16 +12,31 @@ import { getErrorMessage } from "@shared/lib/http/errors";
 import { fadeUp } from "@/lib/motion";
 import { PageHeader } from "./dashboard/PageHeader";
 import { useDialogFocus } from "./inbox/useDialogFocus";
+import { ProductFormFieldView, ProductTextInput } from "./ProductFormFields";
+import { createIdempotencyKey, normalizeProduct, toCreatePayload, validateProductDraft, type ProductDraft } from "./products/productForm";
+import { ProductDeleteDialog } from "./products/ProductDeleteDialog";
 
 const ANIMATE = import.meta.env.MODE !== "test";
 
 interface Category {
   id: string;
   name: string;
+  is_active?: boolean;
+  subcategories?: Array<{ id?: string; name: string; is_active?: boolean }>;
 }
 
-const isAiProduct = (product: Product): boolean =>
-  Boolean(product.aiGenerated ?? product.ai_generated);
+type ExtractedProduct = Product & { parseCompleteness?: number };
+type ProductsSort = 'name' | 'price-asc' | 'price-desc' | 'stock-asc' | 'stock-desc';
+type ProductsView = 'table' | 'cards';
+
+const variantLabel = (variant: unknown): string => {
+  if (typeof variant === 'string') return variant;
+  if (typeof variant !== 'object' || variant === null) return String(variant ?? '');
+  const record = variant as { name?: unknown; options?: unknown };
+  const name = typeof record.name === 'string' ? record.name : '';
+  const options = Array.isArray(record.options) ? record.options.filter((option): option is string => typeof option === 'string') : [];
+  return [name, options.join(', ')].filter(Boolean).join(': ');
+};
 
 /**
  * D2 stock-exception predicate (single definition, shared with the server
@@ -85,28 +99,40 @@ const parseStockParam = (value: string | null): ProductsStockFilter => (
 );
 
 export default function Products() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n?.language ?? 'en';
+  const formatNumber = (value: number) => new Intl.NumberFormat(language.toLowerCase().startsWith('bn') ? 'bn-BD' : 'en-US').format(value);
+  const inactiveCategoryLabel = t('categories.status.inactive');
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [aiGeneratedProducts, setAiGeneratedProducts] = useState<Product[]>([]);
-  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
-  const [draftEditValues, setDraftEditValues] = useState<{ name: string; price: string; sku: string; category: string }>({
-    name: '',
-    price: '',
-    sku: '',
-    category: '',
-  });
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [aiGeneratedProducts, setAiGeneratedProducts] = useState<ExtractedProduct[]>([]);
+  const [draftValues, setDraftValues] = useState<Record<string, ProductDraft>>({});
   const [uploadProgress, setUploadProgress] = useState(0);
   const [approvingIds, setApprovingIds] = useState<string[]>([]);
   const [bulkApproving, setBulkApproving] = useState(false);
-  const [categoryNameMap, setCategoryNameMap] = useState<Record<string, string>>({});
+  const approvalInFlight = useRef(new Set<string>());
+  const bulkApprovalInFlight = useRef(false);
+  const approvalRequestKeysRef = useRef(new Map<string, { fingerprint: string; key: string }>());
+  const uploadAbortControllerRef = useRef<AbortController | null>(null);
+  const getApprovalRequestKey = (productId: string, payload: ReturnType<typeof toCreatePayload>) => {
+    const fingerprint = JSON.stringify(payload);
+    const current = approvalRequestKeysRef.current.get(productId);
+    if (current?.fingerprint === fingerprint) return current.key;
+    const key = createIdempotencyKey();
+    approvalRequestKeysRef.current.set(productId, { fingerprint, key });
+    return key;
+  };
 
   // Pagination state (client-side for now as API returns full list)
   const [page, setPage] = useState(1);
   const itemsPerPage = 10;
+  const [sortBy, setSortBy] = useState<ProductsSort>('name');
+  const [view, setView] = useState<ProductsView>('table');
 
   // Search and Filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -118,7 +144,6 @@ export default function Products() {
   const [filters, setFilters] = useState({
     category_id: '',
     is_active: '',
-    source: '',
     minPrice: '',
     maxPrice: '',
   });
@@ -127,7 +152,6 @@ export default function Products() {
   const [appliedFilters, setAppliedFilters] = useState({
     category_id: '',
     is_active: '',
-    source: '',
     minPrice: '',
     maxPrice: '',
   });
@@ -178,38 +202,61 @@ export default function Products() {
     data: categoriesData = []
   } = useQuery({
     queryKey: ["categories"],
-    queryFn: () => apiClient.getCategories(),
+    queryFn: () => apiClient.getCategories({ include_inactive: true }),
     retry: 1
   });
 
-  // Build categoryNameMap and categoryMap from categoriesData
-  const categoryMap = useMemo(() => {
+  const selectableCategories = useMemo(() => {
+    const rows = categoriesData.flatMap((category: Category) => {
+      const rootLabel = category.is_active === false
+        ? `${category.name} (${inactiveCategoryLabel})`
+        : category.name;
+      return [
+        { id: category.id, name: category.name, label: rootLabel },
+        ...(category.subcategories ?? []).filter((subcategory) => subcategory.id).map((subcategory) => ({
+          id: subcategory.id as string,
+          name: subcategory.name,
+          label: `${rootLabel} / ${subcategory.name}${subcategory.is_active === false ? ` (${inactiveCategoryLabel})` : ''}`,
+        })),
+      ];
+    });
+    const labelCounts = new Map<string, number>();
+    rows.forEach((category) => labelCounts.set(category.label.toLowerCase(), (labelCounts.get(category.label.toLowerCase()) ?? 0) + 1));
+    return rows.map((category) => labelCounts.get(category.label.toLowerCase())! > 1
+      ? { ...category, label: `${category.label} · ${category.id.slice(0, 6)}` }
+      : category);
+  }, [categoriesData, inactiveCategoryLabel]);
+  const categoryIdByName = useMemo(() => {
+    const matches = new Map<string, string[]>();
+    selectableCategories.forEach((category) => {
+      if (!category?.name) return;
+      const keys = new Set([category.name, category.label].map((value) => value.trim().toLowerCase()));
+      keys.forEach((key) => matches.set(key, [...(matches.get(key) ?? []), category.id]));
+    });
     const map: Record<string, string> = {};
-    categoriesData.forEach((category: Category) => {
-      if (category?.name) {
-        map[category.name] = category.id;
-      }
+    matches.forEach((ids, name) => { if (ids.length === 1) map[name] = ids[0]; });
+    return map;
+  }, [selectableCategories]);
+  const categoryNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    selectableCategories.forEach((category) => {
+      if (category?.id && category?.label) map[category.id] = category.label;
     });
     return map;
-  }, [categoriesData]);
+  }, [selectableCategories]);
 
-  useEffect(() => {
-    if (categoriesData.length) {
-      const map: Record<string, string> = {};
-      categoriesData.forEach((category: Category) => {
-        if (category?.name) {
-          map[category.name.trim().toLowerCase()] = category.id;
-        }
-      });
-      setCategoryNameMap(map);
-    }
-  }, [categoriesData]);
+  const {
+    data: overview,
+    isLoading: isOverviewLoading,
+  } = useQuery<ProductOverview>({
+    queryKey: ["product-overview", shopId],
+    queryFn: ({ signal }) => apiClient.getProductOverview(signal),
+    enabled: !!shopId,
+    retry: 1,
+  });
 
   // Query errors render inline below via `isError + queryError` so we don't
   // mirror them into `error` (which would double-display them in the top banner).
-
-  // Get unique categories list
-  const categoriesList = useMemo(() => categoriesData.map((c: Category) => c.name), [categoriesData]);
 
   // Deep link (/products?stock=exceptions|low|out) from the Products nav badge
   // and BusinessHealth: seed the existing client filter fail-closed (unknown or
@@ -224,21 +271,24 @@ export default function Products() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Client-side pagination and source filtering (backend queryParams covers category/status/price/search)
+  // Search, category, status, and price use the API; stock buckets mirror the
+  // server predicate and sorting/pagination are applied to the loaded result.
   const filteredProducts = useMemo(() => {
-    let list = stockFilter === 'exceptions' ? allProducts.filter(isStockExceptionProduct)
+    return stockFilter === 'exceptions' ? allProducts.filter(isStockExceptionProduct)
       : stockFilter === 'out' ? allProducts.filter(isOutOfStockProduct)
       : stockFilter === 'low' ? allProducts.filter(isLowStockProduct)
       : allProducts;
-    if (appliedFilters.source === 'ai') {
-      list = list.filter(isAiProduct);
-    } else if (appliedFilters.source === 'manual') {
-      list = list.filter((product) => !isAiProduct(product));
-    }
-    return list;
-  }, [allProducts, stockFilter, appliedFilters.source]);
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-  const products = filteredProducts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  }, [allProducts, stockFilter]);
+  const sortedProducts = useMemo(() => [...filteredProducts].sort((left, right) => {
+    if (sortBy === 'name') return left.name.localeCompare(right.name);
+    if (sortBy === 'price-asc') return Number(left.price) - Number(right.price);
+    if (sortBy === 'price-desc') return Number(right.price) - Number(left.price);
+    const leftStock = effectiveStockQuantity(left) ?? Number.NEGATIVE_INFINITY;
+    const rightStock = effectiveStockQuantity(right) ?? Number.NEGATIVE_INFINITY;
+    return sortBy === 'stock-asc' ? leftStock - rightStock : rightStock - leftStock;
+  }), [filteredProducts, sortBy]);
+  const totalPages = Math.ceil(sortedProducts.length / itemsPerPage);
+  const products = sortedProducts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   // WP-04: reset to the first page whenever an applied filter value changes.
   // A stale page index beyond the filtered window slices to an empty table,
@@ -252,10 +302,10 @@ export default function Products() {
     appliedSearchQuery,
     appliedFilters.category_id,
     appliedFilters.is_active,
-    appliedFilters.source,
     appliedFilters.minPrice,
     appliedFilters.maxPrice,
     stockFilter,
+    sortBy,
   ]);
 
   // Pagination component
@@ -264,17 +314,17 @@ export default function Products() {
     return (
       <div className="flex justify-center items-center gap-2 mt-6">
         <button
-          className="px-3 py-1 rounded border bg-em-bg-surface disabled:opacity-50 text-sm hover:bg-em-bg-muted"
+          className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm hover:bg-em-bg-muted disabled:opacity-50"
           onClick={() => setPage((p) => Math.max(1, p - 1))}
           disabled={page === 1}
         >
           {t('products.pagination.previous')}
         </button>
         <span className="text-sm text-em-text-primary">
-          {t('products.pagination.pageOf', { current: page, total: totalPages })}
+          {t('products.pagination.pageOf', { current: formatNumber(page), total: formatNumber(totalPages) })}
         </span>
         <button
-          className="px-3 py-1 rounded border bg-em-bg-surface disabled:opacity-50 text-sm hover:bg-em-bg-muted"
+          className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-sm hover:bg-em-bg-muted disabled:opacity-50"
           onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
           disabled={page === totalPages}
         >
@@ -284,7 +334,7 @@ export default function Products() {
     );
   };
 
-  // Debounce search input - wait 2 seconds after user stops typing
+  // Debounce server search after the latest keystroke.
   useEffect(() => {
     // Clear previous timer if exists
     if (searchDebounceTimer.current) {
@@ -312,32 +362,64 @@ export default function Products() {
     throw new Error(t('products.errors.unsupportedFileType'));
   };
 
-  const mapExtractedProduct = (product: any): Product => {
+  const cancelImport = () => {
+    uploadAbortControllerRef.current?.abort();
+    uploadAbortControllerRef.current = null;
+    setShowUploadModal(false);
+    setUploadProgress(0);
+  };
+
+  const mapExtractedProduct = (product: Record<string, unknown>, index: number): ExtractedProduct => {
+    const fields = { ...product };
+    const rawCompleteness = fields.confidence;
+    const rawAiCompleteness = fields.ai_confidence;
+    const rawParseCompleteness = fields.parse_completeness;
+    delete fields.aiGenerated;
+    delete fields.ai_generated;
+    delete fields.confidence;
+    delete fields.ai_confidence;
+    delete fields.parse_completeness;
+    const category = typeof fields.category === 'string' ? fields.category : undefined;
+    const categoryId = typeof fields.category_id === 'string' && categoryNameById[fields.category_id]
+      ? fields.category_id
+      : category ? categoryIdByName[category.trim().toLowerCase()] : undefined;
+    const sourceCategory = category
+      ?? (typeof fields.category_id === 'string' ? fields.category_id : undefined);
+    const rawId = typeof fields.id === 'string' && fields.id ? fields.id : `import-${index + 1}`;
+    const parsedCompleteness = Number(rawParseCompleteness ?? rawCompleteness ?? rawAiCompleteness);
     return {
-      ...product,
-      price: typeof product.price === 'number' ? product.price : Number(product.price) || 0,
-      aiGenerated: product.aiGenerated ?? product.ai_generated ?? true,
-      confidence: product.confidence ?? product.ai_confidence ?? 0,
-      status: product.status || 'pending',
-      createdAt: product.createdAt || product.created_at || new Date().toISOString(),
-      updatedAt: product.updatedAt || product.updated_at || new Date().toISOString(),
-    } as Product;
+      ...fields,
+      id: rawId,
+      name: typeof fields.name === 'string' ? fields.name : '',
+      price: typeof fields.price === 'number' ? fields.price : Number(fields.price) || 0,
+      category: sourceCategory,
+      category_id: categoryId,
+      createdAt: typeof fields.createdAt === 'string' ? fields.createdAt : new Date().toISOString(),
+      updatedAt: typeof fields.updatedAt === 'string' ? fields.updatedAt : new Date().toISOString(),
+      parseCompleteness: Number.isFinite(parsedCompleteness)
+        ? Math.max(0, Math.min(1, parsedCompleteness > 1 ? parsedCompleteness / 100 : parsedCompleteness))
+        : undefined,
+    } as ExtractedProduct;
   };
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const controller = new AbortController();
+    uploadAbortControllerRef.current = controller;
     setError(null);
     setUploadProgress(10);
 
     try {
       const content = await readFileContent(file);
+      if (controller.signal.aborted) return;
       setUploadProgress(40);
       const result = await apiClient.extractProductsFromUpload({
         filename: file.name,
         content_type: file.type,
         content
-      });
+      }, controller.signal);
+      if (controller.signal.aborted) return;
       setUploadProgress(90);
 
       const extractedSource = Array.isArray(result)
@@ -345,91 +427,100 @@ export default function Products() {
         : Array.isArray(result?.products)
           ? result.products
           : [];
-      const extracted = extractedSource.map(mapExtractedProduct);
+      const extracted = extractedSource.map((product: unknown, index: number) => (
+        mapExtractedProduct(typeof product === 'object' && product !== null ? product as Record<string, unknown> : {}, index)
+      ));
       if (extracted.length === 0) {
         throw new Error(t('products.errors.noProductsExtracted'));
       }
 
       setAiGeneratedProducts(extracted);
+      setDraftValues(Object.fromEntries(extracted.map((product) => {
+        const normalized = normalizeProduct(product);
+        const categoryName = product.category?.trim().toLowerCase();
+        if (!normalized.category_id && categoryName) normalized.category_id = categoryIdByName[categoryName] ?? '';
+        return [product.id, normalized];
+      })));
       setShowReviewModal(true);
       setShowUploadModal(false);
     } catch (error: any) {
-      setError(getErrorMessage(error, t('products.errors.uploadFailed')));
+      if (!controller.signal.aborted) setError(getErrorMessage(error, t('products.errors.uploadFailed')));
     } finally {
-      setUploadProgress(0);
+      if (uploadAbortControllerRef.current === controller) {
+        uploadAbortControllerRef.current = null;
+        setUploadProgress(0);
+      }
       if (e.target) {
         e.target.value = '';
       }
     }
   };
 
-  const buildCreatePayload = (product: Product) => {
-    const categoryName = product.category?.trim().toLowerCase() || '';
-    const resolvedCategoryId = product.category_id || (categoryName ? categoryNameMap[categoryName] : undefined);
-    const payload: any = {
-      name: product.name,
-      price: product.price,
-      sku: product.sku || undefined,
-      description: product.description || undefined,
-      category: product.category || undefined,
-      category_id: resolvedCategoryId,
-      tags: Array.isArray(product.tags) ? product.tags : undefined,
-      quantity: product.quantity ?? undefined,
-      track_quantity: product.quantity !== undefined && product.quantity !== null,
-      ai_generated: true,
-      confidence: product.confidence ?? undefined,
-      brand: product.brand || undefined,
-      weight: product.weight ?? undefined,
-      weight_unit: product.weight_unit || undefined
-    };
-
-    return payload;
-  };
-
   const handleApproveProduct = async (product: Product) => {
-    if (!product.price || product.price <= 0) {
-      setError(t('products.errors.invalidPrice', { name: product.name }));
-      return;
-    }
-
+    if (approvalInFlight.current.has(product.id) || bulkApprovalInFlight.current) return;
+    const draft = draftValues[product.id] ?? normalizeProduct(product);
+    if (Object.keys(validateProductDraft(draft)).length > 0) return;
+    approvalInFlight.current.add(product.id);
     setApprovingIds(prev => [...prev, product.id]);
+    setError(null);
     try {
-      await apiClient.createProduct(buildCreatePayload(product));
+      const payload = toCreatePayload(draft);
+      await apiClient.createProduct(payload, getApprovalRequestKey(product.id, payload));
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product-overview"] });
+      approvalRequestKeysRef.current.delete(product.id);
       setAiGeneratedProducts(prev => prev.filter(p => p.id !== product.id));
+      if (aiGeneratedProducts.length === 1) setShowReviewModal(false);
+      setDraftValues((prev) => {
+        const next = { ...prev };
+        delete next[product.id];
+        return next;
+      });
     } catch (error: any) {
       setError(getErrorMessage(error, t('products.errors.approveFailed')));
     } finally {
+      approvalInFlight.current.delete(product.id);
       setApprovingIds(prev => prev.filter(id => id !== product.id));
     }
   };
 
   const handleApproveAll = async () => {
-    if (aiGeneratedProducts.length === 0) return;
+    if (aiGeneratedProducts.length === 0 || bulkApprovalInFlight.current || approvalInFlight.current.size > 0) return;
+    bulkApprovalInFlight.current = true;
     setBulkApproving(true);
     setError(null);
 
-    const validProducts = aiGeneratedProducts.filter(product => product.price && product.price > 0);
-    const invalidProducts = aiGeneratedProducts.filter(product => !product.price || product.price <= 0);
-    if (invalidProducts.length > 0) {
-      setError(t('products.errors.someInvalidPrices'));
+    const validProducts = aiGeneratedProducts.filter((product) => {
+      const draft = draftValues[product.id] ?? normalizeProduct(product);
+      return Object.keys(validateProductDraft(draft)).length === 0;
+    });
+    const invalidCount = aiGeneratedProducts.length - validProducts.length;
+    const results = await Promise.allSettled(validProducts.map((product) => {
+      const draft = draftValues[product.id] ?? normalizeProduct(product);
+      const payload = toCreatePayload(draft);
+      return apiClient.createProduct(payload, getApprovalRequestKey(product.id, payload));
+    }));
+    const successfulIds = validProducts.filter((_, index) => results[index]?.status === 'fulfilled').map((product) => product.id);
+    const failedCount = results.filter((result) => result.status === 'rejected').length;
+    if (successfulIds.length > 0) {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product-overview"] });
+      setAiGeneratedProducts((prev) => prev.filter((product) => !successfulIds.includes(product.id)));
+      successfulIds.forEach((id) => approvalRequestKeysRef.current.delete(id));
+      setDraftValues((prev) => {
+        const next = { ...prev };
+        successfulIds.forEach((id) => delete next[id]);
+        return next;
+      });
     }
 
-    await Promise.allSettled(
-      validProducts.map(product =>
-        apiClient.createProduct(buildCreatePayload(product))
-          .then(() => {
-            queryClient.invalidateQueries({ queryKey: ["products"] });
-            setAiGeneratedProducts(prev => prev.filter(p => p.id !== product.id));
-          })
-          .catch(error => {
-            setError(getErrorMessage(error, t('products.errors.approveNamedFailed', { name: product.name })));
-          })
-      )
-    );
-
+    const remaining = aiGeneratedProducts.length - successfulIds.length;
+    if (failedCount + invalidCount > 0) {
+      setError(t('products.errors.bulkPartialFailure', { failed: failedCount + invalidCount, total: aiGeneratedProducts.length }));
+    }
     setBulkApproving(false);
-    setShowReviewModal(false);
+    bulkApprovalInFlight.current = false;
+    if (remaining === 0) setShowReviewModal(false);
   };
 
   const handleEditProduct = (product: Product) => {
@@ -437,37 +528,52 @@ export default function Products() {
   };
 
   const handleRejectProduct = (productId: string) => {
-    setAiGeneratedProducts(aiGeneratedProducts.filter(p => p.id !== productId));
+    if (approvalInFlight.current.has(productId) || bulkApprovalInFlight.current) return;
+    setAiGeneratedProducts((prev) => prev.filter(p => p.id !== productId));
+    approvalRequestKeysRef.current.delete(productId);
+    setDraftValues((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
   };
 
   const handleDeleteProduct = async (productId: string) => {
     // Find product to get its name for confirmation dialog
     const product = products.find(p => p.id === productId);
     if (product) {
+      setDeleteError(null);
       setProductToDelete({ id: productId, name: product.name });
       setShowDeleteConfirm(true);
     }
   };
 
   const confirmDelete = async () => {
-    if (!productToDelete) return;
+    if (!productToDelete || isDeleting) return;
 
+    setIsDeleting(true);
+    setDeleteError(null);
     try {
       await apiClient.deleteProduct(productToDelete.id);
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product-overview"] });
       setShowDeleteConfirm(false);
       setProductToDelete(null);
       toast.success(t('products.deleteModal.success'));
     } catch (error: any) {
-      toast.error(getErrorMessage(error, t('products.deleteModal.failed')));
-      setShowDeleteConfirm(false);
-      setProductToDelete(null);
+      const message = getErrorMessage(error, t('products.deleteModal.failed'));
+      setDeleteError(message);
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   const cancelDelete = () => {
+    if (isDeleting) return;
     setShowDeleteConfirm(false);
     setProductToDelete(null);
+    setDeleteError(null);
   };
 
   const handleDownloadTemplate = () => {
@@ -491,7 +597,6 @@ export default function Products() {
     setAppliedFilters({
       category_id: filters.category_id,
       is_active: filters.is_active,
-      source: filters.source,
       minPrice: filters.minPrice,
       maxPrice: filters.maxPrice,
     });
@@ -502,7 +607,6 @@ export default function Products() {
     setFilters({
       category_id: '',
       is_active: '',
-      source: '',
       minPrice: '',
       maxPrice: '',
     });
@@ -512,7 +616,6 @@ export default function Products() {
     setAppliedFilters({
       category_id: '',
       is_active: '',
-      source: '',
       minPrice: '',
       maxPrice: '',
     });
@@ -524,18 +627,120 @@ export default function Products() {
   useDialogFocus(uploadDialogRef, showUploadModal);
   useDialogFocus(reviewDialogRef, showReviewModal);
 
+  useEffect(() => () => uploadAbortControllerRef.current?.abort(), []);
+
+  const showOverviewFilter = (filter: 'all' | 'active' | 'low' | 'out') => {
+    const nextFilters = {
+      category_id: '',
+      is_active: filter === 'active' ? 'active' : '',
+      minPrice: '',
+      maxPrice: '',
+    };
+    setFilters(nextFilters);
+    setAppliedFilters(nextFilters);
+    setSearchQuery('');
+    setAppliedSearchQuery('');
+    setStockFilter(filter === 'low' || filter === 'out' ? filter : 'all');
+    setPage(1);
+  };
+
+  const updateDraft = <K extends keyof ProductDraft,>(product: ExtractedProduct, field: K, value: ProductDraft[K]) => {
+    setDraftValues((previous) => ({
+      ...previous,
+      [product.id]: { ...(previous[product.id] ?? normalizeProduct(product)), [field]: value },
+    }));
+  };
+
+  const openProductDetails = (product: Product) => navigate(`/products/${product.id}`);
+  const handleProductRowKeyDown = (event: KeyboardEvent<HTMLElement>, product: Product) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openProductDetails(product);
+    }
+  };
+
+  const renderProductActions = (product: Product) => (
+    <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => handleEditProduct(product)}
+        aria-label={t('products.editAria', { name: product.name })}
+        className="flex min-h-11 min-w-11 items-center justify-center rounded p-2 text-em-text-secondary hover:bg-em-violet-50 hover:text-em-violet-700"
+      >
+        <Edit2 className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => handleDeleteProduct(product.id)}
+        aria-label={t('products.deleteAria', { name: product.name })}
+        className="flex min-h-11 min-w-11 items-center justify-center rounded p-2 text-em-text-secondary hover:bg-em-danger-100 hover:text-em-danger-700"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
+  const productStatus = (product: Product) => product.status ?? (product.is_active === false ? 'inactive' : 'active');
+  const productCategory = (product: Product) => (product.category_id ? categoryNameById[product.category_id] : '') || product.category || t('products.uncategorized');
+  const productStock = (product: Product) => {
+    if (!product.track_quantity) return t('products.notTracked');
+    const quantity = effectiveStockQuantity(product);
+    return quantity === null ? '—' : formatNumber(quantity);
+  };
+
   return (
     <MotionConfig reducedMotion="user">
     <div className="em-products min-h-full p-4 md:p-6">
       <div className="mx-auto w-full max-w-[1440px] space-y-4">
         <motion.div variants={fadeUp} initial={ANIMATE ? "hidden" : false} animate="visible">
-          <PageHeader title={t('products.title')} />
+          <PageHeader
+            title={t('products.title')}
+            meta={(
+              <span className="text-sm text-em-text-secondary" data-testid="products-filtered-count">
+                {t('products.resultsCount', {
+                  count: filteredProducts.length,
+                  formattedCount: formatNumber(filteredProducts.length),
+                })}
+              </span>
+            )}
+          />
         </motion.div>
-      {error && (
+      {error && !showUploadModal && !showReviewModal && (
         <div role="alert" className="mb-6 bg-em-danger-100 border border-em-danger-700/20 text-em-danger-700 px-4 py-3 rounded-lg">
           {error}
         </div>
       )}
+
+      <section aria-label={t('products.overview.ariaLabel')} className="space-y-2">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {([
+            { key: 'total', label: t('products.totalCountLabel'), value: overview?.total, filter: 'all' as const },
+            { key: 'active', label: t('products.statusActive'), value: overview?.active, filter: 'active' as const },
+            { key: 'low', label: t('products.stockFilter.low'), value: overview?.low_stock, filter: 'low' as const, partial: overview?.coverage_complete === false },
+            { key: 'out', label: t('products.stockFilter.out'), value: overview?.out_of_stock, filter: 'out' as const, partial: overview?.coverage_complete === false },
+          ]).map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => showOverviewFilter(item.filter)}
+              disabled={!overview}
+              data-testid={`products-overview-${item.key}`}
+              className="min-h-20 rounded-xl border border-em-border bg-em-bg-surface px-4 py-3 text-left transition hover:border-em-violet-300 hover:bg-em-bg-muted disabled:cursor-wait disabled:opacity-70"
+            >
+              <span className="block text-xs font-medium text-em-text-secondary">{item.label}</span>
+              <span className="em-tabular mt-1 block text-xl font-semibold text-em-text-primary">
+                {isOverviewLoading || item.value === undefined ? '—' : `${formatNumber(item.value)}${item.partial ? '+' : ''}`}
+              </span>
+            </button>
+          ))}
+        </div>
+        {overview?.coverage_complete === false && (
+          <p className="text-xs text-em-text-secondary" role="note" data-testid="products-overview-coverage-note">
+            {t('products.overview.incompleteCoverage', { scanned: formatNumber(overview.scanned), cap: formatNumber(overview.cap) })}
+          </p>
+        )}
+      </section>
 
       {isError && !isLoading ? (
         <div role="alert" className="flex flex-col items-center justify-center py-12 gap-3">
@@ -553,7 +758,7 @@ export default function Products() {
           <Loader2 className="h-8 w-8 animate-spin text-em-info-700" />
           <span className="ml-2 text-em-text-secondary">{t('products.loading')}</span>
         </div>
-      ) : isFetched && allProducts.length === 0 && !appliedSearchQuery && !appliedFilters.category_id && !appliedFilters.is_active && !appliedFilters.minPrice && !appliedFilters.maxPrice ? (
+      ) : isFetched && allProducts.length === 0 && stockFilter === 'all' && !appliedSearchQuery && !appliedFilters.category_id && !appliedFilters.is_active && !appliedFilters.minPrice && !appliedFilters.maxPrice ? (
         <div className="flex flex-col items-center justify-center py-16 gap-4 bg-em-bg-surface rounded-xl border border-dashed border-em-border-strong">
           <Package className="h-12 w-12 text-em-text-secondary" />
           <div className="text-center max-w-md">
@@ -561,57 +766,53 @@ export default function Products() {
             <p className="text-sm text-em-text-secondary">{t('products.emptySubtitle', 'Add products so EasyModerator can recommend the right price, stock, size, and delivery details in customer conversations.')}</p>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={() => setShowUploadModal(true)}
-              className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
-            >
-              <Upload className="w-5 h-5" />
-              {t('products.uploadFile')}
-            </button>
-            <button
-              onClick={() => navigate('/products/add')}
-              className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
-            >
-              <Plus className="w-5 h-5" />
-              {t('products.addManually')}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="flex items-center justify-end mb-6 md:mb-8 gap-3 flex-wrap">
-            <div className="flex gap-3">
-              <div className="relative">
-                <button
-                  onClick={() => setShowUploadModal(true)}
-                  className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
-                >
-                  <Upload className="w-5 h-5" />
-                  {t('products.uploadFile')}
-                </button>
-                <button
-                  onClick={handleDownloadTemplate}
-                  className="absolute -bottom-6 right-0 text-xs text-em-violet-700 hover:text-em-violet-700 hover:underline whitespace-nowrap"
-                >
-                  {t('products.downloadTemplate')}
-                </button>
-              </div>
               <button
                 onClick={() => navigate('/products/add')}
                 className="flex min-h-11 items-center gap-2 px-4 py-2 bg-em-violet-600 text-white rounded-lg hover:bg-em-violet-700"
               >
                 <Plus className="w-5 h-5" />
-                {t('products.addManually')}
+                {t('products.addProduct')}
               </button>
-            </div>
-
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="flex min-h-11 items-center gap-2 px-4 py-2 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
+              >
+                <Upload className="w-5 h-5" />
+                {t('products.import')}
+              </button>
           </div>
-          {totalPages > 1 && <Pagination />}
-
+        </div>
+      ) : (
+        <>
           {/* Search and Filter Toolbar */}
           <div className="mb-6 flex flex-wrap items-center gap-3">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <button
+                type="button"
+                onClick={() => navigate('/products/add')}
+                className="flex min-h-11 items-center gap-2 rounded-lg bg-em-violet-600 px-4 py-2 font-medium text-white hover:bg-em-violet-700"
+              >
+                <Plus className="h-5 w-5" />
+                {t('products.addProduct')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUploadModal(true)}
+                className="flex min-h-11 items-center gap-2 rounded-lg border border-em-border-strong bg-em-bg-surface px-4 py-2 text-em-text-primary hover:bg-em-bg-muted"
+              >
+                <Upload className="h-5 w-5" />
+                {t('products.import')}
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="min-h-11 rounded-lg px-3 text-sm font-medium text-em-violet-700 hover:bg-em-violet-50"
+              >
+                {t('products.downloadTemplate')}
+              </button>
+            </div>
             {/* Search Input */}
-            <div className="flex-1 min-w-[300px] relative">
+            <div className="relative min-w-0 flex-1 basis-full sm:basis-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-em-text-secondary" />
               <input
                 type="text"
@@ -669,7 +870,7 @@ export default function Products() {
               >
                 <Filter className="w-5 h-5" />
                 {t('products.filter')}
-                {(stockFilter !== 'all' || appliedFilters.category_id || appliedFilters.is_active || appliedFilters.source || appliedFilters.minPrice || appliedFilters.maxPrice) && (
+                {(stockFilter !== 'all' || appliedFilters.category_id || appliedFilters.is_active || appliedFilters.minPrice || appliedFilters.maxPrice) && (
                   <span className="w-2 h-2 bg-em-violet-600 rounded-full"></span>
                 )}
               </button>
@@ -700,8 +901,8 @@ export default function Products() {
                         className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
                       >
                         <option value="">{t('products.allCategories')}</option>
-                        {categoriesList.map(catName => (
-                          <option key={categoryMap[catName]} value={categoryMap[catName]}>{catName}</option>
+                        {selectableCategories.map((category) => (
+                          <option key={category.id} value={category.id}>{category.name}</option>
                         ))}
                       </select>
                     </div>
@@ -719,22 +920,6 @@ export default function Products() {
                         <option value="">{t('products.allStatus')}</option>
                         <option value="active">{t('products.statusActive')}</option>
                         <option value="inactive">{t('products.statusInactive')}</option>
-                      </select>
-                    </div>
-
-                    {/* Source Filter */}
-                    <div>
-                      <label className="block text-sm font-medium text-em-text-primary mb-2">
-                        {t('products.filterSource')}
-                      </label>
-                      <select
-                        value={filters.source}
-                        onChange={(e) => setFilters({ ...filters, source: e.target.value })}
-                        className="w-full px-3 py-2 border border-em-border-strong rounded-lg focus:outline-none focus:ring-2 focus:ring-em-violet-600"
-                      >
-                        <option value="">{t('products.allSources')}</option>
-                        <option value="ai">{t('products.sourceAI')}</option>
-                        <option value="manual">{t('products.sourceManual')}</option>
                       </select>
                     </div>
 
@@ -785,103 +970,123 @@ export default function Products() {
               )}
             </div>
 
-            {/* Catalog count relocated from the retired header band (C2). */}
-            <span
-              className="em-tabular whitespace-nowrap rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs font-medium text-em-text-secondary"
-              data-testid="products-total-count"
-            >
-              {t('products.totalCountLabel')}: {allProducts.length}
-            </span>
+            <label className="flex min-h-11 items-center gap-2 text-sm text-em-text-secondary">
+              <span>{t('products.sort.label')}</span>
+              <select
+                aria-label={t('products.sort.label')}
+                value={sortBy}
+                onChange={(event) => setSortBy(event.target.value as ProductsSort)}
+                className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 text-em-text-primary"
+              >
+                <option value="name">{t('products.sort.name')}</option>
+                <option value="price-asc">{t('products.sort.priceLowHigh')}</option>
+                <option value="price-desc">{t('products.sort.priceHighLow')}</option>
+                <option value="stock-asc">{t('products.sort.stockLowHigh')}</option>
+                <option value="stock-desc">{t('products.sort.stockHighLow')}</option>
+              </select>
+            </label>
+            <div className="flex min-h-11 items-center rounded-lg border border-em-border-strong bg-em-bg-surface p-1" role="group" aria-label={t('products.view.label')}>
+              <button
+                type="button"
+                aria-label={t('products.view.table')}
+                aria-pressed={view === 'table'}
+                onClick={() => setView('table')}
+                className={`flex min-h-9 min-w-10 items-center justify-center rounded-md ${view === 'table' ? 'bg-em-violet-100 text-em-violet-700' : 'text-em-text-secondary hover:bg-em-bg-muted'}`}
+              >
+                <List className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                aria-label={t('products.view.cards')}
+                aria-pressed={view === 'cards'}
+                onClick={() => setView('cards')}
+                className={`flex min-h-9 min-w-10 items-center justify-center rounded-md ${view === 'cards' ? 'bg-em-violet-100 text-em-violet-700' : 'text-em-text-secondary hover:bg-em-bg-muted'}`}
+              >
+                <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
           </div>
 
-          {/* Products Table */}
-          <div className="bg-em-bg-surface rounded-xl border border-em-border overflow-x-auto">
-            <table className="w-full min-w-[720px]">
-              <thead className="bg-em-bg-muted border-b border-em-border">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.product')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.sku')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.price')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.quantity')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.category')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.variants')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.status')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.source')}</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-em-text-secondary uppercase tracking-wider">{t('products.columns.actions')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-em-border">
-                {products.map((product) => (
-                  <tr key={product.id} className="hover:bg-em-bg-muted">
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-em-text-primary">{product.name}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-em-text-secondary">{product.sku}</td>
-                    <td className="px-6 py-4 text-sm text-em-text-primary">৳{product.price}</td>
-                    <td className="px-6 py-4 text-sm text-em-text-primary">
-                      {product.track_quantity ? product.quantity || 0 : '—'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-em-text-secondary">{product.category}</td>
-                    <td className="px-6 py-4 text-sm text-em-text-secondary">
-                      {product.variants && Array.isArray(product.variants) && product.variants.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {product.variants.map((variant, idx) => (
-                            <span key={idx} className="inline-block px-2 py-1 bg-em-info-100 text-em-info-700 text-xs rounded">
-                              {typeof variant === 'object' && variant !== null ? String((variant as { name?: unknown }).name ?? '') : String(variant)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-em-text-secondary">{t('products.noVariants')}</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-sm ${product.status === 'active'
-                        ? 'bg-em-success-100 text-em-success-700'
-                        : product.status === 'inactive'
-                          ? 'bg-em-bg-muted text-em-text-primary'
-                          : 'bg-em-warning-100 text-em-warning-700'
-                        }`}>
-                        {t(`products.status.${product.status}`, { defaultValue: product.status || '' })}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {isAiProduct(product) ? (
-                        <div className="flex items-center gap-1 text-sm text-em-violet-700">
-                          <Bot className="w-4 h-4" />
-                          <span>
-                            {typeof product.confidence === 'number' && Number.isFinite(product.confidence)
-                              ? t('products.aiSource', { confidence: Math.round(product.confidence * 100) })
-                              : t('products.sourceAI')}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-sm text-em-text-secondary">{t('products.sourceManual')}</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleEditProduct(product)}
-                          aria-label={t('products.editAria', { name: product.name })}
-                          className="p-2 text-em-text-secondary hover:text-em-violet-700 hover:bg-em-violet-50 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(product.id)}
-                          aria-label={t('products.deleteAria', { name: product.name })}
-                          className="p-2 text-em-text-secondary hover:text-em-danger-700 hover:bg-em-danger-100 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+          {view === 'table' ? (
+            <div className="overflow-x-auto rounded-xl border border-em-border bg-em-bg-surface">
+              <table className="w-full min-w-[760px]">
+                <thead className="border-b border-em-border bg-em-bg-muted">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-em-text-secondary">{t('products.columns.product')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-em-text-secondary">{t('products.columns.sku')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-em-text-secondary">{t('products.columns.price')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-em-text-secondary">{t('products.columns.quantity')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-em-text-secondary">{t('products.columns.category')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-em-text-secondary">{t('products.columns.status')}</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-em-text-secondary">{t('products.columns.actions')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-em-border">
+                  {products.map((product) => {
+                    const status = productStatus(product);
+                    return (
+                      <tr
+                        key={product.id}
+                        tabIndex={0}
+                        aria-label={t('products.openAria', { name: product.name })}
+                        onClick={() => openProductDetails(product)}
+                        onKeyDown={(event) => handleProductRowKeyDown(event, product)}
+                        className="cursor-pointer hover:bg-em-bg-muted focus-visible:outline-2 focus-visible:outline-em-focus-light"
+                      >
+                        <td className="px-4 py-4 font-medium text-em-text-primary">{product.name}</td>
+                        <td className="px-4 py-4 text-sm text-em-text-secondary">{product.sku || '—'}</td>
+                        <td className="px-4 py-4 text-sm text-em-text-primary">৳{formatNumber(Number(product.price))}</td>
+                        <td className="px-4 py-4 text-sm text-em-text-primary">{productStock(product)}</td>
+                        <td className="px-4 py-4 text-sm text-em-text-secondary">{productCategory(product)}</td>
+                        <td className="px-4 py-4">
+                          <span className={`rounded-full px-3 py-1 text-sm ${status === 'active' ? 'bg-em-success-100 text-em-success-700' : status === 'inactive' ? 'bg-em-bg-muted text-em-text-primary' : 'bg-em-warning-100 text-em-warning-700'}`}>
+                            {t(`products.status.${status}`, { defaultValue: status })}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">{renderProductActions(product)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {products.length === 0 && <p className="p-8 text-center text-sm text-em-text-secondary">{t('products.emptyResults')}</p>}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="products-card-grid">
+              {products.map((product) => {
+                const status = productStatus(product);
+                return (
+                  <article
+                    key={product.id}
+                    tabIndex={0}
+                    aria-label={t('products.openAria', { name: product.name })}
+                    onClick={() => openProductDetails(product)}
+                    onKeyDown={(event) => handleProductRowKeyDown(event, product)}
+                    className="min-w-0 cursor-pointer rounded-xl border border-em-border bg-em-bg-surface p-4 shadow-sm hover:border-em-violet-300 focus-visible:outline-2 focus-visible:outline-em-focus-light"
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h2 className="break-words font-semibold text-em-text-primary">{product.name}</h2>
+                        <p className="mt-1 break-words text-sm text-em-text-secondary">{product.sku || '—'}</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${status === 'active' ? 'bg-em-success-100 text-em-success-700' : status === 'inactive' ? 'bg-em-bg-muted text-em-text-primary' : 'bg-em-warning-100 text-em-warning-700'}`}>
+                        {t(`products.status.${status}`, { defaultValue: status })}
+                      </span>
+                    </div>
+                    <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                      <div className="min-w-0"><dt className="text-xs text-em-text-secondary">{t('products.columns.price')}</dt><dd className="break-words font-medium text-em-text-primary">৳{formatNumber(Number(product.price))}</dd></div>
+                      <div className="min-w-0"><dt className="text-xs text-em-text-secondary">{t('products.columns.quantity')}</dt><dd className="break-words font-medium text-em-text-primary">{productStock(product)}</dd></div>
+                      <div className="col-span-2 min-w-0"><dt className="text-xs text-em-text-secondary">{t('products.columns.category')}</dt><dd className="break-words text-em-text-primary">{productCategory(product)}</dd></div>
+                    </dl>
+                    <div className="mt-3 border-t border-em-border pt-2">{renderProductActions(product)}</div>
+                  </article>
+                );
+              })}
+              {products.length === 0 && <p className="col-span-full rounded-xl border border-em-border bg-em-bg-surface p-8 text-center text-sm text-em-text-secondary">{t('products.emptyResults')}</p>}
+            </div>
+          )}
+          <Pagination />
 
           {/* Upload Modal */}
           {showUploadModal && (
@@ -891,12 +1096,13 @@ export default function Products() {
               aria-modal="true"
               aria-labelledby="products-upload-title"
               className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-50 p-4"
-              onKeyDown={(e) => { if (e.key === 'Escape') setShowUploadModal(false); }}
-              onClick={(e) => { if (e.target === e.currentTarget) setShowUploadModal(false); }}
+              onKeyDown={(e) => { if (e.key === 'Escape') cancelImport(); }}
+              onClick={(e) => { if (e.target === e.currentTarget) cancelImport(); }}
             >
               <div className="bg-em-bg-surface rounded-xl p-4 md:p-8 max-w-lg w-full">
                 <h2 id="products-upload-title" className="text-2xl font-bold text-em-text-primary mb-2">{t('products.uploadModal.title')}</h2>
                 <p className="text-em-text-secondary mb-6">{t('products.uploadModal.description')}</p>
+                {error && <p role="alert" className="mb-4 rounded-lg border border-em-danger-700/20 bg-em-danger-100 px-4 py-3 text-sm text-em-danger-700">{error}</p>}
 
                 {uploadProgress === 0 ? (
                   <div className="border-2 border-dashed border-em-border-strong rounded-lg p-12 text-center">
@@ -905,7 +1111,7 @@ export default function Products() {
                     <input
                       type="file"
                       onChange={handleFileUpload}
-                      accept=".csv,.xlsx,.xls,.pdf,.txt,.doc,.docx"
+                      accept=".csv,.tsv,.txt"
                       className="hidden"
                       id="file-upload"
                     />
@@ -943,10 +1149,7 @@ export default function Products() {
 
                 <div className="flex gap-3 mt-6">
                   <button
-                    onClick={() => {
-                      setShowUploadModal(false);
-                      setUploadProgress(0);
-                    }}
+                    onClick={cancelImport}
                     className="flex-1 px-6 py-3 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
                   >
                     {t('common.cancel')}
@@ -956,7 +1159,7 @@ export default function Products() {
             </div>
           )}
 
-          {/* Review AI Products Modal */}
+          {/* Imported drafts remain transient until a successful create. */}
           {showReviewModal && aiGeneratedProducts.length > 0 && (
             <div
               ref={reviewDialogRef}
@@ -964,8 +1167,8 @@ export default function Products() {
               aria-modal="true"
               aria-labelledby="products-review-title"
               className="fixed inset-0 bg-em-midnight-950/60 flex items-center justify-center z-50 p-4 overflow-y-auto"
-              onKeyDown={(e) => { if (e.key === 'Escape') setShowReviewModal(false); }}
-              onClick={(e) => { if (e.target === e.currentTarget) setShowReviewModal(false); }}
+              onKeyDown={(e) => { if (e.key === 'Escape' && !bulkApproving && approvingIds.length === 0) setShowReviewModal(false); }}
+              onClick={(e) => { if (e.target === e.currentTarget && !bulkApproving && approvingIds.length === 0) setShowReviewModal(false); }}
             >
               <div className="bg-em-bg-surface rounded-xl p-4 md:p-8 max-w-4xl w-full my-4 md:my-8">
                 <div className="flex items-center gap-3 mb-6">
@@ -975,169 +1178,217 @@ export default function Products() {
                     <p className="text-em-text-secondary">{t('products.reviewModal.description')}</p>
                   </div>
                 </div>
+                {error && <p role="alert" className="mb-4 rounded-lg border border-em-danger-700/20 bg-em-danger-100 px-4 py-3 text-sm text-em-danger-700">{error}</p>}
 
-                <div className="space-y-4 max-h-96 overflow-y-auto">
+                <div className="max-h-[65vh] space-y-4 overflow-y-auto">
                   {aiGeneratedProducts.map((product) => {
-                    const isEditingDraft = editingDraftId === product.id;
+                    const draft = draftValues[product.id] ?? normalizeProduct(product);
+                    const validationErrors = validateProductDraft(draft);
+                    const isInvalid = Object.keys(validationErrors).length > 0;
                     return (
-                    <div key={product.id} className="border-2 border-em-violet-300 rounded-lg p-4 bg-em-violet-50">
-                      {isEditingDraft ? (
-                        <div className="space-y-3" data-testid={`draft-edit-form-${product.id}`}>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <div>
-                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.product')}</label>
-                              <input
-                                type="text"
-                                aria-label={t('products.columns.product')}
-                                value={draftEditValues.name}
-                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, name: e.target.value }))}
-                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.price')}</label>
-                              <input
-                                type="number"
-                                min="0.01"
-                                step="0.01"
-                                aria-label={t('products.columns.price')}
-                                value={draftEditValues.price}
-                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, price: e.target.value }))}
-                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.sku')}</label>
-                              <input
-                                type="text"
-                                aria-label={t('products.columns.sku')}
-                                value={draftEditValues.sku}
-                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, sku: e.target.value }))}
-                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs font-medium text-em-text-secondary">{t('products.columns.category')}</label>
-                              <input
-                                type="text"
-                                aria-label={t('products.columns.category')}
-                                value={draftEditValues.category}
-                                onChange={(e) => setDraftEditValues((prev) => ({ ...prev, category: e.target.value }))}
-                                className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-em-focus-light"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const parsedPrice = Number(draftEditValues.price);
-                                setAiGeneratedProducts((prev) => prev.map((item) => (
-                                  item.id === product.id
-                                    ? {
-                                        ...item,
-                                        name: draftEditValues.name.trim() || item.name,
-                                        price: Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : item.price,
-                                        sku: draftEditValues.sku.trim(),
-                                        category: draftEditValues.category.trim() || undefined,
-                                      }
-                                    : item
-                                )));
-                                setEditingDraftId(null);
-                              }}
-                              className="min-h-11 rounded-lg bg-em-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-em-violet-700"
-                            >
-                              {t('common.save')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingDraftId(null)}
-                              className="min-h-11 rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm font-medium text-em-text-primary hover:bg-em-bg-muted"
-                            >
-                              {t('common.cancel')}
-                            </button>
-                          </div>
+                    <div key={product.id} className="space-y-4 rounded-lg border border-em-violet-300 bg-em-violet-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 font-semibold text-em-text-primary">
+                          <Bot className="h-4 w-4 text-em-violet-700" />
+                          <span>{t('products.reviewModal.aiExtracted')}</span>
                         </div>
-                      ) : (
-                        <>
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h3 className="font-semibold text-em-text-primary">{product.name}</h3>
-                            {typeof product.confidence === 'number' && Number.isFinite(product.confidence) && (
-                              <span className="px-2 py-1 bg-em-violet-100 text-em-violet-700 text-xs rounded">
-                                {t('products.reviewModal.confidence', { percent: Math.round(product.confidence * 100) })}
-                              </span>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <span className="text-em-text-secondary">{t('products.reviewModal.skuLabel')}</span>
-                              <span className="ml-2 text-em-text-primary">{product.sku}</span>
-                            </div>
-                            <div>
-                              <span className="text-em-text-secondary">{t('products.reviewModal.priceLabel')}</span>
-                              <span className="ml-2 text-em-text-primary">৳{product.price}</span>
-                            </div>
-                            <div>
-                              <span className="text-em-text-secondary">{t('products.reviewModal.categoryLabel')}</span>
-                              <span className="ml-2 text-em-text-primary">{product.category}</span>
-                            </div>
-                            <div>
-                              <span className="text-em-text-secondary">{t('products.reviewModal.variantsLabel')}</span>
-                              <span className="ml-2 text-em-text-primary">{product.variants?.join(', ')}</span>
-                            </div>
-                          </div>
-                          {product.aliases && (
-                            <div className="mt-2 text-sm">
-                              <span className="text-em-text-secondary">{t('products.reviewModal.aliasesLabel')}</span>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {product.aliases.map((alias, i) => (
-                                  <span key={i} className="px-2 py-1 bg-em-bg-surface text-em-text-primary text-xs rounded border border-em-violet-300">
-                                    {alias}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        {product.parseCompleteness !== undefined && (
+                          <span className="rounded bg-em-violet-100 px-2 py-1 text-xs text-em-violet-700">
+                            {t('products.reviewModal.parseCompleteness', { percent: formatNumber(Math.round(product.parseCompleteness * 100)) })}
+                          </span>
+                        )}
                       </div>
-
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid={`draft-review-form-${product.id}`}>
+                        <ProductFormFieldView
+                          id={`draft-${product.id}-name`}
+                          field="name"
+                          label={t('products.form.productName')}
+                          draft={draft}
+                          touched
+                          errors={validationErrors}
+                          required
+                        >
+                          {({ error: fieldError, describedBy }) => (
+                            <ProductTextInput
+                              id={`draft-${product.id}-name`}
+                              aria-label={t('products.form.productName')}
+                              aria-invalid={Boolean(fieldError)}
+                              aria-describedby={describedBy}
+                              value={draft.name}
+                              onChange={(event) => updateDraft(product, 'name', event.target.value)}
+                            />
+                          )}
+                        </ProductFormFieldView>
+                        <ProductFormFieldView
+                          id={`draft-${product.id}-price`}
+                          field="price"
+                          label={t('products.reviewModal.sellingPriceBdt')}
+                          help={t('products.form.priceHelp')}
+                          draft={draft}
+                          touched
+                          errors={validationErrors}
+                          required
+                        >
+                          {({ error: fieldError, describedBy }) => (
+                            <ProductTextInput
+                              id={`draft-${product.id}-price`}
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              aria-label={t('products.reviewModal.sellingPriceBdt')}
+                              aria-invalid={Boolean(fieldError)}
+                              aria-describedby={describedBy}
+                              value={draft.price}
+                              onChange={(event) => updateDraft(product, 'price', event.target.value)}
+                            />
+                          )}
+                        </ProductFormFieldView>
+                        <ProductFormFieldView
+                          id={`draft-${product.id}-sku`}
+                          field="sku"
+                          label={t('products.columns.sku')}
+                          draft={draft}
+                          touched
+                          errors={validationErrors}
+                        >
+                          {({ describedBy }) => (
+                            <ProductTextInput
+                              id={`draft-${product.id}-sku`}
+                              aria-label={t('products.columns.sku')}
+                              aria-describedby={describedBy}
+                              value={draft.sku}
+                              onChange={(event) => updateDraft(product, 'sku', event.target.value)}
+                            />
+                          )}
+                        </ProductFormFieldView>
+                        {product.category && !draft.category_id && (
+                          <p role="status" className="rounded-lg border border-em-warning-700/30 bg-em-warning-100 px-3 py-2 text-xs text-em-text-primary">
+                            {t('products.reviewModal.unmappedCategory', { category: product.category })}
+                          </p>
+                        )}
+                        <div className="space-y-1.5">
+                          <label htmlFor={`draft-${product.id}-category`} className="block text-sm font-medium text-em-text-primary">{t('products.columns.category')}</label>
+                          <select
+                            id={`draft-${product.id}-category`}
+                            aria-label={t('products.columns.category')}
+                            value={draft.category_id}
+                            onChange={(event) => updateDraft(product, 'category_id', event.target.value)}
+                            className="min-h-11 w-full rounded-lg border border-em-border-strong bg-em-bg-surface px-3 py-2 text-sm text-em-text-primary"
+                          >
+                            <option value="">{t('products.form.noCategory')}</option>
+                            {selectableCategories.map((category) => (
+                              <option key={category.id} value={category.id}>{category.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <ProductFormFieldView
+                          id={`draft-${product.id}-quantity`}
+                          field="quantity"
+                          label={t('products.form.availableQuantity')}
+                          draft={draft}
+                          touched
+                          errors={validationErrors}
+                        >
+                          {({ error: fieldError, describedBy }) => (
+                            <ProductTextInput
+                              id={`draft-${product.id}-quantity`}
+                              type="number"
+                              min="0"
+                              step="1"
+                              disabled={!draft.track_quantity}
+                              aria-label={t('products.form.availableQuantity')}
+                              aria-invalid={Boolean(fieldError)}
+                              aria-describedby={describedBy}
+                              value={draft.quantity}
+                              onChange={(event) => updateDraft(product, 'quantity', event.target.value)}
+                            />
+                          )}
+                        </ProductFormFieldView>
+                        <ProductFormFieldView
+                          id={`draft-${product.id}-threshold`}
+                          field="low_stock_threshold"
+                          label={t('products.form.lowStockThreshold')}
+                          draft={draft}
+                          touched
+                          errors={validationErrors}
+                        >
+                          {({ error: fieldError, describedBy }) => (
+                            <ProductTextInput
+                              id={`draft-${product.id}-threshold`}
+                              type="number"
+                              min="0"
+                              step="1"
+                              aria-label={t('products.form.lowStockThreshold')}
+                              aria-invalid={Boolean(fieldError)}
+                              aria-describedby={describedBy}
+                              value={draft.low_stock_threshold}
+                              onChange={(event) => updateDraft(product, 'low_stock_threshold', event.target.value)}
+                            />
+                          )}
+                        </ProductFormFieldView>
+                        <ProductFormFieldView
+                          id={`draft-${product.id}-weight`}
+                          field="weight"
+                          label={t('products.form.packageWeight')}
+                          draft={draft}
+                          touched
+                          errors={validationErrors}
+                        >
+                          {({ error: fieldError, describedBy }) => (
+                            <ProductTextInput
+                              id={`draft-${product.id}-weight`}
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              aria-label={t('products.form.packageWeight')}
+                              aria-invalid={Boolean(fieldError)}
+                              aria-describedby={describedBy}
+                              value={draft.weight}
+                              onChange={(event) => updateDraft(product, 'weight', event.target.value)}
+                            />
+                          )}
+                        </ProductFormFieldView>
+                        <label className="flex min-h-11 items-center gap-2 self-end text-sm text-em-text-primary">
+                          <input
+                            type="checkbox"
+                            checked={draft.track_quantity}
+                            onChange={(event) => updateDraft(product, 'track_quantity', event.target.checked)}
+                          />
+                          {t('products.form.trackQuantity')}
+                        </label>
+                      </div>
+                      {Array.isArray(product.variants) && product.variants.length > 0 && (
+                        <div className="text-sm">
+                          <span className="font-medium text-em-text-secondary">{t('products.reviewModal.variantsLabel')}</span>
+                          <ul className="mt-1 flex flex-wrap gap-2">
+                            {product.variants.map((variant, index) => (
+                              <li key={`${product.id}-variant-${index}`} className="rounded border border-em-violet-200 bg-em-bg-surface px-2 py-1 text-em-text-primary">
+                                {variantLabel(variant)}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2 border-t border-em-violet-200 pt-3">
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingDraftId(product.id);
-                            setDraftEditValues({
-                              name: product.name || '',
-                              price: String(product.price ?? ''),
-                              sku: product.sku || '',
-                              category: product.category || '',
-                            });
-                          }}
-                          className="flex min-h-11 items-center gap-1 px-3 py-2 bg-em-bg-surface border border-em-violet-300 text-em-violet-700 rounded-lg hover:bg-em-violet-100 text-sm"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                          {t('common.edit')}
-                        </button>
-                        <button
                           onClick={() => handleApproveProduct(product)}
-                          disabled={approvingIds.includes(product.id)}
-                          className="flex min-h-11 items-center gap-1 px-3 py-2 bg-em-success-700 text-white rounded-lg hover:bg-em-success-700/90 text-sm"
+                          disabled={isInvalid || approvingIds.includes(product.id) || bulkApproving}
+                          className="flex min-h-11 items-center gap-1 rounded-lg bg-em-success-700 px-3 py-2 text-sm text-white hover:bg-em-success-700/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <CheckCircle className="w-4 h-4" />
+                          <CheckCircle className="h-4 w-4" />
                           {approvingIds.includes(product.id) ? t('common.approving') : t('common.approve')}
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleRejectProduct(product.id)}
-                          className="flex min-h-11 items-center gap-1 px-3 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90 text-sm"
+                          disabled={approvingIds.includes(product.id) || bulkApproving}
+                          className="flex min-h-11 items-center gap-1 rounded-lg bg-em-danger-700 px-3 py-2 text-sm text-white hover:bg-em-danger-700/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <AlertCircle className="w-4 h-4" />
+                          <AlertCircle className="h-4 w-4" />
                           {t('common.reject')}
                         </button>
                       </div>
-                        </>
-                      )}
                     </div>
                     );
                   })}
@@ -1146,13 +1397,14 @@ export default function Products() {
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setShowReviewModal(false)}
+                    disabled={bulkApproving || approvingIds.length > 0}
                     className="px-6 py-3 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted"
                   >
                     {t('common.close')}
                   </button>
                   <button
                     onClick={handleApproveAll}
-                    disabled={bulkApproving}
+                    disabled={bulkApproving || approvingIds.length > 0}
                     className="px-6 py-3 bg-em-success-700 text-white rounded-lg hover:bg-em-success-700/90 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {bulkApproving ? t('common.approving') : t('products.reviewModal.approveAll')}
@@ -1162,22 +1414,14 @@ export default function Products() {
             </div>
           )}
 
-          {/* Delete Confirmation Dialog (Radix) */}
-          <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-            <DialogOverlay />
-            <DialogContent className="max-w-sm w-full mx-4">
-              <DialogHeader>
-                <DialogTitle>{t('products.deleteModal.title')}</DialogTitle>
-                <DialogDescription>
-                  {t('products.deleteModal.description', { name: productToDelete?.name })}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="flex gap-3 mt-6">
-                <button onClick={cancelDelete} className="flex-1 px-4 py-2 border border-em-border-strong text-em-text-primary rounded-lg hover:bg-em-bg-muted">{t('common.cancel')}</button>
-                <button onClick={confirmDelete} className="flex-1 px-4 py-2 bg-em-danger-700 text-white rounded-lg hover:bg-em-danger-700/90">{t('common.delete')}</button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <ProductDeleteDialog
+            open={showDeleteConfirm}
+            productName={productToDelete?.name}
+            isDeleting={isDeleting}
+            error={deleteError}
+            onOpenChange={(open) => { if (!open) cancelDelete(); }}
+            onConfirm={() => void confirmDelete()}
+          />
 
         </>
       )}

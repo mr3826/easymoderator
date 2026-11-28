@@ -12,11 +12,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Customers from '../../Customers';
 import Customer360Page from '../Customer360Page';
-import { listCustomers360, listOpportunities, getPilotStatus } from '@/api/domains/customer-intelligence';
+import { listCustomers360, listOpportunities, getPilotStatus, getCustomerOverview } from '@/api/domains/customer-intelligence';
 import { apiClient } from '@/api';
 
 vi.mock('@/api/domains/customer-intelligence', () => ({
   getPilotStatus: vi.fn(),
+  getCustomerOverview: vi.fn(),
   listCustomers360: vi.fn(),
   getCustomer360: vi.fn(),
   listOpportunities: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('@/api', () => ({
     getCustomers: vi.fn(),
     getCustomer: vi.fn(),
     createCustomer: vi.fn(),
+    updateCustomer: vi.fn(),
     deleteCustomer: vi.fn(),
   },
 }));
@@ -59,6 +61,10 @@ const customer = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getPilotStatus).mockResolvedValue({ customer_intelligence: true, order_confidence_mode: 'off' } as never);
+  vi.mocked(getCustomerOverview).mockResolvedValue({
+    total_records: 1, buyers: 1, repeat_buyers: 0, new_buyers: 1, open_opportunities: 0, scanned_orders: 1, total_linked_orders: 1, order_scan_cap: 100,
+    coverage_complete: true, definitions: { buyers: 'buyers', repeat_buyers: 'repeat', new_buyers: 'new', open_opportunities: 'open' },
+  } as never);
   vi.mocked(listCustomers360).mockResolvedValue({ data: [customer()], total: 1, page: 1, pageSize: 20 } as never);
   vi.mocked(listOpportunities).mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 20 } as never);
   vi.mocked(apiClient.getCustomers).mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 20 } as never);

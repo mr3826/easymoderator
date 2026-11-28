@@ -56,9 +56,9 @@ const getProductsCursor = async (shopId, cursor = null, limit = 10, filters = {}
     // Apply filters (name, category, etc.)
     if (filters.search) {
         whereClause[Op.or] = [
-            { name: { [Op.like]: `%${filters.search}%` } },
-            { description: { [Op.like]: `%${filters.search}%` } },
-            { sku: { [Op.like]: `%${filters.search}%` } }
+            { name: { [Op.iLike]: `%${filters.search}%` } },
+            { description: { [Op.iLike]: `%${filters.search}%` } },
+            { sku: { [Op.iLike]: `%${filters.search}%` } }
         ];
     }
     if (filters.category_id) whereClause.category_id = filters.category_id;
@@ -163,7 +163,9 @@ const parseVariants = (value) => {
 
 const parsePrice = (value) => {
     if (value === undefined || value === null || value === '') return null;
-    const normalized = String(value).replace(/[^0-9.]/g, '');
+    const bengaliDigits = '০১২৩৪৫৬৭৮৯';
+    const asciiValue = String(value).replace(/[০-৯]/g, (digit) => String(bengaliDigits.indexOf(digit)));
+    const normalized = asciiValue.replace(/[^0-9.]/g, '');
     const parsed = Number.parseFloat(normalized);
     return Number.isFinite(parsed) ? parsed : null;
 };
@@ -201,11 +203,20 @@ const verifyShopAccess = async (userId, shopId) => {
  * CRITICAL: Tracks usage for billing on successful creation
  */
 const createProduct = async (userId, shopId, productData, requestId = null) => {
-    const logger = createLogger(requestId, shopId, userId);
+    const usageRequestId = requestId || crypto.randomUUID();
+    const logger = createLogger(usageRequestId, shopId, userId);
+
+    if (Object.prototype.hasOwnProperty.call(productData || {}, 'product_variants')) {
+        throw new AppError('Relational product variants are read-only', HTTP_STATUS.BAD_REQUEST, 'PRODUCT_VARIANTS_READ_ONLY');
+    }
 
     // SECURITY: strip shop_id/id/timestamps from client input before they can
     // reach Product.create — see SERVER_OWNED_PRODUCT_FIELDS above.
     productData = stripServerOwnedFields(productData);
+    if (productData.images !== undefined) {
+        productData.images = Array.isArray(productData.images) ? productData.images : [];
+        productData.image_url = productData.images[0] ?? null;
+    }
 
     // Verify shop access
     await verifyShopAccess(userId, shopId);
@@ -230,9 +241,6 @@ const createProduct = async (userId, shopId, productData, requestId = null) => {
     }
 
     const transaction = await sequelize.transaction();
-    let committed = false;
-    const newMediaPaths = getProductMediaPaths(productData.images, productData.image_url, shopId);
-    
     try {
         // Create product within transaction.
         // shop_id is spread last so it always wins over any stray client value
@@ -242,57 +250,73 @@ const createProduct = async (userId, shopId, productData, requestId = null) => {
             shop_id: shopId
         }, { transaction });
 
-        // Commit transaction - NOW product is persisted
-        await transaction.commit();
-        committed = true;
+        // Product usage is part of the create transaction. Any tracking failure
+        // must fail closed rather than commit an uncounted product.
+        const usageResult = await subscriptionService.trackUsage(
+            shopId,
+            'products',
+            1,
+            usageRequestId, // Stable header key or generated request id for usage accounting
+            {
+                resourceId: product.id,
+                productName: product.name,
+                sku: product.sku
+            },
+            { transaction },
+        );
 
-        // ATOMIC: Track usage ONLY after successful DB commit
-        // Uses transaction-safe idempotent tracking with request_id
-        // Usage increments ONLY on successful database persistence
-        try {
-            const usageResult = await subscriptionService.trackUsage(
-                shopId,
-                'products',
-                1,
-                requestId, // Request-scoped idempotency key - prevents double counting
-                {
-                    resourceId: product.id,
-                    productName: product.name,
-                    sku: product.sku
-                }
+        if (usageResult.isRetry) {
+            const duplicateProductId = usageResult.usageEvent?.resource_id
+                || usageResult.usageEvent?.resource_metadata?.resourceId;
+            if (duplicateProductId) {
+                const duplicateError = new AppError(
+                    'Product creation was already completed for this request',
+                    HTTP_STATUS.CONFLICT,
+                    'PRODUCT_CREATE_ALREADY_PROCESSED',
+                );
+                duplicateError.productId = duplicateProductId;
+                throw duplicateError;
+            }
+            throw new AppError(
+                'Product usage was already tracked without a resource id',
+                HTTP_STATUS.CONFLICT,
+                'PRODUCT_CREATE_ALREADY_PROCESSED',
             );
-            
+        }
+
+        // Load the authoritative response while persistence can still roll back.
+        const createdProduct = await getProductById(product.id, userId, shopId, transaction);
+        await transaction.commit();
+
+        try {
             logger.logUsage('product_created', shopId, userId, {
                 productId: product.id,
                 productName: product.name,
                 sku: product.sku,
-                transactionId: usageResult.transactionId,
-                isRetry: usageResult.isRetry
+                transactionId: usageResult?.transactionId ?? null,
+                isRetry: usageResult?.isRetry ?? false,
             });
-        } catch (usageError) {
-            // CRITICAL errors: usage_limit_exceeded, validation errors
-            if (usageError.code === 'USAGE_LIMIT_EXCEEDED') {
-                logger.error('Usage limit exceeded on product', usageError, { severity: 'critical' });
-                throw usageError;
-            }
-            
-            // Non-critical errors: transient tracking issues don't fail product
-            logger.error('Failed to track product usage', usageError, {
-                productId: product.id,
-                severity: 'warning'
-            });
+        } catch (logError) {
+            logger.error('Failed to log product usage result', logError, { productId: product.id, severity: 'warning' });
         }
 
-        // Queue async AI image processing (fire-and-forget, non-blocking)
-        queueProductProcessing(product.id, shopId);
-
-        // Fetch product with category
-        return await getProductById(product.id, userId, shopId);
+        // Queue async AI image processing (fire-and-forget, non-blocking).
+        try {
+            Promise.resolve(queueProductProcessing(product.id, shopId)).catch((processingError) => (
+                moduleLogger.error('Product processing queue failed after create', processingError, { productId: product.id, shopId })
+            ));
+        } catch (processingError) {
+            moduleLogger.error('Product processing queue failed after create', processingError, { productId: product.id, shopId });
+        }
+        return createdProduct;
     } catch (error) {
-        try { await transaction.rollback(); } catch (_) { /* already committed */ }
-        if (!committed && newMediaPaths.length > 0) {
-            await removeUnreferencedProductMedia({ shopId, images: newMediaPaths });
+        try { await transaction.rollback(); } catch (_) { /* transaction already completed */ }
+        if (error.code === 'PRODUCT_CREATE_ALREADY_PROCESSED' && error.productId) {
+            return getProductById(error.productId, userId, shopId);
         }
+        // Uploaded media belongs to the editor draft and must survive a failed
+        // create so the merchant can retry. The orphan sweep removes abandoned
+        // uploads that are never attached to a product.
         throw error;
     }
 };
@@ -301,11 +325,18 @@ const createProduct = async (userId, shopId, productData, requestId = null) => {
  * Update a product
  */
 const updateProduct = async (productId, userId, shopId, updateData) => {
+    if (Object.prototype.hasOwnProperty.call(updateData || {}, 'product_variants')) {
+        throw new AppError('Relational product variants are read-only', HTTP_STATUS.BAD_REQUEST, 'PRODUCT_VARIANTS_READ_ONLY');
+    }
     // SECURITY: strip shop_id/id/timestamps from client input before they can
     // reach product.update — otherwise a client could move a product it owns
     // into a different shop, or overwrite its primary key, by including
     // shop_id/id in the PATCH body. See SERVER_OWNED_PRODUCT_FIELDS above.
     updateData = stripServerOwnedFields(updateData);
+    if (updateData.images !== undefined) {
+        updateData.images = Array.isArray(updateData.images) ? updateData.images : [];
+        updateData.image_url = updateData.images[0] ?? null;
+    }
 
     // Verify shop access
     await verifyShopAccess(userId, shopId);
@@ -355,24 +386,23 @@ const updateProduct = async (productId, userId, shopId, updateData) => {
         shopId
     );
 
-    // Update product. If persistence fails, any newly uploaded but now
-    // unreferenced local media is removed immediately; the nightly sweep is
-    // the retry path for filesystem failures.
+    // Update product. If persistence fails, keep newly uploaded paths intact:
+    // the editor retains them and retries with the same URLs. The orphan sweep
+    // is responsible for uploads abandoned after the client draft is discarded.
     try {
         await product.update(updateData);
     } catch (error) {
-        if (nextMediaPaths.length > 0) {
-            await removeUnreferencedProductMedia({ shopId, images: nextMediaPaths });
-        }
         throw error;
     }
 
     // Phase 1 D4 (doc 05 §4): ADDITIVE best-effort audit when this update
-    // touched stock (quantity/track_quantity or a variants blob). Mirrors the
+    // touched stock (quantity/track_quantity or relational variants). Mirrors the
     // mobile vocabulary (PRODUCT_STOCK_UPDATED on resource 'product').
     // Observability only — an audit failure NEVER changes the update outcome
     // (required:false + try/catch; the update has already persisted here).
-    const stockFieldsChanged = ['quantity', 'track_quantity', 'product_variants', 'variants']
+    // `variants` is the descriptive legacy JSON form; stock authority lives in
+    // quantity/track_quantity and relational product_variants records.
+    const stockFieldsChanged = ['quantity', 'track_quantity']
         .some((key) => Object.prototype.hasOwnProperty.call(updateData, key));
     if (stockFieldsChanged) {
         try {
@@ -456,17 +486,22 @@ const deleteProduct = async (productId, userId, shopId) => {
 /**
  * Get a single product by ID
  */
-const getProductById = async (productId, userId, shopId) => {
+const getProductById = async (productId, userId, shopId, transaction = null) => {
     // Verify shop access
     await verifyShopAccess(userId, shopId);
 
-    const product = await Product.findOne({
+    const query = {
         where: {
             id: productId,
             shop_id: shopId
         },
         // Bug #5: include relational variants instead of relying on JSON blob
         include: [
+            {
+                model: Category,
+                as: 'category_ref',
+                attributes: ['id', 'name']
+            },
             {
                 model: ProductVariant,
                 as: 'product_variants',
@@ -475,7 +510,9 @@ const getProductById = async (productId, userId, shopId) => {
                 order: [['created_at', 'ASC']]
             }
         ]
-    });
+    };
+    if (transaction) query.transaction = transaction;
+    const product = await Product.findOne(query);
 
     if (!product) {
         throw new AppError('Product not found', HTTP_STATUS.NOT_FOUND);
@@ -500,9 +537,9 @@ const listProducts = async (userId, shopId, filters = {}) => {
     // Add search filter (search in name, description, and SKU)
     if (filters.search) {
         whereClause[Op.or] = [
-            { name: { [Op.like]: `%${filters.search}%` } },
-            { description: { [Op.like]: `%${filters.search}%` } },
-            { sku: { [Op.like]: `%${filters.search}%` } }
+            { name: { [Op.iLike]: `%${filters.search}%` } },
+            { description: { [Op.iLike]: `%${filters.search}%` } },
+            { sku: { [Op.iLike]: `%${filters.search}%` } }
         ];
     }
 

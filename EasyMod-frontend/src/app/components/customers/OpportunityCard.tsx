@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, Loader2, MessageSquare, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
+import { EmButton } from "../dashboard/EmButton";
 import {
   dismissOpportunity,
   markOpportunityContacted,
@@ -112,32 +113,30 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
       {live && (
         <div className="mt-4 flex flex-wrap gap-2">
           {opportunity.conversation_id && action?.code !== "DO_NOT_CONTACT" && (
-            <button
-              type="button"
+            <EmButton
+              variant="primary"
               onClick={() => navigate(`/inbox?conversation=${encodeURIComponent(opportunity.conversation_id!)}`)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-em-violet-600 text-white text-sm font-medium hover:bg-em-violet-700"
             >
               <MessageSquare className="w-4 h-4" aria-hidden="true" />
               {t("customer360.actions.openConversation")}
-            </button>
+            </EmButton>
           )}
           {opportunity.status === "OPEN" && (
-            <button
-              type="button"
+            <EmButton
+              variant="secondary"
               onClick={() => run("contacted")}
               disabled={busy !== null}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-em-border text-sm font-medium text-em-text-primary hover:bg-em-bg-muted disabled:opacity-50"
             >
               {busy === "contacted" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" aria-hidden="true" />}
               {t("customer360.actions.markContacted")}
-            </button>
+            </EmButton>
           )}
           <button
             type="button"
             onClick={() => setDismissOpen((open) => !open)}
             disabled={busy !== null}
             aria-expanded={dismissOpen}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-em-text-secondary hover:bg-em-bg-muted disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-em-text-secondary hover:bg-em-bg-muted focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-em-focus-light disabled:opacity-50"
           >
             <X className="w-4 h-4" aria-hidden="true" />
             {t("customer360.actions.dismiss")}
@@ -159,14 +158,13 @@ export default function OpportunityCard({ opportunity, showCustomer = true, onCh
               ))}
             </select>
           </label>
-          <button
-            type="button"
+          <EmButton
+            variant="danger"
             onClick={() => run("dismiss")}
             disabled={busy !== null}
-            className="px-3 py-2 rounded-lg bg-em-midnight-900 text-white text-sm font-medium hover:bg-em-midnight-950 disabled:opacity-50"
           >
             {busy === "dismiss" ? <Loader2 className="w-4 h-4 animate-spin" /> : t("customer360.actions.dismiss")}
-          </button>
+          </EmButton>
         </div>
       )}
     </article>

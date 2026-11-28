@@ -6,9 +6,11 @@
 import { httpClient } from '@/shared/lib/http/client';
 import type { AxiosResponse } from 'axios';
 import type { ApiResponse } from '../types/common';
+import type { ChannelType } from '../types/customer';
 import type {
   Customer360Detail,
   Customer360ListResponse,
+  CustomerOverview,
   DismissReason,
   Opportunity,
   OpportunityListResponse,
@@ -24,10 +26,19 @@ export async function getPilotStatus(): Promise<PilotStatus> {
   return response.data.data;
 }
 
+export async function getCustomerOverview(): Promise<CustomerOverview> {
+  const response: AxiosResponse<ApiResponse<CustomerOverview>> = await httpClient.get(
+    '/api/customer-intelligence/overview',
+  );
+  return response.data.data;
+}
+
 export async function listCustomers360(params: {
   page?: number;
   pageSize?: number;
   search?: string;
+  phone?: string;
+  channel_type?: ChannelType;
   view?: 'all' | 'opportunities';
 } = {}): Promise<Customer360ListResponse> {
   const response: AxiosResponse<ListBody<Customer360ListResponse['data'][number]>> = await httpClient.get(

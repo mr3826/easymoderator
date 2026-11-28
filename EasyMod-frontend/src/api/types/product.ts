@@ -19,11 +19,11 @@ export interface ProductVariantStock {
 export interface Product {
   id: string;
   name: string;
-  sku: string;
+  sku?: string | null;
   price: number;
-  description?: string;
+  description?: string | null;
   category?: string;
-  category_id?: string;
+  category_id?: string | null;
   status?: 'active' | 'inactive' | 'pending';
   variants?: unknown[];
   /**
@@ -34,9 +34,6 @@ export interface Product {
    */
   product_variants?: ProductVariantStock[];
   aliases?: string[];
-  aiGenerated?: boolean;
-  ai_generated?: boolean;
-  confidence?: number | null;
   stock?: boolean;
   images?: string[];
   /**
@@ -44,30 +41,72 @@ export interface Product {
    * product-link.service selects only this column when building the product
    * cards sent to customers, so it must be kept in sync with `images[0]`.
    */
-  image_url?: string;
-  brand?: string;
-  weight?: number;
-  weight_unit?: string;
+  image_url?: string | null;
+  brand?: string | null;
+  weight?: number | null;
+  weight_unit?: string | null;
   tags?: string[];
   compare_at_price?: number;
   cost_per_item?: number;
-  quantity?: number;
+  quantity?: number | null;
   is_active?: boolean;
-  low_stock_threshold?: number;
+  low_stock_threshold?: number | null;
   track_quantity?: boolean;
-  allow_discounts?: boolean;
-  charge_tax?: boolean;
-  send_low_stock_alert?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface ProductWritePayload {
+  name: string;
+  price: number;
+  description?: string | null;
+  sku?: string | null;
+  brand?: string | null;
+  category_id?: string | null;
+  tags?: string[];
+  variants?: unknown[];
+  track_quantity?: boolean;
+  quantity?: number;
+  low_stock_threshold?: number | null;
+  weight?: number | null;
+  weight_unit?: string | null;
+  is_active?: boolean;
+  images?: string[];
+  image_url?: string | null;
+}
+
+export type CreateProductPayload = ProductWritePayload;
+export type UpdateProductPayload = Partial<ProductWritePayload>;
+
+export interface ProductOverview {
+  total: number;
+  active: number;
+  inactive: number;
+  low_stock: number;
+  out_of_stock: number;
+  scanned: number;
+  cap: number;
+  coverage_complete: boolean;
+}
+
+/** Transient AI import row; provenance is never written to a product record. */
+export type ExtractedProduct = Partial<ProductWritePayload> & {
+  id?: string;
+  status?: 'pending';
+  confidence: number;
+  ai_generated: true;
+};
+
 export interface CategoryDraft {
   id?: string;
   name: string;
+  is_active?: boolean;
   description?: string;
   image?: string;
   cover_image?: string;
+  product_count?: number;
+  affected_product_count?: number;
+  subcategory_count?: number;
 }
 
 export interface Category {
@@ -82,12 +121,15 @@ export interface Category {
   is_active?: boolean;
   subcategories?: CategoryDraft[];
   subcategoryCount?: number;
+  product_count?: number;
+  affected_product_count?: number;
+  subcategory_count?: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface ProductExtractResult {
-  products: Product[];
+  products: ExtractedProduct[];
   stats: {
     total: number;
     parsed: number;
@@ -100,5 +142,5 @@ export interface ProductUploadPayload {
   content_type?: string;
   content?: string;
   file?: File;
-  format?: 'csv' | 'xlsx' | 'json';
+  format?: 'csv' | 'tsv' | 'txt';
 }

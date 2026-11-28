@@ -95,6 +95,8 @@ jest.mock('../../../constants/http-status', () => ({
 }));
 
 const { Product, UserShop, Category } = require('../../entities');
+const { sequelize } = require('../../../utils/database/database-setup');
+const subscriptionService = require('../../subscription/subscription.service');
 const productService = require('src/modules/product/product.service');
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -147,6 +149,44 @@ describe('Product Service — inventory', () => {
             expect.objectContaining({ quantity: 0 }),
             expect.anything()
         );
+    });
+
+    it('createProduct — rolls the product back when the usage limit rejects the create', async () => {
+        const transaction = { commit: jest.fn(), rollback: jest.fn() };
+        sequelize.transaction.mockResolvedValueOnce(transaction);
+        const limitError = Object.assign(new Error('product limit exceeded'), {
+            code: 'USAGE_LIMIT_EXCEEDED',
+            status: 402,
+        });
+        subscriptionService.trackUsage.mockRejectedValueOnce(limitError);
+
+        await expect(productService.createProduct('user-1', 'shop-1', {
+            name: 'Over-limit product',
+            price: 100,
+        }, 'request-1')).rejects.toMatchObject({ code: 'USAGE_LIMIT_EXCEEDED' });
+
+        expect(transaction.commit).not.toHaveBeenCalled();
+        expect(transaction.rollback).toHaveBeenCalledTimes(1);
+    });
+
+    it('createProduct — returns the existing product for a replayed usage request id', async () => {
+        const transaction = { commit: jest.fn(), rollback: jest.fn() };
+        sequelize.transaction.mockResolvedValueOnce(transaction);
+        Product.create.mockResolvedValueOnce({ id: 'duplicate-attempt', shop_id: 'shop-1' });
+        Product.findOne.mockResolvedValueOnce({ ...mockProductData, id: 'existing-product' });
+        subscriptionService.trackUsage.mockResolvedValueOnce({
+            isRetry: true,
+            usageEvent: { resource_id: 'existing-product' },
+        });
+
+        const result = await productService.createProduct('user-1', 'shop-1', {
+            name: 'Same payload',
+            price: 100,
+        }, 'stable-request-id');
+
+        expect(transaction.commit).not.toHaveBeenCalled();
+        expect(transaction.rollback).toHaveBeenCalledTimes(1);
+        expect(result.id).toBe('existing-product');
     });
 
     it('createProduct — validates category exists if category_id provided', async () => {

@@ -9,7 +9,18 @@ vi.mock('@/api', () => ({
   apiClient: {
     getProducts: vi.fn().mockResolvedValue([
       { id: '1', name: 'Test Product', price: 10, description: 'Test' }
-    ])
+    ]),
+    getCategories: vi.fn().mockResolvedValue([]),
+    getProductOverview: vi.fn().mockResolvedValue({
+      total: 1,
+      active: 1,
+      inactive: 0,
+      low_stock: 0,
+      out_of_stock: 0,
+      scanned: 1,
+      cap: 1000,
+      coverage_complete: true,
+    }),
   }
 }))
 

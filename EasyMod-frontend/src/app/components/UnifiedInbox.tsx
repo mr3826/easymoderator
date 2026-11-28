@@ -273,6 +273,7 @@ export default function UnifiedInbox() {
   const initialSearchParams = new URLSearchParams(location.search);
   const initialPage = parseInboxPage(initialSearchParams.get("page"));
   const initialFilter = parseInboxFilter(initialSearchParams.get("tab"));
+  const initialCustomerId = initialSearchParams.get("customer_id");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -285,6 +286,7 @@ export default function UnifiedInbox() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTab, setFilterTab] = useState<InboxFilterTab>(initialFilter);
+  const [customerIdFilter, setCustomerIdFilter] = useState<string | null>(initialCustomerId);
   const [togglingHITL, setTogglingHITL] = useState(false);
   const [dismissedSuggestionId, setDismissedSuggestionId] = useState<string | null>(null);
   const [messagesPage, setMessagesPage] = useState(1);
@@ -357,7 +359,7 @@ export default function UnifiedInbox() {
 
   const quickReplyTemplates = templates.length > 0 ? templates : buildFallbackTemplates(t);
 
-  const updateSearchParams = useCallback((updates: Partial<Record<"tab" | "page" | "conversation", string | null>>) => {
+  const updateSearchParams = useCallback((updates: Partial<Record<"tab" | "page" | "conversation" | "customer_id", string | null>>) => {
     const params = new URLSearchParams(locationSearchRef.current);
     Object.entries(updates).forEach(([key, value]) => {
       if (value) params.set(key, value);
@@ -400,7 +402,11 @@ export default function UnifiedInbox() {
     try {
       setLoadingConversations(true);
       setError(null);
-      const result = await apiClient.getConversations({ page, limit: INBOX_CONVERSATION_PAGE_SIZE });
+      const result = await apiClient.getConversations({
+        page,
+        limit: INBOX_CONVERSATION_PAGE_SIZE,
+        ...(customerIdFilter ? { customer_id: customerIdFilter } : {}),
+      });
       if (requestId !== conversationRequestRef.current) return;
 
       const pageInfo = result as typeof result & {
@@ -497,7 +503,7 @@ export default function UnifiedInbox() {
     } finally {
       if (requestId === conversationRequestRef.current) setLoadingConversations(false);
     }
-  }, [i18n?.language, updateSearchParams]);
+  }, [customerIdFilter, i18n?.language, updateSearchParams]);
 
   const loadConversationsRef = useRef(loadConversations);
   useEffect(() => { loadConversationsRef.current = loadConversations; });
@@ -639,17 +645,19 @@ export default function UnifiedInbox() {
     locationSearchRef.current = location.search;
     const params = new URLSearchParams(location.search);
     const nextTab = parseInboxFilter(params.get("tab"));
+    const nextCustomerId = params.get("customer_id");
     if (nextTab !== filterTabRef.current) {
       filterTabRef.current = nextTab;
       setFilterTab(nextTab);
     }
+    if (nextCustomerId !== customerIdFilter) setCustomerIdFilter(nextCustomerId);
     const nextPage = parseInboxPage(params.get("page"));
     if (nextPage !== currentPageRef.current) {
       currentPageRef.current = nextPage;
       syncPageSelectionRef.current = false;
       void loadConversationsRef.current(nextPage);
     }
-  }, [location.search]);
+  }, [customerIdFilter, location.search]);
 
   // Deep link (/inbox?conversation=<id>) from a Sales Opportunity: open that
   // thread once the list has loaded. A thread older than the first page is
@@ -1448,6 +1456,13 @@ export default function UnifiedInbox() {
     }
   };
 
+  const clearCustomerFilter = () => {
+    setCustomerIdFilter(null);
+    currentPageRef.current = 1;
+    setCurrentPage(1);
+    updateSearchParams({ customer_id: null, page: null, conversation: null });
+  };
+
   const handleSearchChange = (query: string) => {
     setSearchQuery(query);
     if (currentPageRef.current > 1) {
@@ -1553,6 +1568,22 @@ export default function UnifiedInbox() {
                   className="em-tabular whitespace-nowrap rounded-full border border-em-sunlight-600/30 bg-em-sunlight-100 px-3 py-1 text-xs font-semibold text-em-sunlight-700"
                 >
                   {t("inbox.unread", { count: unreadTotal })}
+                </span>
+              )}
+              {customerIdFilter && (
+                <span data-testid="inbox-customer-filter" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-em-border bg-em-bg-muted px-3 py-1 text-xs text-em-text-secondary">
+                  {t("inbox.customerFilterContext", {
+                    customer: conversations.find((conversation) => conversation.customer_id === customerIdFilter)?.customer?.name || customerIdFilter,
+                    defaultValue: "Customer filter: {{customer}}",
+                  })}
+                  <button
+                    type="button"
+                    onClick={clearCustomerFilter}
+                    aria-label={t("inbox.clearCustomerFilter", { defaultValue: "Clear customer filter" })}
+                    className="min-h-8 min-w-8 rounded-full font-semibold text-em-text-primary hover:bg-em-bg-surface"
+                  >
+                    {t("common.clear", { defaultValue: "Clear" })}
+                  </button>
                 </span>
               )}
               <span

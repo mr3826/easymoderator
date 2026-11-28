@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { httpClient } from '../client';
+import { httpClient, shouldRetryRequest } from '../client';
 
 const readHeader = (headers: any, name: string) => {
   return headers?.[name] ?? headers?.get?.(name);
@@ -139,6 +139,21 @@ describe('HTTP Client - Shop ID Injection', () => {
     it('should provide delete method', () => {
       expect(httpClient.delete).toBeDefined();
       expect(typeof httpClient.delete).toBe('function');
+    });
+  });
+
+  describe('automatic retry safety', () => {
+    it.each([
+      [{ method: 'get' }, true],
+      [{ method: 'HEAD' }, true],
+      [{ method: 'POST' }, false],
+      [{ method: 'PATCH' }, false],
+      [{ method: 'POST', __idempotent: true }, true],
+      [{ method: 'POST', __idempotent: true, __noRetry: true }, false],
+      [{ method: 'DELETE', __idempotent: true, __noRetry: true }, false],
+      [{ method: 'OPTIONS', __idempotent: true }, true],
+    ] as const)('applies the safe-method/idempotency policy to %o', (config, expected) => {
+      expect(shouldRetryRequest(config)).toBe(expected);
     });
   });
 

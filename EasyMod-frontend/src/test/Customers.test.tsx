@@ -7,6 +7,10 @@ import type { PaginatedResponse } from '@/api/types/common'
 
 const navigate = vi.hoisted(() => vi.fn())
 const mockedAuth = vi.hoisted(() => ({ role: 'owner' }))
+const crmApi = vi.hoisted(() => ({
+  listCustomerNotes: vi.fn(), createCustomerNote: vi.fn(), deleteCustomerNote: vi.fn(),
+  listCustomerTags: vi.fn(), listTagVocabulary: vi.fn(), setCustomerTags: vi.fn(),
+}))
 
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>()
@@ -31,11 +35,15 @@ vi.mock('@/api', () => ({
     getCustomers: vi.fn(),
     getCustomer: vi.fn(),
     createCustomer: vi.fn(),
+    updateCustomer: vi.fn(),
     deleteCustomer: vi.fn(),
     getRtoNetworkSettings: vi.fn().mockResolvedValue({ contribute: true, enforce: true }),
     updateRtoNetworkSettings: vi.fn(),
   },
 }))
+
+vi.mock('@/api/domains/customer-crm', () => crmApi)
+vi.mock('@/app/lib/auth', () => ({ authService: { getState: () => ({ user: { id: 'staff-1' }, currentShop: { role: mockedAuth.role } }) } }))
 
 // Rendered inside the page but exercised in its own suite.
 vi.mock('@/app/components/RtoNetworkSettings', () => ({
@@ -85,7 +93,14 @@ beforeEach(async () => {
   vi.mocked(apiClient.getCustomers).mockReset().mockResolvedValue(listBody([customerRow()], 1))
   vi.mocked(apiClient.getCustomer).mockReset().mockResolvedValue(customerRow())
   vi.mocked(apiClient.createCustomer).mockReset()
+  vi.mocked(apiClient.updateCustomer).mockReset().mockResolvedValue(customerRow())
   vi.mocked(apiClient.deleteCustomer).mockReset()
+  crmApi.listCustomerNotes.mockReset().mockResolvedValue({ data: [], total: 0 })
+  crmApi.createCustomerNote.mockReset()
+  crmApi.deleteCustomerNote.mockReset().mockResolvedValue(undefined)
+  crmApi.listCustomerTags.mockReset().mockResolvedValue({ data: [] })
+  crmApi.listTagVocabulary.mockReset().mockResolvedValue({ data: [] })
+  crmApi.setCustomerTags.mockReset().mockResolvedValue({ data: [] })
 })
 
 describe('Customers (legacy worklist)', () => {
@@ -118,6 +133,9 @@ describe('Customers (legacy worklist)', () => {
     // The name query must not silently carry the phone into `search` — the
     // server's search field matches names only.
     expect(lastFilters(vi.mocked(apiClient.getCustomers))).toEqual(expect.objectContaining({ search: 'Rahim', phone: '01711111111' }))
+
+    fireEvent.change(screen.getByLabelText('All Channels'), { target: { value: 'instagram' } })
+    await waitFor(() => expect(lastFilters(vi.mocked(apiClient.getCustomers))).toEqual(expect.objectContaining({ channel_type: 'instagram', page: 1, pageSize: 20 })))
   })
 
   it('shows a no-match state with clear-filters when a query returns nothing', async () => {
@@ -176,6 +194,13 @@ describe('Customers (legacy worklist)', () => {
     render(<MemoryRouter><Customers /></MemoryRouter>)
     const ownerTable = await desktopTable()
     await waitFor(() => expect(ownerTable.getAllByRole('button', { name: 'Delete Customer' }).length).toBeGreaterThan(0))
+    fireEvent.click(ownerTable.getAllByRole('button', { name: 'Delete Customer' })[0])
+    const dialog = await screen.findByRole('dialog', { name: 'Delete Customer' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete Customer' }))
+    await waitFor(async () => {
+      const { apiClient } = await import('@/api')
+      expect(apiClient.deleteCustomer).toHaveBeenCalledWith('cust-1')
+    })
   })
 
   it('links the customer profile to the supported Orders worklist by phone', async () => {
@@ -215,5 +240,33 @@ describe('Customers (legacy worklist)', () => {
     })
     // The fresh fetch must carry page metadata, not an optimistic stat bump.
     expect(lastFilters(vi.mocked(apiClient.getCustomers))).toEqual(expect.objectContaining({ page: 1, pageSize: 20 }))
+  })
+
+  it('edits name, phone, and email through the existing updateCustomer method', async () => {
+    const { apiClient } = await import('@/api')
+    render(<MemoryRouter><Customers /></MemoryRouter>)
+    const table = await desktopTable()
+    fireEvent.click(table.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText(/^Name/i), { target: { value: 'Rahim Updated' } })
+    fireEvent.change(screen.getByLabelText(/Phone Number/i), { target: { value: '01722222222' } })
+    fireEvent.change(screen.getByLabelText(/^Email/i), { target: { value: 'updated@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(apiClient.updateCustomer).toHaveBeenCalledWith('cust-1', {
+      name: 'Rahim Updated', number: '01722222222', email: 'updated@example.com',
+    }))
+  })
+
+  it('shows a phone duplicate constraint error in the customer form', async () => {
+    const { apiClient } = await import('@/api')
+    vi.mocked(apiClient.createCustomer).mockRejectedValue({ statusCode: 409, type: 'CONFLICT', message: 'Customer already exists' })
+    render(<MemoryRouter><Customers /></MemoryRouter>)
+    await waitForList()
+    fireEvent.click(screen.getByRole('button', { name: 'Add Customer' }))
+    fireEvent.change(screen.getByLabelText(/^Name/i), { target: { value: 'Duplicate' } })
+    fireEvent.change(screen.getByLabelText(/Phone Number/i), { target: { value: '01711111111' } })
+    fireEvent.change(screen.getByLabelText(/^Channel/i), { target: { value: 'manual' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('A customer with this phone number already exists.')
   })
 })

@@ -1,7 +1,9 @@
+const { randomUUID } = require('node:crypto');
 const productService = require('./product.service');
 const productLinkService = require('./product-link.service');
 const upsellService = require('./product-upsell.service');
 const stockExceptionsService = require('./product-stock-exceptions.service');
+const productOverviewService = require('./product-overview.service');
 const { HTTP_STATUS } = require('../../constants/http-status');
 const { publicBaseUrl } = require('../../utils/image-upload.service');
 const { storeProductImage } = require('./product-media.service');
@@ -33,6 +35,15 @@ const getValidationError = (message) => ({
         message
     }
 });
+
+const getProductCreateRequestId = (req) => {
+    const rawKey = typeof req.get === 'function'
+        ? req.get('Idempotency-Key')
+        : req.headers?.['idempotency-key'];
+    const idempotencyKey = typeof rawKey === 'string' ? rawKey.trim() : '';
+    if (idempotencyKey.length > 128) return { error: 'Idempotency-Key must be 128 characters or fewer.' };
+    return { requestId: idempotencyKey || req.id || req.requestId || randomUUID() };
+};
 
 /**
  * RESTful: Get products with pagination and filters
@@ -77,6 +88,21 @@ const getStockExceptions = async (req, res, next) => {
     }
 };
 
+/** GET /api/product/overview — tenant-scoped catalog and stock summary. */
+const getOverview = async (req, res, next) => {
+    try {
+        const { shopId } = req.user;
+        if (!shopId) {
+            return res.status(HTTP_STATUS.BAD_REQUEST).json(getNoShopError());
+        }
+
+        const data = await productOverviewService.getOverview({ shopId });
+        res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+};
+
 /**
  * RESTful: Get product by ID
  */
@@ -109,10 +135,14 @@ const createProductRest = async (req, res, next) => {
             return res.status(HTTP_STATUS.BAD_REQUEST).json(getNoShopError());
         }
 
+        const { requestId, error: requestIdError } = getProductCreateRequestId(req);
+        if (requestIdError) return res.status(HTTP_STATUS.BAD_REQUEST).json(getValidationError(requestIdError));
+
         const product = await productService.createProduct(
             req.user.userId,
             shopId,
-            req.body // Already validated
+            req.body, // Already validated
+            requestId,
         );
 
         res.status(HTTP_STATUS.CREATED).json({
@@ -212,10 +242,14 @@ const createProduct = async (req, res, next) => {
             return res.status(HTTP_STATUS.BAD_REQUEST).json(getNoShopError());
         }
 
+        const { requestId, error: requestIdError } = getProductCreateRequestId(req);
+        if (requestIdError) return res.status(HTTP_STATUS.BAD_REQUEST).json(getValidationError(requestIdError));
+
         const product = await productService.createProduct(
             req.user.userId,
             shopId,
-            req.body // Already validated
+            req.body, // Already validated
+            requestId,
         );
 
         res.status(HTTP_STATUS.CREATED).json({
@@ -500,6 +534,7 @@ module.exports = {
     getProductUpsells,
     getUpsellsForCart,
     getStockExceptions,
+    getOverview,
     // Legacy methods (for backward compatibility)
     createProduct,
     updateProduct,

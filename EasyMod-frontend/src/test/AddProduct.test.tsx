@@ -1,93 +1,50 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import AddProduct from '../app/components/AddProduct'
+import "@testing-library/jest-dom";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import AddProduct from "../app/components/AddProduct";
 
-const mockNavigate = vi.fn()
-const mockOnClose = vi.fn()
-const mockInvalidateQueries = vi.fn()
+const { createProduct, getCategories } = vi.hoisted(() => ({
+  createProduct: vi.fn(),
+  getCategories: vi.fn(),
+}));
 
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>()
-  return {
-    ...actual,
-    useNavigate: () => mockNavigate,
-    useParams: () => ({}),
-  }
-})
-
-vi.mock('@/api', () => ({
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("@/api", () => ({
   apiClient: {
-    getCategories: vi.fn().mockResolvedValue([]),
-    createProduct: vi.fn().mockResolvedValue({ id: 'prod-123', name: 'Demo Product' }),
-    updateProduct: vi.fn().mockResolvedValue({ id: 'prod-123', name: 'Updated Product' }),
-    getProduct: vi.fn().mockResolvedValue({}),
+    createProduct,
+    updateProduct: vi.fn(),
+    getProduct: vi.fn(),
+    getCategories,
+    uploadProductImage: vi.fn(),
   },
-}))
+}));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({
-    invalidateQueries: mockInvalidateQueries,
-  }),
-}))
+describe("product editor route", () => {
+  it("saves the create form through the single-page route", async () => {
+    createProduct.mockResolvedValue({ id: "prod-123", name: "Demo Product" });
+    getCategories.mockResolvedValue([]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter([
+      { path: "/products/add", element: <AddProduct /> },
+      { path: "/products", element: <div>Products index</div> },
+    ], { initialEntries: ["/products/add"] });
 
-const getPublishButton = () => {
-  const button = screen
-    .getAllByRole('button')
-    .find((node) => node.textContent?.toLowerCase().includes('publish'))
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
 
-  if (!button) {
-    throw new Error('Publish button not found')
-  }
-
-  return button
-}
-
-describe('AddProduct', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockInvalidateQueries.mockResolvedValue(undefined)
-  })
-
-  it('renders add product modal fields', () => {
-    render(<AddProduct isModal={true} onClose={mockOnClose} />)
-
-    expect(document.getElementById('modal-product-name')).toBeInTheDocument()
-    expect(document.getElementById('modal-base-price')).toBeInTheDocument()
-    expect(getPublishButton()).toBeInTheDocument()
-  })
-
-  it('shows validation error when product name is missing', async () => {
-    render(<AddProduct isModal={true} onClose={mockOnClose} />)
-
-    const priceInput = document.getElementById('modal-base-price') as HTMLInputElement
-    fireEvent.change(priceInput, { target: { value: '99.99' } })
-    fireEvent.click(getPublishButton())
+    fireEvent.change(await screen.findByLabelText(/products\.form\.productName/), { target: { value: "Demo Product" } });
+    fireEvent.change(screen.getByLabelText(/products\.detail\.sellingPrice/), { target: { value: "99.99" } });
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
 
     await waitFor(() => {
-      expect(screen.getByText('Product name is required')).toBeInTheDocument()
-    })
-  })
-
-  it('creates product and navigates to products page', async () => {
-    const { apiClient } = await import('@/api')
-
-    render(<AddProduct isModal={true} onClose={mockOnClose} />)
-
-    const nameInput = document.getElementById('modal-product-name') as HTMLInputElement
-    const priceInput = document.getElementById('modal-base-price') as HTMLInputElement
-
-    fireEvent.change(nameInput, { target: { value: 'Demo Product' } })
-    fireEvent.change(priceInput, { target: { value: '99.99' } })
-    fireEvent.click(getPublishButton())
-
-    await waitFor(() => {
-      expect(apiClient.createProduct).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'Demo Product',
-          price: 99.99,
-        })
-      )
-      expect(mockNavigate).toHaveBeenCalledWith('/products')
-    })
-  })
-})
+      expect(createProduct).toHaveBeenCalledWith(expect.objectContaining({ name: "Demo Product", price: 99.99 }), expect.any(String));
+    });
+    expect(await screen.findByText("Products index")).toBeInTheDocument();
+  });
+});

@@ -29,6 +29,7 @@ const {
 } = require('./grounding.contract');
 const { withEvidenceSnapshot } = require('../contracts/evidence.contract');
 const { getOrigins } = require('../../../config/origins');
+const { computeEffectiveQuantity } = require('../../product/product-stock-exceptions.service');
 
 /**
  * Terms that express *intent*, not product identity. Removing them is what
@@ -130,6 +131,32 @@ const MEDIA_REQUEST_PATTERN =
 // fetched again on each turn. Expire the pointer after a day of inactivity.
 const PRODUCT_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000;
 
+const safeVariantText = (value) => {
+    if (typeof value === 'string') return value.trim() || null;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return null;
+};
+
+// Only rows from product_variants carry live stock/option authority. Legacy
+// string arrays and editor option groups are descriptive catalog metadata.
+const relationalVariantsOf = (product) => {
+    const source = Array.isArray(product?.product_variants)
+        ? product.product_variants
+        : Array.isArray(product?.variants) ? product.variants : [];
+    return source.filter((variant) => variant
+        && typeof variant === 'object'
+        && !Array.isArray(variant)
+        && variant.id != null
+        && typeof variant.option_name === 'string'
+        && typeof variant.option_value === 'string'
+        && variant.option_name.trim()
+        && variant.option_value.trim());
+};
+
+const safeTextList = (values) => (Array.isArray(values) ? values : [])
+    .map(safeVariantText)
+    .filter(Boolean);
+
 const isMediaRequest = (message) =>
     typeof message === 'string' && MEDIA_REQUEST_PATTERN.test(message);
 
@@ -192,8 +219,8 @@ const identifyingTerms = (message) => {
  * this module exists to prevent.
  */
 const identityText = (product) => {
-    const variantValues = Array.isArray(product.variants)
-        ? product.variants.flatMap(v => [
+    const variantValues = relationalVariantsOf(product)
+        .flatMap(v => [
             v?.size,
             v?.color,
             v?.value,
@@ -202,15 +229,16 @@ const identityText = (product) => {
             String(v?.option_name || '').toLowerCase() === 'size' || String(v?.option_name || '').toLowerCase() === 'color'
                 ? v?.option_value
                 : null,
-        ]).filter(Boolean)
-        : [];
+        ])
+        .map(safeVariantText)
+        .filter(Boolean);
     return [
-        product.name,
-        product.name_bn,
-        product.category,
-        product.brand,
-        ...(Array.isArray(product.aliases) ? product.aliases : []),
-        ...(Array.isArray(product.tags) ? product.tags : []),
+        safeVariantText(product.name),
+        safeVariantText(product.name_bn),
+        safeVariantText(product.category),
+        safeVariantText(product.brand),
+        ...safeTextList(product.aliases),
+        ...safeTextList(product.tags),
         ...variantValues,
     ].filter(Boolean).join(' ').toLowerCase();
 };
@@ -303,27 +331,34 @@ const askedAttributes = (message) => {
  * omission is what the model read as "free to infer".
  */
 const buildFacts = (product) => {
-    const variants = Array.isArray(product.variants) ? product.variants : [];
+    const variants = relationalVariantsOf(product);
     const activeVariants = variants.filter(v => v?.is_active !== false);
-    const sizes = [...new Set(activeVariants.map(v =>
-        v?.size || (String(v?.option_name || v?.option || '').toLowerCase() === 'size'
-            ? (v?.option_value || v?.value)
-            : null),
-    ).filter(Boolean))];
-    const colors = [...new Set(activeVariants.map(v =>
-        v?.color || (String(v?.option_name || v?.option || '').toLowerCase() === 'color'
-            ? (v?.option_value || v?.value)
-            : null),
-    ).filter(Boolean))];
+    const sizes = [...new Set(activeVariants.map(v => {
+        const name = safeVariantText(v?.option_name || v?.option)?.toLowerCase();
+        return safeVariantText(v?.size) || (name === 'size'
+            ? safeVariantText(v?.option_value || v?.value)
+            : null);
+    }).filter(Boolean))];
+    const colors = [...new Set(activeVariants.map(v => {
+        const name = safeVariantText(v?.option_name || v?.option)?.toLowerCase();
+        return safeVariantText(v?.color) || (name === 'color'
+            ? safeVariantText(v?.option_value || v?.value)
+            : null);
+    }).filter(Boolean))];
     const known = (value) => ({ state: FactState.KNOWN, value });
     const unknown = () => ({ state: FactState.UNKNOWN, value: null });
     const uncertain = (value) => ({ state: FactState.UNCERTAIN, value: value || null });
-    const parentStockValue = product.is_active === false
+    const tracked = product.track_quantity === true;
+    const effectiveQuantity = computeEffectiveQuantity(product);
+    const stockValue = product.is_active === false
         ? 'DISCONTINUED'
-        : product.in_stock === false
-            || (product.track_quantity === true && Number(product.quantity) === 0)
-            ? 'OUT_OF_STOCK'
-            : 'IN_STOCK';
+        : !tracked
+            ? product.in_stock === false
+                ? 'OUT_OF_STOCK'
+                : product.in_stock === true ? 'IN_STOCK' : null
+            : !Number.isFinite(effectiveQuantity) || effectiveQuantity <= 0
+                ? 'OUT_OF_STOCK'
+                : 'IN_STOCK';
 
     return {
         name: known(product.name),
@@ -332,11 +367,12 @@ const buildFacts = (product) => {
         // shops add products without ever setting a count, which leaves
         // quantity at 0 with track_quantity false — reading that as "sold out"
         // told real customers every in-stock product was unavailable.
-        stock: known(parentStockValue),
-        // An untracked count is not a count. Printing "Quantity: 0" into the
-        // prompt is what the model was reasoning from.
-        quantity: product.track_quantity === true && Number.isFinite(product.quantity)
-            ? known(product.quantity)
+        stock: stockValue ? known(stockValue) : unknown(),
+        // A tracked product with relational variants uses the same effective
+        // total as the Products stock filter; a stale parent quantity cannot
+        // contradict variant availability.
+        quantity: tracked && Number.isFinite(effectiveQuantity)
+            ? known(effectiveQuantity)
             : unknown(),
         // ai_* columns are retrieval metadata and may come from image analysis.
         // They can help locate a candidate, but cannot prove merchant claims.
@@ -347,18 +383,36 @@ const buildFacts = (product) => {
         size: sizes.length ? known(sizes.join(', ')) : unknown(),
         sizes: sizes.length ? known(sizes.join(', ')) : unknown(),
         variants: activeVariants.map(v => {
-            const optionName = v?.option_name || v?.option || (v?.size ? 'Size' : v?.color ? 'Color' : null);
-            const optionValue = v?.option_value || v?.value || v?.size || v?.color || null;
+            const optionName = safeVariantText(v?.option_name || v?.option || (v?.size ? 'Size' : v?.color ? 'Color' : null));
+            const optionValue = safeVariantText(v?.option_value || v?.value || v?.size || v?.color);
             const rawPrice = v?.price == null ? product.price : v.price;
-            const price = rawPrice == null || rawPrice === '' ? NaN : Number(rawPrice);
-            const quantity = v?.quantity == null || v?.quantity === '' ? NaN : Number(v.quantity);
+            const price = typeof rawPrice === 'number' || (typeof rawPrice === 'string' && rawPrice.trim())
+                ? Number(rawPrice)
+                : NaN;
+            const quantity = typeof v?.quantity === 'number'
+                || (typeof v?.quantity === 'string' && v.quantity.trim())
+                ? Number(v.quantity)
+                : NaN;
             return {
                 id: v?.id ? String(v.id) : null,
                 optionName,
                 optionValue,
                 price: Number.isFinite(price) ? known(price) : unknown(),
+                // Variant availability is the BASELINE grounding contract,
+                // pinned by product-presentation.contract + product-evidence-
+                // hardening (all pass at fd78afde): a variant's own finite
+                // quantity is a per-option stock signal (the shop set it),
+                // gated by the parent stock fact. An option is IN_STOCK only
+                // when the parent is orderable (stockValue === 'IN_STOCK',
+                // which already folds in is_active/in_stock and, for tracked
+                // parents, the variant sum) AND this variant has count > 0;
+                // otherwise OUT_OF_STOCK. A non-finite count yields no claim
+                // (fail-closed). The earlier untracked→UNKNOWN change broke
+                // 6 baseline tests and dropped size listing for untracked
+                // products; the parent-level "quantity:0 is not a stock
+                // signal" concern lives in stockValue, NOT here.
                 availability: Number.isFinite(quantity)
-                    ? known(parentStockValue !== 'IN_STOCK' || quantity <= 0 ? 'OUT_OF_STOCK' : 'IN_STOCK')
+                    ? known(stockValue === 'IN_STOCK' && quantity > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK')
                     : unknown(),
                 imageUrl: productMediaUrl({ images: [v?.attributes?.image_url].filter(Boolean) }, product.shop_id || product.shopId),
             };

@@ -226,18 +226,27 @@
     "addCategory": "ক্যাটাগরি যোগ করুন",
     "columns": {
       "actions": "কার্যক্রম",
+      "activeProducts": "সক্রিয় পণ্য",
       "category": "ক্যাটাগরি",
       "totalSubcategory": "মোট সাবক্যাটাগরি"
     },
+    "deleteAria": "{{name}} মুছুন",
+    "editAria": "{{name}} সম্পাদনা করুন",
     "deleteFailed": "ক্যাটাগরি মুছতে ব্যর্থ",
     "deleteModal": {
+      "activeProductCount": "এই ক্যাটাগরির অধীনে সক্রিয় পণ্য: {{formattedCount}}",
+      "affectedChildren": "প্রভাবিত সাবক্যাটাগরি: {{formattedCount}}",
+      "associationsCleared": "পণ্যের ক্যাটাগরি সংযোগ মুছে যাবে।",
       "cannotUndo": "এই কাজ পূর্বাবস্থায় ফেরানো যাবে না।",
       "hasSubcategories": "এতে {{count}}টি সাবক্যাটাগরিও মুছে যাবে।",
       "message": "আপনি কি \"{{name}}\" মুছতে চান?",
+      "totalAffectedProductCount": "প্রভাবিত সব সংযুক্ত পণ্য রেকর্ড, নিষ্ক্রিয় ও আগে মুছে দেওয়া রেকর্ডসহ: {{formattedCount}}",
+      "totalLinkedCountUnavailable": "নিষ্ক্রিয়সহ সব সংযুক্ত পণ্য প্রভাবিত হতে পারে; সংখ্যা পাওয়া যায়নি।",
       "title": "ক্যাটাগরি মুছুন"
     },
     "deleteSuccess": "ক্যাটাগরি মুছে গেছে",
     "detail": {
+      "addSubcategoryFor": "{{name}}-এর অধীনে সাবক্যাটাগরি যোগ করুন",
       "addFirstSubcategory": "প্রথম সাবক্যাটাগরি যোগ করুন",
       "addSubcategory": "সাবক্যাটাগরি যোগ করুন",
       "breadcrumb": "ক্যাটাগরি",
@@ -249,6 +258,11 @@
       "charCount": "{{count}}/৫০ অক্ষর",
       "createButton": "ক্যাটাগরি তৈরি করুন",
       "createDesc": "পণ্য সংগঠিত করতে নতুন ক্যাটাগরি যোগ করুন",
+      "createSubcategoryDesc": "{{parent}}-এর অধীনে সাবক্যাটাগরি যোগ করুন।",
+      "createSubcategoryButton": "সাবক্যাটাগরি তৈরি করুন",
+      "createSubcategoryTitle": "সাবক্যাটাগরি তৈরি করুন",
+      "parentCategory": "প্যারেন্ট ক্যাটাগরি: {{name}}",
+      "status": "অবস্থা",
       "createTitle": "ক্যাটাগরি তৈরি করুন",
       "creating": "তৈরি হচ্ছে...",
       "deleteSubcategoryMsg": "আপনি কি \"{{name}}\" মুছতে চান?",
@@ -258,9 +272,14 @@
       "editSubcategory": "সাবক্যাটাগরি সম্পাদনা করুন",
       "imageHint": "বর্গাকার ছবি (১:১ অনুপাত), সর্বোচ্চ ৪MB",
       "infoSection": "ক্যাটাগরির তথ্য",
+      "createFailed": "ক্যাটাগরি তৈরি করতে ব্যর্থ।",
+      "updateFailed": "ক্যাটাগরি আপডেট করতে ব্যর্থ।",
+      "loadFailed": "ক্যাটাগরি লোড করতে ব্যর্থ।",
       "loading": "ক্যাটাগরি লোড হচ্ছে...",
+      "nameRequired": "ক্যাটাগরির নাম লিখুন।",
       "noSubcategories": "এখনো কোনো সাবক্যাটাগরি নেই",
       "noSubcategoriesHint": "সাবক্যাটাগরি যোগ করে পণ্য সংগঠিত করুন",
+      "persistedUpdateDesc": "সংরক্ষিত ক্যাটাগরির তথ্য আপডেট করুন।",
       "shortDesc": "সংক্ষিপ্ত বিবরণ",
       "shortDescPlaceholder": "এই ক্যাটাগরির সংক্ষিপ্ত বিবরণ",
       "subcategories": "সাবক্যাটাগরি",
@@ -276,7 +295,16 @@
     "emptySearchHint": "আপনার অনুসন্ধান পরিবর্তন করে দেখুন",
     "emptyStart": "প্রথম ক্যাটাগরি তৈরি করে শুরু করুন",
     "loadFailed": "ক্যাটাগরি লোড করতে ব্যর্থ",
+    "loading": "ক্যাটাগরি লোড হচ্ছে...",
+    "reactivate": "আবার সক্রিয় করুন",
+    "reactivateAria": "{{name}} আবার সক্রিয় করুন",
+    "reactivateFailed": "ক্যাটাগরি আবার সক্রিয় করতে ব্যর্থ",
+    "reactivateSuccess": "ক্যাটাগরি আবার সক্রিয় হয়েছে",
     "searchPlaceholder": "ক্যাটাগরি খুঁজুন...",
+    "status": {
+      "active": "সক্রিয়",
+      "inactive": "নিষ্ক্রিয়"
+    },
     "subcategoryDetail": {
       "addNested": "সাবক্যাটাগরি যোগ করুন",
       "addNestedButton": "নেস্টেড লেভেল যোগ করুন",
@@ -290,6 +318,7 @@
       "imageHint": "বর্গাকার ছবি (১:১ অনুপাত), সর্বোচ্চ ৪MB",
       "infoSection": "সাবক্যাটাগরির তথ্য",
       "loading": "সাবক্যাটাগরির বিবরণ লোড হচ্ছে...",
+      "loadFailed": "সাবক্যাটাগরি লোড করতে ব্যর্থ।",
       "nameLabel": "সাবক্যাটাগরির নাম",
       "namePlaceholder": "সাবক্যাটাগরির নাম লিখুন",
       "nestedSection": "নেস্টেড সাবক্যাটাগরি",
@@ -301,6 +330,8 @@
       "subtitle": "সাবক্যাটাগরি ও নেস্টেড লেভেল পরিচালনা করুন",
       "title": "সাবক্যাটাগরির বিবরণ",
       "updateButton": "সাবক্যাটাগরি আপডেট করুন",
+      "updateFailed": "সাবক্যাটাগরি আপডেট করতে ব্যর্থ।",
+      "persistedSubtitle": "সংরক্ষিত সাবক্যাটাগরির তথ্য আপডেট করুন।",
       "uploadBanner": "ব্যানার ছবি আপলোড করুন",
       "uploadImage": "ছবি আপলোড করুন",
       "viewDetails": "বিবরণ দেখুন"
@@ -925,6 +956,8 @@
     "detail": {
       "cancelled": "বাতিল",
       "channel": "চ্যানেল",
+      "contactability": "যোগাযোগের সুযোগ",
+      "conversations": "কথোপকথন",
       "commerce": "কেনাকাটার সারসংক্ষেপ",
       "delivered": "ডেলিভারি হয়েছে",
       "deliveredValue": "ডেলিভারিকৃত মূল্য",
@@ -938,10 +971,13 @@
       "matchedByPhone": "ফোন নম্বরে মিলেছে",
       "matchedByPhoneHelp": "এই অর্ডারটি কাস্টমার রেকর্ডের সাথে যুক্ত নয়; একই ফোন নম্বর ব্যবহার করা হয়েছে।",
       "noOpportunities": "কোনো বিক্রয়ের সুযোগ রেকর্ড হয়নি।",
+      "noConversations": "এই কাস্টমারের সাথে কোনো কথোপকথন যুক্ত নেই।",
+      "noInboundMessage": "কাস্টমারের কোনো ইনবাউন্ড মেসেজ থেকে উত্তর দেওয়ার সময় শুরু হয়নি।",
       "noOrders": "এখনো কোনো অর্ডার নেই।",
       "noTimeline": "এখনো কিছু রেকর্ড হয়নি।",
       "notFound": "কাস্টমার পাওয়া যায়নি।",
       "notProvided": "দেওয়া হয়নি",
+      "notMessagingChannel": "এই চ্যানেলে ইনবক্সে উত্তর দেওয়া যায় না।",
       "opportunities": "বিক্রয়ের সুযোগ",
       "optedOut": "মেসেজ বন্ধ করেছেন",
       "orderedValue": "অর্ডারের মূল্য",
@@ -966,6 +1002,7 @@
       },
       "rtoUnavailable": "যাচাই করার মতো সঠিক ফোন নম্বর নেই।",
       "timeline": "সম্পর্কের ইতিহাস",
+      "messageCount": "{{formattedCount}}টি কাস্টমার মেসেজ",
       "totalOrders": "অর্ডার",
       "valueNote": "মূল্যগুলো রেকর্ড করা অর্ডারের মোট টাকা।"
     },
@@ -986,6 +1023,25 @@
     "never": "—",
     "next": "পরের",
     "open": "খোলা",
+    "overview": {
+      "title": "কাস্টমার সারসংক্ষেপ",
+      "unavailable": "কাস্টমার সারসংক্ষেপ পাওয়া যাচ্ছে না। কোনো সংখ্যা দেখানো হয়নি।",
+      "totalRecords": "কাস্টমার",
+      "buyers": "ক্রেতা",
+      "repeatBuyers": "নিয়মিত ক্রেতা",
+      "newBuyers": "নতুন ক্রেতা",
+      "openOpportunities": "খোলা বিক্রয় সুযোগ",
+      "metricUnavailable": "উপলভ্য নয়",
+      "coverageComplete": "অর্ডারের কভারেজ সম্পূর্ণ।",
+      "coveragePartial": "অর্ডারের কভারেজ আংশিক।",
+      "ordersScanned": "{{total}}টি সংযুক্ত অর্ডারের মধ্যে {{scanned}}টি স্ক্যান হয়েছে (স্ক্যান সীমা {{cap}})।",
+      "definitions": {
+        "buyers": "স্ক্যান করা অর্ডারে অন্তত একটি সফল ডেলিভারি আছে।",
+        "repeatBuyers": "স্ক্যান করা অর্ডারে অন্তত দুটি সফল ডেলিভারি আছে।",
+        "newBuyers": "গত ৩০ দিনে প্রথম সফল ডেলিভারি; অর্ডার কভারেজ সম্পূর্ণ এবং ডেলিভারির তারিখ জানা থাকলেই দেখানো হয়।",
+        "openOpportunities": "খোলা বা কাজ চলছে এমন কাস্টমার সুযোগ।"
+      }
+    },
     "opportunityStatus": {
       "ACTIONED": "যোগাযোগ করা হয়েছে",
       "CONVERTED": "অর্ডার হয়েছে",
@@ -994,9 +1050,13 @@
       "OPEN": "খোলা"
     },
     "ordersCount": "{{total}}টির মধ্যে {{delivered}}টি ডেলিভারি হয়েছে",
+    "orderCoveragePartial": "অর্ডারের ইতিহাস আংশিক: {{total}}টি সংযুক্ত অর্ডারের মধ্যে {{scanned}}টি স্ক্যান হয়েছে। সংখ্যা ন্যূনতম এবং লাইফসাইকেল অবস্থা অসম্পূর্ণ হতে পারে।",
     "pagination": "{{total}}টির মধ্যে {{start}}–{{end}}",
     "previous": "আগের",
     "products": "পণ্য",
+    "crm": {
+      "title": "কাস্টমারের নোট ও ট্যাগ"
+    },
     "reasons": {
       "ASKED_AVAILABILITY": "পণ্যটি আছে কিনা জিজ্ঞেস করেছেন",
       "ASKED_DELIVERY": "ডেলিভারি নিয়ে জিজ্ঞেস করেছেন",
@@ -1062,8 +1122,13 @@
   },
   "customers": {
     "addCustomer": "কাস্টমার যোগ করুন",
+    "actions": {
+      "call": "ফোন করুন",
+      "openInbox": "ইনবক্স খুলুন"
+    },
     "addModal": {
       "channel": "চ্যানেল",
+      "channelHelp": "Instagram ও Messenger কাস্টমার ইনবাউন্ড কথোপকথন থেকে তৈরি হয়।",
       "channelPlaceholder": "একটি চ্যানেল বেছে নিন",
       "createButton": "তৈরি করুন",
       "creating": "তৈরি হচ্ছে...",
@@ -1074,12 +1139,16 @@
       "phone": "ফোন নম্বর",
       "title": "কাস্টমার যোগ করুন"
     },
+    "editModal": {
+      "title": "কাস্টমার সম্পাদনা করুন"
+    },
     "allChannels": "সব চ্যানেল",
     "blacklisted": "কালো তালিকাভুক্ত",
     "channelCustomers": "চ্যানেল কাস্টমার",
     "channelCustomersHelper": "Facebook ইত্যাদি",
     "channels": {
       "facebook": "Facebook",
+      "instagram": "Instagram",
       "manual": "ম্যানুয়াল",
       "messenger": "Messenger",
       "telegram": "Telegram",
@@ -1099,6 +1168,7 @@
       "deleting": "মুছে ফেলা হচ্ছে...",
       "erasureNote": "এটি শুধু এই শপ থেকে কাস্টমার প্রোফাইল মুছে ফেলবে। প্রতারণা-সুরক্ষায় ফোন নম্বরের সাথে যুক্ত ডেলিভারি/রিটার্ন ইতিহাস থেকে যেতে পারে।",
       "message": "আপনি কি এই কাস্টমার মুছতে চান? এই কাজ পূর্বাবস্থায় ফেরানো যাবে না।",
+      "messageWithName": "{{name}}-কে মুছবেন? এই কাজ পূর্বাবস্থায় ফেরানো যাবে না।",
       "title": "কাস্টমার মুছুন"
     },
     "desktopListLabel": "কাস্টমার তালিকা টেবিল",
@@ -1135,6 +1205,7 @@
       "title": "এখনো কোনো কাস্টমার নেই"
     },
     "errors": {
+      "duplicatePhone": "এই ফোন নম্বর দিয়ে একজন কাস্টমার আগে থেকেই আছে।",
       "blacklistFailed": "কালো তালিকার অবস্থা আপডেট করতে ব্যর্থ",
       "createFailed": "কাস্টমার তৈরি করতে ব্যর্থ",
       "deleteFailed": "কাস্টমার মুছতে ব্যর্থ",
@@ -1707,6 +1778,8 @@
     "viewBilling": "বিলিং দেখুন"
   },
   "inbox": {
+    "customerFilterContext": "কাস্টমার ফিল্টার: {{customer}}",
+    "clearCustomerFilter": "কাস্টমার ফিল্টার মুছুন",
     "actions": {
       "assigned": "দায়িত্ব দেওয়া",
       "bucket": {
@@ -4008,6 +4081,7 @@
     "errors": {
       "approveFailed": "পণ্য অনুমোদন করতে ব্যর্থ হয়েছে।",
       "approveNamedFailed": "{{name}} অনুমোদন করতে ব্যর্থ হয়েছে।",
+      "bulkPartialFailure": "{{total}}টির মধ্যে {{failed}}টি পণ্য অনুমোদন করা যায়নি। সেগুলো রিভিউ করে আবার চেষ্টা করুন।",
       "invalidPrice": "অনুমোদনের আগে {{name}}-এর জন্য একটি সঠিক দাম দিন।",
       "noProductsExtracted": "এই ফাইল থেকে product বের করা যায়নি। Column ঠিক আছে কিনা দেখে আবার চেষ্টা করুন।",
       "someInvalidPrices": "কিছু পণ্যের দাম সঠিক নয় এবং বাদ দেওয়া হয়েছে।",
@@ -4095,7 +4169,51 @@
       "variantSku": "ভেরিয়েন্ট SKU",
       "variantsHelp": "সাইজ বা রঙের মতো ভেরিয়েন্ট যোগ করুন",
       "warrantyInfo": "ওয়ারেন্টি তথ্য",
-      "warrantyPlaceholder": "যেমন: ১ বছরের ম্যানুফ্যাকচারার ওয়ারেন্টি"
+      "warrantyPlaceholder": "যেমন: ১ বছরের ম্যানুফ্যাকচারার ওয়ারেন্টি",
+      "errors": {
+        "nameRequired": "পণ্যের নাম লিখুন।",
+        "priceInvalid": "শূন্যের বেশি বিক্রয়মূল্য লিখুন।",
+        "quantityInvalid": "শূন্য বা তার বেশি পূর্ণসংখ্যার পরিমাণ লিখুন।",
+        "thresholdInvalid": "শূন্য বা তার বেশি পূর্ণসংখ্যার সীমা লিখুন।",
+        "weightInvalid": "শূন্যের বেশি ওজন লিখুন।",
+        "variantNameRequired": "প্রতিটি ভেরিয়েন্ট গ্রুপের নাম লিখুন।"
+      },
+      "essentials": "মূল তথ্য",
+      "priceHelp": "বাংলাদেশি টাকা (BDT)-তে বিক্রয়মূল্য লিখুন।",
+      "categoryHelp": "এই পণ্যের জন্য একটি ক্যাটাগরি বেছে নিন। যেকোনো সময় মুছে দিতে পারবেন।",
+      "noCategory": "কোনো ক্যাটাগরি নেই",
+      "inactiveCategory": "নিষ্ক্রিয়",
+      "descriptionHelp": "পণ্য সম্পর্কে ক্রেতার জানা দরকার এমন তথ্য লিখুন।",
+      "imagesHelp": "সর্বোচ্চ পাঁচটি ছবি যোগ করুন। প্রথম ছবিটি ক্রেতাদের দেখানো প্রধান ছবি।",
+      "imageCount": "{{max}}টি ছবির মধ্যে {{count}}টি",
+      "clearImages": "সব ছবি মুছুন",
+      "primaryImage": "প্রধান ছবি",
+      "imageUploading": "ছবি আপলোড হচ্ছে...",
+      "moveImageEarlier": "ছবি {{index}} আগে সরান",
+      "moveImageLater": "ছবি {{index}} পরে সরান",
+      "removeImage": "ছবি {{index}} সরান",
+      "trackedInventoryHelp": "ট্র্যাক করা স্টক শুরুতে ০। পণ্যটি স্টক শেষ দেখানো এড়াতে হাতে থাকা পরিমাণ লিখুন।",
+      "untrackedInventoryHelp": "স্টক ট্র্যাক করা হয় না এবং অর্ডার স্টক দিয়ে সীমিত হবে না; পণ্য পাওয়া যাবে কি না নিশ্চিত নয়। আগে ট্র্যাক করা হলে সংরক্ষিত পরিমাণ ০ হবে।",
+      "lowStockThresholdHelp": "সীমা মুছতে ফাঁকা রাখুন; সংরক্ষিত মান null হবে।",
+      "relationalVariantPrecedence": "সংরক্ষিত পণ্য ভেরিয়েন্ট আলাদা রেকর্ড হিসেবে পরিচালিত হয় এবং এখানে অপশন গ্রুপের ওপর প্রাধান্য পায়। এই পাতায় এগুলো শুধু দেখা যাবে।",
+      "catalogMetadata": "ক্যাটালগের তথ্য (ঐচ্ছিক)",
+      "variantStock": "স্টকে {{quantity}}টি",
+      "legacyVariantsReadOnly": "পুরোনো ভেরিয়েন্টের নাম অপরিবর্তিত থাকবে; এখানে সম্পাদনা করা যাবে না।",
+      "removeVariantGroup": "ভেরিয়েন্ট গ্রুপ {{index}} সরান",
+      "variantOptionLabel": "গ্রুপ {{group}}-এর অপশন {{index}}",
+      "removeVariantOption": "গ্রুপ {{group}} থেকে অপশন {{index}} সরান",
+      "additionalSettingsHelp": "ঐচ্ছিক SKU, ব্র্যান্ড, ট্যাগ, ওজন ও সক্রিয় অবস্থা।",
+      "weightUnit": "ওজনের একক",
+      "activeProduct": "পণ্য সক্রিয়",
+      "activeProductHelp": "ক্যাটালগে পণ্যটি নিষ্ক্রিয় রাখতে এটি বন্ধ করুন।",
+      "retryCategories": "ক্যাটাগরি লোড আবার চেষ্টা করুন",
+      "resolveImageUploads": "সংরক্ষণের আগে ব্যর্থ ছবিগুলো আবার আপলোড করুন বা সরিয়ে দিন।",
+      "saveFailed": "পণ্য সংরক্ষণ করা যায়নি। আপনার পরিবর্তনগুলো রাখা হয়েছে।",
+      "unsavedChangesTitle": "অসংরক্ষিত পরিবর্তন",
+      "unsavedChangesDescription": "পণ্যে আপনার কিছু পরিবর্তন সংরক্ষিত হয়নি। পাতা ছেড়ে দিলে কি সেগুলো বাদ দেবেন?",
+      "stayOnEditor": "এডিটরেই থাকুন",
+      "discardChanges": "পরিবর্তন বাদ দিন",
+      "removeTag": "ট্যাগ সরান: {{tag}}"
     },
     "loadError": "পণ্য লোড করা যায়নি। আবার চেষ্টা করুন।",
     "loading": "পণ্য লোড হচ্ছে...",
@@ -4103,6 +4221,29 @@
     "manageCategories": "ক্যাটাগরি পরিচালনা করুন",
     "noLowStockMatches": "কোনো স্টক-ট্র্যাক করা পণ্যের পরিমাণ নির্ধারিত সীমায় বা তার নিচে নেই।",
     "noVariants": "কোনো ভেরিয়েন্ট নেই",
+    "addProduct": "পণ্য যোগ করুন",
+    "emptyResults": "বর্তমান ফিল্টারে কোনো পণ্য পাওয়া যায়নি।",
+    "import": "ইমপোর্ট",
+    "notTracked": "ট্র্যাক করা হয় না",
+    "uncategorized": "কোনো ক্যাটাগরি নেই",
+    "sort": {
+      "label": "সাজান",
+      "name": "নাম",
+      "priceLowHigh": "দাম: কম থেকে বেশি",
+      "priceHighLow": "দাম: বেশি থেকে কম",
+      "stockLowHigh": "স্টক: কম থেকে বেশি",
+      "stockHighLow": "স্টক: বেশি থেকে কম"
+    },
+    "view": {
+      "label": "ভিউ",
+      "table": "টেবিল",
+      "cards": "কার্ড"
+    },
+    "openAria": "{{name}} খুলুন",
+    "overview": {
+      "ariaLabel": "পণ্যের ইনভেন্টরি সারসংক্ষেপ",
+      "incompleteCoverage": "{{cap}}টি পণ্যের মধ্যে {{scanned}}টির স্টক যাচাই হয়েছে। + চিহ্নিত সংখ্যা ন্যূনতম।"
+    },
     "pagination": {
       "next": "পরবর্তী",
       "pageOf": "পৃষ্ঠা {{current}} এর মধ্যে {{total}}",
@@ -4111,10 +4252,14 @@
     "priceMax": "সর্বোচ্চ",
     "priceMin": "সর্বনিম্ন",
     "reviewModal": {
+      "aiExtracted": "AI দিয়ে বের করা",
       "aliasesLabel": "অন্য নাম:",
       "approveAll": "সব অনুমোদন করুন",
       "categoryLabel": "ক্যাটাগরি:",
-      "confidence": "নির্ভরযোগ্যতা: {{percent}}%",
+      "confidence": "পার্স সম্পূর্ণতা: {{percent}}%",
+      "parseCompleteness": "পার্স সম্পূর্ণতা: {{percent}}%",
+      "sellingPriceBdt": "বিক্রয়মূল্য (BDT)",
+      "unmappedCategory": "আমদানি করা \"{{category}}\" ক্যাটাগরিটি মেলেনি। সঠিক ক্যাটাগরি বেছে নিন বা কোনো ক্যাটাগরি নেই নির্বাচন করুন।",
       "description": "File-এ পাওয়া products review ও approve করুন",
       "priceLabel": "দাম:",
       "skuLabel": "SKU:",
@@ -4140,15 +4285,16 @@
       "lowAria": "শুধু কম স্টকের পণ্য দেখান",
       "out": "স্টক শেষ"
     },
+    "resultsCount": "{{formattedCount}}টি পণ্য",
     "subtitle": "Product add করুন যাতে customer reply-তে ঠিক price, stock, size ও delivery details থাকে।",
     "title": "পণ্য ও ইনভেন্টরি",
     "totalCountLabel": "মোট",
-    "uploadFile": "Product file upload",
+    "uploadFile": "পণ্যের ফাইল আপলোড করুন",
     "uploadModal": {
       "aiExtracting": "File থেকে product details পড়া হচ্ছে...",
       "chooseFile": "ফাইল বেছে নিন",
       "description": "CSV, TSV বা text file upload করুন এবং save করার আগে imported products review করুন।",
-      "dragDrop": "টেনে আনুন বা ক্লিক করে আপলোড করুন",
+      "dragDrop": "রিভিউয়ের জন্য CSV, TSV বা TXT ফাইল নির্বাচন করুন",
       "extracting": "File থেকে product details পড়া হচ্ছে...",
       "processing": "Product file পড়া হচ্ছে...",
       "subtitle": "CSV, TSV বা text file upload করুন এবং save করার আগে imported products review করুন।",

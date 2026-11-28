@@ -8,8 +8,11 @@ import type { StockExceptions } from '../types/dashboard';
 import type {
   Product,
   Category,
+  CreateProductPayload,
+  ProductOverview,
   ProductExtractResult,
   ProductUploadPayload,
+  UpdateProductPayload,
 } from '../types/product';
 import type { AxiosResponse } from 'axios';
 
@@ -63,9 +66,13 @@ export async function getProduct(productId: string): Promise<Product> {
  * ```
  */
 export async function createProduct(
-  product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>
+  product: CreateProductPayload,
+  idempotencyKey?: string,
 ): Promise<Product> {
-  const response: AxiosResponse<ApiResponse<Product>> = await httpClient.post('/api/product', product);
+  const response: AxiosResponse<ApiResponse<Product>> = await httpClient.post('/api/product', product, {
+    __noRetry: true,
+    ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+  });
   return response.data.data;
 }
 
@@ -86,7 +93,8 @@ export async function createProduct(
 export async function uploadProductImage(dataUrl: string): Promise<string> {
   const response: AxiosResponse<ApiResponse<{ url: string }>> = await httpClient.post(
     '/api/product/images',
-    { image: dataUrl }
+    { image: dataUrl },
+    { __noRetry: true },
   );
   return response.data.data.url;
 }
@@ -104,11 +112,12 @@ export async function uploadProductImage(dataUrl: string): Promise<string> {
  */
 export async function updateProduct(
   productId: string,
-  product: Partial<Product>
+  product: UpdateProductPayload
 ): Promise<Product> {
   const response: AxiosResponse<ApiResponse<Product>> = await httpClient.patch(
     `/api/product/${productId}`,
-    product
+    product,
+    { __noRetry: true },
   );
   return response.data.data;
 }
@@ -143,11 +152,13 @@ export async function deleteProduct(productId: string): Promise<void> {
  * ```
  */
 export async function extractProductsFromUpload(
-  payload: ProductUploadPayload
+  payload: ProductUploadPayload,
+  signal?: AbortSignal,
 ): Promise<ProductExtractResult> {
   const response: AxiosResponse<ApiResponse<ProductExtractResult>> = await httpClient.post(
     '/api/product/ai-extract',
-    payload
+    payload,
+    { __noRetry: true, ...(signal ? { signal } : {}) },
   );
   return response.data.data;
 }
@@ -173,6 +184,14 @@ export async function getStockExceptions(signal?: AbortSignal): Promise<StockExc
   return response.data.data;
 }
 
+export async function getProductOverview(signal?: AbortSignal): Promise<ProductOverview> {
+  const response: AxiosResponse<ApiResponse<ProductOverview>> = await httpClient.get(
+    '/api/product/overview',
+    signal ? { signal } : undefined,
+  );
+  return response.data.data;
+}
+
 /**
  * Get all product categories
  * @returns Promise resolving to array of categories
@@ -183,8 +202,10 @@ export async function getStockExceptions(signal?: AbortSignal): Promise<StockExc
  * console.log('Available categories:', categories.length);
  * ```
  */
-export async function getCategories(): Promise<Category[]> {
-  const response: AxiosResponse<ApiResponse<Category[]>> = await httpClient.get('/api/category');
+export async function getCategories(options?: { include?: 'product_count'; include_inactive?: boolean }): Promise<Category[]> {
+  const response: AxiosResponse<ApiResponse<Category[]>> = options
+    ? await httpClient.get('/api/category', { params: options })
+    : await httpClient.get('/api/category');
   return response.data.data;
 }
 

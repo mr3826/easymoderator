@@ -31,6 +31,7 @@ router.get('/:productId/upsells', productController.getProductUpsells);
 // the global authenticated rate limiter applies; tenant scoping is the FIRST
 // predicate inside the service).
 router.get('/stock-exceptions', productController.getStockExceptions);
+router.get('/overview', productController.getOverview);
 
 router.get('/:id', validate(productValidator.getProductById), productController.getProductById);
 router.post('/', validate(productValidator.createProduct), productController.createProductRest);
